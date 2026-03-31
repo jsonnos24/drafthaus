@@ -2897,7 +2897,6 @@ button, select, input, textarea { touch-action: manipulation; }
 
 <!-- ── Landing Sign-In Overlay ─────────────────── -->
 <div id="landingOverlay">
-  <img src="./etherealbartenderinarustictavern.png" class="landing-hero" alt="Drafthaus">
   <div class="landing-wordmark">Drafthaus</div>
   <div class="landing-tagline">Song tracker &amp; studio notebook</div>
   <div class="landing-box">
@@ -2979,8 +2978,9 @@ button, select, input, textarea { touch-action: manipulation; }
 <!-- ── List View ───────────────── -->
 <div class="view active" id="viewList">
   <div class="container">
-    <div class="grid-header">
+    <div class="grid-header" style="display:flex;align-items:center;justify-content:space-between;">
       <span class="grid-count" id="songCount"></span>
+      <button class="btn btn-primary btn-sm" onclick="newSong()" style="font-size:12px;">+ Create New Song</button>
     </div>
     <div id="songsGrid"></div>
   </div>
@@ -3292,7 +3292,13 @@ function calcSongProgress(song) {
 function renderGrid() {
   const grid  = document.getElementById('songsGrid');
   const count = document.getElementById('songCount');
-  count.textContent = songs.length + (songs.length === 1 ? ' song' : ' songs');
+  const uid   = auth.currentUser?.uid;
+
+  // Split into mine vs shared-with-me
+  const mySongs     = songs.filter(s => !s.ownerId || s.ownerId === uid);
+  const sharedSongs = songs.filter(s => s.ownerId && s.ownerId !== uid);
+
+  count.textContent = mySongs.length + (mySongs.length === 1 ? ' song' : ' songs');
 
   if (songs.length === 0) {
     grid.innerHTML = `<div style="text-align:center;padding:80px 0;color:var(--faint);">
@@ -3300,15 +3306,34 @@ function renderGrid() {
       <div style="font-family:'Playfair Display',serif;font-size:24px;font-style:italic;opacity:.35;color:var(--text);margin-bottom:8px;">No songs yet</div>
       <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;justify-content:center;">
         <button class="btn btn-ghost btn-sm" onclick="preloadSongsFromSheet(true)" style="border-color:var(--teal);color:var(--teal);">☁ Load from Firestore</button>
-        <button class="btn btn-primary" onclick="newSong()">+ New Song</button>
       </div>
     </div>`;
     return;
   }
 
+  // Helper: build proj-group HTML from a song list
+  function buildProjGroups(songList, mostRecentProjOverride) {
+    if (!songList.length) return '';
+    const groups = {};
+    songList.forEach(s => {
+      const proj = (s.project||'').trim() || '__none__';
+      if (!groups[proj]) groups[proj] = [];
+      groups[proj].push(s);
+    });
+    const projKeys = Object.keys(groups).sort((a,b) => {
+      if (a==='__none__') return 1; if (b==='__none__') return -1;
+      return a.localeCompare(b);
+    });
+    projKeys.forEach(k => groups[k].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)));
+    const mostRecentSong = [...songList].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
+    const mostRecentProj = mostRecentProjOverride ||
+      (mostRecentSong ? ((mostRecentSong.project||'').trim()||'__none__') : null);
+    return projKeys.map(proj => buildProjGroup(proj, groups[proj], mostRecentProj, projKeys.length)).join('');
+  }
+
   // Group by project
   const groups = {};
-  songs.forEach(s => {
+  mySongs.forEach(s => {
     const proj = (s.project||'').trim() || '__none__';
     if (!groups[proj]) groups[proj] = [];
     groups[proj].push(s);
@@ -3328,61 +3353,49 @@ function renderGrid() {
     [...songs].sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0)).slice(0,4).map(s => s.id)
   );
 
-  const html = projKeys.map(proj => {
-    const heading = proj==='__none__' ? 'Unassigned' : proj;
-    const list = groups[proj];
-    const rows = list.map(song => {
-      const isActive = song.id === currentId;
-      const isUnassigned = proj === '__none__';
-
-      const keyVal = song.key ? esc(song.key) : '<span style="color:var(--border2);">—</span>';
-      const bpmVal = song.bpm ? esc(String(song.bpm)) : '<span style="color:var(--border2);">—</span>';
-
-      let lyricsCell, musicCell;
-      if (recentIds.has(song.id)) {
-        // Blank placeholders — filled in with animation after render
-        lyricsCell = `<div class="song-list-check" id="ck-l-${song.id}"></div>`;
-        musicCell  = `<div class="song-list-check" id="ck-m-${song.id}"></div>`;
-      } else {
-        const hasLyrics = Object.values(song.lyrics || {}).some(v => v && String(v).trim().length > 0);
-        const hasMusic  = Object.values(song.instruments || {}).some(inst =>
-          Object.values(inst || {}).some(part =>
-            (part?.chords||[]).length > 0 || (part?.beats||[]).length > 0
-          )
-        );
-        lyricsCell = hasLyrics ? `<div class="song-list-check">✓</div>` : `<div class="song-list-check" style="color:var(--border2);font-size:10px;">·</div>`;
-        musicCell  = hasMusic  ? `<div class="song-list-check">✓</div>` : `<div class="song-list-check" style="color:var(--border2);font-size:10px;">·</div>`;
-      }
-
-      const actionsHtml = `<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;">
-        ${isUnassigned ? `<button onclick="event.stopPropagation();deleteLocalSong('${song.id}')"
-          style="background:none;border:1px solid rgba(255,95,95,0.3);color:rgba(255,95,95,0.6);border-radius:4px;font-size:9px;padding:2px 7px;cursor:pointer;font-family:'IBM Plex Mono',monospace;transition:all 0.15s;"
-          onmouseover="this.style.borderColor='var(--red)';this.style.color='var(--red)'"
-          onmouseout="this.style.borderColor='rgba(255,95,95,0.3)';this.style.color='rgba(255,95,95,0.6)'">✕</button>` : ''}
-      </div>`;
-
-      return `<div class="song-list-row${isActive?' active-row':''}" id="row-${song.id}"
-        style="cursor:pointer;" onclick="rowLoadSong('${song.id}')">
-        <div class="song-list-title">${esc(song.title||song.workingTitle)||'<span style="color:var(--faint);font-style:italic;">Untitled</span>'}</div>
-        <div class="song-list-col-val">${keyVal}</div>
-        <div class="song-list-col-val">${bpmVal}</div>
-        ${lyricsCell}
-        ${musicCell}
-        ${actionsHtml}
-      </div>`;
-    }).join('');
-
-    const colsHeader = `<div class="song-list-cols-header">
-      <span>Title</span>
-      <span>Key</span>
-      <span>BPM</span>
-      <span>Lyrics</span>
-      <span>Music</span>
-      <span>·</span>
+  function buildSongRow(song, allowDelete) {
+    const isActive = song.id === currentId;
+    const keyVal = song.key ? esc(song.key) : '<span style="color:var(--border2);">—</span>';
+    const bpmVal = song.bpm ? esc(String(song.bpm)) : '<span style="color:var(--border2);">—</span>';
+    let lyricsCell, musicCell;
+    if (recentIds.has(song.id)) {
+      lyricsCell = `<div class="song-list-check" id="ck-l-${song.id}"></div>`;
+      musicCell  = `<div class="song-list-check" id="ck-m-${song.id}"></div>`;
+    } else {
+      const hasLyrics = Object.values(song.lyrics || {}).some(v => v && String(v).trim().length > 0);
+      const hasMusic  = Object.values(song.instruments || {}).some(inst =>
+        Object.values(inst || {}).some(part =>
+          (part?.chords||[]).length > 0 || (part?.beats||[]).length > 0
+        )
+      );
+      lyricsCell = hasLyrics ? `<div class="song-list-check">✓</div>` : `<div class="song-list-check" style="color:var(--border2);font-size:10px;">·</div>`;
+      musicCell  = hasMusic  ? `<div class="song-list-check">✓</div>` : `<div class="song-list-check" style="color:var(--border2);font-size:10px;">·</div>`;
+    }
+    const actionsHtml = `<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;">
+      ${allowDelete ? `<button onclick="event.stopPropagation();deleteLocalSong('${song.id}')"
+        style="background:none;border:1px solid rgba(255,95,95,0.3);color:rgba(255,95,95,0.6);border-radius:4px;font-size:9px;padding:2px 7px;cursor:pointer;font-family:'IBM Plex Mono',monospace;transition:all 0.15s;"
+        onmouseover="this.style.borderColor='var(--red)';this.style.color='var(--red)'"
+        onmouseout="this.style.borderColor='rgba(255,95,95,0.3)';this.style.color='rgba(255,95,95,0.6)'">✕</button>` : ''}
     </div>`;
+    return `<div class="song-list-row${isActive?' active-row':''}" id="row-${song.id}"
+      style="cursor:pointer;" onclick="rowLoadSong('${song.id}')">
+      <div class="song-list-title">${esc(song.title||song.workingTitle)||'<span style="color:var(--faint);font-style:italic;">Untitled</span>'}</div>
+      <div class="song-list-col-val">${keyVal}</div>
+      <div class="song-list-col-val">${bpmVal}</div>
+      ${lyricsCell}${musicCell}${actionsHtml}
+    </div>`;
+  }
 
-    const isCollapsed = proj !== mostRecentProj && projKeys.length > 1;
-    return `<div class="proj-group${isCollapsed ? ' collapsed' : ''}" id="pg-${proj}">
+  function buildProjGroup(proj, list, mostRecentProj, totalGroups) {
+    const heading = proj==='__none__' ? 'Unassigned' : proj;
+    const isUnassigned = proj === '__none__';
+    const rows = list.map(song => buildSongRow(song, isUnassigned)).join('');
+    const colsHeader = `<div class="song-list-cols-header">
+      <span>Title</span><span>Key</span><span>BPM</span>
+      <span>Lyrics</span><span>Music</span><span>·</span>
+    </div>`;
+    const isCollapsed = proj !== mostRecentProj && totalGroups > 1;
+    return `<div class="proj-group${isCollapsed?' collapsed':''}" id="pg-${proj}">
       <div class="proj-group-header" onclick="toggleProjGroup('${proj}')">
         <span class="proj-group-name">${esc(heading)}</span>
         <span class="proj-group-count">${list.length} song${list.length===1?'':'s'}</span>
@@ -3390,9 +3403,41 @@ function renderGrid() {
       </div>
       <div class="proj-group-songs">${colsHeader}${rows}</div>
     </div>`;
-  }).join('');
+  }
 
-  grid.innerHTML = html + `<div style="margin-top:8px;"><div class="add-card" onclick="newSong()">＋ New Draft</div></div>`;
+  // ── My songs ──
+  const mostRecentSong = [...mySongs].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
+  const mostRecentProj = mostRecentSong ? ((mostRecentSong.project||'').trim()||'__none__') : null;
+  const myHtml = projKeys.map(proj =>
+    buildProjGroup(proj, groups[proj], mostRecentProj, projKeys.length)
+  ).join('');
+
+  // ── Shared with me ──
+  let sharedHtml = '';
+  if (sharedSongs.length) {
+    const sharedRows = sharedSongs
+      .sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0))
+      .map(song => buildSongRow(song, true))
+      .join('');
+    const colsHeader = `<div class="song-list-cols-header">
+      <span>Title</span><span>Key</span><span>BPM</span>
+      <span>Lyrics</span><span>Music</span><span>·</span>
+    </div>`;
+    sharedHtml = `
+      <div style="margin-top:28px;margin-bottom:8px;
+        font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;
+        letter-spacing:0.25em;text-transform:uppercase;color:var(--purple);
+        display:flex;align-items:center;gap:10px;">
+        <span>Shared With Me</span>
+        <span style="color:var(--border2);font-weight:400;">(${sharedSongs.length})</span>
+        <div style="flex:1;height:1px;background:var(--border);"></div>
+      </div>
+      <div class="proj-group" id="pg-shared">
+        <div class="proj-group-songs">${colsHeader}${sharedRows}</div>
+      </div>`;
+  }
+
+  grid.innerHTML = myHtml + sharedHtml;
 
   // Fill in the 4 most-recent songs' checkmarks in parallel, staggered by 80ms each
   const recentSorted = [...songs].sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0)).slice(0,4);
