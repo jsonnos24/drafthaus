@@ -3419,15 +3419,25 @@ function renderGrid() {
 }
 
 
-function deleteLocalSong(id) {
-  if (!confirm('Remove this song from your local list? (It stays in Firestore)')) return;
-  songs = songs.filter(s => s.id !== id);
-  if (currentId === id) {
-    currentId = null;
-    showList();
+async function deleteLocalSong(id) {
+  const song = songs.find(s => s.id === id);
+  const uid  = auth.currentUser?.uid;
+  const isOwner = !song?.ownerId || song.ownerId === uid;
+
+  if (isOwner) {
+    if (!confirm('Permanently delete this song? This cannot be undone.')) return;
+    songs = songs.filter(s => s.id !== id);
+    if (currentId === id) { currentId = null; showList(); }
+    save();
+    renderGrid();
+    try { await db.collection('songs').doc(id).delete(); } catch(e) { console.error('Delete error:', e); }
+  } else {
+    if (!confirm('Remove this song from your list? (The owner\'s copy is not affected.)')) return;
+    songs = songs.filter(s => s.id !== id);
+    if (currentId === id) { currentId = null; showList(); }
+    save();
+    renderGrid();
   }
-  save();
-  renderGrid();
 }
 
 function toggleProjGroup(proj) {
