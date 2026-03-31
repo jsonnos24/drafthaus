@@ -3033,6 +3033,7 @@ button, select, input, textarea { touch-action: manipulation; }
             <option value="done">✅ Done</option>
           </select>
           <div style="display:flex;gap:6px;">
+            <button class="btn btn-ghost btn-sm" onclick="openShareModal()" title="Share song" style="font-size:11px;">⬡ Share</button>
             <button class="btn btn-ghost btn-sm" onclick="openExportPanel()" title="Export PDF + WAV">↓ Export</button>
           </div>
         </div>
@@ -6576,9 +6577,12 @@ async function fetchFullSongFromSheet(id) {
 async function syncToSheet(song) {
   _lastKnownTimestamps[song.id] = song.updatedAt || Date.now();
   try {
+    const uid = auth.currentUser?.uid;
     markPendingSync(song.id);
     await db.collection('songs').doc(song.id).set({
       id:           song.id,
+      ownerId:      song.ownerId      || uid,
+      sharedWith:   song.sharedWith   || [],
       project:      song.project      || '',
       workingTitle: song.workingTitle || '',
       title:        song.title        || '',
@@ -6685,6 +6689,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
 auth.onAuthStateChanged(user => {
   if (user) {
+    // Register/update user profile so others can share with us by email
+    db.collection('users').doc(user.uid).set({
+      uid:         user.uid,
+      email:       user.email,
+      displayName: user.displayName || '',
+    }, { merge: true });
+
     document.getElementById('landingOverlay').classList.add('hidden');
     initApp();
   } else {
@@ -7798,15 +7809,17 @@ var _lastKnownTimestamps = {};
 var _firestoreUnsubscribe = null;
 
 function startSyncPolling() {
-  if (_firestoreUnsubscribe) return; // already listening
-  _firestoreUnsubscribe = db.collection('songs').onSnapshot(snapshot => {
+  if (_firestoreUnsubscribe) return;
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+
+  const handleSnapshot = snapshot => {
     snapshot.docChanges().forEach(change => {
       const s = { ...change.doc.data(), _fromSheet: false };
       if (change.type === 'added' || change.type === 'modified') {
         const remoteTs = s.updatedAt || 0;
         const idx = songs.findIndex(x => x.id === s.id);
         if (idx >= 0) {
-          // Only update if remote is meaningfully newer (2s buffer avoids self-trigger)
           if (remoteTs > (songs[idx].updatedAt || 0) + 2000) {
             songs[idx] = s;
             if (currentId === s.id) {
@@ -7824,7 +7837,14 @@ function startSyncPolling() {
     });
     save();
     renderGrid();
-  }, e => console.warn('Firestore listener error:', e));
+  };
+
+  const errHandler = e => console.warn('Firestore listener error:', e);
+
+  const unsubOwned  = db.collection('songs').where('ownerId', '==', uid).onSnapshot(handleSnapshot, errHandler);
+  const unsubShared = db.collection('songs').where('sharedWith', 'array-contains', uid).onSnapshot(handleSnapshot, errHandler);
+
+  _firestoreUnsubscribe = () => { unsubOwned(); unsubShared(); };
 }
 
 function stopSyncPolling() {
@@ -7850,10 +7870,15 @@ async function loadSongsFromSheet() {
   startFunnyMessages('preloadCountdown');
 
   try {
-    const snapshot = await db.collection('songs').get();
+    const uid = auth.currentUser?.uid;
+    const [ownedSnap, sharedSnap] = await Promise.all([
+      db.collection('songs').where('ownerId', '==', uid).get(),
+      db.collection('songs').where('sharedWith', 'array-contains', uid).get(),
+    ]);
     stopFunnyMessages();
 
-    if (snapshot.empty) {
+    const allDocs = [...ownedSnap.docs, ...sharedSnap.docs];
+    if (!allDocs.length) {
       setSyncStatus('saved', 'No songs yet');
       setTimeout(() => setSyncStatus('', '—'), 4000);
       renderGrid();
@@ -7861,7 +7886,7 @@ async function loadSongsFromSheet() {
     }
 
     const fsIds = new Set();
-    snapshot.forEach(doc => {
+    allDocs.forEach(doc => {
       const s = { ...doc.data(), _fromSheet: false };
       fsIds.add(s.id);
       const idx = songs.findIndex(x => x.id === s.id);
@@ -7869,7 +7894,6 @@ async function loadSongsFromSheet() {
       else songs.push(s);
     });
 
-    // Remove songs that no longer exist in Firestore (keep local-only ones)
     songs = songs.filter(s => !s._fromSheet || fsIds.has(s.id));
 
     save();
@@ -8112,6 +8136,107 @@ async function loadSongFromSheet(id, btnIdx) {
 
 
 
+
+// ── Export ────────────────────────────────────────────────────────
+
+// ── Share ─────────────────────────────────────────────────────────
+
+function openShareModal() {
+  const song = getCurrentSong();
+  if (!song) return;
+  document.getElementById('shareModal').classList.add('open');
+  document.getElementById('shareEmailInput').value = '';
+  document.getElementById('shareError').textContent = '';
+  document.getElementById('shareSuccess').textContent = '';
+  document.getElementById('shareModalSongName').textContent =
+    (song.title || song.workingTitle || 'Untitled').toUpperCase();
+  renderSharedWithList(song);
+  setTimeout(() => document.getElementById('shareEmailInput').focus(), 100);
+}
+
+function closeShareModal() {
+  document.getElementById('shareModal').classList.remove('open');
+}
+
+function renderSharedWithList(song) {
+  const list = document.getElementById('sharedWithList');
+  if (!song.sharedWith?.length) { list.innerHTML = ''; return; }
+  list.innerHTML = `
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);
+      text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px;">Shared with</div>
+    ${song.sharedWith.map(uid => `
+      <div style="display:flex;align-items:center;justify-content:space-between;
+        padding:6px 0;border-bottom:1px solid var(--border);font-family:'IBM Plex Mono',monospace;font-size:11px;">
+        <span id="share-label-${uid}" style="color:var(--muted);">${uid}</span>
+        <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:3px 8px;"
+          onclick="removeShare('${uid}')">Remove</button>
+      </div>`).join('')}`;
+  // Async-resolve UIDs to emails
+  song.sharedWith.forEach(uid => {
+    db.collection('users').doc(uid).get().then(doc => {
+      const el = document.getElementById('share-label-' + uid);
+      if (el && doc.exists) el.textContent = doc.data().email || uid;
+    });
+  });
+}
+
+async function submitShare() {
+  const email = document.getElementById('shareEmailInput').value.trim().toLowerCase();
+  const errEl = document.getElementById('shareError');
+  const okEl  = document.getElementById('shareSuccess');
+  const btn   = document.getElementById('shareSubmitBtn');
+  const song  = getCurrentSong();
+  if (!song) return;
+
+  errEl.textContent = ''; okEl.textContent = '';
+  if (!email) { errEl.textContent = 'Please enter an email.'; return; }
+  if (email === auth.currentUser?.email?.toLowerCase()) {
+    errEl.textContent = "That's you!"; return;
+  }
+
+  btn.textContent = 'Sharing…'; btn.disabled = true;
+  try {
+    const snap = await db.collection('users').where('email', '==', email).get();
+    if (snap.empty) {
+      errEl.textContent = 'No Drafthaus account found for that email.';
+      return;
+    }
+    const targetUid = snap.docs[0].data().uid;
+    if (song.sharedWith?.includes(targetUid)) {
+      errEl.textContent = 'Already shared with this person.';
+      return;
+    }
+    await db.collection('songs').doc(song.id).update({
+      sharedWith: firebase.firestore.FieldValue.arrayUnion(targetUid)
+    });
+    // Update local copy
+    song.sharedWith = [...(song.sharedWith || []), targetUid];
+    save();
+    okEl.textContent = `Shared with ${email} ✓`;
+    document.getElementById('shareEmailInput').value = '';
+    renderSharedWithList(song);
+  } catch(e) {
+    errEl.textContent = 'Error: ' + (e.message || 'Could not share.');
+    console.error(e);
+  } finally {
+    btn.textContent = 'Share'; btn.disabled = false;
+  }
+}
+
+async function removeShare(targetUid) {
+  const song = getCurrentSong();
+  if (!song) return;
+  try {
+    await db.collection('songs').doc(song.id).update({
+      sharedWith: firebase.firestore.FieldValue.arrayRemove(targetUid)
+    });
+    song.sharedWith = (song.sharedWith || []).filter(u => u !== targetUid);
+    save();
+    renderSharedWithList(song);
+  } catch(e) {
+    console.error('removeShare error:', e);
+  }
+}
 
 // ── Export ────────────────────────────────────────────────────────
 
@@ -9950,6 +10075,29 @@ document.addEventListener('keydown', function(e) {
 </script>
 
 
+
+<!-- ── Share Song Modal ───────────────── -->
+<div class="modal-overlay" id="shareModal">
+  <div class="modal-box" style="max-width:380px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <div class="modal-title" style="margin-bottom:0;">Share Song</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeShareModal()">✕</button>
+    </div>
+    <div id="shareModalSongName" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--gold);margin-bottom:16px;letter-spacing:0.1em;"></div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);margin-bottom:8px;">Enter the email address of the person to share with:</div>
+    <input type="email" id="shareEmailInput" class="field-input"
+      placeholder="Email…"
+      onkeydown="if(event.key==='Enter')submitShare()"
+      style="font-size:15px;margin-bottom:10px;">
+    <div id="shareError" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--red);min-height:16px;margin-bottom:10px;"></div>
+    <div id="shareSuccess" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--teal);min-height:16px;margin-bottom:10px;"></div>
+    <div id="sharedWithList" style="margin-bottom:14px;"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn btn-ghost btn-sm" onclick="closeShareModal()">Done</button>
+      <button class="btn btn-primary btn-sm" id="shareSubmitBtn" onclick="submitShare()">Share</button>
+    </div>
+  </div>
+</div>
 
 <!-- ── Load from Sheet Modal ───────────────── -->
 <div class="modal-overlay" id="loadModal">
