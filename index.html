@@ -13,6 +13,7 @@
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
@@ -3162,7 +3163,6 @@ button, select, input, textarea { touch-action: manipulation; }
 
 <script>
 // ── CONFIG — paste your GAS URL here after deploying ──────────────
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbwBNOe2oYcwZsTiMoksL1jA6tTkkAz4LjvzdkCzyFWnyoSUTc02hi3PbO14UOam2NyzvQ/exec';
 // ─────────────────────────────────────────────────────────────────
 
 // ── Firebase Config ────────────────────────────────────────────────
@@ -3178,6 +3178,7 @@ const FIREBASE_CONFIG = {
 };
 firebase.initializeApp(FIREBASE_CONFIG);
 const auth = firebase.auth();
+const db   = firebase.firestore();
 // ──────────────────────────────────────────────────────────────────
 
 
@@ -3297,7 +3298,7 @@ function renderGrid() {
       <div style="font-size:48px;opacity:.2;margin-bottom:16px;">🎵</div>
       <div style="font-family:'Playfair Display',serif;font-size:24px;font-style:italic;opacity:.35;color:var(--text);margin-bottom:8px;">No songs yet</div>
       <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;justify-content:center;">
-        <button class="btn btn-ghost btn-sm" onclick="preloadSongsFromSheet(true)" style="border-color:var(--teal);color:var(--teal);">☁ Load from Sheet</button>
+        <button class="btn btn-ghost btn-sm" onclick="preloadSongsFromSheet(true)" style="border-color:var(--teal);color:var(--teal);">☁ Load from Firestore</button>
         <button class="btn btn-primary" onclick="newSong()">+ New Song</button>
       </div>
     </div>`;
@@ -3418,7 +3419,7 @@ function renderGrid() {
 
 
 function deleteLocalSong(id) {
-  if (!confirm('Remove this song from your local list? (It stays in the sheet)')) return;
+  if (!confirm('Remove this song from your local list? (It stays in Firestore)')) return;
   songs = songs.filter(s => s.id !== id);
   if (currentId === id) {
     currentId = null;
@@ -3836,7 +3837,7 @@ function switchInstrument(instId) {
                        sd.bpm || sd.time;
 
     if (!hasSeqData && freshSong) {
-      // No sequencer data — fetch from sheet
+      // No sequencer data yet
       container.innerHTML = `<div style="padding:40px;text-align:center;">
         <div class="loader-bar" style="width:220px;margin:0 auto 10px;"><div class="loader-fill"></div></div>
         <div class="loader-label" style="color:#d0d0e8;font-size:12px;font-weight:500;">Loading sequencer data…</div>
@@ -6551,7 +6552,6 @@ function setSyncStatus(state, label) {
 }
 
 function scheduleSyncToSheet(song) {
-  if (!GAS_URL || GAS_URL === 'YOUR_GAS_URL_HERE') return;
   clearTimeout(saveTimer);
   setSyncStatus('syncing', 'Saving…');
   saveTimer = setTimeout(() => syncToSheet(song), 1200);
@@ -6560,108 +6560,12 @@ function scheduleSyncToSheet(song) {
 
 async function fetchFullSongFromSheet(id) {
   try {
-    const res = await fetch(GAS_URL + '?action=get&id=' + encodeURIComponent(id), { method: 'GET' });
-    const data = await res.json();
-    if (!data.song) return null;
-    const s = data.song;
-    console.log('Song from sheet - sequencer field:', typeof s.sequencer, String(s.sequencer || '').slice(0, 120));
-    console.log('Song from sheet - instruments field:', typeof s.instruments, String(s.instruments || '').slice(0, 80));
-    console.log('Song from sheet - lyrics field:', typeof s.lyrics, String(s.lyrics || '').slice(0, 120));
-
-    const structureObj = {};
-    if (s.structure) {
-      s.structure.split('›').map(p => p.trim()).forEach(label => {
-        const part = STRUCTURE_PARTS.find(p => p.label === label);
-        if (part) structureObj[part.id] = { checked: true };
-      });
-    }
-    const chordsObj = {};
-    if (s.chords) {
-      s.chords.split('|').forEach(section => {
-        const [sectionLabel, chordsStr] = section.split(':').map(x => x.trim());
-        if (!sectionLabel || !chordsStr || chordsStr === '—') return;
-        const part = STRUCTURE_PARTS.find(p => p.label === sectionLabel);
-        if (!part) return;
-        chordsObj[part.id] = chordsStr.split(',').map(c => {
-          const parts = c.trim().split(' ');
-          return { root: parts[0], quality: parts.slice(1).join(' ') };
-        });
-      });
-    }
-
-    // Parse instruments JSON from sheet
-    let instrumentsObj = {};
-    if (s.instruments && s.instruments !== '[object Object]' && typeof s.instruments === 'string') {
-      try { instrumentsObj = JSON.parse(s.instruments); } catch(e) {
-        console.warn('Instruments parse error:', e);
-        instrumentsObj = {};
-      }
-    }
-
-    // Parse lyrics JSON from sheet
-    let lyricsObj = {};
-    if (s.lyrics && typeof s.lyrics === 'string' && s.lyrics !== '[object Object]') {
-      try {
-        lyricsObj = JSON.parse(s.lyrics);
-        console.log('Lyrics parsed ok, parts:', Object.keys(lyricsObj).join(', ') || 'none');
-      } catch(e) {
-        console.warn('Lyrics parse error:', e.message, '| raw:', String(s.lyrics).slice(0, 100));
-        lyricsObj = {};
-      }
-    } else {
-      console.log('Lyrics field from sheet:', typeof s.lyrics, '|', String(s.lyrics || '').slice(0, 80));
-    }
-
-    const full = {
-      id:           s.id || id,
-      project:      s.project || '',
-      workingTitle: s.workingTitle || '',
-      title:        s.title || '',
-      bpm:          s.bpm || '',
-      key:          s.key || '',
-      tuning:       s.tuning || '',
-      status:       s.status || 'idea',
-      structure:    structureObj,
-      chords:       chordsObj,
-      notes:        s.notes || '',
-      generalNotes: s.generalNotes || '',
-      moods:        s.moods ? s.moods.split(',').map(m => m.trim()).filter(Boolean) : [],
-      instruments:  instrumentsObj,
-      lyrics:       lyricsObj,
-      sequencer:    (() => {
-        try {
-          const raw = s.sequencer;
-          console.log('RAW sequencer from sheet:', typeof raw, '|', String(raw || '').slice(0, 200));
-          if (!raw || raw === '[object Object]' || typeof raw !== 'string') {
-            console.warn('Sequencer: empty or bad type, returning {}');
-            return {};
-          }
-          const sq = JSON.parse(raw);
-          console.log('Parsed sequencer keys:', Object.keys(sq).join(', ') || 'EMPTY OBJECT');
-          console.log('chordSlots count:', (sq.chordSlots||[]).filter(Boolean).length, 'kick hits:', (sq.kick||[]).filter(Boolean).length);
-          return sq;
-        } catch(e) {
-          console.warn('Sequencer parse error:', e.message, '| raw was:', String(s.sequencer).slice(0,120));
-          return {};
-        }
-      })(),
-      _fromSheet:   false,
-      createdAt:    s.createdAt ? new Date(s.createdAt).getTime() : Date.now(),
-      updatedAt:    s.updatedAt ? new Date(s.updatedAt).getTime() : Date.now(),
-    };
-
+    const doc = await db.collection('songs').doc(id).get();
+    if (!doc.exists) return null;
+    const full = { ...doc.data(), _fromSheet: false };
     const idx = songs.findIndex(x => x.id === id);
-    // Preserve locally-held data if sheet returns empty (sheet may not have new columns yet)
-    if (idx >= 0) {
-      const existing = songs[idx];
-      if (!Object.keys(full.lyrics || {}).length && Object.keys(existing.lyrics || {}).length) {
-        full.lyrics = existing.lyrics;
-      }
-      if (!Object.keys(full.instruments || {}).length && Object.keys(existing.instruments || {}).length) {
-        full.instruments = existing.instruments;
-      }
-      songs[idx] = full;
-    } else songs.unshift(full);
+    if (idx >= 0) songs[idx] = full;
+    else songs.unshift(full);
     save();
     return full;
   } catch(e) {
@@ -6670,68 +6574,44 @@ async function fetchFullSongFromSheet(id) {
 }
 
 async function syncToSheet(song) {
-  // Update local timestamp knowledge so poll doesn't re-fetch our own write
   _lastKnownTimestamps[song.id] = song.updatedAt || Date.now();
-  if (!GAS_URL || GAS_URL === 'YOUR_GAS_URL_HERE') return;
   try {
-    const activeParts = STRUCTURE_PARTS.filter(p=>song.structure?.[p.id]?.checked).map(p=>p.label);
-    const allChords = activeParts.map(label => {
-      const part = STRUCTURE_PARTS.find(p=>p.label===label);
-      const chords = song.chords?.[part?.id] || [];
-      return label + ': ' + (chords.map(c=>c.root+' '+c.quality).join(', ')||'—');
-    }).join(' | ');
-
-    const payload = {
-      action: 'upsert',
-      id:           song.id,
-      project:      song.project || '',
-      workingTitle: song.workingTitle || '',
-      title:        song.title || '',
-      bpm:          song.bpm || '',
-      key:          song.key || '',
-      tuning:       song.tuning || '',
-      status:       song.status || '',
-      structure:    activeParts.join(' › '),
-      chords:       allChords,
-      notes:        song.notes || '',
-      moods:        song.moods ? song.moods.join(', ') : '',
-      generalNotes: song.generalNotes || '',
-      instruments:  song.instruments ? JSON.stringify(song.instruments) : '',
-      sequencer:    song.sequencer ? JSON.stringify(song.sequencer) : '',
-      lyrics:       song.lyrics ? JSON.stringify(song.lyrics) : '',
-      updatedAt:    new Date(song.updatedAt).toLocaleString('en-CA'),
-      createdAt:    new Date(song.createdAt).toLocaleString('en-CA'),
-    };
-
-    console.log('Syncing to sheet:', payload.title, 'seq:', payload.sequencer?.length, 'chars', 'lyrics:', payload.lyrics?.slice(0,60));
     markPendingSync(song.id);
-    // Use no-cors for write (GAS doesn't send CORS headers on POST)
-    await fetch(GAS_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
+    await db.collection('songs').doc(song.id).set({
+      id:           song.id,
+      project:      song.project      || '',
+      workingTitle: song.workingTitle || '',
+      title:        song.title        || '',
+      bpm:          song.bpm          || '',
+      key:          song.key          || '',
+      tuning:       song.tuning       || '',
+      status:       song.status       || 'idea',
+      structure:    song.structure    || {},
+      chords:       song.chords       || {},
+      notes:        song.notes        || '',
+      generalNotes: song.generalNotes || '',
+      moods:        song.moods        || [],
+      instruments:  song.instruments  || {},
+      sequencer:    song.sequencer    || {},
+      lyrics:       song.lyrics       || {},
+      updatedAt:    song.updatedAt    || Date.now(),
+      createdAt:    song.createdAt    || Date.now(),
     });
-    // Optimistically clear and show saved — GAS fires but can't confirm with no-cors
     clearPendingSync(song.id);
     setSyncStatus('saved', 'Saved ✓');
-    setTimeout(()=>setSyncStatus('','—'), 8000);
+    setTimeout(() => setSyncStatus('', '—'), 8000);
   } catch(e) {
     setSyncStatus('error', 'Sync failed');
-    console.error('Sync error:', e);
+    console.error('Firestore sync error:', e);
   }
 }
 
 async function syncDeleteToSheet(id) {
-  if (!GAS_URL || GAS_URL === 'YOUR_GAS_URL_HERE') return;
   try {
-    await fetch(GAS_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'delete', id }),
-    });
-  } catch(e) {}
+    await db.collection('songs').doc(id).delete();
+  } catch(e) {
+    console.error('Firestore delete error:', e);
+  }
 }
 
 // ── Utils ──────────────────────────────────────────────────────────
@@ -6817,26 +6697,8 @@ auth.onAuthStateChanged(user => {
 });
 
 function initApp() {
-  if (!GAS_URL || GAS_URL === 'YOUR_GAS_URL_HERE') {
-    setSyncStatus('error', 'No sheet linked');
-    return;
-  }
-  setSyncStatus('syncing', 'Loading songs…');
-
-  const pendingSyncId = localStorage.getItem('track_pending_sync');
-  if (pendingSyncId) {
-    localStorage.removeItem('track_pending_sync');
-    preloadSongsFromSheet().then(() => {
-      const song = songs.find(s => s.id === pendingSyncId);
-      if (song) {
-        scheduleSyncToSheet(song);
-        setSyncStatus('saved', 'Chord synced ✓');
-        setTimeout(() => setSyncStatus('', '—'), 8000);
-      }
-    });
-  } else {
-    preloadSongsFromSheet(true);
-  }
+  preloadSongsFromSheet(true);
+  startSyncPolling();
 
   document.getElementById('seqDrawerTab')?.classList.remove('tab-loading');
 
@@ -7931,84 +7793,50 @@ function renderPracticeDrawer() {
 }
 
 // ── Per-song change polling ───────────────────────────────────────
-// Every 60s, fetch the song list (just IDs + updatedAt), compare
-// to local cache, and re-fetch any songs that changed remotely.
-
-var _pollInterval = null;
-var _lastKnownTimestamps = {}; // { songId: updatedAt }
+// ── Firestore real-time listener (replaces polling) ───────────────
+var _lastKnownTimestamps = {};
+var _firestoreUnsubscribe = null;
 
 function startSyncPolling() {
-  if (_pollInterval) return; // already running
-  _pollInterval = setInterval(pollForChanges, 60000);
+  if (_firestoreUnsubscribe) return; // already listening
+  _firestoreUnsubscribe = db.collection('songs').onSnapshot(snapshot => {
+    snapshot.docChanges().forEach(change => {
+      const s = { ...change.doc.data(), _fromSheet: false };
+      if (change.type === 'added' || change.type === 'modified') {
+        const remoteTs = s.updatedAt || 0;
+        const idx = songs.findIndex(x => x.id === s.id);
+        if (idx >= 0) {
+          // Only update if remote is meaningfully newer (2s buffer avoids self-trigger)
+          if (remoteTs > (songs[idx].updatedAt || 0) + 2000) {
+            songs[idx] = s;
+            if (currentId === s.id) {
+              populateSongFields(s);
+              setSyncStatus('saved', '↓ Song updated ✓');
+              setTimeout(() => setSyncStatus('', '—'), 8000);
+            }
+          }
+        } else {
+          songs.push(s);
+        }
+      } else if (change.type === 'removed') {
+        songs = songs.filter(x => x.id !== change.doc.id);
+      }
+    });
+    save();
+    renderGrid();
+  }, e => console.warn('Firestore listener error:', e));
 }
 
 function stopSyncPolling() {
-  clearInterval(_pollInterval);
-  _pollInterval = null;
+  if (_firestoreUnsubscribe) { _firestoreUnsubscribe(); _firestoreUnsubscribe = null; }
 }
 
-async function pollForChanges() {
-  if (!GAS_URL || GAS_URL === 'YOUR_GAS_URL_HERE') return;
-  try {
-    const res = await fetch(GAS_URL + '?action=list', { method: 'GET' });
-    const data = await res.json();
-    if (!data.songs?.length) return;
+async function pollForChanges() {} // replaced by onSnapshot above
 
-    const changed = [];
-    data.songs.forEach(s => {
-      const remoteTs = s.updatedAt ? new Date(s.updatedAt).getTime() : 0;
-      const local = songs.find(x => x.id === s.id);
-      const localTs = local?.updatedAt || 0;
-      // Changed if remote is newer AND it wasn't us who just saved it
-      if (remoteTs > localTs + 2000) { // 2s buffer to avoid self-trigger
-        changed.push(s.id);
-      }
-      // Update our known timestamps
-      _lastKnownTimestamps[s.id] = remoteTs;
-    });
-
-    if (!changed.length) return;
-
-    // Show indicator
-    setSyncStatus('syncing', `↓ ${changed.length} update${changed.length > 1 ? 's' : ''}…`);
-
-    // Fetch only changed songs, one at a time
-    for (const id of changed) {
-      await fetchFullSongFromSheet(id);
-      await new Promise(r => setTimeout(r, 400));
-    }
-
-    setSyncStatus('saved', '↓ Synced ✓');
-    setTimeout(() => setSyncStatus('', '—'), 8000);
-
-    // If the currently open song was one of the changed ones, reload it
-    if (currentId && changed.includes(currentId)) {
-      const updated = songs.find(s => s.id === currentId);
-      if (updated) {
-        populateSongFields(updated);
-        setSyncStatus('saved', '↓ Song updated ✓');
-        setTimeout(() => setSyncStatus('', '—'), 8000);
-      }
-    }
-
-    renderGrid();
-
-  } catch(e) {
-    // Silent fail — polling errors shouldn't interrupt the user
-    console.warn('Sync poll failed:', e);
-  }
-}
-
-// ── Background Prefetch ───────────────────────────────────
-// ── Load from sheet ─────────────────────────────────────────────
+// ── Load from Firestore ──────────────────────────────────────────
 async function loadSongsFromSheet() {
-  if (!GAS_URL || GAS_URL === 'YOUR_GAS_URL_HERE') {
-    setSyncStatus('error', 'No sheet linked');
-    return;
-  }
   setSyncStatus('syncing', 'Loading…');
 
-  // Show funny loading messages in the grid while fetching
   const grid = document.getElementById('songsGrid');
   const count = document.getElementById('songCount');
   if (count) count.textContent = '';
@@ -8022,86 +7850,38 @@ async function loadSongsFromSheet() {
   startFunnyMessages('preloadCountdown');
 
   try {
-    const fetchTimeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('timeout')), 10000)
-    );
-    const res = await Promise.race([
-      fetch(GAS_URL + '?action=list', { method: 'GET' }),
-      fetchTimeout
-    ]);
-    const data = await res.json();
-    if (!data.songs) throw new Error('No songs in response');
-
-    // Replace songs list entirely from sheet — sheet is truth
-    // Keep any locally-unsaved songs (new songs not yet on sheet)
-    const sheetIds = new Set(data.songs.map(s => s.id));
-    const localOnly = songs.filter(s => !sheetIds.has(s.id) && s.id);
-
-    songs = data.songs.map(s => ({
-      id:           s.id,
-      project:      s.project || '',
-      workingTitle: s.workingTitle || '',
-      title:        s.title || '',
-      bpm:          s.bpm || '',
-      key:          s.key || '',
-      tuning:       s.tuning || '',
-      status:       s.status || 'idea',
-      moods:        s.moods ? s.moods.split(',').map(m => m.trim()).filter(Boolean) : [],
-      structure:    {},
-      chords:       {},
-      instruments:  {},
-      lyrics:       {},
-      notes:        '',
-      _fromSheet:   true,
-      updatedAt:    s.updatedAt ? new Date(s.updatedAt).getTime() : Date.now(),
-      createdAt:    Date.now(),
-    }));
-
-    // Add back any local-only songs
-    songs = [...localOnly, ...songs];
-
+    const snapshot = await db.collection('songs').get();
     stopFunnyMessages();
+
+    if (snapshot.empty) {
+      setSyncStatus('saved', 'No songs yet');
+      setTimeout(() => setSyncStatus('', '—'), 4000);
+      renderGrid();
+      return;
+    }
+
+    const fsIds = new Set();
+    snapshot.forEach(doc => {
+      const s = { ...doc.data(), _fromSheet: false };
+      fsIds.add(s.id);
+      const idx = songs.findIndex(x => x.id === s.id);
+      if (idx >= 0) songs[idx] = s;
+      else songs.push(s);
+    });
+
+    // Remove songs that no longer exist in Firestore (keep local-only ones)
+    songs = songs.filter(s => !s._fromSheet || fsIds.has(s.id));
+
     save();
     renderGrid();
     setSyncStatus('saved', 'Loaded ✓');
     setTimeout(() => setSyncStatus('', '—'), 8000);
 
-    // Fetch all full songs in parallel in background, then re-render so bars update
-    const stubs = songs.filter(s => s._fromSheet);
-    Promise.all(stubs.map(s => fetchFullSongFromSheet(s.id))).then(() => renderGrid());
-
   } catch(e) {
     stopFunnyMessages();
     console.error('loadSongsFromSheet error:', e);
-    // Auto-retry once after 2s (handles GAS cold start)
-    setSyncStatus('syncing', 'Retrying…');
-    setTimeout(async () => {
-      try {
-        const res = await fetch(GAS_URL + '?action=list', { method: 'GET' });
-        const data = await res.json();
-        if (!data.songs) throw new Error('No songs in response');
-        const sheetIds = new Set(data.songs.map(s => s.id));
-        const localOnly = songs.filter(s => !sheetIds.has(s.id) && s.id);
-        songs = data.songs.map(s => ({
-          id: s.id, project: s.project||'', workingTitle: s.workingTitle||'',
-          title: s.title||'', bpm: s.bpm||'', key: s.key||'', tuning: s.tuning||'',
-          status: s.status||'idea', moods: s.moods ? s.moods.split(',').map(m=>m.trim()).filter(Boolean) : [],
-          structure:{}, chords:{}, instruments:{}, lyrics:{}, notes:'',
-          _fromSheet: true,
-          updatedAt: s.updatedAt ? new Date(s.updatedAt).getTime() : Date.now(),
-          createdAt: Date.now(),
-        }));
-        songs = [...localOnly, ...songs];
-        save(); renderGrid();
-        setSyncStatus('saved', 'Loaded ✓');
-        setTimeout(() => setSyncStatus('', '—'), 8000);
-        const stubs = songs.filter(s => s._fromSheet);
-        Promise.all(stubs.map(s => fetchFullSongFromSheet(s.id))).then(() => renderGrid());
-      } catch(e2) {
-        setSyncStatus('error', 'Could not reach sheet');
-        renderGrid();
-      }
-    }, 2000);
+    setSyncStatus('error', 'Could not load from Firestore');
+    renderGrid();
   }
 }
 
@@ -8114,15 +7894,11 @@ function openLoadPanel() { loadSongsFromSheet(); }
 
 
 async function syncDeleteToSheet(id) {
-  if (!GAS_URL || GAS_URL === 'YOUR_GAS_URL_HERE') return;
   try {
-    await fetch(GAS_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'delete', id }),
-    });
-  } catch(e) {}
+    await db.collection('songs').doc(id).delete();
+  } catch(e) {
+    console.error('Firestore delete error:', e);
+  }
 }
 
 // ── Utils ──────────────────────────────────────────────────────────
@@ -8133,26 +7909,8 @@ function esc(str) {
 
 
 function initApp() {
-  if (!GAS_URL || GAS_URL === 'YOUR_GAS_URL_HERE') {
-    setSyncStatus('error', 'No sheet linked');
-    return;
-  }
-  setSyncStatus('syncing', 'Loading songs…');
-
-  const pendingSyncId = localStorage.getItem('track_pending_sync');
-  if (pendingSyncId) {
-    localStorage.removeItem('track_pending_sync');
-    preloadSongsFromSheet().then(() => {
-      const song = songs.find(s => s.id === pendingSyncId);
-      if (song) {
-        scheduleSyncToSheet(song);
-        setSyncStatus('saved', 'Chord synced ✓');
-        setTimeout(() => setSyncStatus('', '—'), 8000);
-      }
-    });
-  } else {
-    preloadSongsFromSheet(true);
-  }
+  preloadSongsFromSheet(true);
+  startSyncPolling();
 
   document.getElementById('seqDrawerTab')?.classList.remove('tab-loading');
 
@@ -8198,74 +7956,6 @@ function renderPracticeDrawer() {
 }
 
 // ── Per-song change polling ───────────────────────────────────────
-// Every 60s, fetch the song list (just IDs + updatedAt), compare
-// to local cache, and re-fetch any songs that changed remotely.
-
-var _pollInterval = null;
-var _lastKnownTimestamps = {}; // { songId: updatedAt }
-
-function startSyncPolling() {
-  if (_pollInterval) return; // already running
-  _pollInterval = setInterval(pollForChanges, 60000);
-}
-
-function stopSyncPolling() {
-  clearInterval(_pollInterval);
-  _pollInterval = null;
-}
-
-async function pollForChanges() {
-  if (!GAS_URL || GAS_URL === 'YOUR_GAS_URL_HERE') return;
-  try {
-    const res = await fetch(GAS_URL + '?action=list', { method: 'GET' });
-    const data = await res.json();
-    if (!data.songs?.length) return;
-
-    const changed = [];
-    data.songs.forEach(s => {
-      const remoteTs = s.updatedAt ? new Date(s.updatedAt).getTime() : 0;
-      const local = songs.find(x => x.id === s.id);
-      const localTs = local?.updatedAt || 0;
-      // Changed if remote is newer AND it wasn't us who just saved it
-      if (remoteTs > localTs + 2000) { // 2s buffer to avoid self-trigger
-        changed.push(s.id);
-      }
-      // Update our known timestamps
-      _lastKnownTimestamps[s.id] = remoteTs;
-    });
-
-    if (!changed.length) return;
-
-    // Show indicator
-    setSyncStatus('syncing', `↓ ${changed.length} update${changed.length > 1 ? 's' : ''}…`);
-
-    // Fetch only changed songs, one at a time
-    for (const id of changed) {
-      await fetchFullSongFromSheet(id);
-      await new Promise(r => setTimeout(r, 400));
-    }
-
-    setSyncStatus('saved', '↓ Synced ✓');
-    setTimeout(() => setSyncStatus('', '—'), 8000);
-
-    // If the currently open song was one of the changed ones, reload it
-    if (currentId && changed.includes(currentId)) {
-      const updated = songs.find(s => s.id === currentId);
-      if (updated) {
-        populateSongFields(updated);
-        setSyncStatus('saved', '↓ Song updated ✓');
-        setTimeout(() => setSyncStatus('', '—'), 8000);
-      }
-    }
-
-    renderGrid();
-
-  } catch(e) {
-    // Silent fail — polling errors shouldn't interrupt the user
-    console.warn('Sync poll failed:', e);
-  }
-}
-
 // ── Background Prefetch ───────────────────────────────────
 // After the song list loads, silently fetch full data for the
 // most recently updated songs that haven't been loaded yet.
@@ -8283,12 +7973,8 @@ async function backgroundPrefetch() {
 }
 
 
-// ── Load from Sheet ────────────────────────────────────────────────
+// ── Load from Firestore (panel) ────────────────────────────────────
 function openLoadPanel() {
-  if (!GAS_URL || GAS_URL === 'YOUR_GAS_URL_HERE') {
-    alert('Please set your GAS_URL first.');
-    return;
-  }
   fetchAndShowLoadPanel();
 }
 
@@ -8325,24 +8011,24 @@ async function fetchAndShowLoadPanel() {
   const _listTimer = startCountdown('listLoaderLabel', 'list');
 
   try {
-    const res = await fetch(GAS_URL + '?action=list', { method: 'GET' });
-    const data = await res.json();
+    const snapshot = await db.collection('songs').get();
     stopCountdown(_listTimer, 'list');
     document.getElementById('listLoaderLabel').textContent = 'Done!';
     document.getElementById('listLoader').classList.remove('visible');
 
-    if (!data.songs || data.songs.length === 0) {
-      document.getElementById('loadStatus').textContent = 'No songs found in your sheet.';
+    if (snapshot.empty) {
+      document.getElementById('loadStatus').textContent = 'No songs found in Firestore.';
       return;
     }
 
-    document.getElementById('loadStatus').textContent = data.songs.length + ' song' + (data.songs.length===1?'':'s') + ' in your sheet:';
-    renderLoadList(data.songs);
+    const fsSongs = snapshot.docs.map(doc => doc.data());
+    document.getElementById('loadStatus').textContent = fsSongs.length + ' song' + (fsSongs.length===1?'':'s') + ' in Firestore:';
+    renderLoadList(fsSongs);
 
   } catch(e) {
     stopCountdown(_listTimer, 'list');
     document.getElementById('listLoader').classList.remove('visible');
-    document.getElementById('loadStatus').textContent = 'Error: ' + (e.message || 'Could not reach sheet');
+    document.getElementById('loadStatus').textContent = 'Error: ' + (e.message || 'Could not reach Firestore');
     console.error('fetchAndShowLoadPanel error:', e);
   }
 }
@@ -8394,68 +8080,17 @@ function renderLoadList(sheetSongs) {
 }
 
 async function loadSongFromSheet(id, btnIdx) {
-  if (!GAS_URL || GAS_URL === 'YOUR_GAS_URL_HERE') return;
   const btn = document.getElementById('loadbtn-' + btnIdx);
   btn.textContent = 'Loading…'; btn.classList.add('loading'); btn.disabled = true;
 
   try {
-    const res = await fetch(GAS_URL + '?action=get&id=' + encodeURIComponent(id), { method: 'GET' });
-    const data = await res.json();
-    if (!data.song) throw new Error('No song returned');
+    const doc = await db.collection('songs').doc(id).get();
+    if (!doc.exists) throw new Error('Song not found in Firestore');
 
-    const s = data.song;
-
-    // Parse structure string back into structure object
-    // Sheet stores: "Intro › Verse 1 › Chorus 1" etc.
-    const structureObj = {};
-    if (s.structure) {
-      s.structure.split('›').map(p => p.trim()).forEach(label => {
-        const part = STRUCTURE_PARTS.find(p => p.label === label);
-        if (part) structureObj[part.id] = { checked: true };
-      });
-    }
-
-    // Parse chords string back into chords object
-    // Sheet stores: "Verse 1: A Major, G Minor | Chorus 1: C Major"
-    const chordsObj = {};
-    if (s.chords) {
-      s.chords.split('|').forEach(section => {
-        const [sectionLabel, chordsStr] = section.split(':').map(x => x.trim());
-        if (!sectionLabel || !chordsStr || chordsStr === '—') return;
-        const part = STRUCTURE_PARTS.find(p => p.label === sectionLabel);
-        if (!part) return;
-        chordsObj[part.id] = chordsStr.split(',').map(c => {
-          const parts = c.trim().split(' ');
-          const root = parts[0];
-          const quality = parts.slice(1).join(' ');
-          return { root, quality };
-        });
-      });
-    }
-
-    // Check if song already exists locally
+    const song = { ...doc.data(), _fromSheet: false };
     const existing = songs.findIndex(x => x.id === id);
-    const song = {
-      id:           s.id || id,
-      project:      s.project || '',
-      workingTitle: s.workingTitle || '',
-      title:        s.title || '',
-      bpm:          s.bpm || '',
-      key:          s.key || '',
-      tuning:       s.tuning || '',
-      status:       s.status || 'idea',
-      structure:    structureObj,
-      chords:       chordsObj,
-      notes:        s.notes || '',
-      createdAt:    s.createdAt ? new Date(s.createdAt).getTime() : Date.now(),
-      updatedAt:    s.updatedAt ? new Date(s.updatedAt).getTime() : Date.now(),
-    };
-
-    if (existing >= 0) {
-      songs[existing] = song;
-    } else {
-      songs.unshift(song);
-    }
+    if (existing >= 0) songs[existing] = song;
+    else songs.unshift(song);
     save();
 
     btn.textContent = 'Loaded ✓'; btn.classList.add('loaded');
@@ -10224,15 +9859,12 @@ if (window.innerWidth <= 768) {
 async function resyncAllSongs() {
   const btn = document.getElementById('resyncBtn');
   if (btn) { btn.textContent = 'Syncing…'; btn.disabled = true; }
-  // Sync ALL songs — _fromSheet ones may have been prefetched and have full data
   const allSongs = songs.filter(s => s.id);
   let count = 0;
   for (const song of allSongs) {
-    if (song._fromSheet) continue; // skip stubs that haven't been fully loaded
     await syncToSheet(song);
     count++;
     if (btn) btn.textContent = `Syncing ${count}…`;
-    await new Promise(r => setTimeout(r, 400));
   }
   if (btn) { btn.textContent = `✓ ${count} synced`; btn.disabled = false; }
   setTimeout(() => { if (btn) btn.textContent = '↑ Sync'; }, 4000);
@@ -10323,13 +9955,13 @@ document.addEventListener('keydown', function(e) {
 <div class="modal-overlay" id="loadModal">
   <div class="modal-box" style="max-width:480px;text-align:left;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-      <div class="modal-title" style="margin-bottom:0;">Load from Sheet</div>
+      <div class="modal-title" style="margin-bottom:0;">Load from Firestore</div>
       <button class="btn btn-ghost btn-sm" onclick="closeLoadPanel()">✕</button>
     </div>
     <div id="loadStatus" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);margin-bottom:6px;"></div>
     <div class="loader-wrap" id="listLoader">
       <div class="loader-bar"><div class="loader-fill"></div></div>
-      <div class="loader-label" id="listLoaderLabel" style="color:#d0d0e8;font-size:11px;font-weight:500;">Connecting to sheet…</div>
+      <div class="loader-label" id="listLoaderLabel" style="color:#d0d0e8;font-size:11px;font-weight:500;">Connecting to Firestore…</div>
     </div>
     <div id="loadList" style="display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>
     <div style="margin-top:18px;display:flex;justify-content:flex-end;">
