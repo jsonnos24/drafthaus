@@ -3319,8 +3319,33 @@ button, select, input, textarea { touch-action: manipulation; }
 #songViewRunthrough.il-perf-mode .il-chart-area-row { margin-top: 2px; }
 /* Compact section label */
 #songViewRunthrough.il-perf-mode .il-part-side { padding-top: 0; }
-/* Clearance for fixed metronome bar + autoscroll bar above bottom nav */
-#songViewRunthrough.il-perf-mode { padding-bottom: 220px; }
+/* Clearance for fixed metronome bar + autoscroll bar (no bottom nav in perf mode) */
+#songViewRunthrough.il-perf-mode { padding-bottom: 160px; }
+
+/* ── Perf mode: pin sticky bar to top, hide bottom nav ─────────── */
+body.il-perf-active #stickySongBar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 500;
+  margin: 0;
+  border-radius: 0;
+}
+/* Push content below the fixed sticky bar */
+body.il-perf-active .detail-body {
+  padding-top: 56px;
+}
+/* Hide bottom nav entirely in perf mode */
+body.il-perf-active #bottomNav {
+  display: none;
+}
+/* Metronome bar now sits directly at the bottom (no nav above it) */
+body.il-perf-active .rt-metro.il-perf-metro {
+  bottom: 0;
+}
+/* Autoscroll bar above the metronome */
+body.il-perf-active #ilScrollBar {
+  bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+}
 
 /* ── Metro bar lifted into perf mode ───────────────────────────── */
 .rt-metro.il-perf-metro {
@@ -3362,7 +3387,7 @@ button, select, input, textarea { touch-action: manipulation; }
   font-family: 'IBM Plex Mono', monospace; font-size: 10px;
   text-transform: uppercase; letter-spacing: 0.12em; color: #39ff14;
 }
-#ilScrollSpeedLabel { min-width: 2.5ch; text-align: left; }
+#ilScrollSpeedLabel { min-width: 4.5ch; text-align: left; }
 #ilScrollSlider {
   -webkit-appearance: none; appearance: none;
   width: 100px; height: 3px; border-radius: 2px;
@@ -10908,9 +10933,8 @@ function ilSetPerfMode(on) {
   if (navBtn)   navBtn.classList.toggle('perf-active', on);
   // Sync sticky nav buttons
   _syncStickyNavBtns();
-  // Hide/show the sticky song bar in perf mode
-  const stickyBar = document.getElementById('stickySongBar');
-  if (stickyBar) stickyBar.style.display = on ? 'none' : '';
+  // Pin sticky bar to top in perf mode, hide bottom nav
+  document.body.classList.toggle('il-perf-active', on);
   // Show/hide auto-scroll bar
   const scrollBar = document.getElementById('ilScrollBar');
   if (scrollBar) scrollBar.classList.toggle('visible', on);
@@ -10935,20 +10959,23 @@ function ilSetPerfMode(on) {
 }
 
 // ── Auto-scroll ───────────────────────────────────────────────────
-var _ilScrollRaf = null;
-var _ilScrollSpeed = 1.0; // px per frame at 60fps: 1.0=~60px/s, 3.0=~180px/s
-var _ilScrollActive = false;
+var _ilScrollRaf      = null;
+var _ilScrollSpeed    = 25;   // px per second (time-based, not frame-based)
+var _ilScrollActive   = false;
+var _ilScrollLastTime = null; // timestamp of previous frame
 
 function ilScrollToggle() {
   _ilScrollActive ? ilScrollStop() : ilScrollStart();
 }
 function ilScrollStart() {
-  _ilScrollActive = true;
+  _ilScrollActive   = true;
+  _ilScrollLastTime = null; // reset so first frame doesn't get a huge delta
   document.getElementById('ilScrollPlayBtn').textContent = '⏹';
-  ilScrollStep();
+  _ilScrollRaf = requestAnimationFrame(ilScrollStep);
 }
 function ilScrollStop() {
-  _ilScrollActive = false;
+  _ilScrollActive   = false;
+  _ilScrollLastTime = null;
   document.getElementById('ilScrollPlayBtn').textContent = '▶';
   if (_ilScrollRaf) { cancelAnimationFrame(_ilScrollRaf); _ilScrollRaf = null; }
 }
@@ -10958,27 +10985,36 @@ function ilGetScrollContainer() {
   if (rtBody && rtBody.offsetParent !== null && rtBody.scrollHeight > rtBody.clientHeight) {
     return rtBody;
   }
-  // Otherwise scroll the main page
-  return null; // null = window
+  return null; // null = use window
 }
-function ilScrollStep() {
+function ilScrollStep(timestamp) {
   if (!_ilScrollActive) return;
+
+  // Calculate exactly how many px to move this frame based on real elapsed time
+  if (_ilScrollLastTime === null) _ilScrollLastTime = timestamp;
+  const elapsed  = Math.min(timestamp - _ilScrollLastTime, 100); // cap at 100ms to handle tab switching
+  _ilScrollLastTime = timestamp;
+  const pxThisFrame = _ilScrollSpeed * (elapsed / 1000);
+
   const container = ilGetScrollContainer();
   if (container) {
-    container.scrollTop += _ilScrollSpeed;
+    container.scrollTop += pxThisFrame;
     const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 4;
     if (atBottom) { ilScrollStop(); return; }
   } else {
-    window.scrollBy(0, _ilScrollSpeed);
+    window.scrollBy(0, pxThisFrame);
     const atBottom = (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 4;
     if (atBottom) { ilScrollStop(); return; }
   }
   _ilScrollRaf = requestAnimationFrame(ilScrollStep);
 }
 function ilScrollSpeedChange(val) {
-  _ilScrollSpeed = parseFloat(val);
+  _ilScrollSpeed = parseFloat(val); // already in px/s — takes effect next frame automatically
   const lbl = document.getElementById('ilScrollSpeedLabel');
-  if (lbl) lbl.textContent = parseFloat(val).toFixed(1).replace(/\.0$/, '');
+  if (lbl) {
+    const speeds = { 10:'Slow', 20:'Slow', 30:'Medium', 40:'Medium', 50:'Fast', 60:'Fast', 80:'Fast' };
+    lbl.textContent = speeds[parseFloat(val)] || '';
+  }
 }
 
 function ilTogglePerfMode() {
@@ -12028,9 +12064,9 @@ document.addEventListener('keydown', function(e) {
 <div id="ilScrollBar">
   <button id="ilScrollPlayBtn" onclick="ilScrollToggle()" title="Auto-scroll">▶</button>
   <span class="il-scroll-label">Scroll</span>
-  <input id="ilScrollSlider" type="range" min="0.2" max="3" step="0.2" value="1"
-    oninput="ilScrollSpeedChange(this.value)" title="Speed">
-  <span class="il-scroll-label" id="ilScrollSpeedLabel">1</span>
+  <input id="ilScrollSlider" type="range" min="10" max="60" step="10" value="25"
+    oninput="ilScrollSpeedChange(this.value)" title="Scroll speed">
+  <span class="il-scroll-label" id="ilScrollSpeedLabel">Slow</span>
 </div>
 
 <!-- ── Run Through Drawer ── -->
