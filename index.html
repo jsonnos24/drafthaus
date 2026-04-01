@@ -2154,6 +2154,7 @@ button, select, input, textarea { touch-action: manipulation; }
     .rt-lyrics { font-size: 18px; }
     .rt-chord-pill { font-size: 14px; padding: 5px 12px; }
     .rt-metro { padding: 8px 12px; gap: 8px; }
+    .rt-metro-scrollable { gap: 8px; }
     .rt-metro-bpm { font-size: 18px; }
   }
 
@@ -3391,21 +3392,41 @@ button, select, input, textarea { touch-action: manipulation; }
 /* Clearance for fixed metronome bar + autoscroll bar (no bottom nav in perf mode) */
 #songViewRunthrough.il-perf-mode { padding-bottom: 160px; }
 
-/* ── Metro bar nav group: hidden inside drawer, visible in perf overlay ── */
-.rt-metro-nav { display: none; gap: 4px; align-items: center; flex-shrink: 0; }
+/* ── Metro bar: only shown in perf mode fixed overlay ────────────── */
+#rtMetroBar { display: none; }
+#rtMetroBar.il-perf-metro { display: flex; }
+
+/* ── Metro bar nav group ─────────────────────────────────────────── */
+.rt-metro-nav { display: none; gap: 4px; align-items: center; }
 .rt-metro-nav-sep { display: none; }
-.rt-metro.il-perf-metro .rt-metro-nav { display: flex; }
-.rt-metro.il-perf-metro .rt-metro-nav-sep { display: block; }
-/* Compact nav-sub-btn sizing inside the metro bar */
-.rt-metro-nav .nav-sub-btn {
-  flex-direction: row; gap: 5px;
-  padding: 5px 10px; border-radius: 7px;
-  font-size: 9px;
+
+/* ── Pinned left column: Editor + Backend icons, never scrolls ────── */
+.rt-metro-pinned {
+  display: none;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding-right: 10px;
+  margin-right: 2px;
+  border-right: 1px solid rgba(255,255,255,0.12);
 }
-/* In perf mode: hide nav button text labels — icons only */
-.rt-metro.il-perf-metro .rt-metro-nav .nav-sub-btn .nav-sub-label,
-.rt-metro.il-perf-metro .rt-metro-nav .nav-sub-btn svg + * { display: none; }
-.rt-metro.il-perf-metro .rt-metro-nav .nav-sub-btn { padding: 5px 8px; }
+.rt-metro.il-perf-metro .rt-metro-pinned { display: flex; }
+.rt-metro.il-perf-metro .rt-metro-nav { display: flex; }
+/* Bigger icon-only buttons in the pinned column */
+.rt-metro-pinned .nav-sub-btn {
+  flex-direction: row; gap: 0;
+  padding: 7px 10px; border-radius: 8px; font-size: 0;
+}
+.rt-metro-pinned .nav-sub-btn svg { width: 18px; height: 18px; }
+
+/* ── Scrollable controls zone: everything to the right of pinned ──── */
+.rt-metro-scrollable {
+  display: flex; align-items: center; gap: 12px;
+  flex: 1; min-width: 0;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.rt-metro-scrollable::-webkit-scrollbar { display: none; }
 
 /* Full metronome row hidden in perf, visible normally */
 .rt-metro-full-row { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
@@ -3460,8 +3481,7 @@ body.il-perf-active #metroNavRunBtn { display: none; }
   padding: 10px 16px;
   justify-content: flex-start;
   flex-wrap: nowrap;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  gap: 10px; /* gap between pinned column and scrollable zone */
 }
 
 /* ── Auto-scroll — inline in metro bar (perf mode only) ─────────── */
@@ -3975,6 +3995,7 @@ function formatDate(ts) {
 
 // ── Views ─────────────────────────────────────────────────────────
 function showList() {
+  ilSetPerfMode(false); // exit perf mode — metro bar should never show on the song list
   document.getElementById('viewList').classList.add('active');
   document.getElementById('viewDetail').classList.remove('active');
   updateStickyBar(null);
@@ -11016,6 +11037,8 @@ function setSongViewMode(mode) {
     rtEl.style.display = 'none';
     beEl.style.display = '';
     if (tabs) tabs.style.display = '';
+    // Exit perf mode when switching away from run-through view
+    ilSetPerfMode(false);
   }
   _syncStickyNavBtns();
 }
@@ -12252,84 +12275,90 @@ document.addEventListener('keydown', function(e) {
     <div class="rt-body-inner" id="rtBodyInner"></div>
   </div>
   <div class="rt-metro" id="rtMetroBar">
-    <!-- Nav group — only visible when metro bar is in perf-mode overlay -->
-    <div class="rt-metro-nav" id="rtMetroNav">
-      <button class="nav-sub-btn nav-sub-run"     id="metroNavRunBtn"     onclick="ilTogglePerfMode()" title="Run Through">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
-      </button>
-      <button class="nav-sub-btn nav-sub-edit"    id="metroNavEditBtn"    onclick="stickyGoEditor()" title="Editor">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-      </button>
-      <button class="nav-sub-btn nav-sub-backend" id="metroNavBackendBtn" onclick="setSongViewMode('backend')" title="Backend">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
-      </button>
-    </div>
-    <div class="rt-msep rt-metro-nav-sep"></div>
 
-    <!-- ── Normal-mode metronome controls (hidden in perf mode) ── -->
-    <div class="rt-metro-full-row" id="rtMetroFullRow">
-      <span class="rt-metro-label">BPM</span>
-      <button class="rt-mbtn" onclick="rtMetroDelta(-1)">−</button>
-      <span class="rt-metro-bpm" id="rtMetroBpmDisplay">120</span>
-      <button class="rt-mbtn" onclick="rtMetroDelta(1)">+</button>
-      <div class="rt-msep"></div>
-      <span class="rt-metro-label">Time</span>
-      <select class="rt-msel" id="rtMetroTimeSel" onchange="rtMetroChangeTime(this.value)">
-        <option value="4">4/4</option>
-        <option value="3">3/4</option>
-      </select>
-      <div class="rt-msep"></div>
-      <div class="rt-mdots" id="rtMetroDots"></div>
-      <button class="rt-mbtn rt-tap" id="rtTapBtn" onclick="rtTapTempo()" title="Tap Tempo">TAP</button>
-      <div class="rt-msep"></div>
+    <!-- ── PINNED LEFT: Editor + Backend icons — never scrolls ── -->
+    <div class="rt-metro-pinned">
+      <div class="rt-metro-nav" id="rtMetroNav">
+        <button class="nav-sub-btn nav-sub-edit"    id="metroNavEditBtn"    onclick="stickyGoEditor()" title="Editor">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="nav-sub-btn nav-sub-backend" id="metroNavBackendBtn" onclick="setSongViewMode('backend')" title="Backend">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+        </button>
+        <!-- Run Through button hidden in perf mode via CSS -->
+        <button class="nav-sub-btn nav-sub-run" id="metroNavRunBtn" onclick="ilTogglePerfMode()" title="Run Through" style="display:none;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
+        </button>
+      </div>
     </div>
 
-    <!-- ── Perf mode: settings gear (opens overlay with BPM / time / tap) ── -->
-    <button class="rt-mbtn rt-perf-only" id="rtMetroSettingsBtn" onclick="rtToggleMetroSettings()" title="Metronome settings">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-      </svg>
-    </button>
+    <!-- ── SCROLLABLE RIGHT: all controls swipe horizontally ── -->
+    <div class="rt-metro-scrollable">
 
-    <!-- Metro play button — always visible; icon changes in perf mode -->
-    <button class="rt-mbtn rt-mplay" id="rtMetroPlayBtn" onclick="rtMetroToggle()">
-      <!-- Default (non-perf): triangle play -->
-      <span class="rt-play-default">▶</span>
-      <!-- Perf mode: metronome icon -->
-      <span class="rt-play-perf">
+      <!-- Normal-mode metronome controls (hidden in perf mode) -->
+      <div class="rt-metro-full-row" id="rtMetroFullRow">
+        <span class="rt-metro-label">BPM</span>
+        <button class="rt-mbtn" onclick="rtMetroDelta(-1)">−</button>
+        <span class="rt-metro-bpm" id="rtMetroBpmDisplay">120</span>
+        <button class="rt-mbtn" onclick="rtMetroDelta(1)">+</button>
+        <div class="rt-msep"></div>
+        <span class="rt-metro-label">Time</span>
+        <select class="rt-msel" id="rtMetroTimeSel" onchange="rtMetroChangeTime(this.value)">
+          <option value="4">4/4</option>
+          <option value="3">3/4</option>
+        </select>
+        <div class="rt-msep"></div>
+        <div class="rt-mdots" id="rtMetroDots"></div>
+        <button class="rt-mbtn rt-tap" id="rtTapBtn" onclick="rtTapTempo()" title="Tap Tempo">TAP</button>
+        <div class="rt-msep"></div>
+      </div>
+
+      <!-- Perf mode: settings gear -->
+      <button class="rt-mbtn rt-perf-only" id="rtMetroSettingsBtn" onclick="rtToggleMetroSettings()" title="Metronome settings">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="6 3 18 3 15 17 9 17"/>
-          <line x1="12" y1="17" x2="12" y2="22"/>
-          <line x1="8" y1="22" x2="16" y2="22"/>
-          <line x1="9" y1="10" x2="15" y2="10"/>
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </svg>
-      </span>
-    </button>
+      </button>
 
-    <!-- Auto-scroll controls (perf mode only, between metro play and tuning fork) -->
-    <div class="rt-metro-scroll">
-      <div class="rt-msep"></div>
-      <button id="ilScrollPlayBtn" onclick="ilScrollToggle()" title="Auto-scroll">▶ Scroll</button>
-      <input id="ilScrollSlider" type="range" min="4" max="60" step="4" value="8"
-        oninput="ilScrollSpeedChange(this.value)" title="Scroll speed">
-      <span class="il-scroll-label" id="ilScrollSpeedLabel">Med</span>
-    </div>
+      <!-- Metro play button (metronome icon in perf mode) -->
+      <button class="rt-mbtn rt-mplay" id="rtMetroPlayBtn" onclick="rtMetroToggle()">
+        <span class="rt-play-default">▶</span>
+        <span class="rt-play-perf">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="6 3 18 3 15 17 9 17"/>
+            <line x1="12" y1="17" x2="12" y2="22"/>
+            <line x1="8" y1="22" x2="16" y2="22"/>
+            <line x1="9" y1="10" x2="15" y2="10"/>
+          </svg>
+        </span>
+      </button>
 
-    <!-- Tuning fork (always visible) -->
-    <button class="rt-mbtn rt-mfork" id="rtMetroForkBtn" onclick="rtForkToggle()" title="Tuning Fork — E2 (82.41 Hz)">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v10"/><path d="M17 3v10"/><path d="M7 13 Q7 20 12 20 Q17 20 17 13"/><line x1="12" y1="20" x2="12" y2="24"/></svg>
-    </button>
+      <!-- Auto-scroll (perf mode only) -->
+      <div class="rt-metro-scroll">
+        <div class="rt-msep"></div>
+        <button id="ilScrollPlayBtn" onclick="ilScrollToggle()" title="Auto-scroll">▶ Scroll</button>
+        <input id="ilScrollSlider" type="range" min="4" max="60" step="4" value="8"
+          oninput="ilScrollSpeedChange(this.value)" title="Scroll speed">
+        <span class="il-scroll-label" id="ilScrollSpeedLabel">Slow</span>
+      </div>
 
-    <!-- Perf-only: Seq play | Chord & Beat Lab | Loop Station -->
-    <div class="rt-msep rt-perf-only"></div>
-    <button class="rt-mbtn rt-perf-only" id="rtSeqPlayBtn" onclick="rtSeqTogglePlay()" title="Seq Play/Stop">▶ Seq</button>
-    <button class="rt-mbtn rt-perf-only" id="rtSeqBtn" onclick="toggleDrawer('seqDrawer',openSeqDrawer,closeSeqDrawer)" title="Chord &amp; Beat Lab">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
-    </button>
-    <button class="rt-mbtn rt-perf-only" id="rtLoopBtn" onclick="toggleDrawer('looperDrawer',openLooperDrawer,closeLooperDrawer)" title="Loop Station">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
-    </button>
+      <!-- Tuning fork -->
+      <button class="rt-mbtn rt-mfork" id="rtMetroForkBtn" onclick="rtForkToggle()" title="Tuning Fork — E2 (82.41 Hz)">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v10"/><path d="M17 3v10"/><path d="M7 13 Q7 20 12 20 Q17 20 17 13"/><line x1="12" y1="20" x2="12" y2="24"/></svg>
+      </button>
+
+      <!-- Perf-only: Seq play | Chord & Beat Lab grid | Loop Station -->
+      <div class="rt-msep rt-perf-only"></div>
+      <button class="rt-mbtn rt-perf-only" id="rtSeqPlayBtn" onclick="rtSeqTogglePlay()" title="Seq Play/Stop">▶ Seq</button>
+      <button class="rt-mbtn rt-perf-only" id="rtSeqBtn" onclick="toggleDrawer('seqDrawer',openSeqDrawer,closeSeqDrawer)" title="Chord &amp; Beat Lab">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
+      </button>
+      <button class="rt-mbtn rt-perf-only" id="rtLoopBtn" onclick="toggleDrawer('looperDrawer',openLooperDrawer,closeLooperDrawer)" title="Loop Station">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+
+    </div><!-- /.rt-metro-scrollable -->
   </div>
 </div>
 
