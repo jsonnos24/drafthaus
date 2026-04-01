@@ -7147,7 +7147,7 @@ async function fetchFullSongFromSheet(id) {
   try {
     const doc = await db.collection('songs').doc(id).get();
     if (!doc.exists) return null;
-    const full = { ...doc.data(), _fromSheet: false };
+    const full = normalizeLoadedSong({ ...doc.data(), _fromSheet: false });
     const idx = songs.findIndex(x => x.id === id);
     if (idx >= 0) songs[idx] = full;
     else songs.unshift(full);
@@ -7165,6 +7165,23 @@ function sanitizeForFirestore(val) {
     if (v === Infinity || v === -Infinity) return null;
     return v;                           // undefined keys are dropped by JSON.stringify
   }));
+}
+
+// Firestore doesn't support nested arrays (e.g. beats: string[][]).
+// Encode instruments as a JSON string before writing; decode on load.
+function encodeInstrumentsForFirestore(instruments) {
+  try { return JSON.stringify(instruments || {}); } catch(e) { return '{}'; }
+}
+function decodeInstrumentsFromFirestore(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw; // already decoded (old docs)
+  try { return JSON.parse(raw); } catch(e) { return {}; }
+}
+
+// Normalise a song object freshly loaded from Firestore
+function normalizeLoadedSong(s) {
+  s.instruments = decodeInstrumentsFromFirestore(s.instruments);
+  return s;
 }
 
 async function syncToSheet(song) {
@@ -7188,7 +7205,7 @@ async function syncToSheet(song) {
       notes:          song.notes          || '',
       generalNotes:   song.generalNotes   || '',
       moods:          song.moods          || [],
-      instruments:    song.instruments    || {},
+      instruments:    encodeInstrumentsForFirestore(song.instruments),
       sequencer:      song.sequencer      || {},
       lyrics:         song.lyrics         || {},
       chordPositions: song.chordPositions || {},
@@ -8502,7 +8519,7 @@ function startSyncPolling() {
 
   const handleSnapshot = snapshot => {
     snapshot.docChanges().forEach(change => {
-      const s = { ...change.doc.data(), _fromSheet: false };
+      const s = normalizeLoadedSong({ ...change.doc.data(), _fromSheet: false });
       if (change.type === 'added' || change.type === 'modified') {
         const remoteTs = s.updatedAt || 0;
         const idx = songs.findIndex(x => x.id === s.id);
@@ -8574,7 +8591,7 @@ async function loadSongsFromSheet() {
 
     const fsIds = new Set();
     allDocs.forEach(doc => {
-      const s = { ...doc.data(), _fromSheet: false };
+      const s = normalizeLoadedSong({ ...doc.data(), _fromSheet: false });
       fsIds.add(s.id);
       const idx = songs.findIndex(x => x.id === s.id);
       if (idx >= 0) songs[idx] = s;
