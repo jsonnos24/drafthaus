@@ -3188,19 +3188,59 @@ button, select, input, textarea { touch-action: manipulation; }
 
 /* Larger, more readable lyrics */
 #songViewRunthrough.il-perf-mode .il-cc-syl {
-  font-size: 26px; font-weight: 400; line-height: 1.3;
+  font-size: 24px; font-weight: 400; line-height: 1.2;
 }
-/* More breathing room between lines */
-#songViewRunthrough.il-perf-mode .il-cc-line { margin-bottom: 28px; }
-#songViewRunthrough.il-perf-mode .il-cc-blank-line { height: 14px; }
+/* Compact line spacing */
+#songViewRunthrough.il-perf-mode .il-cc-line { margin-bottom: 12px; }
+#songViewRunthrough.il-perf-mode .il-cc-blank-line { height: 8px; }
 /* Tighter syllable spacing so words read as one unit */
-#songViewRunthrough.il-perf-mode .il-cc-word-col { padding: 2px 0 0; }
-#songViewRunthrough.il-perf-mode .il-cc-word-group { margin-right: 18px; }
-/* Section spacing */
-#songViewRunthrough.il-perf-mode .il-part { margin-bottom: 56px; }
+#songViewRunthrough.il-perf-mode .il-cc-word-col { padding: 1px 0 0; }
+#songViewRunthrough.il-perf-mode .il-cc-word-group { margin-right: 16px; }
+/* Compact section spacing */
+#songViewRunthrough.il-perf-mode .il-part { margin-bottom: 24px; }
 /* No chart area gap since palette is gone */
-#songViewRunthrough.il-perf-mode .il-chart-area-row { margin-top: 4px; }
+#songViewRunthrough.il-perf-mode .il-chart-area-row { margin-top: 2px; }
+/* Compact section label */
+#songViewRunthrough.il-perf-mode .il-part-side { padding-top: 0; }
+/* Auto-scroll bar clearance */
+#songViewRunthrough.il-perf-mode { padding-bottom: 100px; }
 
+/* ── Auto-scroll bar (performance mode) ────────────────────────── */
+#ilScrollBar {
+  display: none;
+  position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%);
+  background: rgba(18,18,18,0.96); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 40px; padding: 8px 16px;
+  display: none; align-items: center; gap: 12px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  z-index: 900; backdrop-filter: blur(8px);
+  white-space: nowrap;
+}
+#ilScrollBar.visible { display: flex; }
+#ilScrollPlayBtn {
+  background: none; border: none; cursor: pointer;
+  font-size: 18px; line-height: 1; padding: 0 2px;
+  color: #39ff14; transition: opacity 0.15s;
+}
+#ilScrollPlayBtn:hover { opacity: 0.75; }
+.il-scroll-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--faint);
+}
+#ilScrollSlider {
+  -webkit-appearance: none; appearance: none;
+  width: 90px; height: 3px; border-radius: 2px;
+  background: rgba(255,255,255,0.15); outline: none; cursor: pointer;
+}
+#ilScrollSlider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #39ff14; cursor: pointer;
+}
+#ilScrollSlider::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #39ff14; cursor: pointer; border: none;
+}
 /* ── Editor mode: button style when perf is active ─────────────── */
 .il-perf-toggle-btn { margin-right: 6px; }
 .il-perf-toggle-btn.perf-mode-active {
@@ -10586,9 +10626,56 @@ function ilSetPerfMode(on) {
   // Hide view buttons row entirely in perf mode
   const viewBtns = document.querySelector('.il-view-btns');
   if (viewBtns) viewBtns.style.display = on ? 'none' : '';
+  // Show/hide auto-scroll bar
+  const scrollBar = document.getElementById('ilScrollBar');
+  if (scrollBar) scrollBar.classList.toggle('visible', on);
+  // Stop scrolling when leaving perf mode
+  if (!on) ilScrollStop();
+}
+
+// ── Auto-scroll ───────────────────────────────────────────────────
+var _ilScrollRaf = null;
+var _ilScrollSpeed = 3; // 1–10
+var _ilScrollActive = false;
+
+function ilScrollToggle() {
+  _ilScrollActive ? ilScrollStop() : ilScrollStart();
+}
+function ilScrollStart() {
+  _ilScrollActive = true;
+  document.getElementById('ilScrollPlayBtn').textContent = '⏹';
+  ilScrollStep();
+}
+function ilScrollStop() {
+  _ilScrollActive = false;
+  document.getElementById('ilScrollPlayBtn').textContent = '▶';
+  if (_ilScrollRaf) { cancelAnimationFrame(_ilScrollRaf); _ilScrollRaf = null; }
+}
+function ilScrollStep() {
+  if (!_ilScrollActive) return;
+  // px per frame — speed 1=0.3px, speed 10=3px
+  window.scrollBy(0, _ilScrollSpeed * 0.3);
+  // Stop at bottom
+  const atBottom = (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 4;
+  if (atBottom) { ilScrollStop(); return; }
+  _ilScrollRaf = requestAnimationFrame(ilScrollStep);
+}
+function ilScrollSpeedChange(val) {
+  _ilScrollSpeed = parseInt(val);
+  const lbl = document.getElementById('ilScrollSpeedLabel');
+  if (lbl) lbl.textContent = val;
 }
 
 function ilTogglePerfMode() {
+  // If we're in backend, switch to the editor view first, then enter perf mode
+  if (window._songViewMode !== 'runthrough') {
+    setSongViewMode('runthrough');
+    const song = getCurrentSong();
+    if (song) ilInitAndRender(song);
+    // ilInitAndRender calls ilSetPerfMode(false), so now activate perf
+    ilSetPerfMode(true);
+    return;
+  }
   ilSetPerfMode(!window._ilPerfMode);
 }
 
@@ -11528,6 +11615,15 @@ document.addEventListener('keydown', function(e) {
       Open a song to use the sequencer
     </div>
   </div>
+</div>
+
+<!-- ── Auto-scroll bar ── -->
+<div id="ilScrollBar">
+  <button id="ilScrollPlayBtn" onclick="ilScrollToggle()" title="Auto-scroll">▶</button>
+  <span class="il-scroll-label">Scroll</span>
+  <input id="ilScrollSlider" type="range" min="1" max="10" value="3"
+    oninput="ilScrollSpeedChange(this.value)" title="Speed">
+  <span class="il-scroll-label" id="ilScrollSpeedLabel">3</span>
 </div>
 
 <!-- ── Run Through Drawer ── -->
