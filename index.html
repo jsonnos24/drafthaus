@@ -3058,33 +3058,37 @@ button, select, input, textarea { touch-action: manipulation; }
 }
 .il-part-notes::placeholder { color: var(--border2); }
 .il-part-notes:focus { border-bottom-color: var(--gold); }
-/* Chord tray */
-.il-chord-tray-wrap { margin: 12px 0 4px; }
-.il-tray-label {
-  font-family: 'IBM Plex Mono', monospace; font-size: 10px; text-transform: uppercase;
-  letter-spacing: 0.1em; color: var(--faint); margin-bottom: 6px;
+/* Chart + palette row layout */
+.il-chart-area-row {
+  display: flex; gap: 20px; align-items: flex-start; margin-top: 8px;
 }
-.il-chord-tray {
-  display: flex; flex-wrap: wrap; gap: 8px;
-  min-height: 38px; padding: 8px 10px;
-  border: 1px dashed rgba(245,166,35,0.18); border-radius: 8px;
-  background: rgba(0,0,0,0.15); transition: border-color 0.15s, background 0.15s;
+.il-chart-area { flex: 1; min-width: 0; }
+/* Key chord palette (right side) */
+.il-chord-palette {
+  flex-shrink: 0; width: 80px;
+  display: flex; flex-direction: column; gap: 6px;
+  position: sticky; top: 80px;
 }
-.il-chord-tray.dragover {
-  border-color: rgba(245,166,35,0.55); background: rgba(245,166,35,0.04);
+.il-palette-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--faint);
+  margin-bottom: 2px;
 }
-.il-tray-pill {
-  font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 700;
+.il-palette-pill {
+  font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 700;
   color: var(--gold); background: var(--card); border: 1px solid var(--border);
-  border-radius: 6px; padding: 4px 10px 4px 13px;
-  display: inline-flex; align-items: center; gap: 6px;
-  cursor: grab; transition: opacity 0.15s, border-color 0.12s;
+  border-radius: 6px; padding: 5px 8px; text-align: center;
+  cursor: grab; user-select: none;
+  transition: opacity 0.15s, border-color 0.12s, background 0.12s;
 }
-.il-tray-pill:active { cursor: grabbing; }
-.il-tray-pill.dragging { opacity: 0.35; }
-.il-tray-empty {
-  font-size: 12px; color: var(--faint); font-style: italic; align-self: center;
+.il-palette-pill:hover { border-color: var(--gold); background: rgba(245,166,35,0.06); }
+.il-palette-pill:active { cursor: grabbing; }
+.il-palette-pill.dragging { opacity: 0.35; }
+.il-palette-empty {
+  font-size: 11px; color: var(--faint); font-style: italic; line-height: 1.4;
 }
+/* Legacy tray styles (kept for any remaining references) */
+.il-chord-tray-wrap { display: none; }
 .il-chord-x {
   background: none; border: none; color: rgba(245,166,35,0.35);
   font-size: 11px; cursor: pointer; padding: 0 2px; line-height: 1;
@@ -7820,6 +7824,67 @@ window.saveRunThroughEdits = function(songId, lyricsMap, newPartIds) {
   return true;
 };
 
+// ── Key → diatonic chords lookup ──────────────────────────────────
+const KEY_CHORDS = {
+  'C':  ['C','Dm','Em','F','G','Am','Bdim'],
+  'G':  ['G','Am','Bm','C','D','Em','F#dim'],
+  'D':  ['D','Em','F#m','G','A','Bm','C#dim'],
+  'A':  ['A','Bm','C#m','D','E','F#m','G#dim'],
+  'E':  ['E','F#m','G#m','A','B','C#m','D#dim'],
+  'B':  ['B','C#m','D#m','E','F#','G#m','A#dim'],
+  'F#': ['F#','G#m','A#m','B','C#','D#m','E#dim'],
+  'F':  ['F','Gm','Am','Bb','C','Dm','Edim'],
+  'Bb': ['Bb','Cm','Dm','Eb','F','Gm','Adim'],
+  'Eb': ['Eb','Fm','Gm','Ab','Bb','Cm','Ddim'],
+  'Ab': ['Ab','Bbm','Cm','Db','Eb','Fm','Gdim'],
+  'Db': ['Db','Ebm','Fm','Gb','Ab','Bbm','Cdim'],
+  'Gb': ['Gb','Abm','Bbm','Cb','Db','Ebm','Fdim'],
+  'Am': ['Am','Bdim','C','Dm','Em','F','G'],
+  'Em': ['Em','F#dim','G','Am','Bm','C','D'],
+  'Bm': ['Bm','C#dim','D','Em','F#m','G','A'],
+  'F#m':['F#m','G#dim','A','Bm','C#m','D','E'],
+  'C#m':['C#m','D#dim','E','F#m','G#m','A','B'],
+  'G#m':['G#m','A#dim','B','C#m','D#m','E','F#'],
+  'D#m':['D#m','E#dim','F#','G#m','A#m','B','C#'],
+  'Dm': ['Dm','Edim','F','Gm','Am','Bb','C'],
+  'Gm': ['Gm','Adim','Bb','Cm','Dm','Eb','F'],
+  'Cm': ['Cm','Ddim','Eb','Fm','Gm','Ab','Bb'],
+  'Fm': ['Fm','Gdim','Ab','Bbm','Cm','Db','Eb'],
+};
+
+function ilGetKeyChords(key) {
+  if (!key) return [];
+  // song.key is stored as e.g. "C major", "C# / Db major", "A minor", "F# / Gb minor"
+  // Parse: take the first token before space, plus "minor"/"major" suffix
+  const lower = key.toLowerCase();
+  const isMinor = lower.includes('minor');
+  // Extract root note: first part before space or '/'
+  const root = key.split(/[\s/]/)[0].trim();
+  // For enharmonics like "C# / Db", try both C# and Db
+  const altRoot = key.includes('/') ? key.split('/')[1].trim().split(' ')[0].trim() : null;
+  const suffix = isMinor ? 'm' : '';
+  const candidates = [root + suffix, altRoot ? altRoot + suffix : null].filter(Boolean);
+  for (const c of candidates) {
+    if (KEY_CHORDS[c]) return KEY_CHORDS[c];
+    // Also try case-insensitive
+    const match = Object.keys(KEY_CHORDS).find(k => k.toLowerCase() === c.toLowerCase());
+    if (match) return KEY_CHORDS[match];
+  }
+  return [];
+}
+
+function ilRenderPaletteHtml(partId, song) {
+  const key = song?.key || '';
+  const chords = ilGetKeyChords(key);
+  if (!chords.length) {
+    return `<span class="il-palette-empty">Set song key in Backend</span>`;
+  }
+  return chords.map(c =>
+    `<span class="il-palette-pill" draggable="true" data-part="${partId}" data-chord="${esc(c)}"
+      ondragstart="ilTrayChordDragStart(event)">${esc(c)}</span>`
+  ).join('');
+}
+
 // ── Run Through Drawer ─────────────────────────────────────────────
 var rtActiveParts = [];
 var rtAddedParts  = [];
@@ -10489,10 +10554,11 @@ function ilRenderBody(song) {
 }
 
 function ilMakePartHtml(part, song) {
-  const notes    = song?.structure?.[part.id]?.notes || '';
-  const trayHtml = ilRenderTrayHtml(part.id);
-  const chartHtml= ilRenderChordChartHtml(part.id);
-  const lyricRaw = rtLyricEdits[part.id] || '';
+  const notes      = song?.structure?.[part.id]?.notes || '';
+  const chartHtml  = ilRenderChordChartHtml(part.id);
+  const paletteHtml= ilRenderPaletteHtml(part.id, song);
+  const lyricRaw   = rtLyricEdits[part.id] || '';
+  const key        = song?.key || '';
   return `<div class="il-part" id="ilpart-${part.id}">
     <div class="il-part-side">
       <span class="il-part-dot" style="background:${part.color}"></span>
@@ -10501,19 +10567,20 @@ function ilMakePartHtml(part, song) {
     <div class="il-part-main">
       <input class="il-part-notes" placeholder="Section notes…" value="${esc(notes)}"
         data-il-notes="${part.id}" oninput="ilNotesChanged('${part.id}', this.value)">
-      <div class="il-chord-tray-wrap">
-        <div class="il-tray-label">Chord tray — drag onto words below</div>
-        <div class="il-chord-tray" id="iltray-${part.id}"
-          ondragover="ilTrayDragOver(event,'${part.id}')"
-          ondragleave="ilTrayDragLeave(event,'${part.id}')"
-          ondrop="ilTrayDrop(event,'${part.id}')">${trayHtml}</div>
-      </div>
-      <div id="ilccwrap-${part.id}">${chartHtml}</div>
-      <div class="il-lyrics-edit-wrap" id="illyricswrap-${part.id}">
-        <button class="il-lyrics-edit-toggle-btn" id="illyricstoggle-${part.id}"
-          onclick="ilToggleLyricsEdit('${part.id}')">✏ Edit lyrics</button>
-        <textarea class="il-lyrics-raw" id="illyricsedit-${part.id}" style="display:none"
-          oninput="ilLyricsRawEdit('${part.id}',this)">${esc(lyricRaw)}</textarea>
+      <div class="il-chart-area-row">
+        <div class="il-chart-area">
+          <div id="ilccwrap-${part.id}">${chartHtml}</div>
+          <div class="il-lyrics-edit-wrap" id="illyricswrap-${part.id}">
+            <button class="il-lyrics-edit-toggle-btn" id="illyricstoggle-${part.id}"
+              onclick="ilToggleLyricsEdit('${part.id}')">✏ Edit lyrics</button>
+            <textarea class="il-lyrics-raw" id="illyricsedit-${part.id}" style="display:none"
+              oninput="ilLyricsRawEdit('${part.id}',this)">${esc(lyricRaw)}</textarea>
+          </div>
+        </div>
+        <div class="il-chord-palette" id="ilpalette-${part.id}">
+          <div class="il-palette-label">${key ? esc(key) : 'Key chords'}</div>
+          ${paletteHtml}
+        </div>
       </div>
     </div>
   </div>`;
@@ -10624,8 +10691,6 @@ function ilBuildAddOptions() {
 
 // ── Refresh helpers ───────────────────────────────────────────────
 function ilRefreshPartView(partId) {
-  const trayEl = document.getElementById('iltray-' + partId);
-  if (trayEl) trayEl.innerHTML = ilRenderTrayHtml(partId);
   const chartWrap = document.getElementById('ilccwrap-' + partId);
   if (chartWrap) chartWrap.innerHTML = ilRenderChordChartHtml(partId);
 }
