@@ -7158,22 +7158,31 @@ async function fetchFullSongFromSheet(id) {
   }
 }
 
+// Strip undefined/NaN/Infinity so Firestore never rejects the payload
+function sanitizeForFirestore(val) {
+  return JSON.parse(JSON.stringify(val, (k, v) => {
+    if (v !== v) return null;           // NaN → null
+    if (v === Infinity || v === -Infinity) return null;
+    return v;                           // undefined keys are dropped by JSON.stringify
+  }));
+}
+
 async function syncToSheet(song) {
   _lastKnownTimestamps[song.id] = song.updatedAt || Date.now();
   try {
     const uid = auth.currentUser?.uid;
     markPendingSync(song.id);
-    await db.collection('songs').doc(song.id).set({
-      id:           song.id,
-      ownerId:      song.ownerId      || uid,
-      sharedWith:   song.sharedWith   || [],
-      project:      song.project      || '',
-      workingTitle: song.workingTitle || '',
-      title:        song.title        || '',
-      bpm:          song.bpm          || '',
-      key:          song.key          || '',
-      tuning:       song.tuning       || '',
-      status:       song.status       || 'idea',
+    const payload = sanitizeForFirestore({
+      id:             song.id,
+      ownerId:        song.ownerId        || uid,
+      sharedWith:     song.sharedWith     || [],
+      project:        song.project        || '',
+      workingTitle:   song.workingTitle   || '',
+      title:          song.title          || '',
+      bpm:            song.bpm            || '',
+      key:            song.key            || '',
+      tuning:         song.tuning         || '',
+      status:         song.status         || 'idea',
       structure:      song.structure      || {},
       chords:         song.chords         || {},
       notes:          song.notes          || '',
@@ -7183,9 +7192,10 @@ async function syncToSheet(song) {
       sequencer:      song.sequencer      || {},
       lyrics:         song.lyrics         || {},
       chordPositions: song.chordPositions || {},
-      updatedAt:    song.updatedAt    || Date.now(),
-      createdAt:    song.createdAt    || Date.now(),
+      updatedAt:      song.updatedAt      || Date.now(),
+      createdAt:      song.createdAt      || Date.now(),
     });
+    await db.collection('songs').doc(song.id).set(payload);
     clearPendingSync(song.id);
     setSyncStatus('saved', 'Saved ✓');
     setTimeout(() => setSyncStatus('', '—'), 8000);
