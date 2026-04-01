@@ -3205,15 +3205,28 @@ button, select, input, textarea { touch-action: manipulation; }
 /* Auto-scroll bar clearance */
 #songViewRunthrough.il-perf-mode { padding-bottom: 100px; }
 
+/* ── Metro bar lifted into perf mode ───────────────────────────── */
+.rt-metro.il-perf-metro {
+  position: fixed;
+  bottom: 116px; /* above scroll bar + bottom nav */
+  left: 50%; transform: translateX(-50%);
+  width: auto; max-width: 520px;
+  border-radius: 40px;
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  z-index: 901;
+  padding: 8px 20px;
+  justify-content: center;
+}
+
 /* ── Auto-scroll bar (performance mode) ────────────────────────── */
 #ilScrollBar {
-  display: none;
   position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%);
-  background: rgba(18,18,18,0.96); border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 40px; padding: 8px 16px;
-  display: none; align-items: center; gap: 12px;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
-  z-index: 900; backdrop-filter: blur(8px);
+  background: rgba(12,12,14,0.97); border: 1px solid rgba(57,255,20,0.35);
+  border-radius: 40px; padding: 9px 20px;
+  display: none; align-items: center; gap: 14px;
+  box-shadow: 0 4px 28px rgba(0,0,0,0.6), 0 0 12px rgba(57,255,20,0.08);
+  z-index: 900; backdrop-filter: blur(10px);
   white-space: nowrap;
 }
 #ilScrollBar.visible { display: flex; }
@@ -3225,17 +3238,19 @@ button, select, input, textarea { touch-action: manipulation; }
 #ilScrollPlayBtn:hover { opacity: 0.75; }
 .il-scroll-label {
   font-family: 'IBM Plex Mono', monospace; font-size: 10px;
-  text-transform: uppercase; letter-spacing: 0.1em; color: var(--faint);
+  text-transform: uppercase; letter-spacing: 0.12em; color: #39ff14;
 }
+#ilScrollSpeedLabel { min-width: 2.5ch; text-align: left; }
 #ilScrollSlider {
   -webkit-appearance: none; appearance: none;
-  width: 90px; height: 3px; border-radius: 2px;
-  background: rgba(255,255,255,0.15); outline: none; cursor: pointer;
+  width: 100px; height: 3px; border-radius: 2px;
+  background: rgba(57,255,20,0.2); outline: none; cursor: pointer;
 }
 #ilScrollSlider::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 14px; height: 14px; border-radius: 50%;
   background: #39ff14; cursor: pointer;
+  box-shadow: 0 0 6px rgba(57,255,20,0.5);
 }
 #ilScrollSlider::-moz-range-thumb {
   width: 14px; height: 14px; border-radius: 50%;
@@ -3316,20 +3331,21 @@ button, select, input, textarea { touch-action: manipulation; }
 }
 /* Backend button */
 .il-view-btn--backend {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.25);
-  color: rgba(255,255,255,0.75);
+  background: rgba(245,166,35,0.08);
+  border: 1px solid rgba(245,166,35,0.5);
+  color: var(--gold);
+  box-shadow: 0 0 10px rgba(245,166,35,0.2), inset 0 0 8px rgba(245,166,35,0.05);
 }
 .il-view-btn--backend:hover {
-  background: rgba(255,255,255,0.1);
-  border-color: rgba(255,255,255,0.5);
-  color: #fff;
+  background: rgba(245,166,35,0.15);
+  border-color: var(--gold);
+  box-shadow: 0 0 16px rgba(245,166,35,0.35), inset 0 0 10px rgba(245,166,35,0.08);
 }
 .il-view-btn--backend.backend-mode {
-  background: rgba(245,166,35,0.1);
-  border-color: rgba(245,166,35,0.6);
+  background: rgba(245,166,35,0.18);
+  border-color: var(--gold);
   color: var(--gold);
-  box-shadow: 0 0 8px rgba(245,166,35,0.2);
+  box-shadow: 0 0 20px rgba(245,166,35,0.45), inset 0 0 12px rgba(245,166,35,0.1);
 }
 /* Legacy sticky bar button (keep for safety, hidden) */
 .song-view-toggle-btn { display: none; }
@@ -10631,11 +10647,27 @@ function ilSetPerfMode(on) {
   if (scrollBar) scrollBar.classList.toggle('visible', on);
   // Stop scrolling when leaving perf mode
   if (!on) ilScrollStop();
+  // Move metro bar into/out of the perf overlay
+  const metro  = document.getElementById('rtMetroBar');
+  const drawer = document.getElementById('runThroughDrawer');
+  if (metro && drawer) {
+    if (on) {
+      // Lift it out of the drawer, park it as a fixed overlay
+      document.body.appendChild(metro);
+      metro.classList.add('il-perf-metro');
+    } else {
+      // Put it back in the drawer
+      metro.classList.remove('il-perf-metro');
+      drawer.appendChild(metro);
+      // Stop metro if it was running
+      if (rtMetroRunning) rtMetroToggle();
+    }
+  }
 }
 
 // ── Auto-scroll ───────────────────────────────────────────────────
 var _ilScrollRaf = null;
-var _ilScrollSpeed = 3; // 1–10
+var _ilScrollSpeed = 0.5; // 0.25–3 in 0.25 steps
 var _ilScrollActive = false;
 
 function ilScrollToggle() {
@@ -10653,17 +10685,17 @@ function ilScrollStop() {
 }
 function ilScrollStep() {
   if (!_ilScrollActive) return;
-  // px per frame — speed 1=0.3px, speed 10=3px
-  window.scrollBy(0, _ilScrollSpeed * 0.3);
+  // px per frame — 0.25 = ~15px/sec, 1.0 = ~60px/sec, 3.0 = ~180px/sec
+  window.scrollBy(0, _ilScrollSpeed);
   // Stop at bottom
   const atBottom = (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 4;
   if (atBottom) { ilScrollStop(); return; }
   _ilScrollRaf = requestAnimationFrame(ilScrollStep);
 }
 function ilScrollSpeedChange(val) {
-  _ilScrollSpeed = parseInt(val);
+  _ilScrollSpeed = parseFloat(val);
   const lbl = document.getElementById('ilScrollSpeedLabel');
-  if (lbl) lbl.textContent = val;
+  if (lbl) lbl.textContent = parseFloat(val).toFixed(2).replace(/\.?0+$/, '');
 }
 
 function ilTogglePerfMode() {
@@ -11621,9 +11653,9 @@ document.addEventListener('keydown', function(e) {
 <div id="ilScrollBar">
   <button id="ilScrollPlayBtn" onclick="ilScrollToggle()" title="Auto-scroll">▶</button>
   <span class="il-scroll-label">Scroll</span>
-  <input id="ilScrollSlider" type="range" min="1" max="10" value="3"
+  <input id="ilScrollSlider" type="range" min="0.25" max="3" step="0.25" value="0.5"
     oninput="ilScrollSpeedChange(this.value)" title="Speed">
-  <span class="il-scroll-label" id="ilScrollSpeedLabel">3</span>
+  <span class="il-scroll-label" id="ilScrollSpeedLabel">0.5</span>
 </div>
 
 <!-- ── Run Through Drawer ── -->
