@@ -3249,38 +3249,50 @@ button, select, input, textarea { touch-action: manipulation; }
 }
 .il-add-sel:hover, .il-add-sel:focus { outline: none; border-color: rgba(245,166,35,0.6); color: var(--gold); }
 .il-add-sel option { background: var(--card); color: var(--text); }
-/* View toggle buttons */
-.song-view-toggle-btn {
-  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+/* ── View mode buttons (under song title) ─────────────────────────── */
+.il-view-btns {
+  display: flex; gap: 10px; margin: 14px 0 28px;
+}
+.il-view-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase;
-  padding: 6px 14px; border-radius: 6px; cursor: pointer;
-  white-space: nowrap; transition: all 0.15s; flex-shrink: 0;
+  padding: 8px 18px; border-radius: 7px; cursor: pointer;
+  white-space: nowrap; transition: all 0.15s;
 }
-/* Run Through / Editor toggle — subtle */
-.il-perf-toggle-btn {
-  border: 1px solid var(--border2); background: transparent; color: var(--muted);
+/* Run Through button */
+.il-view-btn--perf {
+  background: transparent;
+  border: 1px solid rgba(57,255,20,0.35);
+  color: #39ff14;
 }
-.il-perf-toggle-btn:hover { border-color: var(--gold); color: var(--gold); }
-.il-perf-toggle-btn.perf-mode-active {
-  background: rgba(245,166,35,0.08); border-color: rgba(245,166,35,0.4); color: var(--gold);
+.il-view-btn--perf:hover {
+  background: rgba(57,255,20,0.08);
+  border-color: rgba(57,255,20,0.7);
 }
-/* Backend button — more pronounced */
-#songViewToggleBtn {
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.22);
-  color: var(--text);
+.il-view-btn--perf.perf-mode-active {
+  background: rgba(57,255,20,0.1);
+  border-color: #39ff14;
+  box-shadow: 0 0 8px rgba(57,255,20,0.25);
 }
-#songViewToggleBtn:hover {
-  background: rgba(255,255,255,0.12);
-  border-color: rgba(255,255,255,0.4);
+/* Backend button */
+.il-view-btn--backend {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.25);
+  color: rgba(255,255,255,0.75);
+}
+.il-view-btn--backend:hover {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.5);
   color: #fff;
 }
-#songViewToggleBtn.backend-mode {
-  background: rgba(245,166,35,0.12);
-  border-color: rgba(245,166,35,0.55);
+.il-view-btn--backend.backend-mode {
+  background: rgba(245,166,35,0.1);
+  border-color: rgba(245,166,35,0.6);
   color: var(--gold);
-  box-shadow: 0 0 0 1px rgba(245,166,35,0.2);
+  box-shadow: 0 0 8px rgba(245,166,35,0.2);
 }
+/* Legacy sticky bar button (keep for safety, hidden) */
+.song-view-toggle-btn { display: none; }
 @media(max-width:700px) {
   #songViewRunthrough { padding: 20px 0 120px; }
   .il-song-title { font-size: 28px; }
@@ -3435,8 +3447,6 @@ button, select, input, textarea { touch-action: manipulation; }
         <span class="bar-chip" id="stickyBpm"></span>
         <span class="bar-chip" id="stickyStatus"></span>
       </div>
-      <button class="song-view-toggle-btn il-perf-toggle-btn" id="ilPerfToggleBtn" onclick="ilTogglePerfMode()" style="display:none;">▶ Run Through</button>
-      <button class="song-view-toggle-btn" id="songViewToggleBtn" onclick="toggleSongViewMode()">⚙ Backend</button>
     </div>
     <div class="detail-body" style="position:relative;">
       <div class="song-load-overlay" id="songLoadOverlay">
@@ -10522,26 +10532,25 @@ window._songViewMode = 'runthrough'; // 'runthrough' | 'backend'
 
 function setSongViewMode(mode) {
   window._songViewMode = mode;
-  const rtEl      = document.getElementById('songViewRunthrough');
-  const beEl      = document.getElementById('songViewBackend');
-  const btn       = document.getElementById('songViewToggleBtn');
-  const perfBtn   = document.getElementById('ilPerfToggleBtn');
-  const tabs      = document.getElementById('detailTabs');
+  const rtEl  = document.getElementById('songViewRunthrough');
+  const beEl  = document.getElementById('songViewBackend');
+  const tabs  = document.getElementById('detailTabs');
   if (!rtEl || !beEl) return;
   if (mode === 'runthrough') {
     rtEl.style.display = '';
     beEl.style.display = 'none';
-    if (btn) { btn.textContent = '⚙ Backend'; btn.classList.remove('backend-mode'); }
-    // Show the Editor/Run Through toggle only in this view
-    if (perfBtn) perfBtn.style.display = '';
     // Reset perf mode when coming back from backend
     ilSetPerfMode(false);
   } else {
     rtEl.style.display = 'none';
     beEl.style.display = '';
-    if (btn) { btn.textContent = '↩ Editor'; btn.classList.add('backend-mode'); }
     if (tabs) tabs.style.display = '';
-    if (perfBtn) perfBtn.style.display = 'none';
+  }
+  // Update backend button label wherever it lives (it's inside rendered HTML)
+  const btn = document.getElementById('songViewToggleBtn');
+  if (btn) {
+    btn.textContent = mode === 'runthrough' ? '⚙ Backend' : '↩ Editor';
+    btn.classList.toggle('backend-mode', mode !== 'runthrough');
   }
 }
 
@@ -10569,11 +10578,14 @@ function ilSetPerfMode(on) {
   if (navIcon)  navIcon.textContent  = on ? '✕' : '▶';
   if (navLabel) navLabel.textContent = on ? 'Editor' : 'Run Through';
   if (navBtn)   navBtn.classList.toggle('perf-active', on);
-  // Keep the top bar button in sync too
+  // Keep the inline button in sync
   if (topBtn) {
     topBtn.textContent = on ? '← Editor' : '▶ Run Through';
     topBtn.classList.toggle('perf-mode-active', on);
   }
+  // Hide view buttons row entirely in perf mode
+  const viewBtns = document.querySelector('.il-view-btns');
+  if (viewBtns) viewBtns.style.display = on ? 'none' : '';
 }
 
 function ilTogglePerfMode() {
@@ -10643,6 +10655,10 @@ function ilRenderBody(song) {
   inner.innerHTML = `
     ${working}<h1 class="il-song-title">${title}</h1>
     <div class="il-meta">${keyChip}${bpmChip}</div>
+    <div class="il-view-btns">
+      <button class="il-view-btn il-view-btn--perf" id="ilPerfToggleBtn" onclick="ilTogglePerfMode()">▶ Run Through</button>
+      <button class="il-view-btn il-view-btn--backend" id="songViewToggleBtn" onclick="toggleSongViewMode()">⚙ Backend</button>
+    </div>
     ${partsHtml}
     <div class="il-add-wrap" id="ilAddWrap">
       <select class="il-add-sel" id="ilAddSel" onchange="ilAddSection(this)">${addSelHtml}</select>
