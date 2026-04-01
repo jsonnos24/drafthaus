@@ -3425,8 +3425,28 @@ button, select, input, textarea { touch-action: manipulation; }
   flex: 1; min-width: 0;
   overflow-x: auto; -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  /* Fade-out right edge — signals more content beyond */
+  -webkit-mask-image: linear-gradient(to right, black 70%, transparent 100%);
+  mask-image: linear-gradient(to right, black 70%, transparent 100%);
+  transition: mask-image 0.3s, -webkit-mask-image 0.3s;
 }
 .rt-metro-scrollable::-webkit-scrollbar { display: none; }
+/* When scrolled to end, fade left edge instead */
+.rt-metro-scrollable.scroll-end {
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 15%);
+  mask-image: linear-gradient(to right, transparent 0%, black 15%);
+}
+/* Jiggle keyframes — one-time nudge revealing hidden controls */
+@keyframes metroScrollHint {
+  0%   { transform: translateX(0); }
+  30%  { transform: translateX(-28px); }
+  60%  { transform: translateX(0); }
+  80%  { transform: translateX(-10px); }
+  100% { transform: translateX(0); }
+}
+.rt-metro-scrollable.scroll-hint {
+  animation: metroScrollHint 0.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
 
 /* Full metronome row hidden in perf, visible normally */
 .rt-metro-full-row { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
@@ -3469,19 +3489,25 @@ body.il-perf-active #metroNavRunBtn { display: none; }
 /* ── Metro bar lifted into perf mode ───────────────────────────── */
 .rt-metro.il-perf-metro {
   position: fixed;
-  bottom: env(safe-area-inset-bottom, 0px); /* in perf mode, bottom nav is hidden — sit flush at screen bottom */
+  bottom: 0;                  /* flush to the true screen edge — no gap */
   left: 0; right: 0;
+  /* Pad content above the home indicator; background fills corner-to-corner */
+  padding: 10px 16px max(10px, env(safe-area-inset-bottom, 0px));
   transform: none;
+  -webkit-transform: none;
   width: 100%; max-width: 100%;
   border-radius: 0;
   border: none;
   border-top: 1px solid rgba(255,255,255,0.1);
   box-shadow: 0 -2px 16px rgba(0,0,0,0.4);
   z-index: 901;
-  padding: 10px 16px;
   justify-content: flex-start;
   flex-wrap: nowrap;
-  gap: 10px; /* gap between pinned column and scrollable zone */
+  gap: 10px;
+  /* Force GPU layer — prevents iOS scroll-jank on fixed elements */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 /* ── Auto-scroll — inline in metro bar (perf mode only) ─────────── */
@@ -11076,6 +11102,31 @@ function _setHeaderNavVisible(visible) {
   if (wrap) wrap.style.display = visible ? 'flex' : 'none';
 }
 
+// ── Metro scrollable zone: fade mask + scroll-end tracking ────────
+function _initMetroScrollMask() {
+  const zone = document.querySelector('.rt-metro-scrollable');
+  if (!zone) return;
+  const update = () => {
+    const atEnd = zone.scrollLeft + zone.clientWidth >= zone.scrollWidth - 4;
+    zone.classList.toggle('scroll-end', atEnd);
+  };
+  zone.addEventListener('scroll', update, { passive: true });
+  update();
+}
+
+function _triggerMetroScrollHint() {
+  const zone = document.querySelector('.rt-metro-scrollable');
+  if (!zone) return;
+  const key = 'drafthaus_metro_hint_shown';
+  if (localStorage.getItem(key)) return;
+  localStorage.setItem(key, '1');
+  // Short delay so the perf overlay finishes its entrance before the nudge
+  setTimeout(() => {
+    zone.classList.add('scroll-hint');
+    zone.addEventListener('animationend', () => zone.classList.remove('scroll-hint'), { once: true });
+  }, 420);
+}
+
 function ilSetPerfMode(on) {
   window._ilPerfMode = on;
   const rtEl = document.getElementById('songViewRunthrough');
@@ -11097,6 +11148,9 @@ function ilSetPerfMode(on) {
       // Lift it out of the drawer, park it as a fixed overlay
       document.body.appendChild(metro);
       metro.classList.add('il-perf-metro');
+      // Wire up scroll mask tracking and nudge animation
+      _initMetroScrollMask();
+      _triggerMetroScrollHint();
     } else {
       // Put it back in the drawer
       metro.classList.remove('il-perf-metro');
