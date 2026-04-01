@@ -2464,6 +2464,15 @@ button, select, input, textarea { touch-action: manipulation; }
     .looper-drawer-body .tracks-grid { grid-template-columns: 1fr 1fr; }
     .looper-drawer-body .ring-wrap { width: 68px; height: 68px; }
   }
+  @media (min-width: 521px) {
+    .looper-drawer-body .ring-wrap { width: 208px; height: 208px; }
+    .looper-drawer-body .ring-btn { inset: 40px; }
+    .looper-drawer-body .ring-btn-icon { font-size: 40px; }
+    .looper-drawer-body .ring-btn-label { font-size: 11px; letter-spacing: 2px; }
+    .looper-drawer-body .track-num { font-size: 13px; letter-spacing: 2px; }
+    .looper-drawer-body .track-state-label { font-size: 12px; }
+    .looper-drawer-body .track-card { padding: 12px 10px 10px; gap: 8px; }
+  }
 
 
   /* ── Song switcher ── */
@@ -3210,7 +3219,7 @@ button, select, input, textarea { touch-action: manipulation; }
 /* ── Metro bar lifted into perf mode ───────────────────────────── */
 .rt-metro.il-perf-metro {
   position: fixed;
-  bottom: 116px; /* above scroll bar + bottom nav */
+  bottom: calc(116px + env(safe-area-inset-bottom, 0px)); /* above scroll bar + bottom nav */
   left: 50%; transform: translateX(-50%);
   width: auto; max-width: 520px;
   border-radius: 40px;
@@ -3223,7 +3232,7 @@ button, select, input, textarea { touch-action: manipulation; }
 
 /* ── Auto-scroll bar (performance mode) ────────────────────────── */
 #ilScrollBar {
-  position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: calc(72px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%);
   background: rgba(12,12,14,0.97); border: 1px solid rgba(57,255,20,0.35);
   border-radius: 40px; padding: 9px 20px;
   display: none; align-items: center; gap: 14px;
@@ -11210,26 +11219,61 @@ function ilSaveEdits() {
     used.forEach(c => { if (!rtChordEdits[partId].includes(c)) rtChordEdits[partId].push(c); });
   });
 
-  // Save chords to all chord-capable instruments (guitar, ukulele, etc.)
-  const chordInstruments = INSTRUMENTS.filter(i => i.hasChords).map(i => i.id);
-  chordInstruments.forEach(instId => {
-    if (!song.instruments[instId]) song.instruments[instId] = {};
+  // Save chords + auto-generate tab fingerings for all chord-capable instruments
+  const chordInstDefs = INSTRUMENTS.filter(i => i.hasChords);
+  chordInstDefs.forEach(inst => {
+    if (!song.instruments[inst.id]) song.instruments[inst.id] = {};
   });
   const allPartIds = new Set([...Object.keys(rtChordEdits), ...Object.keys(rtChordPositions)]);
   allPartIds.forEach(partId => {
     const labels = rtChordEdits[partId] || [];
     if (!labels.length) return;
+
+    // Parse chord label strings → {root, quality} objects
     const chordObjs = labels.map(label => {
-      // Parse "Bm"→{root:"B",quality:"Minor"}, "F#m"→{root:"F#",quality:"Minor"},
-      // "C#dim"→{root:"C#",quality:"Diminished"}, "D"→{root:"D",quality:""}
       if (label.endsWith('dim')) return { root: label.slice(0, -3), quality: 'Diminished' };
       if (label.endsWith('m') && label.length > 1) return { root: label.slice(0, -1), quality: 'Minor' };
       const sp = label.indexOf(' ');
       return sp === -1 ? { root: label, quality: '' } : { root: label.slice(0, sp), quality: label.slice(sp + 1) };
     });
-    chordInstruments.forEach(instId => {
-      if (!song.instruments[instId][partId]) song.instruments[instId][partId] = {};
-      song.instruments[instId][partId].chords = chordObjs;
+
+    chordInstDefs.forEach(inst => {
+      if (!song.instruments[inst.id][partId]) song.instruments[inst.id][partId] = {};
+      const instData = song.instruments[inst.id][partId];
+
+      // Build a map of existing chord label → beat so manual fingerings are preserved
+      const oldChords  = instData.chords   || [];
+      const oldBeats   = instData.beats    || [];
+      const oldMeta    = instData.beatMeta || [];
+      const existingBeatMap = {};
+      oldMeta.forEach((m, bi) => {
+        if (m && m.chordIdx !== undefined && oldChords[m.chordIdx]) {
+          const c = oldChords[m.chordIdx];
+          const key = c.root + '|' + c.quality;
+          if (!existingBeatMap[key]) existingBeatMap[key] = oldBeats[bi];
+        }
+      });
+
+      // Save chord list
+      instData.chords = chordObjs;
+
+      // Generate a beat for each chord (reuse existing manual fingering if available)
+      instData.beats = chordObjs.map(c => {
+        const key = c.root + '|' + c.quality;
+        if (existingBeatMap[key]) return existingBeatMap[key];
+        // Auto-lookup via the same path instAddChord uses
+        let tabVoicing = null;
+        try { tabVoicing = getChordTab(inst.id, c.root, c.quality); } catch(e) {}
+        if (tabVoicing && tabVoicing.length === inst.strings.length) {
+          return tabVoicing.map(v => v === 'x' ? 'x' : String(v));
+        }
+        // Fallback: put chord name on string 0, dashes elsewhere
+        const label = c.root + (c.quality ? ' ' + c.quality : '');
+        return inst.strings.map((_, si) => si === 0 ? label : '-');
+      });
+
+      // beatMeta links each beat to its chord index
+      instData.beatMeta = chordObjs.map((_, ci) => ({ chordIdx: ci }));
     });
   });
 
@@ -11757,7 +11801,7 @@ document.addEventListener('keydown', function(e) {
   </button>
   <button class="bottom-nav-item nav-sequencer" onclick="toggleDrawer('seqDrawer', openSeqDrawer, closeSeqDrawer)">
     <span class="bottom-nav-icon">⊞</span>
-    <span class="bottom-nav-label">Sequencer 2000</span>
+    <span class="bottom-nav-label">Chord & Beat Lab</span>
   </button>
   <button class="bottom-nav-item nav-looper" onclick="toggleDrawer('looperDrawer', openLooperDrawer, closeLooperDrawer)">
     <span class="bottom-nav-icon"><svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#c0392b"/><circle cx="12" cy="12" r="10" fill="none" stroke="#e74c3c" stroke-width="1.5" opacity="0.6"/><circle cx="9" cy="9" r="3" fill="rgba(255,255,255,0.12)"/></svg></span>
