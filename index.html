@@ -3161,48 +3161,50 @@ button, select, input, textarea { touch-action: manipulation; }
 }
 .il-lyrics-raw:focus { border-color: rgba(245,166,35,0.4); }
 
-/* ── Run Through: polished lead-sheet view ──────────────────────── */
-/* Hide empty slot borders — only slots with chords show anything */
-#songViewRunthrough .il-cc-slot:not(.has-chord) {
-  border: none; min-height: 20px;
-}
-/* No remove button in run through */
-#songViewRunthrough .il-cc-chord-x { display: none; }
-/* Chord label: clean text above syllable, no box */
-#songViewRunthrough .il-cc-chord {
+/* ── Performance mode (Run Through view) ────────────────────────── */
+/* Applied via .il-perf-mode on #songViewRunthrough */
+
+/* Hide all editing controls */
+#songViewRunthrough.il-perf-mode .il-chord-palette { display: none; }
+#songViewRunthrough.il-perf-mode .il-part-notes { display: none; }
+#songViewRunthrough.il-perf-mode .il-lyrics-edit-wrap { display: none; }
+#songViewRunthrough.il-perf-mode .il-cc-chord-x { display: none; }
+#songViewRunthrough.il-perf-mode .il-add-section-row { display: none; }
+
+/* Clean chord label — just text, no box */
+#songViewRunthrough.il-perf-mode .il-cc-chord {
   background: none; border: none;
-  padding: 1px 4px;
-  font-size: 15px; font-weight: 800;
-  letter-spacing: 0.03em;
-  cursor: grab;
+  padding: 1px 5px;
+  font-size: 16px; font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: default; pointer-events: none;
 }
-/* Slightly larger lyrics with better breathing room */
-#songViewRunthrough .il-cc-syl {
-  font-size: 23px; font-weight: 400; line-height: 1.35;
+/* No slot borders anywhere — invisible drop targets */
+#songViewRunthrough.il-perf-mode .il-cc-slot { border: none; min-height: 22px; }
+/* No drag cursor on word cols */
+#songViewRunthrough.il-perf-mode .il-cc-word-col { cursor: default; pointer-events: none; }
+
+/* Larger, more readable lyrics */
+#songViewRunthrough.il-perf-mode .il-cc-syl {
+  font-size: 26px; font-weight: 400; line-height: 1.3;
 }
-/* More space between lyric lines */
-#songViewRunthrough .il-cc-line { margin-bottom: 24px; }
-#songViewRunthrough .il-cc-blank-line { height: 16px; }
-/* Tighten syllable column padding so they read more like words */
-#songViewRunthrough .il-cc-word-col { padding: 2px 1px 0; }
-/* Words stay properly spaced */
-#songViewRunthrough .il-cc-word-group { margin-right: 16px; }
+/* More breathing room between lines */
+#songViewRunthrough.il-perf-mode .il-cc-line { margin-bottom: 28px; }
+#songViewRunthrough.il-perf-mode .il-cc-blank-line { height: 14px; }
+/* Tighter syllable spacing so words read as one unit */
+#songViewRunthrough.il-perf-mode .il-cc-word-col { padding: 2px 0 0; }
+#songViewRunthrough.il-perf-mode .il-cc-word-group { margin-right: 18px; }
 /* Section spacing */
-#songViewRunthrough .il-part { margin-bottom: 52px; }
-/* Hide section notes input — keep the space clean */
-#songViewRunthrough .il-part-notes { display: none; }
-/* Bump chart area top margin */
-#songViewRunthrough .il-chart-area-row { margin-top: 4px; }
-/* Edit lyrics toggle: subtle in run through, visible on hover */
-#songViewRunthrough .il-lyrics-edit-toggle-btn { opacity: 0.45; }
-#songViewRunthrough .il-lyrics-edit-toggle-btn:hover { opacity: 1; color: var(--gold); }
-/* Slot hover hint: light glow so user knows they can drop */
-#songViewRunthrough .il-cc-word-col:hover .il-cc-slot:not(.has-chord) {
-  border: 1px dashed rgba(245,166,35,0.2);
-}
-/* Restore full drop indicator while actively dragging over */
-#songViewRunthrough .il-cc-word-col.dragover .il-cc-slot {
-  border: 1px dashed var(--gold); background: rgba(245,166,35,0.1);
+#songViewRunthrough.il-perf-mode .il-part { margin-bottom: 56px; }
+/* No chart area gap since palette is gone */
+#songViewRunthrough.il-perf-mode .il-chart-area-row { margin-top: 4px; }
+
+/* ── Editor mode: button style when perf is active ─────────────── */
+.il-perf-toggle-btn { margin-right: 6px; }
+.il-perf-toggle-btn.perf-mode-active {
+  background: rgba(245,166,35,0.08);
+  border-color: rgba(245,166,35,0.4);
+  color: var(--gold);
 }
 
 .il-chord-add-row {
@@ -3413,6 +3415,7 @@ button, select, input, textarea { touch-action: manipulation; }
         <span class="bar-chip" id="stickyBpm"></span>
         <span class="bar-chip" id="stickyStatus"></span>
       </div>
+      <button class="song-view-toggle-btn il-perf-toggle-btn" id="ilPerfToggleBtn" onclick="ilTogglePerfMode()" style="display:none;">▶ Run Through</button>
       <button class="song-view-toggle-btn" id="songViewToggleBtn" onclick="toggleSongViewMode()">⚙ Backend</button>
     </div>
     <div class="detail-body" style="position:relative;">
@@ -10499,20 +10502,26 @@ window._songViewMode = 'runthrough'; // 'runthrough' | 'backend'
 
 function setSongViewMode(mode) {
   window._songViewMode = mode;
-  const rtEl  = document.getElementById('songViewRunthrough');
-  const beEl  = document.getElementById('songViewBackend');
-  const btn   = document.getElementById('songViewToggleBtn');
-  const tabs  = document.getElementById('detailTabs');
+  const rtEl      = document.getElementById('songViewRunthrough');
+  const beEl      = document.getElementById('songViewBackend');
+  const btn       = document.getElementById('songViewToggleBtn');
+  const perfBtn   = document.getElementById('ilPerfToggleBtn');
+  const tabs      = document.getElementById('detailTabs');
   if (!rtEl || !beEl) return;
   if (mode === 'runthrough') {
     rtEl.style.display = '';
     beEl.style.display = 'none';
     if (btn) { btn.textContent = '⚙ Backend'; btn.classList.remove('backend-mode'); }
+    // Show the Editor/Run Through toggle only in this view
+    if (perfBtn) perfBtn.style.display = '';
+    // Reset perf mode when coming back from backend
+    ilSetPerfMode(false);
   } else {
     rtEl.style.display = 'none';
     beEl.style.display = '';
-    if (btn) { btn.textContent = '↩ Run Through'; btn.classList.add('backend-mode'); }
+    if (btn) { btn.textContent = '↩ Editor'; btn.classList.add('backend-mode'); }
     if (tabs) tabs.style.display = '';
+    if (perfBtn) perfBtn.style.display = 'none';
   }
 }
 
@@ -10525,6 +10534,24 @@ function toggleSongViewMode() {
   }
 }
 
+// ── Editor ↔ Run Through (performance) mode ───────────────────────
+window._ilPerfMode = false;
+
+function ilSetPerfMode(on) {
+  window._ilPerfMode = on;
+  const rtEl    = document.getElementById('songViewRunthrough');
+  const perfBtn = document.getElementById('ilPerfToggleBtn');
+  if (rtEl) rtEl.classList.toggle('il-perf-mode', on);
+  if (perfBtn) {
+    perfBtn.textContent = on ? '← Editor' : '▶ Run Through';
+    perfBtn.classList.toggle('perf-mode-active', on);
+  }
+}
+
+function ilTogglePerfMode() {
+  ilSetPerfMode(!window._ilPerfMode);
+}
+
 // ── Inline Run-Through ────────────────────────────────────────────
 // State (shared with drawer: rtActiveParts, rtChordEdits, rtAddedParts)
 var ilSaveTimer = null;
@@ -10532,6 +10559,8 @@ var rtChordPositions = {}; // {partId: [{chord, line, word}]}
 var rtLyricEdits     = {}; // {partId: 'raw string'}
 
 function ilInitAndRender(song) {
+  // Always start in editor mode when re-rendering
+  ilSetPerfMode(false);
   const activeParts = STRUCTURE_PARTS.filter(p => song.structure?.[p.id]?.checked);
   rtActiveParts = activeParts.slice();
   rtAddedParts  = [];
