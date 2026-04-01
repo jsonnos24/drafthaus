@@ -3100,19 +3100,21 @@ button, select, input, textarea { touch-action: manipulation; }
 }
 .il-cc-blank-line { height: 32px; }
 .il-cc-word-group { display: flex; align-items: flex-end; margin-right: 14px; margin-bottom: 2px; }
-.il-cc-word-col { display: flex; flex-direction: column; align-items: center; }
+.il-cc-word-col {
+  display: flex; flex-direction: column; align-items: stretch;
+  cursor: copy; padding: 3px 2px 1px; border-radius: 4px;
+  transition: background 0.1s;
+}
+.il-cc-word-col.dragover { background: rgba(245,166,35,0.08); }
 .il-cc-slot {
-  width: 100%; min-width: 28px; min-height: 26px;
-  border-radius: 4px; border: 1px dashed transparent;
+  min-height: 26px;
+  border-radius: 4px; border: 1px dashed rgba(245,166,35,0.15);
   display: flex; align-items: center; justify-content: center;
   transition: border-color 0.12s, background 0.12s;
-  margin-bottom: 2px; cursor: default;
+  margin-bottom: 3px;
 }
-.il-cc-slot:not(.has-chord):hover {
-  border-color: rgba(245,166,35,0.3); background: rgba(245,166,35,0.04);
-}
-.il-cc-slot.dragover {
-  border-color: var(--gold) !important; background: rgba(245,166,35,0.1) !important;
+.il-cc-word-col.dragover .il-cc-slot {
+  border-color: var(--gold); background: rgba(245,166,35,0.1);
 }
 .il-cc-chord {
   font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 700;
@@ -10587,12 +10589,12 @@ function ilRenderChordChartHtml(partId) {
           const key      = `${lineIdx},${wordIdx},${sylIdx}`;
           const label    = posMap.hasOwnProperty(key) ? posMap[key] : '';
           const hasChord = !!label;
-          html += `<div class="il-cc-word-col">
-            <div class="il-cc-slot${hasChord ? ' has-chord' : ''}"
-              data-part="${partId}" data-line="${lineIdx}" data-word="${wordIdx}" data-syl="${sylIdx}"
-              ondragover="ilSlotDragOver(event)"
-              ondragleave="ilSlotDragLeave(event)"
-              ondrop="ilSlotDrop(event)">
+          html += `<div class="il-cc-word-col"
+            data-part="${partId}" data-line="${lineIdx}" data-word="${wordIdx}" data-syl="${sylIdx}"
+            ondragover="ilSlotDragOver(event)"
+            ondragleave="ilSlotDragLeave(event)"
+            ondrop="ilSlotDrop(event)">
+            <div class="il-cc-slot${hasChord ? ' has-chord' : ''}">
               ${hasChord ? `<span class="il-cc-chord" draggable="true"
                 data-part="${partId}" data-line="${lineIdx}" data-word="${wordIdx}" data-syl="${sylIdx}" data-chord="${esc(label)}"
                 ondragstart="ilChordDragStart(event)">${esc(label)}<button class="il-cc-chord-x"
@@ -10634,7 +10636,7 @@ function ilTrayChordDragStart(event) {
   event.dataTransfer.setData('ilDrag', JSON.stringify({
     type: 'tray', partId: el.dataset.part, chord: el.dataset.chord
   }));
-  event.dataTransfer.effectAllowed = 'copy';
+  event.dataTransfer.effectAllowed = 'all';
   setTimeout(() => el.classList.add('dragging'), 0);
 }
 
@@ -10659,7 +10661,10 @@ function ilSlotDragOver(event) {
   event.currentTarget.classList.add('dragover');
 }
 function ilSlotDragLeave(event) {
-  event.currentTarget.classList.remove('dragover');
+  // Only remove when actually leaving the word-col, not just crossing into a child
+  if (!event.currentTarget.contains(event.relatedTarget)) {
+    event.currentTarget.classList.remove('dragover');
+  }
 }
 function ilSlotDrop(event) {
   event.preventDefault();
