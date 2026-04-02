@@ -12269,28 +12269,35 @@ function rowAssignProject(id) {
 }
 // ── Row-level sequencer play/stop ─────────────────────────────────
 function rowSeqToggle(id) {
-  // If a different song is playing, stop it first
-  if (seqIsPlaying && currentId !== id) {
-    seqStop();
-  }
-  // Load the song if it's not already open
-  if (currentId !== id) {
-    const song = songs.find(s => s.id === id);
-    if (!song) return;
-    currentId = id;
-    populateDetail(song);
-    showDetail();
-    // Wait for song to load then play
-    setTimeout(() => { seqPlay(); renderGrid(); }, 300);
-    return;
-  }
-  // Toggle play/stop for current song
+  // Stop any currently playing song first
   if (seqIsPlaying) {
     seqStop();
+    if (currentId === id) { renderGrid(); return; } // was playing this song — just stop
+  }
+  const song = songs.find(s => s.id === id);
+  if (!song) return;
+  // Switch to this song
+  currentId = id;
+  populateDetail(song);
+  // Silently render seq into the drawer body so the DOM slots exist, then play
+  _rowSeqBoot(song);
+}
+
+function _rowSeqBoot(song) {
+  const body = document.getElementById('seqDrawerBody');
+  if (!body) return;
+  // Render HTML if not already rendered for this song
+  if (seqSongId !== song.id || !document.querySelector('#seqChordGrid')) {
+    body.innerHTML = renderSequencerHtml(song);
+    initSequencer(song);
+    // initSequencer uses two nested rAFs — wait for both then play
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      setTimeout(() => { seqPlay(); renderGrid(); }, 30);
+    }));
   } else {
     seqPlay();
+    renderGrid();
   }
-  renderGrid();
 }
 
 // ── Row-level quick share ─────────────────────────────────────────
