@@ -326,6 +326,93 @@ select.field-input option { background: var(--card); }
 .sp-undo-btn { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 3px 8px; border: 1px solid var(--border2); background: none; color: var(--faint); border-radius: 3px; cursor: pointer; letter-spacing: 0.05em; transition: all 0.1s; }
 .sp-undo-btn:hover { border-color: var(--blue); color: var(--blue); }
 
+/* ── Section Order Sidebar ── */
+.editor-with-sidebar {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+.section-order-sidebar {
+  width: 148px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding: 14px 8px 14px 0;
+  position: sticky;
+  top: 60px;
+  align-self: flex-start;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+.sos-heading {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px; text-transform: uppercase;
+  letter-spacing: 0.2em; color: var(--faint);
+  margin-bottom: 10px; padding-left: 4px;
+}
+.sos-list { display: flex; flex-direction: column; gap: 3px; }
+.sos-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-radius: 5px;
+  border: 1px solid transparent;
+  background: var(--surface);
+  cursor: grab; user-select: none;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; color: var(--text);
+  transition: background 0.12s, border-color 0.12s, transform 0.12s;
+  touch-action: none;
+}
+.sos-item:hover { border-color: var(--border2); background: var(--card); }
+.sos-item.sos-dragging { opacity: 0.45; transform: scale(0.97); }
+.sos-item.sos-drag-over { border-color: var(--gold); background: rgba(245,166,35,0.07); transform: translateY(-1px); }
+.sos-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+}
+.sos-handle {
+  color: var(--border2); font-size: 11px; flex-shrink: 0;
+  line-height: 1; margin-left: auto;
+  cursor: grab;
+}
+.sos-empty {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; color: var(--faint);
+  font-style: italic; padding: 6px 4px;
+}
+.editor-main { flex: 1; min-width: 0; padding-left: 18px; }
+
+/* Mobile: sidebar hidden; replaced by a toggle button + slide-in */
+.sos-mobile-toggle {
+  display: none;
+  align-items: center; gap: 7px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; color: var(--faint);
+  cursor: pointer; letter-spacing: 0.07em;
+  transition: all 0.15s;
+  margin-bottom: 12px;
+  width: 100%;
+  justify-content: center;
+}
+.sos-mobile-toggle:hover { border-color: var(--gold); color: var(--gold); }
+.sos-mobile-panel {
+  display: none;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+.sos-mobile-panel.open { display: block; }
+
+@media (max-width: 640px) {
+  .section-order-sidebar { display: none !important; }
+  .sos-mobile-toggle { display: flex; }
+  .editor-with-sidebar { display: block; }
+  .editor-main { width: 100%; }
+}
+
 /* Preview */
 .preview-box {
   background: var(--surface); border: 1px solid var(--border);
@@ -3808,6 +3895,26 @@ body.il-perf-active #metroNavRunBtn { display: none; }
       <!-- ── Backend editing view ── -->
       <div id="songViewBackend" style="display:none;">
 
+      <!-- Mobile reorder toggle -->
+      <button class="sos-mobile-toggle" id="sosMobileToggle" onclick="toggleSosMobilePanel()">
+        ☰ Reorder Sections
+      </button>
+      <!-- Mobile reorder panel -->
+      <div class="sos-mobile-panel" id="sosMobilePanel">
+        <div class="sos-heading" style="padding-left:0;">Drag to reorder</div>
+        <div class="sos-list" id="sosListMobile"></div>
+      </div>
+
+      <div class="editor-with-sidebar">
+        <!-- Left section order sidebar (desktop) -->
+        <div class="section-order-sidebar" id="sectionOrderSidebar">
+          <div class="sos-heading">Sections</div>
+          <div class="sos-list" id="sosList"></div>
+        </div>
+
+        <!-- Main editor content -->
+        <div class="editor-main">
+
       <!-- Section tab nav -->
       <div class="detail-tabs" id="detailTabs">
         <button class="detail-tab active" onclick="switchBackendTab('songinfo',this)">Song Info</button>
@@ -3935,6 +4042,8 @@ body.il-perf-active #metroNavRunBtn { display: none; }
         <textarea id="fNotes" style="display:none;" oninput="saveField()"></textarea>
       </div><!-- /backendPanel-notes -->
 
+        </div><!-- /editor-main -->
+      </div><!-- /editor-with-sidebar -->
       </div><!-- /songViewBackend -->
     </div><!-- /detail-body -->
   </div>
@@ -4357,7 +4466,7 @@ function cancelNewProject() {
 function newSong() {
   const song = {
     id: genId(), workingTitle:'', title:'', bpm:'', key:'', tuning:'',
-    project:'', status:'idea', structure:{'verse-1':{checked:true},'chorus-1':{checked:true}}, chords:{}, instruments:{}, sequencer:{}, notes:'', moods:[],
+    project:'', status:'idea', structure:{'verse-1':{checked:true},'chorus-1':{checked:true}}, sectionOrder:['verse-1','chorus-1'], chords:{}, instruments:{}, sequencer:{}, notes:'', moods:[],
     createdAt: Date.now(), updatedAt: Date.now()
   };
   songs.unshift(song);
@@ -4418,6 +4527,7 @@ function populateSongFields(song) {
   document.getElementById('statusSelect').value  = song.status || 'idea';
   updatePanelTitles(song);
   renderStructure(song);
+  renderSectionOrderSidebar(song);
 }
 
 function getCurrentSong() {
@@ -4499,6 +4609,37 @@ function doDelete() {
 // ── Structure ─────────────────────────────────────────────────────
 const CHECK_SVG = `<svg viewBox="0 0 10 8" width="8" height="8"><path d="M1 4l3 3 5-6" stroke="#0a0a0c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`;
 
+// Returns active STRUCTURE_PARTS in the correct sectionOrder.
+// For legacy songs without sectionOrder, falls back to STRUCTURE_PARTS order.
+function getActiveParts(song) {
+  const order = song.sectionOrder || [];
+  // Parts that are in sectionOrder AND checked
+  const orderedParts = order
+    .map(id => STRUCTURE_PARTS.find(p => p.id === id))
+    .filter(Boolean)
+    .filter(p => song.structure?.[p.id]?.checked);
+  // Parts that are checked but missing from sectionOrder (legacy / migrated songs)
+  const orderedIds = new Set(orderedParts.map(p => p.id));
+  const legacyParts = STRUCTURE_PARTS
+    .filter(p => song.structure?.[p.id]?.checked && !orderedIds.has(p.id));
+  return [...orderedParts, ...legacyParts];
+}
+
+// Ensure sectionOrder contains exactly the checked sections (migration + repair).
+function ensureSectionOrder(song) {
+  if (!song.sectionOrder) song.sectionOrder = [];
+  // Add any checked parts missing from order
+  STRUCTURE_PARTS.forEach(p => {
+    if (song.structure?.[p.id]?.checked && !song.sectionOrder.includes(p.id)) {
+      song.sectionOrder.push(p.id);
+    }
+  });
+  // Remove any unchecked / invalid parts from order
+  song.sectionOrder = song.sectionOrder.filter(id =>
+    STRUCTURE_PARTS.some(p => p.id === id) && song.structure?.[id]?.checked
+  );
+}
+
 function renderStructure(song) {
   if (!song.chords) song.chords = {};
   const container = document.getElementById('structureParts');
@@ -4545,19 +4686,28 @@ function togglePart(partId) {
   const song = getCurrentSong();
   if (!song) return;
   if (!song.structure) song.structure = {};
+  if (!song.sectionOrder) song.sectionOrder = [];
   _pushStructUndo(song);
   const prev = song.structure[partId] || {};
-  song.structure[partId] = { ...prev, checked: !prev.checked };
+  const nowChecked = !prev.checked;
+  song.structure[partId] = { ...prev, checked: nowChecked };
+  // Maintain sectionOrder
+  if (nowChecked) {
+    if (!song.sectionOrder.includes(partId)) song.sectionOrder.push(partId);
+  } else {
+    song.sectionOrder = song.sectionOrder.filter(id => id !== partId);
+  }
   song.updatedAt = Date.now();
   save();
   renderStructure(song);
   renderChordSections(song);
+  renderSectionOrderSidebar(song);
   scheduleSyncToSheet(song);
 }
 
 function renderPreview(song) {
   const flow = document.getElementById('previewFlow');
-  const active = STRUCTURE_PARTS.filter(p => song.structure?.[p.id]?.checked);
+  const active = getActiveParts(song);
   if (!active.length) {
     flow.innerHTML = '<span class="preview-empty">Tick sections above to build your structure…</span>';
     return;
@@ -4572,13 +4722,130 @@ function renderPreview(song) {
   ).join('');
 }
 
+// ── Section Order Sidebar ─────────────────────────────────────────
+let _sosDragSrcIdx = null;
+
+function renderSectionOrderSidebar(song) {
+  if (!song) return;
+  ensureSectionOrder(song);
+  const active = getActiveParts(song);
+  // Render both desktop sidebar lists and mobile list
+  ['sosList', 'sosListMobile'].forEach(listId => {
+    const list = document.getElementById(listId);
+    if (!list) return;
+    if (!active.length) {
+      list.innerHTML = '<div class="sos-empty">No sections yet — tick some in Structure</div>';
+      return;
+    }
+    list.innerHTML = active.map((p, i) => `
+      <div class="sos-item"
+        draggable="true"
+        data-sos-idx="${i}"
+        data-sos-part="${p.id}"
+        ondragstart="sosDragStart(event,${i})"
+        ondragover="sosDragOver(event)"
+        ondrop="sosDrop(event,${i})"
+        ondragend="sosDragEnd(event)"
+        ontouchstart="sosTouchStart(event,${i})"
+        ontouchmove="sosTouchMove(event)"
+        ontouchend="sosTouchEnd(event,${i})"
+        style="border-left:2px solid ${p.color}22;">
+        <div class="sos-dot" style="background:${p.color};"></div>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.label}</span>
+        <span class="sos-handle">⠿</span>
+      </div>`).join('');
+  });
+}
+
+function sosDragStart(e, idx) {
+  _sosDragSrcIdx = idx;
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.classList.add('sos-dragging');
+}
+function sosDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  // Highlight target
+  document.querySelectorAll('.sos-item').forEach(el => el.classList.remove('sos-drag-over'));
+  e.currentTarget.classList.add('sos-drag-over');
+}
+function sosDrop(e, toIdx) {
+  e.preventDefault();
+  if (_sosDragSrcIdx === null || _sosDragSrcIdx === toIdx) return;
+  moveSectionInOrder(_sosDragSrcIdx, toIdx);
+}
+function sosDragEnd(e) {
+  _sosDragSrcIdx = null;
+  document.querySelectorAll('.sos-item').forEach(el => {
+    el.classList.remove('sos-dragging', 'sos-drag-over');
+  });
+}
+
+// Touch drag support for mobile
+let _sosTouchSrcIdx = null;
+let _sosTouchGhost = null;
+function sosTouchStart(e, idx) {
+  _sosTouchSrcIdx = idx;
+  e.currentTarget.classList.add('sos-dragging');
+}
+function sosTouchMove(e) {
+  e.preventDefault();
+  const touch = e.touches[0];
+  // Highlight the item under the finger
+  document.querySelectorAll('.sos-item').forEach(el => el.classList.remove('sos-drag-over'));
+  const el = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.sos-item');
+  if (el) el.classList.add('sos-drag-over');
+}
+function sosTouchEnd(e, srcIdx) {
+  const touch = e.changedTouches[0];
+  const target = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.sos-item');
+  const toIdx = target ? parseInt(target.dataset.sosIdx) : null;
+  document.querySelectorAll('.sos-item').forEach(el => {
+    el.classList.remove('sos-dragging', 'sos-drag-over');
+  });
+  if (toIdx !== null && toIdx !== _sosTouchSrcIdx) {
+    moveSectionInOrder(_sosTouchSrcIdx, toIdx);
+  }
+  _sosTouchSrcIdx = null;
+}
+
+function moveSectionInOrder(fromIdx, toIdx) {
+  const song = getCurrentSong();
+  if (!song) return;
+  _pushStructUndo(song);
+  ensureSectionOrder(song);
+  const order = song.sectionOrder;
+  const item = order.splice(fromIdx, 1)[0];
+  order.splice(toIdx, 0, item);
+  song.updatedAt = Date.now();
+  save();
+  renderSectionOrderSidebar(song);
+  renderPreview(song);
+  // Refresh instrument sections and chord sections to reflect new order
+  renderChordSections(song);
+  scheduleSyncToSheet(song);
+}
+
+function toggleSosMobilePanel() {
+  const panel = document.getElementById('sosMobilePanel');
+  if (!panel) return;
+  panel.classList.toggle('open');
+  const btn = document.getElementById('sosMobileToggle');
+  if (btn) btn.textContent = panel.classList.contains('open') ? '✕ Close' : '☰ Reorder Sections';
+  if (panel.classList.contains('open')) {
+    const song = getCurrentSong();
+    if (song) renderSectionOrderSidebar(song);
+  }
+}
+
 // ── Song-level Part Chord helpers ──────────────────────────────────
 let _structUndoStack = [];
 
 function _pushStructUndo(song) {
   _structUndoStack.push({
-    structure: JSON.parse(JSON.stringify(song.structure || {})),
-    chords:    JSON.parse(JSON.stringify(song.chords    || {}))
+    structure:    JSON.parse(JSON.stringify(song.structure    || {})),
+    chords:       JSON.parse(JSON.stringify(song.chords      || {})),
+    sectionOrder: JSON.parse(JSON.stringify(song.sectionOrder || [])),
   });
   if (_structUndoStack.length > 30) _structUndoStack.shift();
 }
@@ -4587,11 +4854,13 @@ function undoPartAction() {
   const song = getCurrentSong();
   if (!song || !_structUndoStack.length) return;
   const prev = _structUndoStack.pop();
-  song.structure = prev.structure;
-  song.chords    = prev.chords;
+  song.structure    = prev.structure;
+  song.chords       = prev.chords;
+  song.sectionOrder = prev.sectionOrder;
   song.updatedAt = Date.now();
   save();
   renderStructure(song);
+  renderSectionOrderSidebar(song);
   scheduleSyncToSheet(song);
 }
 
@@ -4638,6 +4907,7 @@ function repeatSongPart(partId) {
   song.updatedAt = Date.now();
   save();
   renderStructure(song);
+  renderPreview(song);
 }
 
 function deleteSongPart(partId) {
@@ -4645,10 +4915,12 @@ function deleteSongPart(partId) {
   if (!song) return;
   _pushStructUndo(song);
   if (song.structure?.[partId]) song.structure[partId].checked = false;
+  if (song.sectionOrder) song.sectionOrder = song.sectionOrder.filter(id => id !== partId);
   song.updatedAt = Date.now();
   save();
   renderStructure(song);
   renderChordSections(song);
+  renderSectionOrderSidebar(song);
   scheduleSyncToSheet(song);
 }
 
@@ -4764,7 +5036,7 @@ function renderInstSections(song) {
 
 
 
-  const active = STRUCTURE_PARTS.filter(p => song.structure?.[p.id]?.checked);
+  const active = getActiveParts(song);
 
   // For instrument tabs, show a prompt if no sections ticked yet
   if (!active.length) {
@@ -7483,6 +7755,7 @@ async function syncToSheet(song) {
       tuning:         song.tuning         || '',
       status:         song.status         || 'idea',
       structure:      song.structure      || {},
+      sectionOrder:   song.sectionOrder   || [],
       chords:         song.chords         || {},
       notes:          song.notes          || '',
       generalNotes:   song.generalNotes   || '',
@@ -8242,9 +8515,11 @@ window.saveRunThroughEdits = function(songId, lyricsMap, newPartIds) {
   });
   // Activate any newly added sections in the song structure
   if (newPartIds && newPartIds.length) {
+    if (!song.sectionOrder) song.sectionOrder = [];
     newPartIds.forEach(partId => {
       if (!song.structure[partId]) song.structure[partId] = {};
       song.structure[partId].checked = true;
+      if (!song.sectionOrder.includes(partId)) song.sectionOrder.push(partId);
     });
   }
   song.updatedAt = Date.now();
@@ -8260,6 +8535,7 @@ window.saveRunThroughEdits = function(songId, lyricsMap, newPartIds) {
     });
     if (newPartIds && newPartIds.length) {
       renderInstSections(song);
+      renderSectionOrderSidebar(song);
     }
   }
   return true;
@@ -11834,11 +12110,13 @@ function ilSaveEdits() {
 
   // Activate newly added sections in structure
   const hadNewParts = rtAddedParts.length > 0;
+  if (!song.sectionOrder) song.sectionOrder = [];
   rtAddedParts.forEach(partId => {
     if (!song.structure[partId]) song.structure[partId] = {};
     song.structure[partId].checked = true;
     // Ensure count is initialised so the Backend panel renders it expanded
     if (!song.structure[partId].count) song.structure[partId].count = 1;
+    if (!song.sectionOrder.includes(partId)) song.sectionOrder.push(partId);
   });
   rtAddedParts = [];
 
@@ -11848,7 +12126,7 @@ function ilSaveEdits() {
   renderGrid();
   // Refresh the Backend structure panel so newly added sections appear ticked
   if (hadNewParts) {
-    try { renderStructure(song); } catch(e) {}
+    try { renderStructure(song); renderSectionOrderSidebar(song); } catch(e) {}
   }
 }
 
