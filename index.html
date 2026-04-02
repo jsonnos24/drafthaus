@@ -1851,7 +1851,7 @@ button, select, input, textarea { touch-action: manipulation; }
     color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .song-list-actions {
-    display: flex; align-items: center; gap: 6px; justify-content: flex-end;
+    display: flex; align-items: center; gap: 6px; justify-content: center;
   }
   .song-list-col-val {
     font-family: 'IBM Plex Mono', monospace; font-size: 11px;
@@ -7905,6 +7905,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
 auth.onAuthStateChanged(user => {
   if (user) {
+    // Clear any previous user's data before loading the new user's songs
+    songs = [];
+    currentId = null;
+    stopSyncPolling();
+
     // Register/update user profile so others can share with us by email
     db.collection('users').doc(user.uid).set({
       uid:         user.uid,
@@ -7915,6 +7920,11 @@ auth.onAuthStateChanged(user => {
     document.getElementById('landingOverlay').classList.add('hidden');
     initApp();
   } else {
+    // Logged out — clear everything
+    songs = [];
+    currentId = null;
+    stopSyncPolling();
+    renderGrid();
     document.getElementById('landingOverlay').classList.remove('hidden');
     setTimeout(() => {
       const inp = document.getElementById('landingEmailInput');
@@ -9179,6 +9189,12 @@ function startSyncPolling() {
             songs[idx] = s;
             if (currentId === s.id) {
               populateSongFields(s);
+              // Re-render whichever view is active so collaborators see changes live
+              if (window._songViewMode === 'runthrough') {
+                ilInitAndRender(s);
+              } else {
+                renderStructure(s);
+              }
               setSyncStatus('saved', '↓ Song updated ✓');
               setTimeout(() => setSyncStatus('', '—'), 8000);
             }
@@ -12190,8 +12206,10 @@ function rowShareSong(id) {
     currentId = id;
     populateDetail(song);
     showDetail();
+    setTimeout(openShareModal, 120);
+  } else {
+    openShareModal();
   }
-  openShareModal();
 }
 
 // ── Header status dropdown ────────────────────────────────────────
