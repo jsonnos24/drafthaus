@@ -2881,10 +2881,9 @@ button, select, input, textarea { touch-action: manipulation; }
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border-top: 1px solid var(--border);
-      padding: 6px 0 max(8px, env(safe-area-inset-bottom));
+      padding: 2px 0 max(5px, env(safe-area-inset-bottom));
       justify-content: space-around;
       align-items: flex-end;
-      /* Force GPU compositing to prevent iOS Safari jank during scroll */
       -webkit-transform: translateZ(0);
       transform: translateZ(0);
       will-change: transform;
@@ -2893,8 +2892,8 @@ button, select, input, textarea { touch-action: manipulation; }
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 3px;
-      padding: 4px 8px;
+      gap: 1px;
+      padding: 2px 5px;
       cursor: pointer;
       flex: 1;
       border: none;
@@ -2904,19 +2903,21 @@ button, select, input, textarea { touch-action: manipulation; }
     }
     .bottom-nav-item:active { opacity: 0.6; }
     .bottom-nav-icon {
-      font-size: 28px;
+      font-size: 20px;
       line-height: 1;
     }
-    .bottom-nav-icon svg { width: 30px; height: 30px; }
+    .bottom-nav-icon svg { width: 22px; height: 22px; }
     .bottom-nav-label {
       font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.07em;
       text-transform: uppercase;
       white-space: nowrap;
     }
   .bottom-nav-item.nav-practice .bottom-nav-label { color: #39ff14; }
+  .bottom-nav-item.nav-tape .bottom-nav-label,
+  .bottom-nav-item.nav-mic .bottom-nav-label { color: #ffb8d8; }
   .bottom-nav-item.nav-sequencer .bottom-nav-label { color: #4a9eff; }
   .bottom-nav-item.nav-looper .bottom-nav-label { color: #00ccff; }
   .bottom-nav-item.nav-inspo .bottom-nav-label { color: var(--purple); }
@@ -2927,7 +2928,7 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ── View-mode group (Run Through | Editor | Backend) ── */
   .bottom-nav-group {
     flex: 1; display: flex; align-items: stretch;
-    gap: 3px; padding: 5px 4px;
+    gap: 3px; padding: 2px 4px;
     border-right: 1px solid var(--border);
   }
   .nav-sub-btn {
@@ -13647,6 +13648,27 @@ function _startCountdown(cb) {
 }
 
 // ── Recording ─────────────────────────────────────────────────
+// Open tape deck from song list: create a timestamped song and go straight to recording
+window.vrMicFromList = function() {
+  const now  = new Date();
+  const date = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const time = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const title = 'New Recording — ' + date + ' ' + time;
+  const song = {
+    id: genId(), workingTitle: title, title: '', bpm: '', key: '', tuning: '',
+    project: '', status: 'idea',
+    structure: { 'verse-1': { checked: true }, 'chorus-1': { checked: true } },
+    sectionOrder: ['verse-1', 'chorus-1'],
+    chords: {}, instruments: {}, sequencer: {}, notes: '', moods: [],
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  songs.unshift(song);
+  save();
+  openSong(song.id);
+  // Brief delay for view transition, then open deck and start recording
+  setTimeout(() => { vrOpen(); setTimeout(vrToggleRec, 80); }, 120);
+};
+
 window.vrToggleRec = async function() {
   if (_vrRecording) { vrStop(); return; }
   // Check user quota
@@ -14653,6 +14675,27 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); _vrBuildJ
 
   </div>
 
+  <button class="bottom-nav-item nav-tape" onclick="vrOpen()">
+    <span class="bottom-nav-icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffb8d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="6" width="20" height="13" rx="2"/>
+        <circle cx="8" cy="13" r="2.5"/><circle cx="16" cy="13" r="2.5"/>
+        <path d="M10.5 13h3"/>
+      </svg>
+    </span>
+    <span class="bottom-nav-label">Tape</span>
+  </button>
+  <button class="bottom-nav-item nav-mic" onclick="vrMicFromList()">
+    <span class="bottom-nav-icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffb8d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="2" width="6" height="12" rx="3"/>
+        <path d="M5 10a7 7 0 0 0 14 0"/>
+        <line x1="12" y1="19" x2="12" y2="22"/>
+        <line x1="8" y1="22" x2="16" y2="22"/>
+      </svg>
+    </span>
+    <span class="bottom-nav-label">Mic</span>
+  </button>
   <button class="bottom-nav-item nav-sequencer" onclick="toggleDrawer('seqDrawer', openSeqDrawer, closeSeqDrawer)">
     <span class="bottom-nav-icon">⊞</span>
     <span class="bottom-nav-label">Chord & Beat Lab</span>
