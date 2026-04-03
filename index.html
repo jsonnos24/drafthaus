@@ -1898,6 +1898,51 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .sl-seq-btn:hover { border-color: var(--blue); color: var(--blue); }
   .sl-seq-btn.playing { border-color: var(--blue); color: var(--blue); background: rgba(126,184,255,0.1); }
+
+  /* ── Song list tape button + takes dropdown ── */
+  .sl-tape-cell { display: flex; align-items: center; justify-content: center; position: relative; }
+  .sl-tape-btn {
+    display: flex; align-items: center; justify-content: center;
+    gap: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    padding: 6px 10px; border-radius: 5px; cursor: pointer; min-height: 32px;
+    border: 1px solid var(--border2); background: var(--card2); color: var(--muted);
+    transition: all 0.15s; line-height: 1; white-space: nowrap;
+  }
+  .sl-tape-btn:hover { border-color: #7a5c2e; color: #c8a96e; }
+  .sl-tape-btn.has-takes { border-color: rgba(200,169,110,0.4); color: #c8a96e; }
+  .sl-tape-btn.active { border-color: #c8a96e; color: #c8a96e; background: rgba(200,169,110,0.08); }
+  .sl-takes-dropdown {
+    display: none; position: absolute; top: calc(100% + 4px); right: 0; z-index: 500;
+    background: #1a1612; border: 1px solid #3a2e1e; border-radius: 8px;
+    min-width: 240px; max-width: 300px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    font-family: 'IBM Plex Mono', monospace;
+    overflow: hidden;
+  }
+  .sl-takes-dropdown.open { display: block; }
+  .sl-takes-drop-header {
+    padding: 8px 12px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #5a4a34; border-bottom: 1px solid #2a2218;
+  }
+  .sl-takes-drop-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-bottom: 1px solid #1e1a12;
+    transition: background 0.1s;
+  }
+  .sl-takes-drop-item:last-child { border-bottom: none; }
+  .sl-takes-drop-item:hover { background: rgba(255,255,255,0.04); }
+  .sl-takes-drop-date { flex: 1; font-size: 11px; color: #8a7458; }
+  .sl-takes-drop-dur { font-size: 11px; color: #6a5a3e; white-space: nowrap; }
+  .sl-takes-drop-play {
+    background: none; border: none; cursor: pointer; padding: 4px 6px;
+    border-radius: 4px; color: #7a9060; display: flex; align-items: center;
+    transition: color 0.15s, background 0.15s; flex-shrink: 0;
+  }
+  .sl-takes-drop-play:hover { color: #a8c080; background: rgba(168,192,128,0.1); }
+  .sl-takes-drop-play.playing { color: #a8c080; }
+  .sl-takes-drop-empty { padding: 12px; font-size: 11px; color: #3a2e1e; text-align: center; }
+  .sl-takes-drop-loading { padding: 12px; font-size: 11px; color: #5a4a34; text-align: center; }
+
   .song-list-col-val {
     font-family: 'IBM Plex Mono', monospace; font-size: 11px;
     color: var(--faint); text-align: center; white-space: nowrap;
@@ -4503,6 +4548,21 @@ function renderGrid() {
         ${isPlaying ? '■' : '▶'}
       </button>
     </div>`;
+    // ── Tape / voice recordings ──
+    const tapeCell = `<div class="sl-tape-cell" onclick="event.stopPropagation()" id="sltape-wrap-${song.id}">
+      <button class="sl-tape-btn" id="sltape-${song.id}"
+        onclick="slTapeToggle('${song.id}')" title="Voice recordings">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="2" width="6" height="12" rx="3"/>
+          <path d="M5 10a7 7 0 0 0 14 0"/>
+          <line x1="12" y1="19" x2="12" y2="22"/>
+          <line x1="8" y1="22" x2="16" y2="22"/>
+        </svg>
+      </button>
+      <div class="sl-takes-dropdown" id="sltdrop-${song.id}">
+        <div class="sl-takes-drop-loading">Loading…</div>
+      </div>
+    </div>`;
     const sharedBadge = isShared ? '<span class="shared-badge" title="Shared with you">⬡</span>' : '';
     const isOwnerSharing = !isShared && song.sharedWith && song.sharedWith.length > 0;
     const sharingIndicator = isOwnerSharing ? `<span class="sharing-indicator" title="Shared with ${song.sharedWith.length} person${song.sharedWith.length===1?'':'s'}"></span>` : '';
@@ -4510,7 +4570,7 @@ function renderGrid() {
     return `<div class="song-list-row${isActive?' active-row':''}${isShared?' shared-row':''}" id="row-${song.id}"
       style="cursor:pointer;" onclick="rowLoadSong('${song.id}')">
       <div class="song-list-title">${titleHtml}${sharedBadge}${sharingIndicator}</div>
-      ${statusCell}${actionsHtml}${seqCell}
+      ${statusCell}${actionsHtml}${tapeCell}${seqCell}
     </div>`;
   }
 
@@ -4519,7 +4579,7 @@ function renderGrid() {
     const isUnassigned = proj === '__none__';
     const rows = list.map(song => buildSongRow(song, true, false)).join('');
     const colsHeader = `<div class="song-list-cols-header">
-      <span>Title</span><span>Status</span><span>Actions</span><span>Sequencer</span>
+      <span>Title</span><span>Status</span><span>Actions</span><span>Tape</span><span>Sequencer</span>
     </div>`;
     const isCollapsed = false;
     return `<div class="proj-group${isCollapsed?' collapsed':''}" id="pg-${proj}">
@@ -4556,7 +4616,7 @@ function renderGrid() {
   let sharedHtml = '';
   if (displayShared.length) {
     const colsHeader = `<div class="song-list-cols-header">
-      <span>Title</span><span>Status</span><span>Actions</span><span>Sequencer</span>
+      <span>Title</span><span>Status</span><span>Actions</span><span>Tape</span><span>Sequencer</span>
     </div>`;
     const sharedRows = displayShared
       .sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0))
@@ -12521,6 +12581,113 @@ function rowAssignProject(id) {
   }, 200);
 }
 // ── Row-level sequencer play/stop ─────────────────────────────────
+// ── Song list tape dropdown ───────────────────────────────────
+let _slTapeAudio   = null;
+let _slTapePlayId  = null; // currently playing take id
+
+function slTapeToggle(songId) {
+  const drop = document.getElementById('sltdrop-' + songId);
+  const btn  = document.getElementById('sltape-' + songId);
+  if (!drop || !btn) return;
+  const isOpen = drop.classList.contains('open');
+  // Close all other dropdowns first
+  document.querySelectorAll('.sl-takes-dropdown.open').forEach(d => {
+    d.classList.remove('open');
+    const b = document.getElementById('sltape-' + d.id.replace('sltdrop-',''));
+    if (b) b.classList.remove('active');
+  });
+  if (isOpen) return; // was open, just close it
+  btn.classList.add('active');
+  drop.classList.add('open');
+  drop.innerHTML = '<div class="sl-takes-drop-loading">Loading…</div>';
+  _slLoadTakes(songId, drop);
+}
+
+async function _slLoadTakes(songId, drop) {
+  try {
+    const snap = await db.collection('voice_takes')
+      .where('songId', '==', songId)
+      .orderBy('createdAt', 'desc')
+      .get();
+    if (snap.empty) {
+      drop.innerHTML = '<div class="sl-takes-drop-empty">No recordings yet</div>';
+      return;
+    }
+    // Mark button as having takes
+    const btn = document.getElementById('sltape-' + songId);
+    if (btn) btn.classList.add('has-takes');
+    let html = '<div class="sl-takes-drop-header">Recordings</div>';
+    snap.docs.forEach((doc, idx) => {
+      const d   = doc.data();
+      const ts  = d.createdAt ? d.createdAt.toDate() : null;
+      const dateStr = ts ? ts.toLocaleDateString('en-CA', { month:'short', day:'numeric', year:'numeric' })
+                        + ' · ' + ts.toLocaleTimeString('en-CA', { hour:'2-digit', minute:'2-digit' })
+                      : 'Unknown date';
+      const dur = _slFmtDur(d.duration || 0);
+      html += `<div class="sl-takes-drop-item" id="sldrop-item-${doc.id}">
+        <span class="sl-takes-drop-date">${dateStr}</span>
+        <span class="sl-takes-drop-dur">${dur}</span>
+        <button class="sl-takes-drop-play" id="sldrop-play-${doc.id}"
+          onclick="slTapePlay('${doc.id}','${d.downloadUrl}')" title="Play take ${idx+1}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+        </button>
+      </div>`;
+    });
+    drop.innerHTML = html;
+  } catch(err) {
+    console.error('[SL tape]', err);
+    drop.innerHTML = '<div class="sl-takes-drop-empty">Error loading takes</div>';
+  }
+}
+
+function slTapePlay(takeId, url) {
+  // Toggle off if already playing this take
+  if (_slTapePlayId === takeId) {
+    _slTapeStop();
+    return;
+  }
+  _slTapeStop();
+  _slTapePlayId  = takeId;
+  _slTapeAudio   = new Audio(url);
+  _slTapeAudio.play();
+  // Update play button icon to stop
+  const btn = document.getElementById('sldrop-play-' + takeId);
+  if (btn) {
+    btn.classList.add('playing');
+    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>';
+  }
+  _slTapeAudio.onended  = () => _slTapeStop();
+  _slTapeAudio.onerror  = () => _slTapeStop();
+}
+
+function _slTapeStop() {
+  if (_slTapeAudio) { _slTapeAudio.pause(); _slTapeAudio.src = ''; _slTapeAudio = null; }
+  if (_slTapePlayId) {
+    const btn = document.getElementById('sldrop-play-' + _slTapePlayId);
+    if (btn) {
+      btn.classList.remove('playing');
+      btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>';
+    }
+  }
+  _slTapePlayId = null;
+}
+
+function _slFmtDur(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+// Close tape dropdown when clicking outside
+document.addEventListener('click', () => {
+  document.querySelectorAll('.sl-takes-dropdown.open').forEach(d => {
+    d.classList.remove('open');
+    const b = document.getElementById('sltape-' + d.id.replace('sltdrop-',''));
+    if (b) b.classList.remove('active');
+  });
+  _slTapeStop();
+});
+
 function rowSeqToggle(id) {
   // Stop any currently playing song first
   if (seqIsPlaying) {
@@ -12829,9 +12996,9 @@ document.addEventListener('keydown', function(e) {
 'use strict';
 
 // ── Constants ──────────────────────────────────────────────────
-const VR_MAX_TAKES    = 2;
-const VR_MAX_DURATION = 4 * 60 + 30; // 270 seconds
-const VR_TRASH_TTL    = 24 * 60 * 60 * 1000; // 24h in ms
+const VR_MAX_DURATION  = 4 * 60 + 30;       // 270 seconds per take
+const VR_QUOTA_SECONDS = 3 * 60 * 60;        // 3 hours total per user
+const VR_TRASH_TTL     = 24 * 60 * 60 * 1000; // 24h in ms
 
 // ── State ──────────────────────────────────────────────────────
 let _vrSongId        = null;
@@ -12863,6 +13030,17 @@ function _setProgress(sec) {
   const fill = _el('vrProgressFill');
   if (fill) fill.style.width = Math.min(100, (sec / VR_MAX_DURATION) * 100) + '%';
 }
+function _updateQuotaDisplay(remainingSec) {
+  const el = _el('vrTimeLimit');
+  if (!el) return;
+  const used = VR_QUOTA_SECONDS - remainingSec;
+  const usedMin  = Math.floor(used / 60);
+  const usedSec  = Math.floor(used % 60);
+  const remMin   = Math.floor(remainingSec / 60);
+  const remSec   = Math.floor(remainingSec % 60);
+  el.textContent = usedMin + ':' + String(usedSec).padStart(2,'0') + ' used of 3h · '
+    + remMin + ':' + String(remSec).padStart(2,'0') + ' remaining';
+}
 function _setDeckState(state) {
   // state: '' | 'recording' | 'playing'
   const deck = _el('vrReels');
@@ -12877,6 +13055,7 @@ window.vrOpen = function() {
   if (!_vrSongId) { alert('No song selected.'); return; }
   _el('vrOverlay').classList.add('vr-open');
   _resetUI();
+  _vrGetQuota().then(({ remaining }) => _updateQuotaDisplay(remaining));
   vrLoadTakes();
 };
 
@@ -12990,11 +13169,10 @@ function _startCountdown(cb) {
 // ── Recording ─────────────────────────────────────────────────
 window.vrToggleRec = async function() {
   if (_vrRecording) { vrStop(); return; }
-  // Check take limit
-  const snapshot = await _vrTakesRef().orderBy('createdAt', 'asc').get().catch(() => null);
-  const count = snapshot ? snapshot.size : 0;
-  if (count >= VR_MAX_TAKES) {
-    _setStatus('Max ' + VR_MAX_TAKES + ' takes reached — delete one first');
+  // Check user quota
+  const { used, remaining } = await _vrGetQuota();
+  if (remaining <= 0) {
+    _setStatus('1 hour quota reached — delete takes to free up time');
     return;
   }
   const ok = await _initMic();
@@ -13067,7 +13245,23 @@ function _vrTrashRef() {
 }
 
 // ── Upload ────────────────────────────────────────────────────
+// ── Quota ─────────────────────────────────────────────────────
+async function _vrGetQuota() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return { used: 0, remaining: VR_QUOTA_SECONDS };
+  try {
+    const snap = await db.collection('voice_takes')
+      .where('userId', '==', uid)
+      .get();
+    const used = snap.docs.reduce((sum, d) => sum + (d.data().duration || 0), 0);
+    return { used, remaining: Math.max(0, VR_QUOTA_SECONDS - used) };
+  } catch(e) {
+    return { used: 0, remaining: VR_QUOTA_SECONDS };
+  }
+}
+
 async function _uploadTake(blob, duration, mimeType) {
+  const uid   = auth.currentUser?.uid;
   const ext   = mimeType.includes('webm') ? 'webm' : 'ogg';
   const fname = 'take_' + Date.now() + '.' + ext;
   const path  = 'voice_takes/' + _vrSongId + '/' + fname;
@@ -13077,6 +13271,7 @@ async function _uploadTake(blob, duration, mimeType) {
     const url  = await snap.ref.getDownloadURL();
     await db.collection('voice_takes').add({
       songId: _vrSongId,
+      userId: uid,
       filename: fname,
       storagePath: path,
       downloadUrl: url,
@@ -13103,8 +13298,10 @@ window.vrLoadTakes = async function() {
       .get();
     if (snap.empty) {
       list.innerHTML = '<div class="vr-no-takes">No recordings yet</div>';
-      _el('vrRecBtn').disabled = false;
       _el('vrPlayAllBtn').disabled = true;
+      const { remaining } = await _vrGetQuota();
+      _updateQuotaDisplay(remaining);
+      _el('vrRecBtn').disabled = remaining <= 0 || _vrRecording || _vrUploading;
       return;
     }
     list.innerHTML = '';
@@ -13125,10 +13322,13 @@ window.vrLoadTakes = async function() {
         </button>`;
       list.appendChild(row);
     });
-    const atMax = snap.size >= VR_MAX_TAKES;
-    _el('vrRecBtn').disabled = atMax || _vrRecording || _vrUploading;
     _el('vrPlayAllBtn').disabled = snap.empty;
-    if (atMax) _setStatus('Max ' + VR_MAX_TAKES + ' takes — delete to record again');
+    // Update quota display
+    const { remaining } = await _vrGetQuota();
+    _updateQuotaDisplay(remaining);
+    const quotaFull = remaining <= 0;
+    _el('vrRecBtn').disabled = quotaFull || _vrRecording || _vrUploading;
+    if (quotaFull) _setStatus('1 hour quota reached — delete takes to free up time');
   } catch(err) {
     console.error('[VR] loadTakes error', err);
     list.innerHTML = '<div class="vr-no-takes">Error loading takes</div>';
@@ -13264,18 +13464,18 @@ async function _vrCleanTrash() {
 
 window.vrRestoreTake = async function(trashId) {
   try {
-    // Check if we have room
-    const takesSnap = await db.collection('voice_takes')
-      .where('songId', '==', _vrSongId).get();
-    if (takesSnap.size >= VR_MAX_TAKES) {
-      _setStatus('Cannot restore — max ' + VR_MAX_TAKES + ' takes reached');
-      return;
-    }
     const doc = await db.collection('voice_trash').doc(trashId).get();
     if (!doc.exists) return;
     const d = doc.data();
+    // Check quota
+    const { remaining } = await _vrGetQuota();
+    if (remaining < (d.duration || 0)) {
+      _setStatus('Not enough quota to restore — delete takes to free up time');
+      return;
+    }
     await db.collection('voice_takes').add({
       songId: d.songId,
+      userId: auth.currentUser?.uid,
       filename: d.filename,
       storagePath: d.storagePath,
       downloadUrl: d.downloadUrl,
@@ -13753,7 +13953,7 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
 
       <!-- Timer -->
       <div class="vr-time-display" id="vrTimeDisplay">0:00</div>
-      <div class="vr-time-limit" id="vrTimeLimit">Max 4:30 per take</div>
+      <div class="vr-time-limit" id="vrTimeLimit">Loading quota…</div>
 
       <!-- Progress strip -->
       <div class="vr-progress-bar">
