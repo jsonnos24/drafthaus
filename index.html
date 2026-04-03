@@ -13278,14 +13278,15 @@ document.addEventListener('keydown', function(e) {
   if (document.getElementById('inspoDrawer')?.classList.contains('open'))      closeInspoDrawer();
 });
 
-// ESC cancels recording countdown or active recording
+// ESC cancels recording (init wait, countdown, or active) — capture phase so it runs first
 document.addEventListener('keydown', function(e) {
   if (e.key !== 'Escape') return;
-  if (_vrCountTimer || _vrRecording) {
-    e.stopPropagation();
+  if (_vrInitializing || _vrCountTimer || _vrRecording) {
+    e.stopImmediatePropagation();
+    e.preventDefault();
     vrStop();
   }
-});
+}, true);
 
 // ── Sequencer: keyboard 1-8 plays scale intervals ──────────────────
 document.addEventListener('keydown', function(e) {
@@ -13333,6 +13334,7 @@ let _vrChunks        = [];
 let _vrRecStartTime  = null;
 let _vrRecTimer      = null;
 let _vrCountTimer    = null;
+let _vrInitializing  = false; // true while quota/mic init is pending (before countdown)
 let _vrAnalyser      = null;
 let _vrAudioCtx      = null;
 let _vrAnimFrame     = null;
@@ -13683,14 +13685,18 @@ window.vrMicFromList = function() {
 
 window.vrToggleRec = async function() {
   if (_vrRecording) { vrStop(); return; }
+  _vrInitializing = true;
   // Check user quota
   const { used, remaining } = await _vrGetQuota();
+  if (!_vrInitializing) return; // aborted by ESC during async wait
   if (remaining <= 0) {
+    _vrInitializing = false;
     _setStatus('1 hour quota reached — delete takes to free up time');
     return;
   }
   const ok = await _initMic();
-  if (!ok) return;
+  if (!_vrInitializing) { _releaseMic(); return; } // aborted by ESC during mic init
+  if (!ok) { _vrInitializing = false; return; }
   _el('vrRecBtn').disabled = true;
   _el('vrStopBtn').disabled = true;
   _stopPlayback();
@@ -13705,6 +13711,7 @@ function _beginRecording() {
   _vrMediaRec.ondataavailable = e => { if (e.data.size > 0) _vrChunks.push(e.data); };
   _vrMediaRec.onstop = _finalizeRecording;
   _vrMediaRec.start(250);
+  _vrInitializing = false;
   _vrRecording = true;
   _vrRecStartTime = Date.now();
   _startWaveform(_vrStream);
@@ -13736,11 +13743,16 @@ window.vrStop = function() {
     _setTime(0); _setProgress(0); _setStatus('Ready');
     return;
   }
-  // ── Stop recording ──
-  if (_vrCountTimer) {
-    clearInterval(_vrCountTimer); _vrCountTimer = null;
+  // ── Abort countdown (recording never started) ──
+  if (_vrInitializing || _vrCountTimer) {
+    _vrInitializing = false;
+    if (_vrCountTimer) { clearInterval(_vrCountTimer); _vrCountTimer = null; }
     _el('vrGlobalCountdown').classList.remove('vr-active');
+    _releaseMic();
+    _resetUI();
+    return;
   }
+  // ── Stop active recording ──
   if (_vrRecTimer) { clearInterval(_vrRecTimer); _vrRecTimer = null; }
   if (_vrMediaRec && _vrMediaRec.state !== 'inactive') { _vrMediaRec.stop(); }
   _vrRecording = false;
