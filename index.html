@@ -13310,9 +13310,12 @@ function _setTime(sec) {
   const s = Math.floor(sec % 60);
   e.textContent = m + ':' + String(s).padStart(2, '0');
 }
+let _vrPlaybackDuration = 0; // set when a take starts playing; 0 = use VR_MAX_DURATION (recording mode)
 function _setProgress(sec) {
   const fill = _el('vrProgressFill');
-  if (fill) fill.style.width = Math.min(100, (sec / VR_MAX_DURATION) * 100) + '%';
+  if (!fill) return;
+  const total = _vrPlaybackDuration > 0 ? _vrPlaybackDuration : VR_MAX_DURATION;
+  fill.style.width = Math.min(100, (sec / total) * 100) + '%';
 }
 function _updateQuotaDisplay(remainingSec) {
   const el = _el('vrTimeLimit');
@@ -13768,7 +13771,7 @@ window.vrLoadTakes = async function() {
           <span class="vr-take-num">T${idx + 1}</span>
           <span class="vr-take-dur">${dur}</span>
           <div class="vr-take-stars">${starsHtml}</div>
-          <button class="vr-take-play-btn" onclick="vrPlayTake('${doc.id}','${d.downloadUrl}')" title="Play">
+          <button class="vr-take-play-btn" onclick="vrPlayTake('${doc.id}','${d.downloadUrl}',${d.duration||0})" title="Play">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
           </button>
           <button class="vr-take-trash-btn" onclick="vrDeleteTake('${doc.id}','${d.storagePath || ''}')" title="Move to trash">
@@ -13832,10 +13835,11 @@ window.vrNoteSave = async function(takeId, value) {
 };
 
 // ── Playback ──────────────────────────────────────────────────
-window.vrPlayTake = function(takeId, url) {
+window.vrPlayTake = function(takeId, url, duration) {
   if (_vrPlayingTakeId === takeId) { _stopPlayback(); return; }
   _stopPlayback();
   _vrJogReset();
+  _vrPlaybackDuration = duration || 0;
   _vrPlayingTakeId = takeId;
   _vrCurrentAudio  = new Audio(url);
   if (_vrOutputDeviceId && _vrCurrentAudio.setSinkId) {
@@ -13876,6 +13880,7 @@ function _stopPlayback() {
     _vrCurrentAudio = null;
   }
   _vrPlayingTakeId = null;
+  _vrPlaybackDuration = 0;
   _setDeckState('');
   document.querySelectorAll('.vr-take-row').forEach(r => r.classList.remove('vr-take-playing'));
 }
