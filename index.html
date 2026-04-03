@@ -4012,10 +4012,37 @@ body.il-perf-active #metroNavRunBtn { display: none; }
   content: ''; flex: 1; height: 1px; background: #2a2218;
 }
 .vr-take-row {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; flex-direction: column; gap: 6px;
   background: #120f0a; border: 1px solid #2a2218;
   border-radius: 8px; padding: 8px 10px; margin-bottom: 6px;
 }
+.vr-take-top { display: flex; align-items: center; gap: 8px; }
+/* Star rating */
+.vr-take-stars { display: flex; align-items: center; gap: 2px; }
+.vr-star-btn {
+  background: none; border: none; cursor: pointer; padding: 2px;
+  font-size: 14px; line-height: 1; color: #3a2e1e;
+  transition: color 0.1s, transform 0.1s;
+}
+.vr-star-btn:hover { transform: scale(1.2); }
+.vr-star-btn.filled { color: #c8a96e; }
+/* Note input */
+.vr-take-note {
+  width: 100%; background: transparent; border: none;
+  border-top: 1px solid #1e1a12;
+  padding: 5px 2px 2px; margin-top: 2px;
+  font-family: 'IBM Plex Sans', sans-serif; font-size: 11px;
+  color: #8a7458; outline: none; resize: none;
+  line-height: 1.4;
+}
+.vr-take-note::placeholder { color: #3a2e1e; font-style: italic; }
+.vr-take-note:focus { color: #c0a878; }
+/* Song list dropdown: stars + note */
+.sl-takes-drop-meta {
+  display: flex; align-items: center; gap: 6px; margin-top: 2px;
+}
+.sl-takes-drop-stars { font-size: 11px; letter-spacing: -1px; color: #c8a96e; }
+.sl-takes-drop-note { font-size: 10px; color: #6a5a3e; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .vr-take-num {
   font-size: 10px; color: #6a5a44; font-weight: 700; min-width: 20px;
 }
@@ -4041,7 +4068,7 @@ body.il-perf-active #metroNavRunBtn { display: none; }
   padding: 6px 16px; width: 100%;
 }
 .vr-trash-toggle:hover { color: #c0a878; }
-.vr-trash-section { display: none; padding: 0 16px; }
+.vr-trash-section { display: none; padding: 0 16px 4px; }
 .vr-trash-section.vr-trash-open { display: block; }
 .vr-trash-row {
   display: flex; align-items: center; gap: 8px;
@@ -12729,6 +12756,12 @@ async function _slLoadTakes(songId, drop) {
                         + ' · ' + ts.toLocaleTimeString('en-CA', { hour:'2-digit', minute:'2-digit' })
                       : 'Unknown date';
       const dur = _slFmtDur(d.duration || 0);
+      const rating = d.rating || 0;
+      const starsHtml = rating > 0 ? '★'.repeat(rating) + '☆'.repeat(3 - rating) : '';
+      const noteHtml = d.note ? `<span class="sl-takes-drop-note">${d.note}</span>` : '';
+      const metaHtml = (starsHtml || noteHtml)
+        ? `<div class="sl-takes-drop-meta">${starsHtml ? `<span class="sl-takes-drop-stars">${starsHtml}</span>` : ''}${noteHtml}</div>`
+        : '';
       html += `<div class="sl-takes-drop-item" id="sldrop-item-${doc.id}">
         <div class="sl-takes-drop-top">
           <span class="sl-takes-drop-date">${dateStr}</span>
@@ -12738,6 +12771,7 @@ async function _slLoadTakes(songId, drop) {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
           </button>
         </div>
+        ${metaHtml}
         <div class="sl-takes-drop-progress" id="sldrop-prog-${doc.id}">
           <div class="sl-takes-drop-bar" onclick="slTapeSeek('${doc.id}',event)">
             <div class="sl-takes-drop-bar-fill" id="sldrop-fill-${doc.id}"></div>
@@ -12774,9 +12808,12 @@ function slTapePlay(takeId, url, totalSec) {
   if (prog) prog.classList.add('visible');
   // Drive progress via timeupdate
   _slTapeAudio.addEventListener('timeupdate', () => {
-    const cur      = _slTapeAudio.currentTime;
-    const dur      = _slTapeAudio.duration || totalSec || 1;
-    const pct      = Math.min(100, (cur / dur) * 100);
+    const cur = _slTapeAudio.currentTime;
+    // Chrome reports Infinity for WebM without duration header — fall back to stored duration
+    const dur = (isFinite(_slTapeAudio.duration) && _slTapeAudio.duration > 0)
+      ? _slTapeAudio.duration : (totalSec || 0);
+    if (!dur) return; // still unknown, skip update
+    const pct       = Math.min(100, (cur / dur) * 100);
     const remaining = Math.max(0, dur - cur);
     const rm = Math.floor(remaining / 60);
     const rs = Math.floor(remaining % 60);
@@ -13209,6 +13246,7 @@ window.vrOpen = function() {
     _resetUI();
     _vrGetQuota().then(({ remaining }) => _updateQuotaDisplay(remaining));
     vrLoadTakes();
+    vrLoadTrash();
   }
 };
 
@@ -13485,18 +13523,29 @@ window.vrLoadTakes = async function() {
     snap.docs.forEach((doc, idx) => {
       const d = doc.data();
       const dur = _fmtDur(d.duration || 0);
+      const rating = d.rating || 0;
+      const starsHtml = [1,2,3].map(n =>
+        `<button class="vr-star-btn${rating >= n ? ' filled' : ''}" onclick="vrSetRating('${doc.id}',${n})" title="${n} star${n>1?'s':''}">★</button>`
+      ).join('');
       const row = document.createElement('div');
       row.className = 'vr-take-row' + (_vrPlayingTakeId === doc.id ? ' vr-take-playing' : '');
       row.id = 'vrTake_' + doc.id;
       row.innerHTML = `
-        <span class="vr-take-num">T${idx + 1}</span>
-        <span class="vr-take-dur">${dur}</span>
-        <button class="vr-take-play-btn" onclick="vrPlayTake('${doc.id}','${d.downloadUrl}')" title="Play">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-        </button>
-        <button class="vr-take-trash-btn" onclick="vrDeleteTake('${doc.id}','${d.storagePath || ''}')" title="Move to trash">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14a2,2,0,0,1-2,2H8a2,2,0,0,1-2-2L5,6"/><path d="M10,11v6"/><path d="M14,11v6"/></svg>
-        </button>`;
+        <div class="vr-take-top">
+          <span class="vr-take-num">T${idx + 1}</span>
+          <span class="vr-take-dur">${dur}</span>
+          <div class="vr-take-stars">${starsHtml}</div>
+          <button class="vr-take-play-btn" onclick="vrPlayTake('${doc.id}','${d.downloadUrl}')" title="Play">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+          </button>
+          <button class="vr-take-trash-btn" onclick="vrDeleteTake('${doc.id}','${d.storagePath || ''}')" title="Move to trash">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14a2,2,0,0,1-2,2H8a2,2,0,0,1-2-2L5,6"/><path d="M10,11v6"/><path d="M14,11v6"/></svg>
+          </button>
+        </div>
+        <textarea class="vr-take-note" rows="1" placeholder="Add a note…"
+          oninput="vrNoteInput(this,'${doc.id}')"
+          onblur="vrNoteSave('${doc.id}',this.value)"
+        >${d.note ? d.note : ''}</textarea>`;
       list.appendChild(row);
     });
     _el('vrPlayAllBtn').disabled = snap.empty;
@@ -13511,6 +13560,42 @@ window.vrLoadTakes = async function() {
     list.innerHTML = '<div class="vr-no-takes">Error loading takes</div>';
   }
   vrLoadTrash();
+};
+
+// ── Rating + Notes ────────────────────────────────────────────
+let _vrNoteSaveTimers = {};
+
+window.vrSetRating = async function(takeId, stars) {
+  // Toggle off if clicking the same star again
+  try {
+    const doc = await db.collection('voice_takes').doc(takeId).get();
+    const current = doc.exists ? (doc.data().rating || 0) : 0;
+    const newRating = current === stars ? 0 : stars;
+    await db.collection('voice_takes').doc(takeId).update({ rating: newRating });
+    // Update stars in UI without full reload
+    const row = _el('vrTake_' + takeId);
+    if (row) {
+      row.querySelectorAll('.vr-star-btn').forEach((btn, i) => {
+        btn.classList.toggle('filled', newRating >= i + 1);
+      });
+    }
+  } catch(err) { console.error('[VR] setRating', err); }
+};
+
+window.vrNoteInput = function(textarea, takeId) {
+  // Auto-resize
+  textarea.style.height = 'auto';
+  textarea.style.height = textarea.scrollHeight + 'px';
+  // Debounce save
+  clearTimeout(_vrNoteSaveTimers[takeId]);
+  _vrNoteSaveTimers[takeId] = setTimeout(() => vrNoteSave(takeId, textarea.value), 1200);
+};
+
+window.vrNoteSave = async function(takeId, value) {
+  clearTimeout(_vrNoteSaveTimers[takeId]);
+  try {
+    await db.collection('voice_takes').doc(takeId).update({ note: value.trim() });
+  } catch(err) { console.error('[VR] noteSave', err); }
 };
 
 // ── Playback ──────────────────────────────────────────────────
@@ -13644,6 +13729,24 @@ async function _vrCleanTrash() {
     if (changed) await batch.commit();
   } catch(e) { /* non-fatal */ }
 }
+
+window.vrEmptyTrash = async function() {
+  if (!_vrSongId) return;
+  try {
+    const snap = await db.collection('voice_trash').where('songId', '==', _vrSongId).get();
+    if (snap.empty) return;
+    const batch = db.batch();
+    snap.docs.forEach(doc => {
+      const d = doc.data();
+      if (d.storagePath) firebase.storage().ref(d.storagePath).delete().catch(() => {});
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+    vrLoadTrash();
+  } catch(err) {
+    console.error('[VR] emptyTrash error', err);
+  }
+};
 
 window.vrRestoreTake = async function(trashId) {
   try {
@@ -14188,6 +14291,9 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
     </button>
     <div class="vr-trash-section" id="vrTrashSection">
       <div id="vrTrashList"><div class="vr-no-takes">Trash is empty</div></div>
+      <div style="padding: 6px 0 4px; text-align: right;">
+        <button onclick="vrEmptyTrash()" style="background:none;border:none;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:#6a3030;padding:4px 0;transition:color 0.15s;" onmouseover="this.style.color='#e06060'" onmouseout="this.style.color='#6a3030'">Empty Trash</button>
+      </div>
     </div>
   </div><!-- /#vrDeck -->
 </div><!-- /#vrOverlay -->
