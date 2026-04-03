@@ -4046,6 +4046,32 @@ body.il-perf-active #metroNavRunBtn { display: none; }
 .vr-transport-btn.vr-stop-btn { color: #9a8060; }
 .vr-transport-btn:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
 
+/* Jog wheel */
+.vr-jog-wrap {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 10px 0 4px; gap: 6px;
+}
+.vr-jog-wheel {
+  width: 100px; height: 100px;
+  border-radius: 50%;
+  cursor: grab;
+  user-select: none; touch-action: none;
+  transition: opacity 0.2s;
+  opacity: 0.35; /* dim when nothing loaded */
+  will-change: transform;
+}
+.vr-jog-wheel.vr-jog-active { cursor: grabbing; }
+.vr-jog-wheel svg { display: block; width: 100%; height: 100%; }
+/* Brighten when audio is loaded */
+.vr-playing .vr-jog-wheel,
+.vr-jog-wheel:hover { opacity: 0.85; }
+.vr-jog-wheel.vr-jog-active { opacity: 1 !important; }
+.vr-jog-hint {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 8px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: #4a3a22;
+}
+
 /* Countdown overlay */
 .vr-countdown {
   display: none; position: absolute; inset: 0;
@@ -4279,6 +4305,7 @@ body.il-perf-active #metroNavRunBtn { display: none; }
           <span class="header-dropdown-autosave">Auto-Save On</span>
         </div>
         <button class="header-dropdown-item" onclick="resyncAllSongs();closeHeaderDropdown()">↑ Re-sync All</button>
+        <button class="header-dropdown-item danger" onclick="vrEmptyAllTrashesConfirm();closeHeaderDropdown()">🗑 Empty All Trashes</button>
         <div class="header-dropdown-sep"></div>
         <button class="header-dropdown-item danger" onclick="auth.signOut()">Sign Out</button>
       </div>
@@ -13265,6 +13292,9 @@ let _vrCurrentAudio  = null; // HTMLAudioElement currently playing
 let _vrPlayingTakeId = null;
 let _vrRecording     = false;
 let _vrUploading     = false;
+let _vrJogAngle    = 0;      // accumulated rotation in radians
+let _vrJogPrevA    = null;   // angle at last pointer sample
+let _vrJogDragging = false;
 let _vrInputDeviceId   = localStorage.getItem('vr_input_device')  || '';
 let _vrOutputDeviceId  = localStorage.getItem('vr_output_device') || '';
 let _vrEchoCancellation = localStorage.getItem('vr_ec') !== 'false'; // default on
@@ -13805,6 +13835,7 @@ window.vrNoteSave = async function(takeId, value) {
 window.vrPlayTake = function(takeId, url) {
   if (_vrPlayingTakeId === takeId) { _stopPlayback(); return; }
   _stopPlayback();
+  _vrJogReset();
   _vrPlayingTakeId = takeId;
   _vrCurrentAudio  = new Audio(url);
   if (_vrOutputDeviceId && _vrCurrentAudio.setSinkId) {
@@ -13956,6 +13987,33 @@ window.vrEmptyTrash = async function() {
   }
 };
 
+// Empty ALL trash across every song for this user (called from header menu)
+window.vrEmptyAllTrashesConfirm = async function() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    const snap = await db.collection('voice_trash').where('userId', '==', uid).get();
+    if (snap.empty) { alert('All trashes are already empty.'); return; }
+    const count = snap.size;
+    if (!confirm(`Permanently delete ${count} trashed recording${count===1?'':'s'} across all songs? This cannot be undone.`)) return;
+    const batch = db.batch();
+    snap.docs.forEach(doc => {
+      const d = doc.data();
+      if (d.storagePath) firebase.storage().ref(d.storagePath).delete().catch(() => {});
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+    // Refresh tape deck if open
+    if (_el('vrOverlay').classList.contains('vr-open')) {
+      vrLoadTrash();
+      _vrGetQuota().then(({ remaining }) => _updateQuotaDisplay(remaining));
+    }
+  } catch(err) {
+    console.error('[VR] emptyAllTrashes error', err);
+    alert('Something went wrong emptying trash.');
+  }
+};
+
 window.vrRestoreTake = async function(trashId) {
   try {
     const doc = await db.collection('voice_trash').doc(trashId).get();
@@ -13999,8 +14057,97 @@ function _fmtTTL(ms) {
   return m + 'm';
 }
 
+// ── Jog Wheel ─────────────────────────────────────────────────
+function _vrBuildJogWheel() {
+  const wheel = _el('vrJogWheel');
+  if (!wheel || wheel.dataset.built) return;
+  wheel.dataset.built = '1';
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 100 100');
+  // Outer ring
+  const outer = document.createElementNS(ns, 'circle');
+  Object.entries({cx:50,cy:50,r:48,fill:'#1a1410',stroke:'#3a2e1e','stroke-width':2}).forEach(([k,v])=>outer.setAttribute(k,v));
+  svg.appendChild(outer);
+  // Grip ridges (24 ticks)
+  for (let i = 0; i < 24; i++) {
+    const ang = (i / 24) * 2 * Math.PI - Math.PI / 2;
+    const major = i % 6 === 0;
+    const r1 = major ? 37 : 41, r2 = 46;
+    const tick = document.createElementNS(ns, 'line');
+    Object.entries({
+      x1: 50 + r1 * Math.cos(ang), y1: 50 + r1 * Math.sin(ang),
+      x2: 50 + r2 * Math.cos(ang), y2: 50 + r2 * Math.sin(ang),
+      stroke: major ? '#6a5030' : '#3a2e1e',
+      'stroke-width': major ? 2.5 : 1.5,
+      'stroke-linecap': 'round'
+    }).forEach(([k,v])=>tick.setAttribute(k,v));
+    svg.appendChild(tick);
+  }
+  // Mid ring
+  const mid = document.createElementNS(ns, 'circle');
+  Object.entries({cx:50,cy:50,r:34,fill:'#141008',stroke:'#2a2018','stroke-width':1.5}).forEach(([k,v])=>mid.setAttribute(k,v));
+  svg.appendChild(mid);
+  // Hub
+  const hub = document.createElementNS(ns, 'circle');
+  Object.entries({cx:50,cy:50,r:18,fill:'#0d0b08',stroke:'#3a2e1e','stroke-width':1.5}).forEach(([k,v])=>hub.setAttribute(k,v));
+  svg.appendChild(hub);
+  // Hub center dot
+  const dot = document.createElementNS(ns, 'circle');
+  Object.entries({cx:50,cy:50,r:4,fill:'#3a2e1e'}).forEach(([k,v])=>dot.setAttribute(k,v));
+  svg.appendChild(dot);
+  // Indicator line (shows rotation)
+  const ind = document.createElementNS(ns, 'line');
+  Object.entries({x1:50,y1:20,x2:50,y2:32,stroke:'#c09040','stroke-width':3,'stroke-linecap':'round'}).forEach(([k,v])=>ind.setAttribute(k,v));
+  svg.appendChild(ind);
+  wheel.appendChild(svg);
+
+  // Pointer events — use setPointerCapture so drag works outside element
+  wheel.addEventListener('pointerdown', e => {
+    if (!_vrCurrentAudio) return;
+    e.preventDefault();
+    _vrJogDragging = true;
+    _vrJogPrevA = _vrJogAngleAt(e, wheel);
+    wheel.setPointerCapture(e.pointerId);
+    wheel.classList.add('vr-jog-active');
+  });
+  wheel.addEventListener('pointermove', e => {
+    if (!_vrJogDragging || !_vrCurrentAudio) return;
+    e.preventDefault();
+    const a = _vrJogAngleAt(e, wheel);
+    let delta = a - _vrJogPrevA;
+    if (delta >  Math.PI) delta -= 2 * Math.PI;
+    if (delta < -Math.PI) delta += 2 * Math.PI;
+    _vrJogPrevA = a;
+    _vrJogAngle += delta;
+    wheel.style.transform = `rotate(${_vrJogAngle}rad)`;
+    // 1 full rotation = 30 s of audio
+    const seekDelta = (delta / (2 * Math.PI)) * 30;
+    const cur = _vrCurrentAudio.currentTime;
+    const dur = isFinite(_vrCurrentAudio.duration) ? _vrCurrentAudio.duration : Infinity;
+    const newTime = Math.max(0, dur === Infinity ? cur + seekDelta : Math.min(dur, cur + seekDelta));
+    _vrCurrentAudio.currentTime = newTime;
+    _setTime(newTime);
+    _setProgress(newTime);
+  });
+  const jogUp = () => { _vrJogDragging = false; _vrJogPrevA = null; wheel.classList.remove('vr-jog-active'); };
+  wheel.addEventListener('pointerup',     jogUp);
+  wheel.addEventListener('pointercancel', jogUp);
+}
+
+function _vrJogAngleAt(e, el) {
+  const r = el.getBoundingClientRect();
+  return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2));
+}
+
+function _vrJogReset() {
+  _vrJogAngle = 0; _vrJogPrevA = null; _vrJogDragging = false;
+  const w = _el('vrJogWheel');
+  if (w) w.style.transform = 'rotate(0rad)';
+}
+
 // Draw flat line on canvas once deck opens
-document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
+document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); _vrBuildJogWheel(); });
 
 })(); // end IIFE
 
@@ -14500,6 +14647,12 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
         <button class="vr-transport-btn vr-play-all-btn" id="vrPlayAllBtn" onclick="vrPlayAll()" disabled title="Play latest">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
         </button>
+      </div>
+
+      <!-- Jog wheel scrubber -->
+      <div class="vr-jog-wrap">
+        <div class="vr-jog-wheel" id="vrJogWheel" title="Drag to scrub"></div>
+        <span class="vr-jog-hint">drag to scrub</span>
       </div>
     </div><!-- /.vr-cassette -->
 
