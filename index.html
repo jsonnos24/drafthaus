@@ -1891,8 +1891,8 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ── Sequencer play button ── */
   .sl-seq-cell { display: flex; align-items: center; justify-content: center; }
   .sl-seq-btn {
-    font-family: 'IBM Plex Mono', monospace; font-size: 13px;
-    padding: 6px 14px; border-radius: 5px; cursor: pointer; min-height: 32px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    padding: 6px 10px; border-radius: 5px; cursor: pointer; min-height: 32px;
     border: 1px solid var(--border2); background: var(--card2); color: var(--muted);
     transition: all 0.15s; line-height: 1;
   }
@@ -1900,7 +1900,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .sl-seq-btn.playing { border-color: var(--blue); color: var(--blue); background: rgba(126,184,255,0.1); }
 
   /* ── Song list tape button + takes dropdown ── */
-  .sl-tape-cell { display: flex; align-items: center; justify-content: center; position: relative; }
+  .sl-tape-cell { display: flex; align-items: center; justify-content: center; gap: 5px; position: relative; }
   .sl-tape-btn {
     display: flex; align-items: center; justify-content: center;
     gap: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 11px;
@@ -3865,7 +3865,8 @@ body.il-perf-active #metroNavRunBtn { display: none; }
   padding: 0 0 16px;
   font-family: 'IBM Plex Mono', monospace;
   box-shadow: 0 -8px 40px rgba(0,0,0,0.6);
-  overflow: hidden;
+  overflow-y: auto;
+  max-height: calc(92vh - env(safe-area-inset-bottom, 0px));
 }
 
 /* Deck header stripe */
@@ -3885,6 +3886,69 @@ body.il-perf-active #metroNavRunBtn { display: none; }
   transition: color 0.15s;
 }
 .vr-close-btn:hover { color: #c0a878; }
+
+/* Device bar */
+.vr-device-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 12px; gap: 6px;
+  background: #1e1912;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.vr-device-btn {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 5px;
+  color: #7a6a52;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px; letter-spacing: 0.06em;
+  padding: 4px 8px; cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 130px;
+}
+.vr-device-btn:hover { background: rgba(255,255,255,0.08); color: #b0906a; }
+.vr-ec-btn { max-width: none; font-weight: 700; font-size: 9px; flex-shrink: 0; }
+.vr-ec-btn.vr-ec-active {
+  color: #7ecb8a;
+  border-color: rgba(126,203,138,0.3);
+  background: rgba(126,203,138,0.08);
+}
+.vr-feedback-warn {
+  margin: 0 12px 6px;
+  padding: 6px 10px;
+  background: rgba(220,120,40,0.10);
+  border: 1px solid rgba(220,120,40,0.28);
+  border-radius: 6px;
+  color: #d8883a;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px; letter-spacing: 0.04em; line-height: 1.5;
+}
+
+/* Device picker dropdown */
+.vr-device-drop {
+  position: fixed; z-index: 9999;
+  background: #1e1a14;
+  border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 8px;
+  min-width: 210px; max-width: 300px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+  overflow: hidden;
+}
+.vr-device-drop-item {
+  padding: 9px 14px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; color: #b09878;
+  cursor: pointer; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  transition: background 0.1s;
+  display: flex; align-items: center; gap: 6px;
+}
+.vr-device-drop-item:hover { background: rgba(255,255,255,0.06); color: #d4b890; }
+.vr-device-drop-item.selected { color: #7ecb8a; }
+.vr-drop-check { width: 12px; flex-shrink: 0; }
+.vr-device-drop-empty { color: #5a4a34; cursor: default; }
+.vr-device-drop-empty:hover { background: none !important; color: #5a4a34 !important; }
 
 /* Cassette body */
 .vr-cassette {
@@ -4619,9 +4683,15 @@ function renderGrid() {
       if (!groups[proj]) groups[proj] = [];
       groups[proj].push(s);
     });
+    // Sort by most recently updated song in each project; Unassigned last
+    const projLastUp = {};
+    songList.forEach(s => {
+      const p = (s.project||'').trim() || '__none__';
+      if (!projLastUp[p] || (s.updatedAt||0) > projLastUp[p]) projLastUp[p] = s.updatedAt||0;
+    });
     const projKeys = Object.keys(groups).sort((a,b) => {
       if (a==='__none__') return 1; if (b==='__none__') return -1;
-      return a.localeCompare(b);
+      return (projLastUp[b]||0) - (projLastUp[a]||0);
     });
     projKeys.forEach(k => groups[k].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)));
     const mostRecentSong = [...songList].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
@@ -4665,7 +4735,7 @@ function renderGrid() {
         ${isPlaying ? '■' : '▶'}
       </button>
     </div>`;
-    // ── Tape / voice recordings ──
+    // ── Tape / voice recordings + sequencer (combined cell) ──
     const tapeCell = `<div class="sl-tape-cell" onclick="event.stopPropagation()" id="sltape-wrap-${song.id}">
       <button class="sl-tape-btn" id="sltape-${song.id}"
         onclick="slTapeToggle('${song.id}')" title="Voice recordings">
@@ -4675,6 +4745,10 @@ function renderGrid() {
           <line x1="12" y1="19" x2="12" y2="22"/>
           <line x1="8" y1="22" x2="16" y2="22"/>
         </svg>
+      </button>
+      <button class="sl-seq-btn${isPlaying?' playing':''}" id="slseq-${song.id}"
+        onclick="rowSeqToggle('${song.id}')" title="${isPlaying?'Stop':'Play sequencer'}">
+        ${isPlaying ? '■' : '▶'}
       </button>
       <div class="sl-takes-dropdown" id="sltdrop-${song.id}">
         <div class="sl-takes-drop-loading">Loading…</div>
@@ -4687,7 +4761,7 @@ function renderGrid() {
     return `<div class="song-list-row${isActive?' active-row':''}${isShared?' shared-row':''}" id="row-${song.id}"
       style="cursor:pointer;" onclick="rowLoadSong('${song.id}')">
       <div class="song-list-title">${titleHtml}${sharedBadge}${sharingIndicator}</div>
-      ${statusCell}${actionsHtml}${tapeCell}${seqCell}
+      ${statusCell}${actionsHtml}${tapeCell}
     </div>`;
   }
 
@@ -4696,7 +4770,7 @@ function renderGrid() {
     const isUnassigned = proj === '__none__';
     const rows = list.map(song => buildSongRow(song, true, false)).join('');
     const colsHeader = `<div class="song-list-cols-header">
-      <span>Title</span><span>Status</span><span>Actions</span><span>Tape</span><span>Sequencer</span>
+      <span>Title</span><span>Status</span><span>Actions</span><span>Tape / Seq</span>
     </div>`;
     const isCollapsed = Array.isArray(recentProjs)
       ? !recentProjs.includes(proj)
@@ -4719,12 +4793,7 @@ function renderGrid() {
     if (!myGroups[proj]) myGroups[proj] = [];
     myGroups[proj].push(s);
   });
-  const myProjKeys = Object.keys(myGroups).sort((a,b) => {
-    if (a==='__none__') return 1; if (b==='__none__') return -1;
-    return a.localeCompare(b);
-  });
-  myProjKeys.forEach(k => myGroups[k].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)));
-  // Find the 2 most recently updated projects
+  // Find the 2 most recently updated projects (do this before sorting keys)
   const projLastUpdated = {};
   displayMy.forEach(s => {
     const p = (s.project||'').trim() || '__none__';
@@ -4733,6 +4802,12 @@ function renderGrid() {
   const recentProjs = Object.keys(projLastUpdated)
     .sort((a,b) => projLastUpdated[b] - projLastUpdated[a])
     .slice(0, 2);
+  // Sort projects by most recently updated, Unassigned always last
+  const myProjKeys = Object.keys(myGroups).sort((a,b) => {
+    if (a==='__none__') return 1; if (b==='__none__') return -1;
+    return (projLastUpdated[b]||0) - (projLastUpdated[a]||0);
+  });
+  myProjKeys.forEach(k => myGroups[k].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)));
   const mostRecentProj = recentProjs[0] || null;
   const myHtml = myProjKeys.map(proj =>
     buildProjGroup(proj, myGroups[proj], recentProjs, myProjKeys.length)
@@ -4743,7 +4818,7 @@ function renderGrid() {
   let sharedHtml = '';
   if (displayShared.length) {
     const colsHeader = `<div class="song-list-cols-header">
-      <span>Title</span><span>Status</span><span>Actions</span><span>Tape</span><span>Sequencer</span>
+      <span>Title</span><span>Status</span><span>Actions</span><span>Tape / Seq</span>
     </div>`;
     const sharedRows = displayShared
       .sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0))
@@ -13190,6 +13265,10 @@ let _vrCurrentAudio  = null; // HTMLAudioElement currently playing
 let _vrPlayingTakeId = null;
 let _vrRecording     = false;
 let _vrUploading     = false;
+let _vrInputDeviceId   = localStorage.getItem('vr_input_device')  || '';
+let _vrOutputDeviceId  = localStorage.getItem('vr_output_device') || '';
+let _vrEchoCancellation = localStorage.getItem('vr_ec') !== 'false'; // default on
+let _vrDevices         = { inputs: [], outputs: [] };
 
 // ── DOM helpers ────────────────────────────────────────────────
 function _el(id) { return document.getElementById(id); }
@@ -13229,6 +13308,11 @@ window.vrOpen = function() {
   _vrSongId = currentId || null;
   if (!_vrSongId) { alert('No song selected.'); return; }
   _el('vrOverlay').classList.add('vr-open');
+  // Sync EC button visual state
+  const ecBtn = _el('vrEcBtn');
+  if (ecBtn) ecBtn.classList.toggle('vr-ec-active', _vrEchoCancellation);
+  // Enumerate devices (labels available once permission granted)
+  _vrEnumerateDevices();
   if (_vrRecording) {
     // Restore live recording state — don't reset
     _setDeckState('recording');
@@ -13275,10 +13359,31 @@ function _resetUI() {
 
 // ── Microphone ────────────────────────────────────────────────
 async function _initMic() {
+  const audioConstraints = {
+    sampleRate: 48000,
+    echoCancellation: _vrEchoCancellation,
+    noiseSuppression: false,
+    autoGainControl: false
+  };
+  if (_vrInputDeviceId) audioConstraints.deviceId = { exact: _vrInputDeviceId };
   try {
-    _vrStream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 48000 }, video: false });
+    _vrStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+    // Now that permission is granted, labels will be populated
+    _vrEnumerateDevices();
     return true;
   } catch(err) {
+    if (err.name === 'OverconstrainedError' && _vrInputDeviceId) {
+      // Selected device unplugged — fall back to default
+      console.warn('[VR] selected input unavailable, falling back to default');
+      _vrInputDeviceId = '';
+      localStorage.removeItem('vr_input_device');
+      delete audioConstraints.deviceId;
+      try {
+        _vrStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+        _vrEnumerateDevices();
+        return true;
+      } catch(e2) { /* fall through */ }
+    }
     _setStatus('Mic access denied');
     console.error('[VR] mic error', err);
     return false;
@@ -13290,6 +13395,95 @@ function _releaseMic() {
   if (_vrAudioCtx) { try { _vrAudioCtx.close(); } catch(e){} _vrAudioCtx = null; }
   if (_vrAnimFrame) { cancelAnimationFrame(_vrAnimFrame); _vrAnimFrame = null; }
 }
+
+// ── Device picker ─────────────────────────────────────────────
+async function _vrEnumerateDevices() {
+  try {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    _vrDevices.inputs  = all.filter(d => d.kind === 'audioinput');
+    _vrDevices.outputs = all.filter(d => d.kind === 'audiooutput');
+    _vrUpdateDeviceLabels();
+    _vrCheckFeedbackWarning();
+  } catch(e) { console.warn('[VR] enumerate error', e); }
+}
+
+function _vrShortLabel(label, fallback) {
+  if (!label) return fallback;
+  return label.length > 20 ? label.slice(0, 18) + '…' : label;
+}
+
+function _vrUpdateDeviceLabels() {
+  const inDev  = _vrDevices.inputs.find(d => d.deviceId === _vrInputDeviceId);
+  const outDev = _vrDevices.outputs.find(d => d.deviceId === _vrOutputDeviceId);
+  const inLabel  = _el('vrInputLabel');
+  const outLabel = _el('vrOutputLabel');
+  if (inLabel)  inLabel.textContent  = inDev  ? _vrShortLabel(inDev.label,  'Default') : 'Default';
+  if (outLabel) outLabel.textContent = outDev ? _vrShortLabel(outDev.label, 'Default') : 'Default';
+}
+
+function _vrCheckFeedbackWarning() {
+  const inDev  = _vrDevices.inputs.find(d => d.deviceId === _vrInputDeviceId);
+  const outDev = _vrDevices.outputs.find(d => d.deviceId === _vrOutputDeviceId);
+  const warn = _el('vrFeedbackWarn');
+  if (!warn) return;
+  const sameGroup = inDev && outDev && inDev.groupId && inDev.groupId === outDev.groupId;
+  warn.style.display = sameGroup ? 'block' : 'none';
+}
+
+window.vrToggleDevicePicker = function(type) {
+  const drop = _el('vrDeviceDrop');
+  const btn  = _el(type === 'input' ? 'vrInputBtn' : 'vrOutputBtn');
+  if (!drop || !btn) return;
+  if (drop.dataset.type === type && drop.style.display !== 'none') {
+    drop.style.display = 'none'; return;
+  }
+  drop.dataset.type = type;
+  const devices   = type === 'input' ? _vrDevices.inputs : _vrDevices.outputs;
+  const currentId = type === 'input' ? _vrInputDeviceId : _vrOutputDeviceId;
+  drop.innerHTML = devices.length === 0
+    ? '<div class="vr-device-drop-item vr-device-drop-empty">No devices found</div>'
+    : devices.map(d => {
+        const label = d.label || (type === 'input' ? 'Microphone' : 'Speaker');
+        const sel = d.deviceId === currentId;
+        return `<div class="vr-device-drop-item${sel ? ' selected' : ''}" onclick="vrSelectDevice('${type}','${d.deviceId}')">
+          <span class="vr-drop-check">${sel ? '✓' : ' '}</span>${label}</div>`;
+      }).join('');
+  const rect = btn.getBoundingClientRect();
+  drop.style.top   = (rect.bottom + 4) + 'px';
+  drop.style.left  = rect.left + 'px';
+  drop.style.right = 'auto';
+  drop.style.display = 'block';
+};
+
+window.vrSelectDevice = function(type, deviceId) {
+  if (type === 'input') {
+    _vrInputDeviceId = deviceId;
+    localStorage.setItem('vr_input_device', deviceId);
+  } else {
+    _vrOutputDeviceId = deviceId;
+    localStorage.setItem('vr_output_device', deviceId);
+  }
+  _el('vrDeviceDrop').style.display = 'none';
+  _vrUpdateDeviceLabels();
+  _vrCheckFeedbackWarning();
+};
+
+window.vrToggleEC = function() {
+  _vrEchoCancellation = !_vrEchoCancellation;
+  localStorage.setItem('vr_ec', String(_vrEchoCancellation));
+  const btn = _el('vrEcBtn');
+  if (btn) btn.classList.toggle('vr-ec-active', _vrEchoCancellation);
+};
+
+// Close device picker on outside click
+document.addEventListener('click', function(e) {
+  const drop = _el('vrDeviceDrop');
+  if (!drop || drop.style.display === 'none') return;
+  if (!drop.contains(e.target) && e.target.id !== 'vrInputBtn' && e.target.id !== 'vrOutputBtn'
+      && !e.target.closest('#vrInputBtn') && !e.target.closest('#vrOutputBtn')) {
+    drop.style.display = 'none';
+  }
+});
 
 // ── Waveform ──────────────────────────────────────────────────
 function _startWaveform(stream) {
@@ -13613,6 +13807,9 @@ window.vrPlayTake = function(takeId, url) {
   _stopPlayback();
   _vrPlayingTakeId = takeId;
   _vrCurrentAudio  = new Audio(url);
+  if (_vrOutputDeviceId && _vrCurrentAudio.setSinkId) {
+    _vrCurrentAudio.setSinkId(_vrOutputDeviceId).catch(() => {});
+  }
   _vrCurrentAudio.play();
   _setDeckState('playing');
   _setStatus('▶ Playing…');
@@ -14221,6 +14418,23 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
       </button>
     </div>
 
+    <!-- Device bar -->
+    <div class="vr-device-bar">
+      <button class="vr-device-btn" id="vrInputBtn" onclick="vrToggleDevicePicker('input')" title="Select input device">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span id="vrInputLabel">Default</span>
+      </button>
+      <button class="vr-device-btn vr-ec-btn" id="vrEcBtn" onclick="vrToggleEC()" title="Echo cancellation — reduce feedback from speakers">EC</button>
+      <button class="vr-device-btn" id="vrOutputBtn" onclick="vrToggleDevicePicker('output')" title="Select output device">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path d="M15.54,8.46a5,5,0,0,1,0,7.07" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M19.07,4.93a10,10,0,0,1,0,14.14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+        <span id="vrOutputLabel">Default</span>
+      </button>
+    </div>
+    <!-- Same-device feedback warning -->
+    <div class="vr-feedback-warn" id="vrFeedbackWarn" style="display:none">
+      ⚠ Input &amp; output on same device — use your interface's direct monitor to avoid feedback
+    </div>
+
     <!-- Cassette body -->
     <div class="vr-cassette" id="vrCassetteBody">
       <!-- Countdown overlay (3-2-1) -->
@@ -14309,6 +14523,9 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
   </div><!-- /#vrDeck -->
 </div><!-- /#vrOverlay -->
 <!-- ── End Voice Recorder ─────────────────────────────────── -->
+
+<!-- Device picker dropdown (portaled to body so it escapes overflow:hidden) -->
+<div class="vr-device-drop" id="vrDeviceDrop" style="display:none"></div>
 
 </body>
 </html>
