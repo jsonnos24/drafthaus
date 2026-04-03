@@ -13848,7 +13848,10 @@ window.vrPlayTake = function(takeId, url) {
   document.querySelectorAll('.vr-take-row').forEach(r => r.classList.remove('vr-take-playing'));
   const row = _el('vrTake_' + takeId);
   if (row) row.classList.add('vr-take-playing');
-  _vrCurrentAudio.onended = () => { _stopPlayback(); _setStatus('Done'); };
+  _vrCurrentAudio.onended = () => {
+    if (_vrJogDragging) return; // user is scrubbing — don't stop yet
+    _stopPlayback(); _setStatus('Done');
+  };
   _vrCurrentAudio.onerror = () => { _stopPlayback(); _setStatus('Playback error'); };
 };
 
@@ -14127,16 +14130,21 @@ function _vrBuildJogWheel() {
     const dur = isFinite(_vrCurrentAudio.duration) ? _vrCurrentAudio.duration : Infinity;
     const newTime = Math.max(0, dur === Infinity ? cur + seekDelta : Math.min(dur, cur + seekDelta));
     _vrCurrentAudio.currentTime = newTime;
-    // If audio stopped (ended or paused by seek edge case), restart it
-    if (_vrCurrentAudio.paused) {
+    // Don't call play() here — rapid play() during seek causes AbortError.
+    // onended is suppressed while dragging; restart is handled in pointerup.
+    _setTime(newTime);
+    _setProgress(newTime);
+  });
+  const jogUp = () => {
+    _vrJogDragging = false; _vrJogPrevA = null;
+    wheel.classList.remove('vr-jog-active');
+    // If audio reached its end while we were scrubbing, restart from current position
+    if (_vrCurrentAudio && _vrCurrentAudio.ended) {
       _vrCurrentAudio.play().catch(() => {});
       _setDeckState('playing');
       _setStatus('▶ Playing…');
     }
-    _setTime(newTime);
-    _setProgress(newTime);
-  });
-  const jogUp = () => { _vrJogDragging = false; _vrJogPrevA = null; wheel.classList.remove('vr-jog-active'); };
+  };
   wheel.addEventListener('pointerup',     jogUp);
   wheel.addEventListener('pointercancel', jogUp);
 }
