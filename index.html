@@ -4057,6 +4057,65 @@ body.il-perf-active #metroNavRunBtn { display: none; }
   color: #6a5a40; transition: color 0.15s;
 }
 .vr-trash-restore-btn:hover { color: #c8a96e; }
+/* ── Global recording countdown ─────────────────────────────── */
+#vrGlobalCountdown {
+  display: none; position: fixed; inset: 0; z-index: 9900;
+  align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+#vrGlobalCountdown.vr-active { display: flex; }
+.vr-global-count-num {
+  font-size: 96px; font-weight: 700; color: #e05050;
+  font-family: 'IBM Plex Mono', monospace; letter-spacing: -0.04em;
+  text-shadow: 0 0 40px rgba(224,80,80,0.6), 0 0 80px rgba(224,80,80,0.3);
+  animation: vrCountPop 0.35s cubic-bezier(0.34,1.56,0.64,1) both;
+}
+@keyframes vrCountPop {
+  from { transform: scale(1.6); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* ── Mini recording bar ──────────────────────────────────────── */
+#vrMiniBar {
+  display: none; position: fixed; left: 0; right: 0; z-index: 1100;
+  bottom: calc(56px + max(8px, env(safe-area-inset-bottom)));
+  height: 36px;
+  background: rgba(40,8,8,0.95);
+  border-top: 1px solid rgba(224,80,80,0.4);
+  border-bottom: none;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  align-items: center; justify-content: center; gap: 10px;
+  cursor: pointer;
+  transform: translateZ(0);
+  animation: vrMiniBarPulse 1.4s ease-in-out infinite;
+}
+#vrMiniBar.vr-active { display: flex; }
+@keyframes vrMiniBarPulse {
+  0%, 100% { border-top-color: rgba(224,80,80,0.35); background: rgba(40,8,8,0.95); }
+  50%       { border-top-color: rgba(224,80,80,0.9);  background: rgba(60,10,10,0.97); }
+}
+.vr-mini-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #e05050; flex-shrink: 0;
+  box-shadow: 0 0 6px rgba(224,80,80,0.8);
+  animation: vrDotBlink 1.4s ease-in-out infinite;
+}
+@keyframes vrDotBlink {
+  0%, 100% { opacity: 1; } 50% { opacity: 0.3; }
+}
+.vr-mini-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  letter-spacing: 0.1em; text-transform: uppercase; color: #e05050;
+}
+.vr-mini-time {
+  font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 700;
+  color: #ff8080; letter-spacing: 0.06em;
+}
+.vr-mini-hint {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: rgba(224,80,80,0.5); letter-spacing: 0.06em; margin-left: 4px;
+}
 /* ── End Voice Recorder ──────────────────────────────────────── */
 
 </style>
@@ -13133,13 +13192,29 @@ window.vrOpen = function() {
   _vrSongId = currentId || null;
   if (!_vrSongId) { alert('No song selected.'); return; }
   _el('vrOverlay').classList.add('vr-open');
-  _resetUI();
-  _vrGetQuota().then(({ remaining }) => _updateQuotaDisplay(remaining));
-  vrLoadTakes();
+  if (_vrRecording) {
+    // Restore live recording state — don't reset
+    _setDeckState('recording');
+    _el('vrRecBtn').classList.add('vr-active');
+    _el('vrRecBtn').disabled = false;
+    _el('vrStopBtn').disabled = false;
+    _el('vrPlayAllBtn').disabled = true;
+    const elapsed = (Date.now() - _vrRecStartTime) / 1000;
+    _setTime(elapsed);
+    _setProgress(elapsed);
+    _setStatus('● Recording…');
+    // Restart waveform draw on the existing analyser
+    if (_vrAnalyser && !_vrAnimFrame) _startWaveform(null);
+  } else {
+    _resetUI();
+    _vrGetQuota().then(({ remaining }) => _updateQuotaDisplay(remaining));
+    vrLoadTakes();
+  }
 };
 
 window.vrClose = function() {
-  _stopPlayback();
+  // Don't stop recording on close — just hide the overlay
+  if (!_vrRecording) _stopPlayback();
   _el('vrOverlay').classList.remove('vr-open');
 };
 
@@ -13159,7 +13234,7 @@ function _resetUI() {
 // ── Microphone ────────────────────────────────────────────────
 async function _initMic() {
   try {
-    _vrStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    _vrStream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 48000 }, video: false });
     return true;
   } catch(err) {
     _setStatus('Mic access denied');
@@ -13177,12 +13252,16 @@ function _releaseMic() {
 // ── Waveform ──────────────────────────────────────────────────
 function _startWaveform(stream) {
   const canvas = _el('vrWaveCanvas');
-  if (!canvas || !stream) return;
-  _vrAudioCtx  = new (window.AudioContext || window.webkitAudioContext)();
-  _vrAnalyser  = _vrAudioCtx.createAnalyser();
-  _vrAnalyser.fftSize = 256;
-  const src = _vrAudioCtx.createMediaStreamSource(stream);
-  src.connect(_vrAnalyser);
+  if (!canvas) return;
+  // If no stream passed, reuse existing analyser (deck was reopened mid-recording)
+  if (stream) {
+    _vrAudioCtx  = new (window.AudioContext || window.webkitAudioContext)();
+    _vrAnalyser  = _vrAudioCtx.createAnalyser();
+    _vrAnalyser.fftSize = 256;
+    const src = _vrAudioCtx.createMediaStreamSource(stream);
+    src.connect(_vrAnalyser);
+  }
+  if (!_vrAnalyser) return;
   const buf = new Uint8Array(_vrAnalyser.frequencyBinCount);
 
   function draw() {
@@ -13229,18 +13308,25 @@ function _drawFlatLine() {
 // ── Countdown ─────────────────────────────────────────────────
 function _startCountdown(cb) {
   let count = 3;
-  const overlay = _el('vrCountdown');
-  overlay.textContent = count;
-  overlay.classList.add('vr-active');
+  // Close the tape deck — recording continues in background
+  _el('vrOverlay').classList.remove('vr-open');
+  // Show global full-screen countdown
+  const globalOverlay = _el('vrGlobalCountdown');
+  const globalNum     = _el('vrGlobalCountNum');
+  globalNum.textContent = count;
+  globalOverlay.classList.add('vr-active');
   _setStatus('Get ready…');
   _vrCountTimer = setInterval(() => {
     count--;
     if (count <= 0) {
       clearInterval(_vrCountTimer); _vrCountTimer = null;
-      overlay.classList.remove('vr-active');
+      globalOverlay.classList.remove('vr-active');
       cb();
     } else {
-      overlay.textContent = count;
+      // Re-trigger pop animation by cloning the element
+      globalNum.textContent = count;
+      globalNum.style.animation = 'none';
+      requestAnimationFrame(() => { globalNum.style.animation = ''; });
     }
   }, 1000);
 }
@@ -13266,7 +13352,7 @@ function _beginRecording() {
   _vrChunks = [];
   const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
     ? 'audio/webm;codecs=opus' : 'audio/webm';
-  _vrMediaRec = new MediaRecorder(_vrStream, { mimeType, audioBitsPerSecond: 96000 });
+  _vrMediaRec = new MediaRecorder(_vrStream, { mimeType, audioBitsPerSecond: 128000 });
   _vrMediaRec.ondataavailable = e => { if (e.data.size > 0) _vrChunks.push(e.data); };
   _vrMediaRec.onstop = _finalizeRecording;
   _vrMediaRec.start(250);
@@ -13278,21 +13364,33 @@ function _beginRecording() {
   _el('vrRecBtn').disabled = false;
   _el('vrStopBtn').disabled = false;
   _setStatus('● Recording…');
+  // Show mini bar
+  _el('vrMiniBar').classList.add('vr-active');
 
   _vrRecTimer = setInterval(() => {
     const elapsed = (Date.now() - _vrRecStartTime) / 1000;
     _setTime(elapsed);
     _setProgress(elapsed);
+    // Keep mini bar time in sync
+    const m = Math.floor(elapsed / 60);
+    const s = Math.floor(elapsed % 60);
+    const miniTime = _el('vrMiniTime');
+    if (miniTime) miniTime.textContent = m + ':' + String(s).padStart(2,'0');
     if (elapsed >= VR_MAX_DURATION) { vrStop(); }
   }, 200);
 }
 
 window.vrStop = function() {
-  if (_vrCountTimer) { clearInterval(_vrCountTimer); _vrCountTimer = null; _el('vrCountdown').classList.remove('vr-active'); }
-  if (_vrRecTimer)   { clearInterval(_vrRecTimer); _vrRecTimer = null; }
+  if (_vrCountTimer) {
+    clearInterval(_vrCountTimer); _vrCountTimer = null;
+    _el('vrGlobalCountdown').classList.remove('vr-active');
+  }
+  if (_vrRecTimer) { clearInterval(_vrRecTimer); _vrRecTimer = null; }
   if (_vrMediaRec && _vrMediaRec.state !== 'inactive') { _vrMediaRec.stop(); }
   _vrRecording = false;
   if (_vrAnimFrame) { cancelAnimationFrame(_vrAnimFrame); _vrAnimFrame = null; }
+  // Hide mini bar
+  _el('vrMiniBar').classList.remove('vr-active');
   _setDeckState('');
   _el('vrRecBtn').classList.remove('vr-active');
   _el('vrRecBtn').disabled = true;
@@ -13981,6 +14079,19 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
     <span class="bottom-nav-label">Loop Station</span>
   </button>
 </nav>
+
+<!-- ── Global recording countdown ── -->
+<div id="vrGlobalCountdown">
+  <span class="vr-global-count-num" id="vrGlobalCountNum">3</span>
+</div>
+
+<!-- ── Mini recording bar ── -->
+<div id="vrMiniBar" onclick="vrOpen()">
+  <div class="vr-mini-dot"></div>
+  <span class="vr-mini-label">REC</span>
+  <span class="vr-mini-time" id="vrMiniTime">0:00</span>
+  <span class="vr-mini-hint">tap to open</span>
+</div>
 
 <!-- ── Voice Recorder / Tape Deck Overlay ──────────────────── -->
 <div id="vrOverlay" onclick="vrOverlayClick(event)">
