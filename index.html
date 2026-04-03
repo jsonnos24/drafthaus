@@ -13465,10 +13465,15 @@ async function _vrGetQuota() {
   const uid = auth.currentUser?.uid;
   if (!uid) return { used: 0, remaining: VR_QUOTA_SECONDS };
   try {
-    const snap = await db.collection('voice_takes')
-      .where('userId', '==', uid)
-      .get();
-    const used = snap.docs.reduce((sum, d) => sum + (d.data().duration || 0), 0);
+    // Count both active takes AND trashed items (still in storage until permanently deleted)
+    const [takesSnap, trashSnap] = await Promise.all([
+      db.collection('voice_takes').where('userId', '==', uid).get(),
+      db.collection('voice_trash').where('userId', '==', uid).get()
+    ]);
+    const used = [
+      ...takesSnap.docs.map(d => d.data().duration || 0),
+      ...trashSnap.docs.map(d => d.data().duration || 0)
+    ].reduce((sum, d) => sum + d, 0);
     return { used, remaining: Math.max(0, VR_QUOTA_SECONDS - used) };
   } catch(e) {
     return { used: 0, remaining: VR_QUOTA_SECONDS };
@@ -13743,6 +13748,7 @@ window.vrEmptyTrash = async function() {
     });
     await batch.commit();
     vrLoadTrash();
+    _vrGetQuota().then(({ remaining }) => _updateQuotaDisplay(remaining));
   } catch(err) {
     console.error('[VR] emptyTrash error', err);
   }
