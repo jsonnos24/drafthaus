@@ -12998,7 +12998,7 @@ document.addEventListener('keydown', function(e) {
 // ── Constants ──────────────────────────────────────────────────
 const VR_MAX_DURATION  = 4 * 60 + 30;       // 270 seconds per take
 const VR_QUOTA_SECONDS = 3 * 60 * 60;        // 3 hours total per user
-const VR_TRASH_TTL     = 24 * 60 * 60 * 1000; // 24h in ms
+const VR_TRASH_TTL     = 7 * 24 * 60 * 60 * 1000; // 1 week in ms
 
 // ── State ──────────────────────────────────────────────────────
 let _vrSongId        = null;
@@ -13387,10 +13387,13 @@ window.vrDeleteTake = async function(takeId, storagePath) {
       downloadUrl: d.downloadUrl,
       duration: d.duration,
       mimeType: d.mimeType,
-      deletedAt: firebase.firestore.FieldValue.serverTimestamp()
+      deletedAt: firebase.firestore.Timestamp.now()
     });
     await db.collection('voice_takes').doc(takeId).delete();
     if (_vrPlayingTakeId === takeId) _stopPlayback();
+    // Auto-open trash so user sees the item land there
+    const trashSec = _el('vrTrashSection');
+    if (trashSec) trashSec.classList.add('vr-trash-open');
     vrLoadTakes();
   } catch(err) {
     console.error('[VR] delete error', err);
@@ -13497,8 +13500,10 @@ function _fmtDur(sec) {
   return m + ':' + String(s).padStart(2, '0');
 }
 function _fmtTTL(ms) {
-  const h = Math.floor(ms / 3600000);
+  const d = Math.floor(ms / 86400000);
+  const h = Math.floor((ms % 86400000) / 3600000);
   const m = Math.floor((ms % 3600000) / 60000);
+  if (d > 0) return d + 'd ' + h + 'h';
   if (h > 0) return h + 'h ' + m + 'm';
   return m + 'm';
 }
