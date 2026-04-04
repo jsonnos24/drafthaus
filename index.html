@@ -9073,10 +9073,6 @@ const INSPO_DRUM_PATTERNS = ['rock1','rock2','pop','hiphop','altrock','edm','blu
 
 // D20 SVG shapes
 const DICE_DEFS = [
-  { label:'D4',  sides:4,  color:'#c8a0ff', size:70, path:'M50,8 L92,78 L8,78 Z' },
-  { label:'D6',  sides:6,  color:'#a070f0', size:70, path:'M15,15 H85 V85 H15 Z' },
-  { label:'D8',  sides:8,  color:'#c8a0ff', size:70, path:'M50,5 L90,50 L50,95 L10,50 Z' },
-  { label:'D12', sides:12, color:'#9060d0', size:70, path:'M50,5 L78,18 L92,45 L83,74 L60,90 L40,90 L17,74 L8,45 L22,18 Z' },
   { label:'D20', sides:20, color:'#c8a0ff', size:80, path:'M50,5 L95,27 L95,73 L50,95 L5,73 L5,27 Z' },
 ];
 
@@ -9151,6 +9147,8 @@ function openInspoDrawer() {
   document.getElementById('inspoDrawer').classList.add('open');
   document.getElementById('inspoOverlay').classList.add('open');
   _inspoRestoreDice();
+  // Auto-roll the D20 every time the drawer opens
+  setTimeout(() => rollInspoDie(0), 350);
 }
 function closeInspoDrawer() {
   document.getElementById('inspoDrawer').classList.remove('open');
@@ -9281,7 +9279,7 @@ function rollInspoDie(dieIdx) {
   const result = document.getElementById('inspoResult');
   if (result) result.style.opacity = '0';
 
-  // Roll for 6 seconds, then show the landed value
+  // Roll for 1.5 seconds, then show the landed value
   setTimeout(() => {
     die.classList.remove('rolling');
 
@@ -9293,20 +9291,46 @@ function rollInspoDie(dieIdx) {
     }
     die.classList.add('die-value-showing');
 
-    // Show the generated song result under the dice
-    _inspoRolled = generateInspoSong();
-    showInspoResult(_inspoRolled, dieLabel, dieRoll);
-
-    // Pulse for 4 seconds, then revert die face and restore other dice
-    setTimeout(() => {
-      die.classList.remove('die-value-showing');
-      if (textEl) {
-        textEl.textContent = dieLabel;
-        textEl.setAttribute('font-size', '22');
+    if (dieRoll <= 10) {
+      // Low roll — sassy failure message, no song
+      const sassyLines = [
+        "You feel uninspired... try again.",
+        "A ${dieRoll}? Really? The tavern laughs.",
+        "The muse has left the building.",
+        "Critical fail. Even the bartender winced.",
+        "The dice gods are unimpressed.",
+        "Your creativity rolled off a cliff.",
+        "Not today, songwriter. Not today.",
+        "The universe said no.",
+        "Bold attempt. Terrible result.",
+        "Even your dog could do better.",
+      ];
+      const msg = sassyLines[Math.floor(Math.random() * sassyLines.length)]
+                    .replace('${dieRoll}', dieRoll);
+      if (result) {
+        result.innerHTML = `<span style="font-family:'Playfair Display',serif;font-size:18px;font-style:italic;color:rgba(200,160,255,0.5);">🎲 ${dieRoll} — ${msg}</span>`;
+        result.style.opacity = '1';
       }
-      die.style.pointerEvents = '';
-      _inspoRestoreDice();
-    }, 4000);
+      setTimeout(() => {
+        die.classList.remove('die-value-showing');
+        if (textEl) { textEl.textContent = dieLabel; textEl.setAttribute('font-size', '22'); }
+        if (result) { result.style.opacity = '0'; result.innerHTML = ''; }
+        die.style.pointerEvents = '';
+        _inspoRestoreDice();
+      }, 4000);
+    } else {
+      // High roll (11–20) — generate song
+      _inspoRolled = generateInspoSong();
+      showInspoResult(_inspoRolled, dieLabel, dieRoll);
+
+      // Pulse for 4 seconds, then revert die face and restore other dice
+      setTimeout(() => {
+        die.classList.remove('die-value-showing');
+        if (textEl) { textEl.textContent = dieLabel; textEl.setAttribute('font-size', '22'); }
+        die.style.pointerEvents = '';
+        _inspoRestoreDice();
+      }, 4000);
+    }
   }, 1500);
 }
 
@@ -15779,7 +15803,7 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
         <img id="bartenderStatic" src="./etherealbartenderinarustictavern.png" alt="">
       </div>
       <div class="inspo-dice-col">
-        <div class="inspo-subtitle">Choose your die · Roll for a song</div>
+        <div class="inspo-subtitle">Roll the D20 · Generate a song</div>
         <div class="inspo-dice-grid" id="inspoDiceGrid">
           <!-- Dice rendered by JS -->
         </div>
