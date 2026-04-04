@@ -11323,18 +11323,34 @@ function encodeWAV(audioBuffer) {
 
 // ── Mobile touch drag for chord pills ────────────────────────────
 (function() {
-  let dragChord = null;
-  let dragGhost = null;
+  let dragChord  = null;
+  let dragDegree = null;
+  let dragGhost  = null;
 
-  function createGhost(text, x, y) {
+  const PILL_COLORS = [
+    { bg: '#1a0833', border: '#3a1060', color: '#c084fc' },
+    { bg: '#200d3e', border: '#4a1878', color: '#c48dff' },
+    { bg: '#271249', border: '#5a2090', color: '#cd97ff' },
+    { bg: '#2e1854', border: '#6a28a8', color: '#d6a0ff' },
+    { bg: '#361e60', border: '#7a30c0', color: '#deaaff' },
+    { bg: '#3d246c', border: '#8a38d8', color: '#e6b4ff' },
+    { bg: '#452a78', border: '#9a44e8', color: '#edbeff' },
+    { bg: '#4d3084', border: '#aa52f0', color: '#f3c8ff' },
+  ];
+
+  function createGhost(text, x, y, degree) {
     const ghost = document.createElement('div');
     ghost.textContent = text;
+    const c = (degree !== null && PILL_COLORS[degree]) ? PILL_COLORS[degree] : null;
+    const bg     = c ? c.bg     : 'var(--gold)';
+    const clr    = c ? c.color  : '#0a0a0c';
+    const shadow = c ? `0 8px 24px ${c.border}99` : '0 8px 24px rgba(245,166,35,0.6)';
     ghost.style.cssText = `
       position: fixed; z-index: 9999; pointer-events: none;
-      background: var(--gold); color: #0a0a0c;
+      background: ${bg}; color: ${clr};
       font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 13px;
       padding: 8px 14px; border-radius: 6px;
-      box-shadow: 0 8px 24px rgba(245,166,35,0.6);
+      box-shadow: ${shadow};
       transform: translate(-50%, -50%) scale(1.1);
       transition: transform 0.1s;
       left: ${x}px; top: ${y}px;
@@ -11356,9 +11372,10 @@ function encodeWAV(audioBuffer) {
   document.addEventListener('touchstart', e => {
     const pill = e.target.closest('.seq-chord-pill');
     if (!pill) return;
-    dragChord = (pill.querySelector('span') ? pill.querySelector('span').nextSibling || pill.lastChild : pill).textContent.trim();
+    dragChord  = (pill.querySelector('span') ? pill.querySelector('span').nextSibling || pill.lastChild : pill).textContent.trim();
+    dragDegree = pill.dataset.degree !== undefined ? parseInt(pill.dataset.degree) : null;
     const touch = e.touches[0];
-    dragGhost = createGhost(dragChord, touch.clientX, touch.clientY);
+    dragGhost = createGhost(dragChord, touch.clientX, touch.clientY, dragDegree);
     pill.classList.add('dragging');
   }, { passive: true });
 
@@ -11390,6 +11407,8 @@ function encodeWAV(audioBuffer) {
       if (slot.closest('#seqChordGrid') || slot.id === 'seqChordGrid') {
         slot.textContent = dragChord;
         slot.classList.add('filled', 'just-dropped');
+        if (dragDegree !== null) slot.dataset.chordDegree = String(dragDegree);
+        else delete slot.dataset.chordDegree;
         slot.addEventListener('animationend', () => slot.classList.remove('just-dropped'), { once: true });
         seqSaveChordSlots();
       }
@@ -11398,7 +11417,8 @@ function encodeWAV(audioBuffer) {
     if (lastHighlighted) { lastHighlighted.classList.remove('drag-over'); lastHighlighted = null; }
     if (dragGhost) { dragGhost.remove(); dragGhost = null; }
     document.querySelectorAll('.seq-chord-pill.dragging').forEach(p => p.classList.remove('dragging'));
-    dragChord = null;
+    dragChord  = null;
+    dragDegree = null;
   });
 })();
 
