@@ -37,6 +37,28 @@
   --faint:    #8a8aaa;
 }
 
+/* ── Slate Mode (bright-room theme) ─────────────────────────── */
+html.slate-mode {
+  --bg:       #1c1f2e;
+  --surface:  #242840;
+  --card:     #2a2e48;
+  --card2:    #303558;
+  --border:   #3e4270;
+  --border2:  #4c5085;
+  --text:     #e2e2f0;
+  --muted:    #a8a8c8;
+  --faint:    #8888aa;
+}
+/* Hardcoded rgba(10,10,12,...) overrides for slate mode */
+html.slate-mode .site-header            { background: rgba(28,31,46,0.94); }
+html.slate-mode .song-load-overlay      { background: rgba(28,31,46,0.72); }
+html.slate-mode .sticky-song-bar        { background: rgba(28,31,46,0.94); }
+html.slate-mode .rt-header              { background: rgba(28,31,46,0.98); }
+html.slate-mode .rt-metro               { background: rgba(28,31,46,0.98); }
+html.slate-mode .sub-header             { background: rgba(28,31,46,0.90); }
+html.slate-mode .bottom-nav             { background: rgba(28,31,46,0.98); }
+html.slate-mode .metro-bar              { background: rgba(28,31,46,0.98); }
+
 html { scroll-behavior: smooth; }
 
 body {
@@ -4185,6 +4207,19 @@ body.il-perf-active #metroNavRunBtn { display: none; }
 .vr-take-play-btn:hover { color: #a8c080; background: rgba(168,192,128,0.1); }
 .vr-take-trash-btn { color: #6a4040; }
 .vr-take-trash-btn:hover { color: #e06060; background: rgba(224,96,96,0.1); }
+.vr-take-trash-btn.take-locked { opacity: 0.2; pointer-events: none; cursor: default; }
+.vr-take-lock-btn {
+  background: none; border: none; cursor: pointer; padding: 4px;
+  border-radius: 4px; display: flex; align-items: center;
+  transition: color 0.15s, background 0.15s; color: #3a2e1e;
+}
+.vr-take-lock-btn:hover { color: #c0a878; background: rgba(192,168,120,0.1); }
+.vr-take-lock-btn.locked { color: #c0a878; }
+.vr-take-row.take-locked-row { border-color: rgba(192,168,120,0.25); }
+@keyframes vrLockShake {
+  0%,100%{transform:translateX(0)} 20%{transform:translateX(-4px)} 60%{transform:translateX(4px)}
+}
+.vr-take-row.lock-shake { animation: vrLockShake 0.3s ease; }
 .vr-take-playing { border-color: #4a6030; background: #0e1208; }
 .vr-no-takes { font-size: 12px; color: #3a2e1e; text-align: center; padding: 8px 0; }
 
@@ -4296,6 +4331,93 @@ body.il-perf-active #metroNavRunBtn { display: none; }
 }
 /* ── End Voice Recorder ──────────────────────────────────────── */
 
+/* ── Storage Modal ───────────────────────────────────────────── */
+#storageModal {
+  position: fixed; inset: 0; z-index: 1200;
+  background: rgba(0,0,0,0.72); backdrop-filter: blur(6px);
+  display: none; align-items: center; justify-content: center;
+  padding: 16px;
+}
+#storageModal.open { display: flex; }
+.storage-box {
+  background: var(--card); border: 1px solid var(--border2);
+  border-radius: 14px; width: 100%; max-width: 680px;
+  max-height: 88vh; display: flex; flex-direction: column;
+  overflow: hidden; box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+}
+.storage-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 22px 14px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.storage-title {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.2em;
+  color: var(--teal);
+}
+.storage-subtitle {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--faint); margin-top: 2px; letter-spacing: 0.05em;
+}
+.storage-body { overflow-y: auto; flex: 1; padding: 0; }
+.storage-table {
+  width: 100%; border-collapse: collapse;
+}
+.storage-table th {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--faint); padding: 10px 14px; text-align: left;
+  border-bottom: 1px solid var(--border); position: sticky; top: 0;
+  background: var(--card); z-index: 2;
+}
+.storage-table th.th-check { width: 36px; }
+.storage-table th.th-size  { width: 80px; text-align: right; }
+.storage-table th.th-dur   { width: 80px; text-align: right; }
+.storage-table td {
+  padding: 11px 14px; border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.storage-table tr:last-child td { border-bottom: none; }
+.storage-table tr:hover td { background: rgba(255,255,255,0.02); }
+.storage-table tr.storage-selected td { background: rgba(100,220,180,0.04); }
+.storage-check {
+  width: 16px; height: 16px; accent-color: var(--teal);
+  cursor: pointer; flex-shrink: 0;
+}
+.storage-song-name {
+  font-family: 'Playfair Display', serif; font-size: 14px;
+  color: var(--text); font-style: italic;
+}
+.storage-song-name.untitled { color: var(--faint); font-style: italic; }
+.storage-size {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  color: var(--muted); text-align: right;
+}
+.storage-dur {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  color: var(--muted); text-align: right;
+}
+.storage-footer {
+  padding: 14px 22px; border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0; gap: 12px;
+}
+.storage-sel-count {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--faint); letter-spacing: 0.05em;
+}
+.storage-delete-btn {
+  background: transparent; color: var(--red);
+  border: 1px solid rgba(255,95,95,0.4); border-radius: 7px;
+  padding: 8px 16px; cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  transition: all 0.15s;
+}
+.storage-delete-btn:hover { border-color: var(--red); background: rgba(255,95,95,0.08); }
+.storage-delete-btn:disabled { opacity: 0.3; cursor: default; pointer-events: none; }
+/* ── End Storage Modal ───────────────────────────────────────── */
+
 </style>
 </head>
 <body>
@@ -4373,8 +4495,10 @@ body.il-perf-active #metroNavRunBtn { display: none; }
     </div>
   </div>
 
-  <!-- Right: reserved for future header actions -->
-  <div class="header-right"></div>
+  <!-- Right: theme toggle -->
+  <div class="header-right">
+    <button id="themeToggleBtn" onclick="toggleSlateMode()" title="Toggle bright-room mode" style="background:none;border:none;cursor:pointer;color:var(--faint);font-size:15px;padding:6px 8px;border-radius:6px;transition:color 0.2s,background 0.2s;line-height:1;" onmouseenter="this.style.color='var(--gold)';this.style.background='rgba(245,166,35,0.08)'" onmouseleave="this.style.color='var(--faint)';this.style.background='none'">◑</button>
+  </div>
 </header>
 
 
@@ -4384,6 +4508,15 @@ body.il-perf-active #metroNavRunBtn { display: none; }
     <div class="grid-header" style="display:flex;align-items:center;justify-content:space-between;">
       <span class="grid-count" id="songCount"></span>
       <div style="display:flex;align-items:center;gap:10px;">
+        <button onclick="openStorageModal()"
+          style="display:flex;align-items:center;gap:6px;background:rgba(100,220,180,0.07);border:1px solid rgba(100,220,180,0.25);color:var(--teal);border-radius:8px;padding:8px 14px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;letter-spacing:0.08em;transition:all 0.15s;"
+          onmouseover="this.style.background='rgba(100,220,180,0.14)';this.style.borderColor='var(--teal)'"
+          onmouseout="this.style.background='rgba(100,220,180,0.07)';this.style.borderColor='rgba(100,220,180,0.25)'">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>
+          </svg>
+          Storage
+        </button>
         <button onclick="toggleDrawer('inspoDrawer', openInspoDrawer, closeInspoDrawer)"
           style="display:flex;align-items:center;gap:6px;background:rgba(200,160,255,0.08);border:1px solid rgba(200,160,255,0.3);color:var(--purple);border-radius:8px;padding:8px 14px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;letter-spacing:0.08em;transition:all 0.15s;"
           onmouseover="this.style.background='rgba(200,160,255,0.15)';this.style.borderColor='var(--purple)'"
@@ -4580,6 +4713,20 @@ body.il-perf-active #metroNavRunBtn { display: none; }
 
 
 <script>
+// ── Theme ──────────────────────────────────────────────────────────
+function toggleSlateMode() {
+  const isSlate = document.documentElement.classList.toggle('slate-mode');
+  localStorage.setItem('drafthaus-theme', isSlate ? 'slate' : 'dark');
+  const btn = document.getElementById('themeToggleBtn');
+  if (btn) btn.title = isSlate ? 'Switch to dark mode' : 'Switch to bright-room mode';
+}
+(function() {
+  if (localStorage.getItem('drafthaus-theme') === 'slate') {
+    document.documentElement.classList.add('slate-mode');
+  }
+})();
+// ──────────────────────────────────────────────────────────────────
+
 // ── CONFIG — paste your GAS URL here after deploying ──────────────
 // ─────────────────────────────────────────────────────────────────
 
@@ -10306,6 +10453,119 @@ async function removeShare(targetUid) {
   }
 }
 
+// ── Storage Modal ─────────────────────────────────────────────────
+
+function calcSongBytes(song) {
+  try { return new TextEncoder().encode(JSON.stringify(song)).length; }
+  catch(e) { return 0; }
+}
+
+function fmtBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(2) + ' MB';
+}
+
+function calcSongDuration(song) {
+  const bpm = parseFloat(song.bpm) || 120;
+  const bars = parseInt(song.sequencer?.bars || 2);
+  let totalCounts = 0;
+  if (typeof STRUCTURE_PARTS !== 'undefined' && song.structure) {
+    STRUCTURE_PARTS.forEach(p => {
+      if (song.structure[p.id]?.checked) {
+        totalCounts += (song.structure[p.id]?.count || 1);
+      }
+    });
+  }
+  if (totalCounts === 0) return '—';
+  const secs = totalCounts * bars * (4 * 60 / bpm);
+  const m = Math.floor(secs / 60);
+  const s = Math.round(secs % 60);
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+function openStorageModal() {
+  renderStorageList();
+  document.getElementById('storageModal').classList.add('open');
+}
+
+function closeStorageModal() {
+  document.getElementById('storageModal').classList.remove('open');
+}
+
+function renderStorageList() {
+  const uid = auth.currentUser?.uid;
+  const sorted = [...songs]
+    .filter(s => s.id)
+    .sort((a, b) => calcSongBytes(b) - calcSongBytes(a));
+
+  const tbody = document.getElementById('storageTableBody');
+  tbody.innerHTML = sorted.map(song => {
+    const name = song.title || song.workingTitle || '';
+    const nameHtml = name
+      ? `<span class="storage-song-name">${esc(name)}</span>`
+      : `<span class="storage-song-name untitled">Untitled</span>`;
+    const isOwner = !song.ownerId || song.ownerId === uid;
+    const disabledAttr = !isOwner ? 'disabled title="Shared — only owner can delete"' : '';
+    return `<tr id="storage-row-${song.id}" class="">
+      <td><input type="checkbox" class="storage-check" id="stchk-${song.id}" onchange="storageUpdateSel()" ${disabledAttr}></td>
+      <td>${nameHtml}${!isOwner ? ' <span style="font-size:10px;color:var(--faint);font-family:\'IBM Plex Mono\',monospace;">(shared)</span>' : ''}</td>
+      <td class="storage-size">${fmtBytes(calcSongBytes(song))}</td>
+      <td class="storage-dur">${calcSongDuration(song)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('storageSelectAll').checked = false;
+  storageUpdateSel();
+}
+
+function storageToggleAll(checked) {
+  document.querySelectorAll('#storageTableBody .storage-check:not([disabled])')
+    .forEach(cb => { cb.checked = checked; });
+  storageUpdateSel();
+}
+
+function storageUpdateSel() {
+  const checked = [...document.querySelectorAll('#storageTableBody .storage-check:checked')];
+  const count = checked.length;
+  document.getElementById('storageSelCount').textContent = count === 0
+    ? '0 selected' : count === 1 ? '1 song selected' : count + ' songs selected';
+  document.getElementById('storageDeleteBtn').disabled = count === 0;
+  // highlight selected rows
+  document.querySelectorAll('#storageTableBody tr').forEach(tr => {
+    const cb = tr.querySelector('.storage-check');
+    tr.classList.toggle('storage-selected', cb?.checked || false);
+  });
+}
+
+async function storageDeleteSelected() {
+  const checkedIds = [...document.querySelectorAll('#storageTableBody .storage-check:checked')]
+    .map(cb => cb.id.replace('stchk-', ''));
+  if (!checkedIds.length) return;
+
+  const names = checkedIds.map(id => {
+    const s = songs.find(x => x.id === id);
+    return s?.title || s?.workingTitle || 'Untitled';
+  });
+
+  const listText = names.map(n => '  • ' + n).join('\n');
+  const confirmed = confirm(
+    'Are you sure you want to permanently delete:\n\n' + listText +
+    '\n\nThis cannot be undone.'
+  );
+  if (!confirmed) return;
+
+  for (const id of checkedIds) {
+    songs = songs.filter(s => s.id !== id);
+    if (currentId === id) { currentId = null; showList(); }
+    try { await db.collection('songs').doc(id).delete(); }
+    catch(e) { console.error('Storage delete error:', e); }
+  }
+  save();
+  renderGrid();
+  renderStorageList();
+}
+
 // ── Export ────────────────────────────────────────────────────────
 
 function openExportPanel() {
@@ -13890,7 +14150,8 @@ window.vrLoadTakes = async function() {
         `<button class="vr-star-btn${rating >= n ? ' filled' : ''}" onclick="vrSetRating('${doc.id}',${n})" title="${n} star${n>1?'s':''}">★</button>`
       ).join('');
       const row = document.createElement('div');
-      row.className = 'vr-take-row' + (_vrPlayingTakeId === doc.id ? ' vr-take-playing' : '');
+      const isLocked = d.locked || false;
+      row.className = 'vr-take-row' + (_vrPlayingTakeId === doc.id ? ' vr-take-playing' : '') + (isLocked ? ' take-locked-row' : '');
       row.id = 'vrTake_' + doc.id;
       row.innerHTML = `
         <div class="vr-take-top">
@@ -13900,7 +14161,13 @@ window.vrLoadTakes = async function() {
           <button class="vr-take-play-btn" onclick="vrPlayTake('${doc.id}','${d.downloadUrl}',${d.duration||0})" title="Play">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
           </button>
-          <button class="vr-take-trash-btn" onclick="vrDeleteTake('${doc.id}','${d.storagePath || ''}')" title="Move to trash">
+          <button class="vr-take-lock-btn${isLocked ? ' locked' : ''}" onclick="vrToggleLock('${doc.id}',${!isLocked})" title="${isLocked ? 'Unlock take' : 'Lock take — prevents accidental deletion'}">
+            ${isLocked
+              ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`
+              : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>`
+            }
+          </button>
+          <button class="vr-take-trash-btn${isLocked ? ' take-locked' : ''}" onclick="vrDeleteTake('${doc.id}','${d.storagePath || ''}')" title="${isLocked ? 'Take is locked' : 'Move to trash'}">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14a2,2,0,0,1-2,2H8a2,2,0,0,1-2-2L5,6"/><path d="M10,11v6"/><path d="M14,11v6"/></svg>
           </button>
         </div>
@@ -13942,6 +14209,32 @@ window.vrSetRating = async function(takeId, stars) {
       });
     }
   } catch(err) { console.error('[VR] setRating', err); }
+};
+
+window.vrToggleLock = async function(takeId, lock) {
+  try {
+    await db.collection('voice_takes').doc(takeId).update({ locked: lock });
+    const row = document.getElementById('vrTake_' + takeId);
+    if (!row) return;
+    // Update row state
+    row.classList.toggle('take-locked-row', lock);
+    // Update lock button
+    const lockBtn = row.querySelector('.vr-take-lock-btn');
+    if (lockBtn) {
+      lockBtn.classList.toggle('locked', lock);
+      lockBtn.title = lock ? 'Unlock take' : 'Lock take — prevents accidental deletion';
+      lockBtn.setAttribute('onclick', `vrToggleLock('${takeId}',${!lock})`);
+      const closedLock = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+      const openLock   = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>`;
+      lockBtn.innerHTML = lock ? closedLock : openLock;
+    }
+    // Update trash button
+    const trashBtn = row.querySelector('.vr-take-trash-btn');
+    if (trashBtn) {
+      trashBtn.classList.toggle('take-locked', lock);
+      trashBtn.title = lock ? 'Take is locked' : 'Move to trash';
+    }
+  } catch(err) { console.error('[VR] toggleLock', err); }
 };
 
 window.vrNoteInput = function(textarea, takeId) {
@@ -14059,6 +14352,15 @@ window.vrDeleteTake = async function(takeId, storagePath) {
     const doc = await db.collection('voice_takes').doc(takeId).get();
     if (!doc.exists) return;
     const d = doc.data();
+    // Block deletion if take is locked
+    if (d.locked) {
+      const row = document.getElementById('vrTake_' + takeId);
+      if (row) {
+        row.classList.add('lock-shake');
+        setTimeout(() => row.classList.remove('lock-shake'), 400);
+      }
+      return;
+    }
     // Move to trash
     await db.collection('voice_trash').add({
       songId: _vrSongId,
@@ -14389,6 +14691,41 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); _vrBuildJ
   </div>
 </div>
 
+
+<!-- ── Storage Modal ───────────────── -->
+<div id="storageModal" onclick="if(event.target===this)closeStorageModal()">
+  <div class="storage-box">
+    <div class="storage-header">
+      <div>
+        <div class="storage-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:6px;"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>Storage
+        </div>
+        <div class="storage-subtitle">Songs by size · estimated playback duration</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="closeStorageModal()">✕</button>
+    </div>
+    <div class="storage-body">
+      <table class="storage-table">
+        <thead>
+          <tr>
+            <th class="th-check"><input type="checkbox" id="storageSelectAll" class="storage-check" onchange="storageToggleAll(this.checked)" title="Select all"></th>
+            <th>Song</th>
+            <th class="th-size">Size</th>
+            <th class="th-dur">Est. Length</th>
+          </tr>
+        </thead>
+        <tbody id="storageTableBody"></tbody>
+      </table>
+    </div>
+    <div class="storage-footer">
+      <span class="storage-sel-count" id="storageSelCount">0 selected</span>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <button class="btn btn-ghost btn-sm" onclick="closeStorageModal()">Close</button>
+        <button class="storage-delete-btn" id="storageDeleteBtn" disabled onclick="storageDeleteSelected()">Delete Selected</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ── Export Modal ───────────────── -->
 <div class="modal-overlay" id="exportModal">
