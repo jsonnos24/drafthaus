@@ -4342,6 +4342,27 @@ body.il-perf-active #metroNavRunBtn { display: none; }
   pointer-events: none; /* children with pointer-events: auto are still clickable */
 }
 #vrGlobalCountdown.vr-active { display: flex; }
+/* Performance-mode: unobtrusive corner countdown, no blur */
+#vrGlobalCountdown.vr-perf-countdown {
+  inset: auto;
+  bottom: 110px; right: 16px;
+  width: auto; height: auto;
+  background: rgba(0,0,0,0.72);
+  backdrop-filter: none;
+  border-radius: 14px;
+  padding: 12px 20px 10px;
+  align-items: center;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+#vrGlobalCountdown.vr-perf-countdown .vr-global-count-num {
+  font-size: 52px;
+  text-shadow: 0 0 20px rgba(224,80,80,0.7);
+}
+#vrGlobalCountdown.vr-perf-countdown .vr-countdown-cancel-btn {
+  margin-top: 10px;
+  padding: 6px 16px;
+  font-size: 13px;
+}
 .vr-global-count-num {
   font-size: 96px; font-weight: 700; color: #e05050;
   font-family: 'IBM Plex Mono', monospace; letter-spacing: -0.04em;
@@ -14533,13 +14554,19 @@ function _startCountdown(cb) {
   const globalOverlay = _el('vrGlobalCountdown');
   const globalNum     = _el('vrGlobalCountNum');
   globalNum.textContent = count;
+  // Perf mode: compact corner overlay, no blur
+  if (window._ilPerfMode) {
+    globalOverlay.classList.add('vr-perf-countdown');
+  } else {
+    globalOverlay.classList.remove('vr-perf-countdown');
+  }
   globalOverlay.classList.add('vr-active');
   _setStatus('Get ready…');
   _vrCountTimer = setInterval(() => {
     count--;
     if (count <= 0) {
       clearInterval(_vrCountTimer); _vrCountTimer = null;
-      globalOverlay.classList.remove('vr-active');
+      globalOverlay.classList.remove('vr-active', 'vr-perf-countdown');
       cb();
     } else {
       // Re-trigger pop animation by cloning the element
@@ -14586,7 +14613,7 @@ window.vrCancelRecording = function() {
     // Countdown or init abort — nothing recorded yet
     _vrInitializing = false;
     if (_vrCountTimer) { clearInterval(_vrCountTimer); _vrCountTimer = null; }
-    _el('vrGlobalCountdown').classList.remove('vr-active');
+    _el('vrGlobalCountdown').classList.remove('vr-active', 'vr-perf-countdown');
     _releaseMic();
     _resetUI();
     return;
@@ -14673,7 +14700,7 @@ window.vrStop = function() {
   if (_vrInitializing || _vrCountTimer) {
     _vrInitializing = false;
     if (_vrCountTimer) { clearInterval(_vrCountTimer); _vrCountTimer = null; }
-    _el('vrGlobalCountdown').classList.remove('vr-active');
+    _el('vrGlobalCountdown').classList.remove('vr-active', 'vr-perf-countdown');
     _releaseMic();
     _resetUI();
     return;
