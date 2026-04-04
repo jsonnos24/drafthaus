@@ -1162,8 +1162,8 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .seq-controls {
     display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
-    margin-bottom: 20px; padding-bottom: 16px;
-    border-bottom: 1px solid var(--border);
+    margin-top: 16px; padding-top: 16px;
+    border-top: 1px solid var(--border);
   }
   .seq-ctrl-group {
     display: flex; align-items: center; gap: 6px;
@@ -4658,7 +4658,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 <header class="site-header" id="siteHeader">
   <!-- Left: logo -->
   <div class="header-left">
-    <span class="header-logo">Drafthaus</span>
+    <span class="header-logo" onclick="showList()" style="cursor:pointer;" title="Back to song list">Drafthaus</span>
   </div>
 
   <!-- Centre: sync status -->
@@ -4678,6 +4678,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
         <button class="header-dropdown-item" onclick="resyncAllSongs();closeHeaderDropdown()">↑ Re-sync All</button>
         <button class="header-dropdown-item danger" onclick="vrEmptyAllTrashesConfirm();closeHeaderDropdown()">🗑 Empty All Trashes</button>
         <div class="header-dropdown-sep"></div>
+        <div style="padding:6px 12px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:0.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="headerUserEmail"></div>
         <button class="header-dropdown-item danger" onclick="auth.signOut()">Sign Out</button>
       </div>
     </div>
@@ -6832,7 +6833,70 @@ function renderSequencerHtml(song) {
   const bpm  = seqData.bpm  || song.bpm || '100';
 
   return `<div class="seq-panel" id="seqPanel">
-    <div class="seq-controls">
+
+    <!-- ── Chord Progression + Beat Controls side by side ── -->
+    <div class="seq-section seq-sub-section" id="seqSubChords">
+      <div class="seq-sub-header" onclick="toggleSeqSub('seqSubChords')">
+        <div>
+          <div class="seq-section-title" style="margin-bottom:2px;font-size:13px;font-weight:700;color:var(--text);">🎵 Chord Progression &amp; 🥁 Beat Controls</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.05em;">Drag chords into the grid · Pick a beat pattern below</div>
+        </div>
+        <span class="seq-sub-chevron">▼</span>
+      </div>
+      <div class="seq-sub-body" style="padding-bottom:10px;">
+        <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+          <!-- Chord pills -->
+          <div style="flex:1;min-width:0;">
+            <div class="seq-chords-row" id="seqChordPills"></div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.08em;margin-top:4px;">↑ Click a chord to preview · Drag into grid below</div>
+          </div>
+          <!-- Beat Controls -->
+          <div style="flex-shrink:0;display:flex;align-items:center;gap:8px;padding-left:16px;border-left:1px solid var(--border2);">
+            <select class="seq-select" onchange="if(this.value){applyDrumPattern(this.value);this.value=''}" style="min-width:140px;">
+              <option value="">— Pick a pattern —</option>
+              <option value="rock1">Rock 1</option>
+              <option value="rock2">Rock 2</option>
+              <option value="waltz">Waltz</option>
+              <option value="hiphop">Hip Hop</option>
+              <option value="pop">Pop</option>
+              <option value="country">Country</option>
+              <option value="jazz">Jazz</option>
+              <option value="shoegaze">Shoegaze</option>
+              <option value="motown">Motown</option>
+              <option value="hardrock">Hard Rock</option>
+              <option value="punk">Punk</option>
+              <option value="altrock">Alt Rock</option>
+              <option value="rnb">R&amp;B</option>
+              <option value="edm">EDM</option>
+              <option value="blues">Blues</option>
+              <option value="classical">Classical</option>
+              <option value="random">🎲 Random</option>
+            </select>
+            <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="applyDrumPattern('clear')">Clear</button>
+          </div>
+        </div>
+        <div id="drumNotationWrap" style="display:none;margin-top:14px;overflow-x:auto;-webkit-overflow-scrolling:touch;">
+          <canvas id="drumNotationCanvas" style="display:block;border-radius:6px;background:#1a1a1e;"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Shared pattern grid: Chord + Drums all in one scroll ── -->
+    <div class="seq-pattern-grid">
+      <div class="seq-grid-row">
+        <div class="seq-row-label">Chord</div>
+        <div class="seq-grid" id="seqChordGrid"></div>
+      </div>
+      <div class="seq-pattern-divider"></div>
+      ${[['Kick','seqKick'],['Snare','seqSnare'],['Hi-Hat','seqHat'],['Clap','seqClap']].map(([label,id])=>`
+      <div class="seq-grid-row">
+        <div class="seq-row-label">${label}</div>
+        <div class="seq-grid" id="${id}"></div>
+      </div>`).join('')}
+    </div>
+
+    <!-- ── Controls bar: moved below grid ── -->
+    <div class="seq-controls" style="margin-top:16px;margin-bottom:0;padding-top:16px;padding-bottom:0;border-top:1px solid var(--border2);border-bottom:none;">
 
       <div class="seq-ctrl-group" style="margin-right:8px;padding-right:12px;border-right:1px solid var(--border2);">
         <span class="seq-label">Part</span>
@@ -6909,74 +6973,6 @@ function renderSequencerHtml(song) {
         <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="margin-left:4px;font-size:13px;padding:8px 20px;font-weight:700;">■ Stop</button>
         <button class="seq-btn seq-btn-met" id="seqMetBtn" onclick="seqToggleMet()" style="margin-left:4px;">Metro</button>
       </div>
-    </div>
-
-    <div class="seq-section seq-sub-section" id="seqSubChords">
-      <div class="seq-sub-header" onclick="toggleSeqSub('seqSubChords')">
-        <div>
-          <div class="seq-section-title" style="margin-bottom:2px;font-size:13px;font-weight:700;color:var(--text);">🎵 Chord Progression</div>
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.05em;">Drag chords into the grid to build your progression</div>
-        </div>
-        <span class="seq-sub-chevron">▼</span>
-      </div>
-      <div class="seq-sub-body" style="padding-bottom:10px;">
-        <div class="seq-chords-row" id="seqChordPills"></div>
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.08em;margin-top:-4px;">↑ Click a chord to preview · Drag into grid below</div>
-      </div>
-    </div>
-
-    <!-- ── Shared pattern grid: Chord + Drums all in one scroll ── -->
-    <div class="seq-pattern-grid">
-      <div class="seq-grid-row">
-        <div class="seq-row-label">Chord</div>
-        <div class="seq-grid" id="seqChordGrid"></div>
-      </div>
-      <div class="seq-pattern-divider"></div>
-      ${[['Kick','seqKick'],['Snare','seqSnare'],['Hi-Hat','seqHat'],['Clap','seqClap']].map(([label,id])=>`
-      <div class="seq-grid-row">
-        <div class="seq-row-label">${label}</div>
-        <div class="seq-grid" id="${id}"></div>
-      </div>`).join('')}
-    </div>
-
-    <div class="seq-section seq-sub-section" id="seqSubDrums">
-      <div class="seq-sub-header" onclick="toggleSeqSub('seqSubDrums')">
-        <div>
-          <div class="seq-section-title" style="margin-bottom:2px;font-size:13px;font-weight:700;color:var(--text);">🥁 Beat Controls</div>
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.05em;">Pick a preset or tap the grid above to build your beat</div>
-        </div>
-        <span class="seq-sub-chevron">▼</span>
-      </div>
-      <div class="seq-sub-body">
-      <div style="display:flex;align-items:center;gap:8px;">
-          <select class="seq-select" onchange="if(this.value){applyDrumPattern(this.value);this.value=''}" style="min-width:140px;">
-            <option value="">— Pick a pattern —</option>
-            <option value="rock1">Rock 1</option>
-            <option value="rock2">Rock 2</option>
-            <option value="waltz">Waltz</option>
-            <option value="hiphop">Hip Hop</option>
-            <option value="pop">Pop</option>
-            <option value="country">Country</option>
-            <option value="jazz">Jazz</option>
-            <option value="shoegaze">Shoegaze</option>
-            <option value="motown">Motown</option>
-            <option value="hardrock">Hard Rock</option>
-            <option value="punk">Punk</option>
-            <option value="altrock">Alt Rock</option>
-            <option value="rnb">R&B</option>
-            <option value="edm">EDM</option>
-            <option value="blues">Blues</option>
-            <option value="classical">Classical</option>
-            <option value="random">🎲 Random</option>
-          </select>
-          <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="applyDrumPattern('clear')">Clear</button>
-        </div>
-      <div id="drumNotationWrap" style="display:none;margin-top:14px;overflow-x:auto;-webkit-overflow-scrolling:touch;">
-        <canvas id="drumNotationCanvas" style="display:block;border-radius:6px;background:#1a1a1e;"></canvas>
-      </div>
-    </div>
-
-    </div>
     </div>
 
     <div class="seq-section seq-sub-section seq-sub-collapsed" id="seqSubKeys">
@@ -8881,6 +8877,8 @@ auth.onAuthStateChanged(user => {
     }, { merge: true });
 
     document.getElementById('landingOverlay').classList.add('hidden');
+    const emailEl = document.getElementById('headerUserEmail');
+    if (emailEl) emailEl.textContent = user.email || '';
     initApp();
   } else {
     // Logged out — clear everything
@@ -8888,6 +8886,8 @@ auth.onAuthStateChanged(user => {
     currentId = null;
     stopSyncPolling();
     renderGrid();
+    const emailEl = document.getElementById('headerUserEmail');
+    if (emailEl) emailEl.textContent = '';
     document.getElementById('landingOverlay').classList.remove('hidden');
     setTimeout(() => {
       const inp = document.getElementById('landingEmailInput');
@@ -15701,15 +15701,18 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
         <div class="rt-msep"></div>
       </div>
 
-      <!-- Perf mode: settings gear -->
-      <button class="rt-mbtn rt-perf-only" id="rtMetroSettingsBtn" onclick="rtToggleMetroSettings()" title="Metronome settings">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      <!-- 1. Microphone / Voice Recorder -->
+      <button class="rt-mbtn rt-perf-only vr-metro-btn" onclick="vrOpen()" title="Voice Recorder — Tape Deck">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="2" width="6" height="12" rx="3"/>
+          <path d="M5 10a7 7 0 0 0 14 0"/>
+          <line x1="12" y1="19" x2="12" y2="22"/>
+          <line x1="8" y1="22" x2="16" y2="22"/>
         </svg>
       </button>
 
-      <!-- Metro play button (metronome icon in perf mode) -->
+      <!-- 2. Metronome play button -->
+      <div class="rt-msep rt-perf-only"></div>
       <button class="rt-mbtn rt-mplay" id="rtMetroPlayBtn" onclick="rtMetroToggle()">
         <span class="rt-play-default">▶</span>
         <span class="rt-play-perf">
@@ -15722,26 +15725,23 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
         </span>
       </button>
 
-      <!-- Tuning fork -->
+      <!-- 3. Metronome settings gear (perf-only) -->
+      <button class="rt-mbtn rt-perf-only" id="rtMetroSettingsBtn" onclick="rtToggleMetroSettings()" title="Metronome settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+
+      <!-- 4. Tuning fork -->
       <button class="rt-mbtn rt-mfork" id="rtMetroForkBtn" onclick="rtForkToggle()" title="Tuning Fork — E2 (82.41 Hz)">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v10"/><path d="M17 3v10"/><path d="M7 13 Q7 20 12 20 Q17 20 17 13"/><line x1="12" y1="20" x2="12" y2="24"/></svg>
       </button>
 
-      <!-- Perf-only: Seq play | Arm Sequencer -->
+      <!-- 5 & 6. Play Sequencer | Arm Sequencer -->
       <div class="rt-msep rt-perf-only"></div>
       <button class="rt-mbtn rt-perf-only" id="rtSeqPlayBtn" onclick="rtSeqTogglePlay()" title="Seq Play/Stop">▶ Seq</button>
       <button class="rt-mbtn rt-perf-only" id="rtArmSeqBtn" onclick="vrToggleArmSeq()" title="Arm Sequencer — sequencer auto-plays when recording starts">Arm Seq</button>
-
-      <!-- Tape / Voice Recorder -->
-      <div class="rt-msep rt-perf-only"></div>
-      <button class="rt-mbtn rt-perf-only vr-metro-btn" onclick="vrOpen()" title="Voice Recorder — Tape Deck">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="9" y="2" width="6" height="12" rx="3"/>
-          <path d="M5 10a7 7 0 0 0 14 0"/>
-          <line x1="12" y1="19" x2="12" y2="22"/>
-          <line x1="8" y1="22" x2="16" y2="22"/>
-        </svg>
-      </button>
 
     </div><!-- /.rt-metro-scrollable -->
   </div>
