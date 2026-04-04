@@ -4067,11 +4067,21 @@ body.il-perf-active #metroNavRunBtn { display: none; }
 /* VU / progress strip */
 .vr-progress-bar {
   height: 4px; background: #1a1510; border-radius: 2px;
-  overflow: hidden; margin-bottom: 4px;
+  overflow: visible; margin-bottom: 4px;
+  cursor: pointer; position: relative;
+  /* expand click area without changing visual height */
+  padding: 8px 0; margin-top: -8px; box-sizing: content-box;
 }
+.vr-progress-bar::before {
+  content: ''; position: absolute; inset: 8px 0;
+  background: #1a1510; border-radius: 2px;
+}
+.vr-progress-bar:hover::before { background: #2a2018; }
 .vr-progress-fill {
-  height: 100%; width: 0%; background: linear-gradient(90deg, #7a5c2e, #c8a96e);
+  height: 4px; width: 0%;
+  background: linear-gradient(90deg, #7a5c2e, #c8a96e);
   border-radius: 2px; transition: width 0.25s linear;
+  position: relative; z-index: 1; pointer-events: none;
 }
 
 /* Transport controls */
@@ -14175,8 +14185,10 @@ function _drawFlatLine() {
 // ── Countdown ─────────────────────────────────────────────────
 function _startCountdown(cb) {
   let count = 3;
-  // Close the tape deck — recording continues in background
-  _el('vrOverlay').classList.remove('vr-open');
+  // Only auto-close the tape deck during countdown when in performance mode
+  if (window._ilPerfMode) {
+    _el('vrOverlay').classList.remove('vr-open');
+  }
   // Show global full-screen countdown
   const globalOverlay = _el('vrGlobalCountdown');
   const globalNum     = _el('vrGlobalCountNum');
@@ -14514,7 +14526,8 @@ async function _decodeTakeWaveform(takeId, url) {
     _vrWaveformCache.set(takeId, peaks);
     const wrap = _el('vrWaveWrap_' + takeId);
     if (wrap) wrap.classList.remove('wf-loading');
-    _renderTakeWaveform(takeId);
+    // Defer one frame so the canvas has a real layout width before drawing
+    requestAnimationFrame(() => _renderTakeWaveform(takeId));
   } catch(e) {
     const wrap = _el('vrWaveWrap_' + takeId);
     if (wrap) wrap.classList.remove('wf-loading');
@@ -14526,8 +14539,10 @@ function _renderTakeWaveform(takeId, playheadT) {
   if (!canvas) return;
   const peaks = _vrWaveformCache.get(takeId);
   const ctx = canvas.getContext('2d');
-  const W = canvas.offsetWidth || 300;
-  const H = canvas.offsetHeight || 38;
+  // getBoundingClientRect is reliable even right after insertion
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width > 4 ? Math.round(rect.width) : (canvas.parentElement?.offsetWidth || 300);
+  const H = 38;
   canvas.width = W; canvas.height = H;
   ctx.clearRect(0, 0, W, H);
   if (!peaks) return;
@@ -14672,6 +14687,15 @@ window.vrPlayTake = function(takeId, url, duration) {
     _stopPlayback(); _setStatus('Done');
   };
   _vrCurrentAudio.onerror = () => { _stopPlayback(); _setStatus('Playback error'); };
+};
+
+window.vrProgressSeek = function(event) {
+  if (!_vrCurrentAudio || !_vrPlaybackDuration) return;
+  const bar = _el('vrProgressBar');
+  if (!bar) return;
+  const rect = bar.getBoundingClientRect();
+  const t = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+  _vrCurrentAudio.currentTime = t * _vrPlaybackDuration;
 };
 
 window.vrPlayAll = function() {
@@ -15574,8 +15598,8 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); _vrBuildJ
       <div class="vr-time-display" id="vrTimeDisplay">0:00</div>
       <div class="vr-time-limit" id="vrTimeLimit">Loading quota…</div>
 
-      <!-- Progress strip -->
-      <div class="vr-progress-bar">
+      <!-- Progress strip (clickable seek) -->
+      <div class="vr-progress-bar" id="vrProgressBar" onclick="vrProgressSeek(event)">
         <div class="vr-progress-fill" id="vrProgressFill"></div>
       </div>
 
