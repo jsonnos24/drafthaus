@@ -6756,7 +6756,68 @@ var seqMelodyGain = null;
 var _pianoBuffers     = {};     // MIDI number → AudioBuffer
 var _pianoLoaded      = false;
 var _pianoLoading     = false;
-var _activeInstrument = 'synth'; // 'synth' | 'piano'
+var _activeInstrument = 'synth'; // 'synth' | 'piano' | 'guitar'
+
+// ── Guitar sampler ────────────────────────────────────────────────
+var _guitarBuffers  = {};     // MIDI number → AudioBuffer
+var _guitarLoaded   = false;
+var _guitarLoading  = false;
+
+// Tone.js acoustic guitar — one sample every ~4-5 semitones.
+const GUITAR_SAMPLE_MAP = {
+  33:'A1', 38:'Ds2', 42:'Fs2', 45:'A2',
+  50:'Ds3', 54:'Fs3', 57:'A3',
+  62:'Ds4', 66:'Fs4', 69:'A4'
+};
+const GUITAR_BASE_URL = 'https://tonejs.github.io/audio/guitar-acoustic/';
+
+async function loadGuitarSamples() {
+  if (_guitarLoaded || _guitarLoading) return;
+  _guitarLoading = true;
+  _guitarUpdateUI();
+  const ctx = getSeqAudioCtx();
+  await Promise.all(Object.entries(GUITAR_SAMPLE_MAP).map(async ([midi, name]) => {
+    try {
+      const resp = await fetch(GUITAR_BASE_URL + name + '.mp3');
+      if (!resp.ok) throw new Error(resp.status);
+      const ab  = await resp.arrayBuffer();
+      _guitarBuffers[Number(midi)] = await ctx.decodeAudioData(ab);
+    } catch(e) { console.warn('Guitar sample load failed:', name, e); }
+  }));
+  _guitarLoaded  = true;
+  _guitarLoading = false;
+  _guitarUpdateUI();
+}
+
+function _guitarClosestMidi(target) {
+  const keys = Object.keys(_guitarBuffers).map(Number);
+  if (!keys.length) return null;
+  return keys.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+}
+
+function playGuitarNote(midiNote, time, velocity, durationS) {
+  const ctx     = getSeqAudioCtx();
+  const closest = _guitarClosestMidi(midiNote);
+  if (closest === null) return;
+  const buf  = _guitarBuffers[closest];
+  const src  = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  src.buffer = buf;
+  src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+  const dur = durationS || 1.2;
+  const vol = Math.min(1, (velocity || 0.8) * 0.9);
+  gain.gain.setValueAtTime(vol, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  src.connect(gain);
+  gain.connect(seqGetChordsOut());
+  src.start(time);
+  src.stop(time + dur + 0.1);
+}
+
+function _guitarUpdateUI() {
+  const lbl = document.getElementById('seqInstrumentLoading');
+  if (lbl) lbl.style.display = _guitarLoading ? 'inline' : 'none';
+}
 
 // Salamander Grand Piano — one sample every 6 semitones.
 // Pitch-shift ±3 semitones max, which is imperceptible on piano.
@@ -6836,6 +6897,7 @@ async function initMidi() {
     };
     _midiUpdateUI();
     if (_activeInstrument === 'piano') loadPianoSamples();
+    if (_activeInstrument === 'guitar') loadGuitarSamples();
   } catch(e) {
     console.warn('MIDI access denied:', e);
     _midiEnabled = false;
@@ -6854,6 +6916,8 @@ function _midiNoteOn(midiNote, velocity) {
   getSeqAudioCtx();
   if (_activeInstrument === 'piano' && _pianoLoaded) {
     playPianoNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
+  } else if (_activeInstrument === 'guitar' && _guitarLoaded) {
+    playGuitarNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
   } else {
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
     const ctx = getSeqAudioCtx();
@@ -7360,8 +7424,9 @@ function initSequencer(song) {
   const instEl = document.getElementById('seqInstrumentSelect');
   if (instEl) instEl.value = savedInst;
   const waveGroup = document.getElementById('seqWaveGroup');
-  if (waveGroup) waveGroup.style.display = savedInst === 'piano' ? 'none' : '';
+  if (waveGroup) waveGroup.style.display = (savedInst === 'piano' || savedInst === 'guitar') ? 'none' : '';
   if (savedInst === 'piano' && !_pianoLoaded && !_pianoLoading) loadPianoSamples();
+  if (savedInst === 'guitar' && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   setTimeout(seqApplyMixer, 0);
 
   // Chain of rAFs to ensure DOM is ready at each stage
@@ -7407,8 +7472,9 @@ function seqInstrumentChanged() {
   const val = document.getElementById('seqInstrumentSelect')?.value || 'synth';
   _activeInstrument = val;
   const waveGroup = document.getElementById('seqWaveGroup');
-  if (waveGroup) waveGroup.style.display = val === 'piano' ? 'none' : '';
+  if (waveGroup) waveGroup.style.display = (val === 'piano' || val === 'guitar') ? 'none' : '';
   if (val === 'piano' && !_pianoLoaded && !_pianoLoading) loadPianoSamples();
+  if (val === 'guitar' && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   seqSaveSettings();
 }
 
@@ -7633,12 +7699,21 @@ function seqPlayChordPiano(midiNotes, time, velocity) {
   });
 }
 
+function seqPlayChordGuitar(midiNotes, time, velocity) {
+  midiNotes.forEach((midi, i) => {
+    playGuitarNote(midi, time + i * 0.028, velocity, 1.4);
+  });
+}
+
 function seqPlayChordByName(name) {
   const key  = seqCurrentKey();
   const mode = seqCurrentMode();
   if (_activeInstrument === 'piano' && _pianoLoaded) {
     const midiMap = seqGenChordMidi(key, mode);
     if (midiMap[name]) seqPlayChordPiano(midiMap[name], getSeqAudioCtx().currentTime, 0.8);
+  } else if (_activeInstrument === 'guitar' && _guitarLoaded) {
+    const midiMap = seqGenChordMidi(key, mode);
+    if (midiMap[name]) seqPlayChordGuitar(midiMap[name], getSeqAudioCtx().currentTime, 0.8);
   } else {
     const chords = seqGenChords(key, mode);
     if (chords[name]) seqPlayChord(chords[name], getSeqAudioCtx().currentTime, 0.8);
@@ -7776,7 +7851,8 @@ function seqScheduleNotes() {
   const loopKey    = seqCurrentKey();
   const loopMode   = seqCurrentMode();
   const loopChords     = seqGenChords(loopKey, loopMode);
-  const loopChordsMidi = (_activeInstrument === 'piano' && _pianoLoaded) ? seqGenChordMidi(loopKey, loopMode) : null;
+  const _useSampler = (_activeInstrument === 'piano' && _pianoLoaded) || (_activeInstrument === 'guitar' && _guitarLoaded);
+  const loopChordsMidi = _useSampler ? seqGenChordMidi(loopKey, loopMode) : null;
 
   const chordSlots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
   const kickSlots  = [...document.querySelectorAll('#seqKick .seq-slot')];
@@ -7796,7 +7872,11 @@ function seqScheduleNotes() {
     const slot = chordSlots[i];
     if (slot?.classList.contains('filled') && loopChords[slot.textContent]) {
       if (loopChordsMidi && loopChordsMidi[slot.textContent]) {
-        seqPlayChordPiano(loopChordsMidi[slot.textContent], noteTime, velocity);
+        if (_activeInstrument === 'guitar' && _guitarLoaded) {
+          seqPlayChordGuitar(loopChordsMidi[slot.textContent], noteTime, velocity);
+        } else {
+          seqPlayChordPiano(loopChordsMidi[slot.textContent], noteTime, velocity);
+        }
       } else {
         seqPlayChord(loopChords[slot.textContent], noteTime, velocity);
       }
@@ -13032,8 +13112,11 @@ function loopAnyTrackActive(){return loopTracks.some(t=>['recording','playing','
 
 // ── Loop Persistence ───────────────────────────────────────────────
 async function loopAutoSave(trackIdx, blob, mimeType, duration) {
-  const songId = loopSongId;
-  if (!songId || !auth.currentUser) return;
+  const songId = loopSongId || currentId;
+  if (!songId || !auth.currentUser) {
+    console.warn('[Looper] skipping save — no active song or user', { songId, user: auth.currentUser?.uid });
+    return;
+  }
   const uid = auth.currentUser.uid;
   const ext = mimeType.includes('webm') ? 'webm' : 'ogg';
   const fname = 'loop_' + Date.now() + '.' + ext;
@@ -13081,6 +13164,7 @@ async function loopLoadSavedLoops() {
       .get();
     loopRenderSavedLoops(snap);
   } catch(e) {
+    console.error('[Looper] load saved loops error', e);
     list.innerHTML = '<div class="loop-saved-loading">Could not load saves.</div>';
   }
 }
@@ -16310,6 +16394,7 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
       <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()">
         <option value="synth">Synth</option>
         <option value="piano">Piano</option>
+        <option value="guitar">Guitar</option>
       </select>
       <span id="seqInstrumentLoading" style="display:none;">loading…</span>
     </div>
