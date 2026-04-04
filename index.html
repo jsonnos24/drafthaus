@@ -7536,6 +7536,15 @@ function seqScheduleNotes() {
         document.querySelectorAll('.seq-slot.playing').forEach(s => s.classList.remove('playing'));
         if (slots_c[stepI]) slots_c[stepI].classList.add('playing');
         if (slots_k[stepI]) slots_k[stepI].classList.add('playing');
+        // ── Scroll pattern grid to follow playhead ──
+        const pg = document.querySelector('.seq-pattern-grid');
+        const activeSlot = slots_c[stepI] || slots_k[stepI];
+        if (pg && activeSlot) {
+          const pgRect   = pg.getBoundingClientRect();
+          const slotRect = activeSlot.getBoundingClientRect();
+          const slotCenter = slotRect.left - pgRect.left + pg.scrollLeft + slotRect.width / 2;
+          pg.scrollLeft = Math.max(0, slotCenter - pg.clientWidth / 2);
+        }
       }, visualDelay);
     })(i, chordSlots, kickSlots);
 
@@ -9108,10 +9117,20 @@ function openInspoDrawer() {
   document.getElementById('inspoDrawer').classList.add('open');
   document.getElementById('inspoOverlay').classList.add('open');
   renderInspoAscii();
+  _inspoRestoreDice();
 }
 function closeInspoDrawer() {
   document.getElementById('inspoDrawer').classList.remove('open');
   document.getElementById('inspoOverlay').classList.remove('open');
+  _inspoRestoreDice();
+}
+function _inspoRestoreDice() {
+  document.querySelectorAll('.inspo-die').forEach(d => {
+    d.style.transition   = 'opacity 0.4s';
+    d.style.opacity      = '1';
+    d.style.display      = '';
+    d.style.pointerEvents = '';
+  });
 }
 
 function renderInspoDice() {
@@ -9205,19 +9224,36 @@ function rollInspoDie(dieIdx) {
   const die = document.getElementById(`inspo-die-${dieIdx}`);
   if (!die) return;
 
-  // Animate die
+  const dieDef   = DICE_DEFS[dieIdx];
+  const dieLabel = dieDef?.label || '';
+  const dieRoll  = dieDef ? Math.floor(Math.random() * dieDef.sides) + 1 : null;
+
+  // Fade out all other dice
+  document.querySelectorAll('.inspo-die').forEach((d, i) => {
+    if (i !== dieIdx) {
+      d.style.transition    = 'opacity 0.35s ease, transform 0.35s ease';
+      d.style.opacity       = '0';
+      d.style.transform     = 'scale(0.8)';
+      d.style.pointerEvents = 'none';
+      setTimeout(() => { d.style.display = 'none'; }, 350);
+    }
+  });
+
+  // Animate the chosen die
   die.classList.remove('rolling');
-  void die.offsetWidth; // reflow
+  void die.offsetWidth;
   die.classList.add('rolling');
 
   const result = document.getElementById('inspoResult');
-  if (result) { result.style.opacity = '0'; }
+  if (result) result.style.opacity = '0';
 
-  // Reveal the bartender while the die rolls (8 seconds)
-  bartenderPulse(8000, () => {
+  // Reveal bartender and roll (5 seconds)
+  bartenderPulse(5000, () => {
     die.classList.remove('rolling');
     _inspoRolled = generateInspoSong();
-    showInspoResult(_inspoRolled);
+    showInspoResult(_inspoRolled, dieLabel, dieRoll);
+    // Restore other dice after result appears
+    setTimeout(_inspoRestoreDice, 400);
   });
 }
 
@@ -9268,16 +9304,20 @@ function generateInspoSong() {
   return { key, bpm, timeSig, pattern, title, chordSlots, kick, snare, hat, clap, root };
 }
 
-function showInspoResult(data) {
+function showInspoResult(data, dieLabel, dieRoll) {
   const result = document.getElementById('inspoResult');
   if (!result) return;
 
   const chords = data.chordSlots.filter(Boolean).map(c => c.replace('_viii',''));
   const uniqueChords = [...new Set(chords)];
+  const dieChip = (dieLabel && dieRoll != null)
+    ? `<div class="inspo-chip" style="background:rgba(200,160,255,0.18);border-color:rgba(200,160,255,0.5);color:#e0b8ff;font-weight:700;">🎲 ${dieLabel} · ${dieRoll}</div>`
+    : '';
 
   result.innerHTML = `
     <span class="result-title">${data.title}</span>
     <div class="result-chips">
+      ${dieChip}
       <div class="inspo-chip">🎵 ${data.key}</div>
       <div class="inspo-chip">♩ ${data.bpm} BPM</div>
       <div class="inspo-chip">${data.timeSig}/4</div>
