@@ -1195,6 +1195,21 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-btn-stop:hover { background: #ff8080; }
   .seq-btn-met { background: var(--card2); color: var(--muted); border: 1px solid var(--border2); }
   .seq-btn-met.on { background: var(--gold); color: #0a0a0c; border-color: var(--gold); }
+  .seq-settings-btn { background: var(--card2); color: var(--muted); border: 1px solid var(--border2); padding: 7px 10px; min-height: 36px; }
+  .seq-settings-btn:hover { border-color: var(--gold); color: var(--gold); }
+  .seq-settings-btn.open { border-color: var(--gold); color: var(--gold); background: rgba(245,166,35,0.08); }
+  /* Settings popup — portaled to body, opens upward via JS positioning */
+  #seqSettingsPopup {
+    display: none; position: fixed; z-index: 1200;
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: 10px; padding: 16px; box-shadow: 0 -8px 32px rgba(0,0,0,0.5);
+    min-width: 280px;
+  }
+  #seqSettingsPopup.open { display: block; }
+  #seqSettingsPopup .seq-ctrl-group { margin-bottom: 10px; }
+  #seqSettingsPopup .seq-ctrl-group:last-child { margin-bottom: 0; }
+  #seqSettingsPopup .seq-popup-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #seqSettingsPopup .seq-popup-title { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); margin-bottom: 10px; }
 
   .seq-section { margin-bottom: 20px; }
   .seq-section-title {
@@ -1223,17 +1238,36 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-grid { display: flex; gap: 2px; flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
   .seq-slot {
     width: clamp(20px, 3.5vw, 36px); height: clamp(20px, 3.5vw, 36px); border-radius: 4px; flex-shrink: 0;
-    border: 1px solid var(--border); background: var(--card);
+    border: 1px solid var(--border); background: var(--slot-bg, var(--card));
     display: flex; align-items: center; justify-content: center;
     font-family: 'IBM Plex Mono', monospace; font-size: 9px;
     cursor: pointer; transition: all 0.1s; position: relative;
     overflow: hidden;
   }
+  /* ── Interval column shading: 8 purple shades, darkest=beat 0, lightest=beat 7 ── */
+  .seq-slot[data-beat="0"] { --slot-bg: #100620; }
+  .seq-slot[data-beat="1"] { --slot-bg: #1a0e32; }
+  .seq-slot[data-beat="2"] { --slot-bg: #231644; }
+  .seq-slot[data-beat="3"] { --slot-bg: #2d1e56; }
+  .seq-slot[data-beat="4"] { --slot-bg: #382668; }
+  .seq-slot[data-beat="5"] { --slot-bg: #432e7a; }
+  .seq-slot[data-beat="6"] { --slot-bg: #4f378c; }
+  .seq-slot[data-beat="7"] { --slot-bg: #5c409e; }
   .seq-slot.bar-start { border-left: 2px solid var(--border2); }
-  .seq-slot.filled { background: rgba(245,166,35,0.2); border-color: var(--gold); color: var(--gold); }
-  .seq-slot.drum-on { background: var(--gold); border-color: var(--gold2); }
+  /* ── Per-row active slot colours ── */
+  [data-row="chord"] .seq-slot.filled  { background: rgba(245,166,35,0.28); border-color: #f5a623; color: #f5a623; }
+  [data-row="kick"]  .seq-slot.drum-on { background: rgba(195,20,50,0.80);  border-color: #ff4466; }
+  [data-row="snare"] .seq-slot.drum-on { background: rgba(100,190,230,0.80); border-color: #aaddff; }
+  [data-row="hat"]   .seq-slot.drum-on { background: rgba(245,166,35,0.85); border-color: #ffd080; }
+  [data-row="clap"]  .seq-slot.drum-on { background: rgba(0,210,110,0.80);  border-color: #80ffba; }
   .seq-slot.playing { background: var(--teal) !important; border-color: #80efd0 !important; }
-  .seq-slot:hover { border-color: var(--border2); }
+  .seq-slot:hover { border-color: rgba(255,255,255,0.25); }
+  /* ── Per-row label colours ── */
+  [data-row="chord"] .seq-row-label { color: #f5a623; }
+  [data-row="kick"]  .seq-row-label { color: #e8304a; }
+  [data-row="snare"] .seq-row-label { color: #87ceeb; }
+  [data-row="hat"]   .seq-row-label { color: #f5a623; }
+  [data-row="clap"]  .seq-row-label { color: #00d26e; }
 
   .seq-bar-sep { width: 6px; flex-shrink: 0; }
 
@@ -6883,34 +6917,33 @@ function renderSequencerHtml(song) {
 
     <!-- ── Shared pattern grid: Chord + Drums all in one scroll ── -->
     <div class="seq-pattern-grid">
-      <div class="seq-grid-row">
+      <div class="seq-grid-row" data-row="chord">
         <div class="seq-row-label">Chord</div>
         <div class="seq-grid" id="seqChordGrid"></div>
       </div>
       <div class="seq-pattern-divider"></div>
-      ${[['Kick','seqKick'],['Snare','seqSnare'],['Hi-Hat','seqHat'],['Clap','seqClap']].map(([label,id])=>`
-      <div class="seq-grid-row">
+      ${[['Kick','seqKick','kick'],['Snare','seqSnare','snare'],['Hi-Hat','seqHat','hat'],['Clap','seqClap','clap']].map(([label,id,row])=>`
+      <div class="seq-grid-row" data-row="${row}">
         <div class="seq-row-label">${label}</div>
         <div class="seq-grid" id="${id}"></div>
       </div>`).join('')}
     </div>
 
-    <!-- ── Controls bar: moved below grid ── -->
-    <div class="seq-controls" style="margin-top:16px;margin-bottom:0;padding-top:16px;padding-bottom:0;border-top:1px solid var(--border2);border-bottom:none;">
+    <!-- ── Controls bar: below grid ── -->
+    <div class="seq-controls">
 
-      <div class="seq-ctrl-group" style="margin-right:8px;padding-right:12px;border-right:1px solid var(--border2);">
-        <span class="seq-label">Part</span>
-        <select class="seq-select" id="seqPartAssign" onchange="seqSaveSettings()" style="max-width:90px;">
-          <option value="">— None —</option>
-          ${STRUCTURE_PARTS.map(p=>`<option value="${p.id}"${(seqData.part||'')==='${p.id}'?' selected':''}>${p.label}</option>`).join('')}
-        </select>
-      </div>
-      <div class="seq-ctrl-group" style="margin-right:8px;padding-right:12px;border-right:1px solid var(--border2);">
+      <!-- Settings gear -->
+      <button class="seq-btn seq-settings-btn" id="seqSettingsBtn" onclick="seqToggleSettings(event)" title="Sequencer settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+
+      <!-- Key (always visible) -->
+      <div class="seq-ctrl-group" style="padding-right:10px;border-right:1px solid var(--border2);">
         <span class="seq-label">Key</span>
         <span id="seqKeyDisplay" style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;color:var(--gold);letter-spacing:0.05em;"></span>
-      </div>
-      <div class="seq-ctrl-group" style="margin-right:8px;padding-right:12px;border-right:1px solid var(--border2);">
-        <span class="seq-label">Key</span>
         <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged()">
           <option value="">— Key —</option>
           <option>C major</option><option>C minor</option>
@@ -6927,47 +6960,22 @@ function renderSequencerHtml(song) {
           <option>B major</option><option>B minor</option>
         </select>
       </div>
-      <div class="seq-ctrl-group">
-        <span class="seq-label">Time</span>
-        <select class="seq-select" id="seqTime" onchange="seqRebuild()">
-          <option value="4"${time==='4'?' selected':''}>4/4</option>
-          <option value="3"${time==='3'?' selected':''}>3/4</option>
-        </select>
-      </div>
+
+      <!-- Bars (always visible) -->
       <div class="seq-ctrl-group">
         <span class="seq-label">Bars</span>
         <select class="seq-select" id="seqBars" onchange="seqRebuild()">
           ${['1','2','4','8','16'].map(b=>`<option value="${b}"${b===bars?' selected':''}>${b}</option>`).join('')}
         </select>
       </div>
-      <div class="seq-ctrl-group">
-        <span class="seq-label">Grid</span>
-        <select class="seq-select" id="seqGrid" onchange="seqRebuild()">
-          <option value="1"${grid==='1'?' selected':''}>1/4</option>
-          <option value="2"${grid==='2'?' selected':''}>1/8</option>
-          <option value="4"${grid==='4'?' selected':''}>1/16</option>
-        </select>
-      </div>
+
+      <!-- BPM (always visible) -->
       <div class="seq-ctrl-group">
         <span class="seq-label">BPM</span>
         <input class="seq-input" type="number" id="seqBpm" value="${bpm}" min="40" max="240" style="width:60px" onchange="seqSaveSettings()">
       </div>
-      <div class="seq-ctrl-group">
-        <span class="seq-label">Swing</span>
-        <input type="range" class="seq-range" id="seqSwing" min="0" max="1" step="0.01" value="${seqData.swing||0}">
-      </div>
-      <div class="seq-ctrl-group">
-        <span class="seq-label">Vel</span>
-        <input type="range" class="seq-range" id="seqVel" min="0" max="1" step="0.01" value="${seqData.vel||0.8}">
-      </div>
-      <div class="seq-ctrl-group">
-        <span class="seq-label">Wave</span>
-        <select class="seq-select" id="seqWave">
-          <option value="triangle">Triangle</option>
-          <option value="sine">Sine</option>
-          <option value="sawtooth">Sawtooth</option>
-        </select>
-      </div>
+
+      <!-- Play / Stop / Metro (always visible) -->
       <div class="seq-ctrl-group" style="margin-left:auto;">
         <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:13px;padding:8px 20px;font-weight:700;">▶ Play</button>
         <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="margin-left:4px;font-size:13px;padding:8px 20px;font-weight:700;">■ Stop</button>
@@ -7051,6 +7059,14 @@ function initSequencer(song) {
   const seqKD = document.getElementById('seqKeySelect');
   if (seqKD) seqKD.value = fresh.key || '';
 
+  // Populate Part dropdown (static popup needs options injected from JS)
+  const partSel = document.getElementById('seqPartAssign');
+  if (partSel && typeof STRUCTURE_PARTS !== 'undefined') {
+    partSel.innerHTML = '<option value="">— None —</option>' +
+      STRUCTURE_PARTS.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
+    partSel.value = sd.part || '';
+  }
+
   // Apply settings to DOM controls
   const apply = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
   apply('seqTime',  sd.time  || '4');
@@ -7059,6 +7075,7 @@ function initSequencer(song) {
   apply('seqBpm',   sd.bpm   || '100');
   apply('seqSwing', sd.swing !== undefined ? sd.swing : 0);
   apply('seqVel',   sd.vel   !== undefined ? sd.vel   : 0.8);
+  apply('seqWave',  sd.wave  || 'triangle');
   setTimeout(seqApplyMixer, 0);
 
   // Chain of rAFs to ensure DOM is ready at each stage
@@ -7115,6 +7132,7 @@ function seqSaveSettings() {
   syncBpmUI(song.sequencer.bpm);
   song.sequencer.swing = document.getElementById('seqSwing')?.value || '0';
   song.sequencer.vel   = document.getElementById('seqVel')?.value || '0.8';
+  song.sequencer.wave  = document.getElementById('seqWave')?.value || 'triangle';
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
@@ -7188,7 +7206,8 @@ function seqBuildGrids(song) {
     for (let i = 0; i < totalSteps; i++) {
       const slot = document.createElement('div');
       slot.className = 'seq-slot' + (i % beatsPerBar === 0 && i > 0 ? ' bar-start' : '');
-      slot.dataset.idx = i;
+      slot.dataset.idx  = i;
+      slot.dataset.beat = (i % beatsPerBar) % 8;
       const val = savedSlots[i] || '';
       if (val) { slot.textContent = val; slot.classList.add('filled'); }
       slot.addEventListener('dragenter', e => { e.preventDefault(); slot.classList.add('drag-over'); });
@@ -7223,7 +7242,8 @@ function seqBuildGrids(song) {
     for (let i = 0; i < totalSteps; i++) {
       const slot = document.createElement('div');
       slot.className = 'seq-slot' + (i % beatsPerBar === 0 && i > 0 ? ' bar-start' : '');
-      slot.dataset.idx = i;
+      slot.dataset.idx  = i;
+      slot.dataset.beat = (i % beatsPerBar) % 8;
       if (savedLane[i]) slot.classList.add('drum-on');
       slot.addEventListener('click', () => {
         slot.classList.toggle('drum-on');
@@ -7368,6 +7388,38 @@ function seqToggleMet() {
   const btn = document.getElementById('seqMetBtn');
   if (btn) btn.classList.toggle('on', seqMetOn);
 }
+
+// ── Sequencer settings popup ────────────────────────────────────
+function seqToggleSettings(e) {
+  e.stopPropagation();
+  const popup = document.getElementById('seqSettingsPopup');
+  const btn   = document.getElementById('seqSettingsBtn');
+  if (!popup) return;
+  const isOpen = popup.classList.contains('open');
+  if (isOpen) {
+    popup.classList.remove('open');
+    if (btn) btn.classList.remove('open');
+    return;
+  }
+  // Position popup above the button using fixed coords
+  const rect = btn.getBoundingClientRect();
+  popup.style.left   = rect.left + 'px';
+  popup.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+  popup.style.top    = 'auto';
+  popup.classList.add('open');
+  if (btn) btn.classList.add('open');
+}
+// Close settings popup when clicking elsewhere
+document.addEventListener('click', function(e) {
+  const popup = document.getElementById('seqSettingsPopup');
+  const btn   = document.getElementById('seqSettingsBtn');
+  if (popup && popup.classList.contains('open')) {
+    if (!popup.contains(e.target) && e.target !== btn && !btn?.contains(e.target)) {
+      popup.classList.remove('open');
+      if (btn) btn.classList.remove('open');
+    }
+  }
+});
 
 function seqPlay() {
   if (seqIsPlaying) return;
@@ -11751,7 +11803,8 @@ applyDrumPattern._redrawGrids = function(song) {
     for (let i = 0; i < totalSteps; i++) {
       const slot = document.createElement('div');
       slot.className = 'seq-slot' + (i % beatsPerBar === 0 && i > 0 ? ' bar-start' : '');
-      slot.dataset.idx = i;
+      slot.dataset.idx  = i;
+      slot.dataset.beat = (i % beatsPerBar) % 8;
       if (savedLane[i]) slot.classList.add('drum-on');
       slot.addEventListener('click', () => {
         slot.classList.toggle('drum-on');
@@ -15646,6 +15699,52 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
   </div>
 </div>
 
+
+<!-- ── Sequencer Settings Popup (portaled to body) ── -->
+<div id="seqSettingsPopup">
+  <div class="seq-popup-title">Sequencer Settings</div>
+  <div class="seq-popup-row">
+    <div class="seq-ctrl-group">
+      <span class="seq-label">Part</span>
+      <select class="seq-select" id="seqPartAssign" onchange="seqSaveSettings()" style="max-width:100px;">
+        <option value="">— None —</option>
+      </select>
+    </div>
+    <div class="seq-ctrl-group">
+      <span class="seq-label">Time</span>
+      <select class="seq-select" id="seqTime" onchange="seqRebuild()">
+        <option value="4">4/4</option>
+        <option value="3">3/4</option>
+      </select>
+    </div>
+    <div class="seq-ctrl-group">
+      <span class="seq-label">Grid</span>
+      <select class="seq-select" id="seqGrid" onchange="seqRebuild()">
+        <option value="1">1/4</option>
+        <option value="2">1/8</option>
+        <option value="4">1/16</option>
+      </select>
+    </div>
+  </div>
+  <div class="seq-popup-row" style="margin-top:10px;">
+    <div class="seq-ctrl-group">
+      <span class="seq-label">Swing</span>
+      <input type="range" class="seq-range" id="seqSwing" min="0" max="1" step="0.01" value="0">
+    </div>
+    <div class="seq-ctrl-group">
+      <span class="seq-label">Vel</span>
+      <input type="range" class="seq-range" id="seqVel" min="0" max="1" step="0.01" value="0.8">
+    </div>
+    <div class="seq-ctrl-group">
+      <span class="seq-label">Wave</span>
+      <select class="seq-select" id="seqWave">
+        <option value="triangle">Triangle</option>
+        <option value="sine">Sine</option>
+        <option value="sawtooth">Sawtooth</option>
+      </select>
+    </div>
+  </div>
+</div>
 
 <!-- ── Run Through Drawer ── -->
 <div id="runThroughDrawer">
