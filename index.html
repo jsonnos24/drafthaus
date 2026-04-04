@@ -2319,6 +2319,8 @@ button, select, input, textarea { touch-action: manipulation; }
   .rt-mbtn:hover { border-color: #f5a623; color: #f5a623; }
   .vr-metro-btn { border-color: rgba(255,180,210,0.25) !important; box-shadow: 0 0 7px rgba(255,140,190,0.22), 0 0 14px rgba(255,100,170,0.1); }
   .vr-metro-btn:hover { border-color: rgba(255,180,210,0.5) !important; color: #ffb8d8 !important; box-shadow: 0 0 10px rgba(255,140,190,0.4), 0 0 20px rgba(255,100,170,0.2); }
+  @keyframes armSeqPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,80,80,0.5); } 50% { box-shadow: 0 0 0 5px rgba(255,80,80,0); } }
+  #rtArmSeqBtn.armed { border-color: rgba(255,80,80,0.7) !important; color: #ff5050 !important; background: rgba(255,80,80,0.08); animation: armSeqPulse 1.2s ease-in-out infinite; }
   .rt-mplay { border-color: rgba(245,166,35,0.4); color: #f5a623; padding: 6px 16px; font-size: 18px; }
   .rt-mplay.active { background: rgba(245,166,35,0.1); border-color: #f5a623; }
   .rt-tap { border-color: rgba(245,166,35,0.35); color: #f5a623; padding: 5px 12px; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; }
@@ -13935,7 +13937,8 @@ let _vrCurrentAudio  = null; // HTMLAudioElement currently playing
 let _vrPlayingTakeId = null;
 let _vrRecording     = false;
 let _vrUploading     = false;
-let _vrPaused      = false;
+let _vrPaused        = false;
+let _vrSeqArmed      = false; // when true, sequencer auto-starts with recording
 let _vrInputDeviceId   = localStorage.getItem('vr_input_device')  || '';
 let _vrOutputDeviceId  = localStorage.getItem('vr_output_device') || '';
 let _vrEchoCancellation = localStorage.getItem('vr_ec') !== 'false'; // default on
@@ -13976,6 +13979,13 @@ function _setDeckState(state) {
   deck.parentElement.classList.remove('vr-recording', 'vr-playing');
   if (state) deck.parentElement.classList.add('vr-' + state);
 }
+
+// ── Arm Sequencer toggle ────────────────────────────────────────
+window.vrToggleArmSeq = function() {
+  _vrSeqArmed = !_vrSeqArmed;
+  const btn = document.getElementById('rtArmSeqBtn');
+  if (btn) btn.classList.toggle('armed', _vrSeqArmed);
+};
 
 // ── Open / Close ───────────────────────────────────────────────
 window.vrOpen = function() {
@@ -14651,6 +14661,8 @@ window.vrCancelRecording = function() {
   _releaseMic();
   _resetUI();
   _setStatus('Cancelled');
+  // ── Arm Sequencer: stop sequencer when recording is cancelled ──
+  if (_vrSeqArmed && seqIsPlaying && typeof seqStop === 'function') seqStop();
 };
 
 window.vrToggleRec = async function() {
@@ -14684,6 +14696,11 @@ function _beginRecording() {
   _vrInitializing = false;
   _vrRecording = true;
   _vrRecStartTime = Date.now();
+  // ── Arm Sequencer: auto-start sequencer with recording ──
+  if (_vrSeqArmed && !seqIsPlaying) {
+    const song = songs.find(s => s.id === (_vrSongId || currentId));
+    if (song) _rowSeqBoot(song); else if (typeof seqPlay === 'function') seqPlay();
+  }
   _startWaveform(_vrStream);
   _setDeckState('recording');
   _el('vrRecBtn').classList.add('vr-active');
@@ -14733,6 +14750,8 @@ window.vrStop = function() {
   _el('vrRecBtn').disabled = true;
   _el('vrStopBtn').disabled = true;
   _setStatus('Saving…');
+  // ── Arm Sequencer: stop sequencer when recording stops ──
+  if (_vrSeqArmed && seqIsPlaying && typeof seqStop === 'function') seqStop();
 };
 
 async function _finalizeRecording() {
@@ -15708,20 +15727,15 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v10"/><path d="M17 3v10"/><path d="M7 13 Q7 20 12 20 Q17 20 17 13"/><line x1="12" y1="20" x2="12" y2="24"/></svg>
       </button>
 
-      <!-- Perf-only: Seq play | Chord & Beat Lab grid | Loop Station -->
+      <!-- Perf-only: Seq play | Arm Sequencer -->
       <div class="rt-msep rt-perf-only"></div>
       <button class="rt-mbtn rt-perf-only" id="rtSeqPlayBtn" onclick="rtSeqTogglePlay()" title="Seq Play/Stop">▶ Seq</button>
-      <button class="rt-mbtn rt-perf-only" id="rtSeqBtn" onclick="toggleDrawer('seqDrawer',openSeqDrawer,closeSeqDrawer)" title="Chord &amp; Beat Lab">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
-      </button>
-      <button class="rt-mbtn rt-perf-only" id="rtLoopBtn" onclick="toggleDrawer('looperDrawer',openLooperDrawer,closeLooperDrawer)" title="Loop Station">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
-      </button>
+      <button class="rt-mbtn rt-perf-only" id="rtArmSeqBtn" onclick="vrToggleArmSeq()" title="Arm Sequencer — sequencer auto-plays when recording starts">Arm Seq</button>
 
       <!-- Tape / Voice Recorder -->
       <div class="rt-msep rt-perf-only"></div>
       <button class="rt-mbtn rt-perf-only vr-metro-btn" onclick="vrOpen()" title="Voice Recorder — Tape Deck">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="9" y="2" width="6" height="12" rx="3"/>
           <path d="M5 10a7 7 0 0 0 14 0"/>
           <line x1="12" y1="19" x2="12" y2="22"/>
