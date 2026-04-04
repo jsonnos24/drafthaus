@@ -1216,6 +1216,29 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-settings-btn { background: var(--card2); color: var(--muted); border: 1px solid var(--border2); padding: 7px 10px; min-height: 36px; }
   .seq-settings-btn:hover { border-color: var(--gold); color: var(--gold); }
   .seq-settings-btn.open { border-color: var(--gold); color: var(--gold); background: rgba(245,166,35,0.08); }
+  /* MIDI active key highlight */
+  .seq-key.midi-active { background: #a855f7 !important; }
+  /* MIDI status indicator in controls bar */
+  .seq-midi-status {
+    display: flex; align-items: center; gap: 5px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted);
+    padding: 0 4px; cursor: default; user-select: none;
+  }
+  #midiStatusDot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    background: var(--faint); transition: background 0.3s;
+  }
+  #midiConnectBtn {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    background: transparent; border: 1px solid var(--border2); color: var(--muted);
+    border-radius: 4px; padding: 3px 7px; cursor: pointer; transition: all 0.15s;
+  }
+  #midiConnectBtn:hover { border-color: var(--purple); color: var(--purple); }
+  /* Loading spinner text */
+  #seqInstrumentLoading {
+    font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    color: var(--gold); animation: pulse 1s infinite; margin-left: 4px;
+  }
   /* Settings popup — portaled to body, opens upward via JS positioning */
   #seqSettingsPopup {
     display: none; position: fixed; z-index: 1200;
@@ -2811,6 +2834,23 @@ button, select, input, textarea { touch-action: manipulation; }
   .looper-drawer-body .track-dl-btn:hover { border-color: #00e87a; color: #00e87a; background: #001a10; }
   .looper-drawer-body .track-dl-btn:disabled { opacity: 0.25; cursor: not-allowed; }
   .looper-drawer-body .bar-counter { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #555b68; letter-spacing: 1px; }
+  /* ── Saved Loops panel ── */
+  .loop-saved-panel { margin-top: 18px; border-top: 1px solid #2c2f36; padding-top: 14px; }
+  .loop-saved-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .loop-saved-title { font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #00ccff; }
+  .loop-saved-hint { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: #555b68; }
+  .loop-saved-list { display: flex; flex-direction: column; gap: 6px; }
+  .loop-saved-empty, .loop-saved-loading { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #555b68; padding: 6px 0; }
+  .loop-saved-row { display: flex; align-items: center; justify-content: space-between; background: #1a1d24; border: 1px solid #2c2f36; border-radius: 6px; padding: 8px 10px; gap: 10px; }
+  .loop-saved-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .loop-saved-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d4d8e0; }
+  .loop-saved-meta { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: #555b68; letter-spacing: 0.5px; }
+  .loop-saved-date { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: #3a3f4a; }
+  .loop-saved-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .loop-saved-load-btn { font-family: 'IBM Plex Mono', monospace; font-size: 9px; padding: 4px 8px; background: transparent; border: 1px solid #00ccff44; color: #00ccff; border-radius: 4px; cursor: pointer; letter-spacing: 0.5px; transition: background 0.15s, border-color 0.15s; }
+  .loop-saved-load-btn:hover { background: #00ccff18; border-color: #00ccff; }
+  .loop-saved-del-btn { font-family: 'IBM Plex Mono', monospace; font-size: 9px; padding: 4px 7px; background: transparent; border: 1px solid #2c2f36; color: #555b68; border-radius: 4px; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+  .loop-saved-del-btn:hover { border-color: #ff4444; color: #ff4444; background: #180808; }
   @media (max-width: 520px) {
     .looper-drawer-body .tracks-grid { grid-template-columns: 1fr 1fr; }
     .looper-drawer-body .ring-wrap { width: 68px; height: 68px; }
@@ -6712,6 +6752,154 @@ var seqChordsGain = null;
 var seqDrumsGain  = null;
 var seqMelodyGain = null;
 
+// ── Piano sampler (native AudioBuffer, no external library) ───────
+var _pianoBuffers     = {};     // MIDI number → AudioBuffer
+var _pianoLoaded      = false;
+var _pianoLoading     = false;
+var _activeInstrument = 'synth'; // 'synth' | 'piano'
+
+// Salamander Grand Piano — one sample every 6 semitones.
+// Pitch-shift ±3 semitones max, which is imperceptible on piano.
+const PIANO_SAMPLE_MAP = {
+  36:'C2', 42:'Fs2', 48:'C3', 54:'Fs3', 60:'C4',
+  66:'Fs4', 72:'C5', 78:'Fs5', 84:'C6', 90:'Fs6'
+};
+const PIANO_BASE_URL = 'https://tonejs.github.io/audio/salamander/';
+
+async function loadPianoSamples() {
+  if (_pianoLoaded || _pianoLoading) return;
+  _pianoLoading = true;
+  _pianoUpdateUI();
+  const ctx = getSeqAudioCtx();
+  await Promise.all(Object.entries(PIANO_SAMPLE_MAP).map(async ([midi, name]) => {
+    try {
+      const resp = await fetch(PIANO_BASE_URL + name + '.mp3');
+      if (!resp.ok) throw new Error(resp.status);
+      const ab  = await resp.arrayBuffer();
+      _pianoBuffers[Number(midi)] = await ctx.decodeAudioData(ab);
+    } catch(e) { console.warn('Piano sample load failed:', name, e); }
+  }));
+  _pianoLoaded  = true;
+  _pianoLoading = false;
+  _pianoUpdateUI();
+}
+
+function _pianoClosestMidi(target) {
+  const keys = Object.keys(_pianoBuffers).map(Number);
+  if (!keys.length) return null;
+  return keys.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+}
+
+function playPianoNote(midiNote, time, velocity, durationS) {
+  const ctx     = getSeqAudioCtx();
+  const closest = _pianoClosestMidi(midiNote);
+  if (closest === null) return;
+  const buf  = _pianoBuffers[closest];
+  const src  = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  src.buffer = buf;
+  src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+  const dur = durationS || 1.4;
+  const vol = Math.min(1, (velocity || 0.8) * 0.85);
+  gain.gain.setValueAtTime(vol, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  src.connect(gain);
+  gain.connect(seqGetChordsOut());
+  src.start(time);
+  src.stop(time + dur + 0.1);
+}
+
+function _pianoUpdateUI() {
+  const lbl = document.getElementById('seqInstrumentLoading');
+  if (lbl) lbl.style.display = _pianoLoading ? 'inline' : 'none';
+}
+
+// ── MIDI ──────────────────────────────────────────────────────────
+var _midiAccess  = null;
+var _midiEnabled = false;
+
+async function initMidi() {
+  if (!navigator.requestMIDIAccess) {
+    alert('Web MIDI is not supported in this browser. Use Chrome or Edge.');
+    return;
+  }
+  try {
+    _midiAccess  = await navigator.requestMIDIAccess({ sysex: false });
+    _midiEnabled = true;
+    _midiAccess.inputs.forEach(inp => { inp.onmidimessage = _midiHandleMessage; });
+    _midiAccess.onstatechange = e => {
+      if (e.port.type === 'input') {
+        if (e.port.state === 'connected')    e.port.onmidimessage = _midiHandleMessage;
+        if (e.port.state === 'disconnected') e.port.onmidimessage = null;
+      }
+      _midiUpdateUI();
+    };
+    _midiUpdateUI();
+    if (_activeInstrument === 'piano') loadPianoSamples();
+  } catch(e) {
+    console.warn('MIDI access denied:', e);
+    _midiEnabled = false;
+    _midiUpdateUI();
+  }
+}
+
+function _midiHandleMessage(msg) {
+  const [status, note, vel] = msg.data;
+  const cmd = status & 0xf0;
+  if      (cmd === 0x90 && vel > 0)                _midiNoteOn(note, vel / 127);
+  else if (cmd === 0x80 || (cmd === 0x90 && !vel)) _midiNoteOff(note);
+}
+
+function _midiNoteOn(midiNote, velocity) {
+  getSeqAudioCtx();
+  if (_activeInstrument === 'piano' && _pianoLoaded) {
+    playPianoNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
+  } else {
+    const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+    const ctx = getSeqAudioCtx();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = document.getElementById('seqWave')?.value || 'triangle';
+    o.frequency.value = freq;
+    o.connect(g); g.connect(seqGetChordsOut());
+    const t = ctx.currentTime;
+    g.gain.setValueAtTime(velocity * 0.22, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 2.0);
+    o.start(t); o.stop(t + 2.1);
+  }
+  _midiHighlightKey(midiNote, true);
+}
+
+function _midiNoteOff(midiNote) {
+  _midiHighlightKey(midiNote, false);
+}
+
+function _midiHighlightKey(midiNote, on) {
+  const noteName = SEQ_NOTES[midiNote % 12];
+  document.querySelectorAll('.seq-key[data-note="' + noteName + '"]').forEach(k => {
+    k.classList.toggle('midi-active', on);
+  });
+}
+
+function _midiUpdateUI() {
+  const dot = document.getElementById('midiStatusDot');
+  const lbl = document.getElementById('midiStatusLabel');
+  const btn = document.getElementById('midiConnectBtn');
+  if (!dot) return;
+  const count = _midiAccess ? [..._midiAccess.inputs.values()].length : 0;
+  if (_midiEnabled && count > 0) {
+    dot.style.background = '#00d26e';
+    if (lbl) lbl.textContent = count + (count > 1 ? ' devices' : ' device');
+  } else if (_midiEnabled) {
+    dot.style.background = '#f5a623';
+    if (lbl) lbl.textContent = 'no device';
+  } else {
+    dot.style.background = 'var(--faint)';
+    if (lbl) lbl.textContent = 'MIDI';
+  }
+  if (btn) btn.style.display = _midiEnabled ? 'none' : '';
+}
+
+
 function getSeqAudioCtx() {
   if (!seqAudioCtx || seqAudioCtx.state === 'closed') {
     seqAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -6907,6 +7095,31 @@ function seqGenChords(key, mode) {
 }
 
 // Returns ordered chord names for a key+mode (I through VII)
+// Mirror of seqGenChords but returns MIDI note numbers instead of Hz frequencies.
+// Used by the piano sampler for accurate sample-based playback.
+function seqGenChordMidi(key, mode) {
+  const scale   = SEQ_SCALES[mode || 'major'];
+  const rootIdx = SEQ_NOTES.indexOf(key);
+  const obj     = {};
+  let prevMidi  = 0;
+  let octave    = 3;
+
+  scale.steps.forEach((s, i) => {
+    const q            = scale.qualities[i];
+    const chordRootIdx = (rootIdx + s) % 12;
+    let   rootMidi     = 12 * (octave + 1) + chordRootIdx;
+    if (rootMidi <= prevMidi) { octave++; rootMidi = 12 * (octave + 1) + chordRootIdx; }
+    prevMidi = rootMidi;
+
+    const thirdSemi  = (q === 'm' || q === 'dim') ? 3 : 4;
+    const fifthSemi  = (q === 'dim') ? 6 : 7;
+    const r          = SEQ_NOTES[chordRootIdx];
+    const chordKey   = s === 12 ? r + q + '_viii' : r + q;
+    obj[chordKey]    = [rootMidi, rootMidi + thirdSemi, rootMidi + fifthSemi];
+  });
+  return obj;
+}
+
 function seqGetScaleChords(key, mode) {
   const scale = SEQ_SCALES[mode || 'major'];
   let root = SEQ_NOTES.indexOf(key);
@@ -6998,6 +7211,13 @@ function renderSequencerHtml(song) {
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </svg>
       </button>
+
+      <!-- MIDI status -->
+      <div class="seq-midi-status">
+        <div id="midiStatusDot"></div>
+        <span id="midiStatusLabel">MIDI</span>
+        <button id="midiConnectBtn" onclick="initMidi()" title="Connect MIDI device">Connect</button>
+      </div>
 
       <!-- Key (always visible) -->
       <div class="seq-ctrl-group" style="padding-right:10px;border-right:1px solid var(--border2);">
@@ -7135,6 +7355,13 @@ function initSequencer(song) {
   apply('seqSwing', sd.swing !== undefined ? sd.swing : 0);
   apply('seqVel',   sd.vel   !== undefined ? sd.vel   : 0.8);
   apply('seqWave',  sd.wave  || 'triangle');
+  const savedInst = sd.instrument || 'synth';
+  _activeInstrument = savedInst;
+  const instEl = document.getElementById('seqInstrumentSelect');
+  if (instEl) instEl.value = savedInst;
+  const waveGroup = document.getElementById('seqWaveGroup');
+  if (waveGroup) waveGroup.style.display = savedInst === 'piano' ? 'none' : '';
+  if (savedInst === 'piano' && !_pianoLoaded && !_pianoLoading) loadPianoSamples();
   setTimeout(seqApplyMixer, 0);
 
   // Chain of rAFs to ensure DOM is ready at each stage
@@ -7176,6 +7403,15 @@ function seqGetData(song) {
   return song.sequencer;
 }
 
+function seqInstrumentChanged() {
+  const val = document.getElementById('seqInstrumentSelect')?.value || 'synth';
+  _activeInstrument = val;
+  const waveGroup = document.getElementById('seqWaveGroup');
+  if (waveGroup) waveGroup.style.display = val === 'piano' ? 'none' : '';
+  if (val === 'piano' && !_pianoLoaded && !_pianoLoading) loadPianoSamples();
+  seqSaveSettings();
+}
+
 function seqSaveSettings() {
   const song = getCurrentSong();
   if (!song) return;
@@ -7191,7 +7427,8 @@ function seqSaveSettings() {
   syncBpmUI(song.sequencer.bpm);
   song.sequencer.swing = document.getElementById('seqSwing')?.value || '0';
   song.sequencer.vel   = document.getElementById('seqVel')?.value || '0.8';
-  song.sequencer.wave  = document.getElementById('seqWave')?.value || 'triangle';
+  song.sequencer.wave       = document.getElementById('seqWave')?.value || 'triangle';
+  song.sequencer.instrument = _activeInstrument || 'synth';
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
@@ -7389,11 +7626,23 @@ function seqPlayChord(freqs, time, velocity) {
   });
 }
 
+// Piano-sampler version: accepts MIDI note array and strums with slight timing offset
+function seqPlayChordPiano(midiNotes, time, velocity) {
+  midiNotes.forEach((midi, i) => {
+    playPianoNote(midi, time + i * 0.022, velocity, 1.6);
+  });
+}
+
 function seqPlayChordByName(name) {
-  const key    = seqCurrentKey();
-  const mode   = seqCurrentMode();
-  const chords = seqGenChords(key, mode);
-  if (chords[name]) seqPlayChord(chords[name], getSeqAudioCtx().currentTime, 0.8);
+  const key  = seqCurrentKey();
+  const mode = seqCurrentMode();
+  if (_activeInstrument === 'piano' && _pianoLoaded) {
+    const midiMap = seqGenChordMidi(key, mode);
+    if (midiMap[name]) seqPlayChordPiano(midiMap[name], getSeqAudioCtx().currentTime, 0.8);
+  } else {
+    const chords = seqGenChords(key, mode);
+    if (chords[name]) seqPlayChord(chords[name], getSeqAudioCtx().currentTime, 0.8);
+  }
 }
 
 function seqClick(time, accent) {
@@ -7526,7 +7775,8 @@ function seqScheduleNotes() {
 
   const loopKey    = seqCurrentKey();
   const loopMode   = seqCurrentMode();
-  const loopChords = seqGenChords(loopKey, loopMode);
+  const loopChords     = seqGenChords(loopKey, loopMode);
+  const loopChordsMidi = (_activeInstrument === 'piano' && _pianoLoaded) ? seqGenChordMidi(loopKey, loopMode) : null;
 
   const chordSlots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
   const kickSlots  = [...document.querySelectorAll('#seqKick .seq-slot')];
@@ -7545,7 +7795,11 @@ function seqScheduleNotes() {
     // ── Audio scheduling (runs on audio thread — unaffected by tab throttle) ──
     const slot = chordSlots[i];
     if (slot?.classList.contains('filled') && loopChords[slot.textContent]) {
-      seqPlayChord(loopChords[slot.textContent], noteTime, velocity);
+      if (loopChordsMidi && loopChordsMidi[slot.textContent]) {
+        seqPlayChordPiano(loopChordsMidi[slot.textContent], noteTime, velocity);
+      } else {
+        seqPlayChord(loopChords[slot.textContent], noteTime, velocity);
+      }
     }
     if (kickSlots[i]?.classList.contains('drum-on'))  seqPlayKick(noteTime, velocity);
     if (snareSlots[i]?.classList.contains('drum-on')) seqPlaySnare(noteTime, velocity * 0.8);
@@ -7696,6 +7950,7 @@ function seqRenderKeyboard() {
         box-sizing:border-box;transition:background 0.08s;`;
       key.dataset.note = note;
       key.dataset.oct  = oct;
+      key.classList.add('seq-key');
       key._origBg = defaultBg;
       if (note === 'C' || isRoot) {
         const label = note + oct;
@@ -7728,6 +7983,7 @@ function seqRenderKeyboard() {
         z-index:2;box-sizing:border-box;transition:background 0.08s;`;
       bkey.dataset.note = note;
       bkey.dataset.oct  = oct;
+      bkey.classList.add('seq-key');
       bkey._origBg = defaultBg;
       const flash = () => {
         bkey.style.background = '#f5a623';
@@ -12501,10 +12757,13 @@ var loopAudioCtx = null;
 var loopMetroScheduler = null; var loopMetroBeat = 0;
 var loopMetroNextTime = 0; var loopMetroRunning = false;
 var loopSharedStream = null; var loopTracks = []; var loopBuilt = false;
+var loopSongId = null;
 
 function openLooperDrawer() {
+  loopSongId = currentId || null;
   document.getElementById('looperDrawer').classList.add('open');
   document.getElementById('looperOverlay').classList.add('open');
+  loopLoadSavedLoops();
 }
 function closeLooperDrawer() {
   document.getElementById('looperDrawer').classList.remove('open');
@@ -12685,6 +12944,7 @@ async function loopOnRecordStop(i){
   const e2=document.getElementById(`lbar-counter-${i}`);if(e2)e2.textContent=`${loopBars} bar${loopBars>1?'s':''} · ${t.recDuration.toFixed(1)}s`;
   const dl=document.getElementById(`ldl-btn-${i}`);if(dl)dl.disabled=false;
   loopStartPlayback(i);
+  loopAutoSave(i, blob, mime, out.duration);
 }
 function loopStartPlayback(i){
   const t=loopTracks[i];if(!t.buffer)return;loopStopPlayback(i);
@@ -12770,6 +13030,132 @@ function loopUpdateTrackUI(i){
 }
 function loopAnyTrackActive(){return loopTracks.some(t=>['recording','playing','preroll'].includes(t.state));}
 
+// ── Loop Persistence ───────────────────────────────────────────────
+async function loopAutoSave(trackIdx, blob, mimeType, duration) {
+  const songId = loopSongId;
+  if (!songId || !auth.currentUser) return;
+  const uid = auth.currentUser.uid;
+  const ext = mimeType.includes('webm') ? 'webm' : 'ogg';
+  const fname = 'loop_' + Date.now() + '.' + ext;
+  const path = 'loop_tracks/' + songId + '/' + fname;
+  try {
+    const storageRef = firebase.storage().ref(path);
+    const snap = await storageRef.put(blob, { contentType: mimeType });
+    const url = await snap.ref.getDownloadURL();
+    const song = songs.find(s => s.id === songId);
+    await db.collection('song_loops').add({
+      songId,
+      userId: uid,
+      trackIndex: trackIdx + 1,
+      label: 'Track ' + (trackIdx + 1),
+      songTitle: song?.title || song?.workingTitle || '',
+      storagePath: path,
+      downloadUrl: url,
+      bpm: loopBpm,
+      bars: loopBars,
+      duration: Math.round(duration * 10) / 10,
+      mimeType,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    loopLoadSavedLoops();
+  } catch(err) {
+    console.error('[Looper] save error', err);
+  }
+}
+
+async function loopLoadSavedLoops() {
+  const panel = document.getElementById('loopSavedPanel');
+  if (!panel) return;
+  const songId = loopSongId;
+  if (!songId) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  const list = document.getElementById('loopSavedList');
+  list.innerHTML = '<div class="loop-saved-loading">Loading…</div>';
+  try {
+    const snap = await db.collection('song_loops')
+      .where('songId', '==', songId)
+      .orderBy('createdAt', 'asc')
+      .get();
+    loopRenderSavedLoops(snap);
+  } catch(e) {
+    list.innerHTML = '<div class="loop-saved-loading">Could not load saves.</div>';
+  }
+}
+
+function loopRenderSavedLoops(snap) {
+  const list = document.getElementById('loopSavedList');
+  if (!list) return;
+  if (snap.empty) {
+    list.innerHTML = '<div class="loop-saved-empty">No saved loops for this song yet.</div>';
+    return;
+  }
+  list.innerHTML = snap.docs.map(doc => {
+    const d = doc.data();
+    const dur = d.duration ? d.duration.toFixed(1) + 's' : '';
+    const meta = [d.bpm ? d.bpm + ' BPM' : '', d.bars ? d.bars + ' bars' : '', dur].filter(Boolean).join(' · ');
+    const ts = d.createdAt?.toDate ? d.createdAt.toDate().toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
+    return `<div class="loop-saved-row" id="lsaved-${doc.id}">
+      <div class="loop-saved-info">
+        <span class="loop-saved-label">${esc(d.label || 'Loop')}</span>
+        <span class="loop-saved-meta">${esc(meta)}</span>
+        ${ts ? `<span class="loop-saved-date">${ts}</span>` : ''}
+      </div>
+      <div class="loop-saved-actions">
+        <button class="loop-saved-load-btn" onclick="loopLoadFromSaved('${doc.id}','${d.downloadUrl}',${d.duration||0})">↩ Load</button>
+        <button class="loop-saved-del-btn" onclick="loopDeleteSavedLoop('${doc.id}','${d.storagePath}')">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function loopDeleteSavedLoop(docId, storagePath) {
+  if (!confirm('Delete this saved loop? This cannot be undone.')) return;
+  try {
+    if (storagePath) firebase.storage().ref(storagePath).delete().catch(() => {});
+    await db.collection('song_loops').doc(docId).delete();
+    const row = document.getElementById('lsaved-' + docId);
+    if (row) row.remove();
+    const list = document.getElementById('loopSavedList');
+    if (list && !list.querySelector('.loop-saved-row')) {
+      list.innerHTML = '<div class="loop-saved-empty">No saved loops for this song yet.</div>';
+    }
+  } catch(e) {
+    console.error('[Looper] delete error', e);
+  }
+}
+
+async function loopLoadFromSaved(docId, downloadUrl, duration) {
+  await loopEnsureAudioCtx();
+  // Find the first idle track, or use track 0 if none
+  let targetIdx = loopTracks.findIndex(t => t.state === 'idle');
+  if (targetIdx === -1) targetIdx = 0;
+  try {
+    const resp = await fetch(downloadUrl);
+    const arrayBuf = await resp.arrayBuffer();
+    const audioBuf = await loopAudioCtx.decodeAudioData(arrayBuf);
+    const t = loopTracks[targetIdx];
+    loopStopPlayback(targetIdx);
+    cancelAnimationFrame(t.rafId);
+    t.buffer = audioBuf;
+    t.recDuration = audioBuf.duration;
+    t.blob = null;
+    t.state = 'playing';
+    loopDrawRing(t, LOOP_NUM_LEDS);
+    loopUpdateTrackUI(targetIdx);
+    const e2 = document.getElementById(`lbar-counter-${targetIdx}`);
+    if (e2) e2.textContent = `${audioBuf.duration.toFixed(1)}s`;
+    const dl = document.getElementById(`ldl-btn-${targetIdx}`);
+    if (dl) dl.disabled = true; // blob not available for download
+    loopStartPlayback(targetIdx);
+    loopStartMetronome();
+  } catch(e) {
+    console.error('[Looper] load from saved error', e);
+    alert('Could not load loop — try again.');
+  }
+}
 
 // ── Song Switcher ─────────────────────────────────────────────────
 function toggleSongSwitcher() {
@@ -15859,6 +16245,14 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
     </div>
     <!-- Tracks grid -->
     <div class="tracks-grid" id="loopTracksGrid"></div>
+    <!-- Saved Loops -->
+    <div class="loop-saved-panel" id="loopSavedPanel" style="display:none;">
+      <div class="loop-saved-header">
+        <span class="loop-saved-title">Saved Loops</span>
+        <span class="loop-saved-hint">Click ↩ Load to drop into first open track</span>
+      </div>
+      <div class="loop-saved-list" id="loopSavedList"></div>
+    </div>
   </div>
 </div>
 
@@ -15910,6 +16304,24 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
 <!-- ── Sequencer Settings Popup (portaled to body) ── -->
 <div id="seqSettingsPopup">
   <div class="seq-popup-title">Sequencer Settings</div>
+  <div class="seq-popup-row" style="margin-bottom:10px;">
+    <div class="seq-ctrl-group">
+      <span class="seq-label">Instrument</span>
+      <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()">
+        <option value="synth">Synth</option>
+        <option value="piano">Piano</option>
+      </select>
+      <span id="seqInstrumentLoading" style="display:none;">loading…</span>
+    </div>
+    <div class="seq-ctrl-group" id="seqWaveGroup">
+      <span class="seq-label">Wave</span>
+      <select class="seq-select" id="seqWave">
+        <option value="triangle">Triangle</option>
+        <option value="sine">Sine</option>
+        <option value="sawtooth">Sawtooth</option>
+      </select>
+    </div>
+  </div>
   <div class="seq-popup-row">
     <div class="seq-ctrl-group">
       <span class="seq-label">Part</span>
@@ -15941,14 +16353,6 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
     <div class="seq-ctrl-group">
       <span class="seq-label">Vel</span>
       <input type="range" class="seq-range" id="seqVel" min="0" max="1" step="0.01" value="0.8">
-    </div>
-    <div class="seq-ctrl-group">
-      <span class="seq-label">Wave</span>
-      <select class="seq-select" id="seqWave">
-        <option value="triangle">Triangle</option>
-        <option value="sine">Sine</option>
-        <option value="sawtooth">Sawtooth</option>
-      </select>
     </div>
   </div>
 </div>
