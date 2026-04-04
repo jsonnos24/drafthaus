@@ -3910,8 +3910,8 @@ body.il-perf-active #metroNavRunBtn { display: none; }
 #vrOverlay {
   display: none; position: fixed; inset: 0; z-index: 9000;
   background: rgba(0,0,0,0.72); backdrop-filter: blur(6px);
-  align-items: flex-end; justify-content: center;
-  padding: 0 0 env(safe-area-inset-bottom, 0px) 0;
+  align-items: center; justify-content: center;
+  padding: 16px;
 }
 #vrOverlay.vr-open { display: flex; }
 
@@ -3919,13 +3919,13 @@ body.il-perf-active #metroNavRunBtn { display: none; }
 #vrDeck {
   width: 100%; max-width: 480px;
   background: #1a1612;
-  border-top: 2px solid #4a3820;
-  border-radius: 18px 18px 0 0;
+  border: 2px solid #4a3820;
+  border-radius: 18px;
   padding: 0 0 16px;
   font-family: 'IBM Plex Mono', monospace;
-  box-shadow: 0 -8px 40px rgba(0,0,0,0.6);
+  box-shadow: 0 8px 60px rgba(0,0,0,0.7);
   overflow-y: auto;
-  max-height: calc(92vh - env(safe-area-inset-bottom, 0px));
+  max-height: calc(90vh - 32px);
 }
 
 /* Deck header stripe */
@@ -4328,6 +4328,38 @@ body.il-perf-active #metroNavRunBtn { display: none; }
 .vr-mini-hint {
   font-family: 'IBM Plex Mono', monospace; font-size: 10px;
   color: rgba(224,80,80,0.5); letter-spacing: 0.06em; margin-left: 4px;
+}
+/* ── Take Waveform ───────────────────────────────────────────── */
+.vr-take-wave-wrap {
+  margin: 5px 0 3px;
+  background: #080604;
+  border: 1px solid #2a2218;
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  position: relative;
+  transition: border-color 0.15s;
+}
+.vr-take-wave-wrap:hover { border-color: #5a4830; }
+.vr-take-playing .vr-take-wave-wrap { border-color: #4a6030; }
+.vr-take-wave-canvas { display: block; width: 100%; height: 38px; }
+.vr-take-wave-wrap.wf-loading .vr-take-wave-canvas { opacity: 0.3; }
+/* ── EQ Visualizer ───────────────────────────────────────────── */
+.vr-eq-section {
+  margin: 12px 16px 4px;
+  background: #0e0c08;
+  border: 1px solid #2a2218;
+  border-radius: 8px;
+  padding: 10px 10px 4px;
+}
+.vr-eq-canvas {
+  display: block; width: 100%; height: 64px;
+}
+.vr-eq-labels {
+  display: flex; justify-content: space-between;
+  padding: 3px 2px 0;
+  font-family: 'IBM Plex Mono', monospace; font-size: 8px;
+  color: #3a2e1e; letter-spacing: 0.04em;
 }
 /* ── End Voice Recorder ──────────────────────────────────────── */
 
@@ -14017,34 +14049,96 @@ function _startWaveform(stream) {
   if (stream) {
     _vrAudioCtx  = new (window.AudioContext || window.webkitAudioContext)();
     _vrAnalyser  = _vrAudioCtx.createAnalyser();
-    _vrAnalyser.fftSize = 256;
+    _vrAnalyser.fftSize = 1024;
+    _vrAnalyser.smoothingTimeConstant = 0.75;
     const src = _vrAudioCtx.createMediaStreamSource(stream);
     src.connect(_vrAnalyser);
   }
   if (!_vrAnalyser) return;
-  const buf = new Uint8Array(_vrAnalyser.frequencyBinCount);
+  const timeBuf = new Uint8Array(_vrAnalyser.frequencyBinCount);
+  const freqBuf = new Uint8Array(_vrAnalyser.frequencyBinCount);
+
+  // EQ: 24 log-spaced bands, 60 Hz → 16 kHz
+  const EQ_BANDS = 24;
+  const EQ_MIN_HZ = 60, EQ_MAX_HZ = 16000;
+  let eqSmoothed = new Float32Array(EQ_BANDS);
+
+  function getEqBands() {
+    const sampleRate = _vrAudioCtx.sampleRate || 44100;
+    const binHz = sampleRate / _vrAnalyser.fftSize;
+    const bands = new Float32Array(EQ_BANDS);
+    for (let i = 0; i < EQ_BANDS; i++) {
+      const loHz = EQ_MIN_HZ * Math.pow(EQ_MAX_HZ / EQ_MIN_HZ, i / EQ_BANDS);
+      const hiHz = EQ_MIN_HZ * Math.pow(EQ_MAX_HZ / EQ_MIN_HZ, (i + 1) / EQ_BANDS);
+      const loBin = Math.max(0, Math.floor(loHz / binHz));
+      const hiBin = Math.min(freqBuf.length - 1, Math.ceil(hiHz / binHz));
+      let sum = 0, count = 0;
+      for (let b = loBin; b <= hiBin; b++) { sum += freqBuf[b]; count++; }
+      bands[i] = count > 0 ? sum / count / 255 : 0;
+    }
+    return bands;
+  }
+
+  function drawEq() {
+    const eqCanvas = _el('vrEqCanvas');
+    if (!eqCanvas) return;
+    const ctx = eqCanvas.getContext('2d');
+    const W = eqCanvas.offsetWidth || 300;
+    const H = eqCanvas.offsetHeight || 64;
+    eqCanvas.width = W; eqCanvas.height = H;
+
+    ctx.clearRect(0, 0, W, H);
+    const bands = getEqBands();
+    // Smooth
+    for (let i = 0; i < EQ_BANDS; i++) {
+      eqSmoothed[i] = eqSmoothed[i] * 0.72 + bands[i] * 0.28;
+    }
+
+    const gap = 2;
+    const barW = (W - gap * (EQ_BANDS - 1)) / EQ_BANDS;
+
+    for (let i = 0; i < EQ_BANDS; i++) {
+      const x = i * (barW + gap);
+      const barH = Math.max(2, eqSmoothed[i] * H);
+      const y = H - barH;
+      // Colour: amber at low freqs → bright gold at high
+      const t = i / (EQ_BANDS - 1);
+      const r = Math.round(80 + t * 120);
+      const g = Math.round(60 + t * 60);
+      const b = 20;
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(x, y, barW, barH);
+      // Subtle top glow cap
+      ctx.fillStyle = `rgba(200,169,110,${eqSmoothed[i] * 0.8})`;
+      ctx.fillRect(x, y, barW, 2);
+    }
+  }
 
   function draw() {
     _vrAnimFrame = requestAnimationFrame(draw);
     if (!canvas) return;
+    // Waveform
     const ctx = canvas.getContext('2d');
     const W = canvas.offsetWidth || 200;
     const H = canvas.offsetHeight || 52;
     canvas.width = W; canvas.height = H;
-    _vrAnalyser.getByteTimeDomainData(buf);
+    _vrAnalyser.getByteTimeDomainData(timeBuf);
     ctx.clearRect(0, 0, W, H);
     ctx.strokeStyle = '#c8a96e';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    const slice = W / buf.length;
+    const slice = W / timeBuf.length;
     let x = 0;
-    for (let i = 0; i < buf.length; i++) {
-      const v = buf[i] / 128;
+    for (let i = 0; i < timeBuf.length; i++) {
+      const v = timeBuf[i] / 128;
       const y = (v * H) / 2;
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       x += slice;
     }
     ctx.stroke();
+    // EQ
+    _vrAnalyser.getByteFrequencyData(freqBuf);
+    drawEq();
   }
   draw();
 }
@@ -14063,6 +14157,19 @@ function _drawFlatLine() {
   ctx.moveTo(0, H / 2);
   ctx.lineTo(W, H / 2);
   ctx.stroke();
+  // Clear EQ to idle
+  const eq = _el('vrEqCanvas');
+  if (eq) {
+    const ec = eq.getContext('2d');
+    const EW = eq.offsetWidth || 300, EH = eq.offsetHeight || 64;
+    eq.width = EW; eq.height = EH;
+    ec.clearRect(0, 0, EW, EH);
+    const gap = 2, bars = 24, barW = (EW - gap * (bars - 1)) / bars;
+    for (let i = 0; i < bars; i++) {
+      ec.fillStyle = '#1a1410';
+      ec.fillRect(i * (barW + gap), EH - 2, barW, 2);
+    }
+  }
 }
 
 // ── Countdown ─────────────────────────────────────────────────
@@ -14350,11 +14457,21 @@ window.vrLoadTakes = async function() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14a2,2,0,0,1-2,2H8a2,2,0,0,1-2-2L5,6"/><path d="M10,11v6"/><path d="M14,11v6"/></svg>
           </button>
         </div>
+        <div class="vr-take-wave-wrap wf-loading" id="vrWaveWrap_${doc.id}"
+          data-url="${d.downloadUrl || ''}" data-duration="${d.duration || 0}"
+          onclick="vrWaveSeek(event,'${doc.id}')">
+          <canvas class="vr-take-wave-canvas" id="vrWave_${doc.id}"></canvas>
+        </div>
         <textarea class="vr-take-note" rows="1" placeholder="Add a note…"
           oninput="vrNoteInput(this,'${doc.id}')"
           onblur="vrNoteSave('${doc.id}',this.value)"
         >${d.note ? d.note : ''}</textarea>`;
       list.appendChild(row);
+    });
+    // Kick off async waveform decode for every take (non-blocking)
+    snap.docs.forEach(doc => {
+      const d = doc.data();
+      if (d.downloadUrl) _decodeTakeWaveform(doc.id, d.downloadUrl);
     });
     _el('vrPlayAllBtn').disabled = snap.empty;
     // Update quota display
@@ -14368,6 +14485,96 @@ window.vrLoadTakes = async function() {
     list.innerHTML = '<div class="vr-no-takes">Error loading takes</div>';
   }
   vrLoadTrash();
+};
+
+// ── Take Waveform ─────────────────────────────────────────────
+const _vrWaveformCache = new Map(); // takeId → Float32Array of peaks
+
+async function _decodeTakeWaveform(takeId, url) {
+  if (_vrWaveformCache.has(takeId)) { _renderTakeWaveform(takeId); return; }
+  try {
+    const resp = await fetch(url);
+    const arrayBuf = await resp.arrayBuffer();
+    const tempCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const audioBuf = await tempCtx.decodeAudioData(arrayBuf);
+    tempCtx.close();
+    const ch = audioBuf.getChannelData(0);
+    const POINTS = 400;
+    const chunkSize = Math.max(1, Math.floor(ch.length / POINTS));
+    const peaks = new Float32Array(POINTS);
+    for (let i = 0; i < POINTS; i++) {
+      let max = 0;
+      const start = i * chunkSize;
+      for (let j = 0; j < chunkSize; j++) {
+        const v = Math.abs(ch[start + j] || 0);
+        if (v > max) max = v;
+      }
+      peaks[i] = max;
+    }
+    _vrWaveformCache.set(takeId, peaks);
+    const wrap = _el('vrWaveWrap_' + takeId);
+    if (wrap) wrap.classList.remove('wf-loading');
+    _renderTakeWaveform(takeId);
+  } catch(e) {
+    const wrap = _el('vrWaveWrap_' + takeId);
+    if (wrap) wrap.classList.remove('wf-loading');
+  }
+}
+
+function _renderTakeWaveform(takeId, playheadT) {
+  const canvas = _el('vrWave_' + takeId);
+  if (!canvas) return;
+  const peaks = _vrWaveformCache.get(takeId);
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth || 300;
+  const H = canvas.offsetHeight || 38;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0, 0, W, H);
+  if (!peaks) return;
+
+  const wrap = _el('vrWaveWrap_' + takeId);
+  const duration = wrap ? parseFloat(wrap.dataset.duration || 0) : 0;
+  const playheadX = (playheadT != null && duration > 0) ? (playheadT / duration) * W : -1;
+  const barW = Math.max(1, W / peaks.length - 0.5);
+
+  for (let i = 0; i < peaks.length; i++) {
+    const x = (i / peaks.length) * W;
+    const barH = Math.max(1, peaks[i] * H * 0.88);
+    const y = (H - barH) / 2;
+    const played = playheadX >= 0 && x < playheadX;
+    ctx.fillStyle = played ? '#c8a96e' : '#3a2c1a';
+    ctx.fillRect(x, y, barW, barH);
+  }
+  // Playhead
+  if (playheadX >= 0 && playheadX < W) {
+    ctx.fillStyle = 'rgba(240,210,130,0.9)';
+    ctx.fillRect(Math.floor(playheadX), 0, 2, H);
+  }
+}
+
+window.vrWaveSeek = function(event, takeId) {
+  const wrap = _el('vrWaveWrap_' + takeId);
+  const canvas = _el('vrWave_' + takeId);
+  if (!wrap || !canvas) return;
+  const duration = parseFloat(wrap.dataset.duration || 0);
+  if (!duration) return;
+  const rect = canvas.getBoundingClientRect();
+  const seekT = Math.max(0, ((event.clientX - rect.left) / rect.width) * duration);
+
+  if (_vrPlayingTakeId === takeId && _vrCurrentAudio) {
+    _vrCurrentAudio.currentTime = seekT;
+  } else {
+    // Start playing then seek
+    const url = wrap.dataset.url;
+    if (url) {
+      vrPlayTake(takeId, url, duration);
+      setTimeout(() => {
+        if (_vrCurrentAudio && _vrPlayingTakeId === takeId) {
+          _vrCurrentAudio.currentTime = seekT;
+        }
+      }, 80);
+    }
+  }
 };
 
 // ── Rating + Notes ────────────────────────────────────────────
@@ -14457,9 +14664,11 @@ window.vrPlayTake = function(takeId, url, duration) {
     const t = _vrCurrentAudio.currentTime;
     _setTime(t);
     _setProgress(t);
+    _renderTakeWaveform(takeId, t);
   };
   _vrCurrentAudio.onended = () => {
     if (_vrJogDragging) return; // user is scrubbing — don't stop yet
+    _renderTakeWaveform(takeId); // clear playhead
     _stopPlayback(); _setStatus('Done');
   };
   _vrCurrentAudio.onerror = () => { _stopPlayback(); _setStatus('Playback error'); };
@@ -14511,6 +14720,7 @@ function _stopPlayback() {
     _vrCurrentAudio.src = '';
     _vrCurrentAudio = null;
   }
+  if (_vrPlayingTakeId) _renderTakeWaveform(_vrPlayingTakeId); // clear playhead
   _vrPlayingTakeId = null;
   _vrPlaybackDuration = 0;
   _vrPaused = false;
@@ -15393,6 +15603,15 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); _vrBuildJ
       <div class="vr-jog-wrap">
         <div class="vr-jog-wheel" id="vrJogWheel" title="Drag to scrub"></div>
         <span class="vr-jog-hint">drag to scrub</span>
+      </div>
+
+      <!-- EQ Visualizer -->
+      <div class="vr-eq-section">
+        <canvas class="vr-eq-canvas" id="vrEqCanvas"></canvas>
+        <div class="vr-eq-labels">
+          <span>60</span><span>120</span><span>250</span><span>500</span>
+          <span>1k</span><span>2k</span><span>4k</span><span>8k</span><span>16k</span>
+        </div>
       </div>
     </div><!-- /.vr-cassette -->
 
