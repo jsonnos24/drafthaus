@@ -1274,6 +1274,15 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-slot.bar-start { border-left: 2px solid var(--border2); }
   /* ── Per-row active slot colours ── */
   [data-row="chord"] .seq-slot.filled  { background: rgba(245,166,35,0.28); border-color: #f5a623; color: #f5a623; }
+  /* Chord slots inherit the pill's purple shade when a degree is known */
+  [data-row="chord"] .seq-slot.filled[data-chord-degree="0"] { background: #1a0833; border-color: #3a1060; color: #c084fc; }
+  [data-row="chord"] .seq-slot.filled[data-chord-degree="1"] { background: #200d3e; border-color: #4a1878; color: #c48dff; }
+  [data-row="chord"] .seq-slot.filled[data-chord-degree="2"] { background: #271249; border-color: #5a2090; color: #cd97ff; }
+  [data-row="chord"] .seq-slot.filled[data-chord-degree="3"] { background: #2e1854; border-color: #6a28a8; color: #d6a0ff; }
+  [data-row="chord"] .seq-slot.filled[data-chord-degree="4"] { background: #361e60; border-color: #7a30c0; color: #deaaff; }
+  [data-row="chord"] .seq-slot.filled[data-chord-degree="5"] { background: #3d246c; border-color: #8a38d8; color: #e6b4ff; }
+  [data-row="chord"] .seq-slot.filled[data-chord-degree="6"] { background: #452a78; border-color: #9a44e8; color: #edbeff; }
+  [data-row="chord"] .seq-slot.filled[data-chord-degree="7"] { background: #4d3084; border-color: #aa52f0; color: #f3c8ff; }
   [data-row="kick"]  .seq-slot.drum-on { background: rgba(195,20,50,0.80);  border-color: #ff4466; }
   [data-row="snare"] .seq-slot.drum-on { background: rgba(100,190,230,0.80); border-color: #aaddff; }
   [data-row="hat"]   .seq-slot.drum-on { background: rgba(245,166,35,0.85); border-color: #ffd080; }
@@ -7219,7 +7228,8 @@ function seqBuildGrids(song) {
   // Chord grid
   const chordGrid = document.getElementById('seqChordGrid');
   if (chordGrid) {
-    const savedSlots = sd.chordSlots || [];
+    const savedSlots   = sd.chordSlots   || [];
+    const savedDegrees = sd.chordDegrees || [];
     chordGrid.innerHTML = '';
     for (let i = 0; i < totalSteps; i++) {
       const slot = document.createElement('div');
@@ -7227,23 +7237,33 @@ function seqBuildGrids(song) {
       slot.dataset.idx  = i;
       slot.dataset.beat = (i % beatsPerBar) % 8;
       const val = savedSlots[i] || '';
-      if (val) { slot.textContent = val; slot.classList.add('filled'); }
+      if (val) {
+        slot.textContent = val;
+        slot.classList.add('filled');
+        const deg = savedDegrees[i];
+        if (deg !== undefined && deg !== '') slot.dataset.chordDegree = deg;
+      }
       slot.addEventListener('dragenter', e => { e.preventDefault(); slot.classList.add('drag-over'); });
       slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
       slot.addEventListener('dragover', e => e.preventDefault());
       slot.addEventListener('drop', e => {
         e.preventDefault();
         slot.classList.remove('drag-over');
-        const chord = e.dataTransfer.getData('text/plain');
+        const chord  = e.dataTransfer.getData('text/plain');
+        const degree = e.dataTransfer.getData('text/x-degree');
         slot.textContent = chord;
         slot.classList.add('filled');
+        if (degree !== '') slot.dataset.chordDegree = degree;
+        else delete slot.dataset.chordDegree;
         slot.classList.add('just-dropped');
         slot.addEventListener('animationend', () => slot.classList.remove('just-dropped'), { once: true });
         seqSaveChordSlots();
       });
       slot.addEventListener('click', () => {
         if (slot.classList.contains('filled')) {
-          slot.textContent = ''; slot.classList.remove('filled');
+          slot.textContent = '';
+          slot.classList.remove('filled');
+          delete slot.dataset.chordDegree;
           seqSaveChordSlots();
         }
       });
@@ -7277,7 +7297,8 @@ function seqSaveChordSlots() {
   if (!song) return;
   if (!song.sequencer) song.sequencer = {};
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
-  song.sequencer.chordSlots = slots.map(s => s.textContent.trim() || '');
+  song.sequencer.chordSlots   = slots.map(s => s.textContent.trim() || '');
+  song.sequencer.chordDegrees = slots.map(s => s.dataset.chordDegree ?? '');
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
@@ -7304,7 +7325,7 @@ function seqRenderChordPills(song) {
   const roman = ['I','II','III','IV','V','VI','VII','VIII'];
   el.innerHTML = names.map((name, i) =>
     `<div class="seq-chord-pill" data-degree="${i}" draggable="true"
-      ondragstart="this.classList.add('dragging');event.dataTransfer.setData('text/plain','${name}')"
+      ondragstart="this.classList.add('dragging');event.dataTransfer.setData('text/plain','${name}');event.dataTransfer.setData('text/x-degree','${i}')"
       ondragend="this.classList.remove('dragging')"
       onclick="seqPlayChordByName('${name}')">
       <span style="font-size:9px;opacity:0.65;display:block;text-align:center;margin-bottom:1px;">${roman[i]}</span>
