@@ -2096,18 +2096,29 @@ button, select, input, textarea { touch-action: manipulation; }
     transform-origin: center center;
     transition: width 8s ease-out, max-width 8s ease-out;
   }
-  /* Static bartender image — always visible at top of inspo table */
+  /* Static bartender image — left-aligned in its column */
   #bartenderStatic {
     display: block;
-    width: 55%; max-width: 360px;
-    margin: 0 auto 28px;
+    width: 100%;
     border-radius: 6px;
     filter: brightness(0.75) saturate(1.1);
     position: relative; z-index: 1;
   }
+  /* Side-by-side layout: bartender left, dice right */
+  .inspo-layout {
+    display: flex; flex-direction: row; align-items: flex-start;
+    gap: 32px; position: relative; z-index: 1;
+  }
+  .inspo-bartender-col {
+    flex: 0 0 auto; width: 28%; max-width: 240px; min-width: 130px;
+  }
+  .inspo-dice-col {
+    flex: 1 1 0; min-width: 0;
+    display: flex; flex-direction: column; align-items: center;
+  }
   /* Inspo table content sits above texture overlay */
   .inspo-subtitle, .inspo-dice-grid, .inspo-result {
-    position: relative; z-index: 1;
+    position: relative; z-index: 1; width: 100%;
   }
   #bartenderPassword {
     position: fixed; inset: 0; z-index: 9998; pointer-events: none;
@@ -2524,6 +2535,21 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .inspo-go-btn:hover { background: #d8b4ff; }
 
+  /* Die rolled-value pulsing state */
+  .inspo-die.die-value-showing {
+    animation: dieValuePulse 0.85s ease-in-out infinite;
+    cursor: default;
+  }
+  @keyframes dieValuePulse {
+    0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 6px  rgba(200,160,255,0.5)); }
+    50%       { transform: scale(1.14); filter: drop-shadow(0 0 26px rgba(200,160,255,1));   }
+  }
+  /* Mobile: stack bartender above dice */
+  @media (max-width: 600px) {
+    .inspo-layout { flex-direction: column; align-items: center; gap: 20px; }
+    .inspo-bartender-col { width: 60%; max-width: 220px; min-width: 0; }
+    .inspo-dice-col { width: 100%; }
+  }
 
   /* ── Tab collapsed state ── */
   /* collapsed state — slim vertical pill */
@@ -9148,7 +9174,7 @@ function renderInspoDice() {
       <svg width="${die.size}" height="${die.size}" viewBox="0 0 100 100">
         <polygon points="${svgPoints(die.label)}" fill="rgba(200,160,255,0.08)" stroke="${die.color}" stroke-width="3"/>
         ${dieInnerLines(die.label)}
-        <text x="50" y="60" font-family="'IBM Plex Mono',monospace" font-size="22" font-weight="700"
+        <text id="inspo-die-text-${i}" x="50" y="60" font-family="'IBM Plex Mono',monospace" font-size="22" font-weight="700"
           fill="${die.color}" text-anchor="middle" dominant-baseline="middle">${die.label}</text>
       </svg>
     </div>`).join('');
@@ -9250,18 +9276,38 @@ function rollInspoDie(dieIdx) {
   die.classList.remove('rolling');
   void die.offsetWidth;
   die.classList.add('rolling');
+  die.style.pointerEvents = 'none';
 
   const result = document.getElementById('inspoResult');
   if (result) result.style.opacity = '0';
 
-  // Reveal bartender and roll (5 seconds)
-  bartenderPulse(5000, () => {
+  // Roll for 6 seconds, then show the landed value
+  setTimeout(() => {
     die.classList.remove('rolling');
+
+    // Swap die label → rolled number (bigger font)
+    const textEl = document.getElementById(`inspo-die-text-${dieIdx}`);
+    if (textEl) {
+      textEl.textContent = String(dieRoll);
+      textEl.setAttribute('font-size', '36');
+    }
+    die.classList.add('die-value-showing');
+
+    // Show the generated song result under the dice
     _inspoRolled = generateInspoSong();
     showInspoResult(_inspoRolled, dieLabel, dieRoll);
-    // Restore other dice after result appears
-    setTimeout(_inspoRestoreDice, 400);
-  });
+
+    // Pulse for 4 seconds, then revert die face and restore other dice
+    setTimeout(() => {
+      die.classList.remove('die-value-showing');
+      if (textEl) {
+        textEl.textContent = dieLabel;
+        textEl.setAttribute('font-size', '22');
+      }
+      die.style.pointerEvents = '';
+      _inspoRestoreDice();
+    }, 4000);
+  }, 6000);
 }
 
 function rand(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -15728,12 +15774,18 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
   </div>
   <div class="inspo-table" id="inspoTable">
     <div class="inspo-table-texture"></div>
-    <img id="bartenderStatic" src="./etherealbartenderinarustictavern.png" alt="">
-    <div class="inspo-subtitle">Choose your die · Roll for a song</div>
-    <div class="inspo-dice-grid" id="inspoDiceGrid">
-      <!-- Dice rendered by JS -->
+    <div class="inspo-layout">
+      <div class="inspo-bartender-col">
+        <img id="bartenderStatic" src="./etherealbartenderinarustictavern.png" alt="">
+      </div>
+      <div class="inspo-dice-col">
+        <div class="inspo-subtitle">Choose your die · Roll for a song</div>
+        <div class="inspo-dice-grid" id="inspoDiceGrid">
+          <!-- Dice rendered by JS -->
+        </div>
+        <div class="inspo-result" id="inspoResult" style="opacity:0;"></div>
+      </div>
     </div>
-    <div class="inspo-result" id="inspoResult" style="opacity:0;"></div>
   </div>
 </div>
 
