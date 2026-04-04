@@ -1256,13 +1256,16 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-chord-pill:hover { filter: brightness(1.25); }
   .seq-chord-pill:active { cursor: grabbing; }
 
-  .seq-grid-row { display: flex; align-items: center; gap: 0; margin-bottom: 4px; flex-wrap: nowrap; max-width: 100%; }
-  .seq-sub-body { display: block; max-width: 100%; overflow-x: auto; }  .seq-row-label {
+  .seq-grid-row { display: flex; align-items: center; gap: 0; margin-bottom: 4px; flex-wrap: nowrap; }
+  .seq-sub-body { display: block; max-width: 100%; }
+  .seq-row-label {
     font-family: 'IBM Plex Mono', monospace; font-size: 11px;
     color: var(--gold); width: 40px; flex-shrink: 0;
     text-align: right; padding-right: 10px;
+    position: sticky; left: 0; z-index: 2;
+    background: var(--surface);
   }
-  .seq-grid { display: flex; gap: 2px; flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
+  .seq-grid { display: flex; gap: 2px; flex-wrap: nowrap; }
   .seq-slot {
     width: clamp(20px, 3.5vw, 36px); height: clamp(20px, 3.5vw, 36px); border-radius: 4px; flex-shrink: 0;
     border: 1px solid var(--border); background: var(--card);
@@ -2082,20 +2085,21 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* ── Bartender overlays ── */
   #bartenderFlicker {
-    position: fixed; inset: 0; z-index: 99999; pointer-events: none;
-    background: #000; display: none;
-    align-items: center; justify-content: center;
-    transition: opacity 0.25s;
+    position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    display: none; align-items: center; justify-content: center;
+    opacity: 0;
   }
   #bartenderFlicker img {
-    width: 62%; max-width: 520px; height: auto;
+    width: 35%; max-width: 300px; height: auto;
     display: block; border-radius: 4px;
+    filter: brightness(0.75) saturate(1.1);
+    transform-origin: center center;
+    transition: width 8s ease-out, max-width 8s ease-out;
   }
-  @keyframes bartPulseAnim {
-    0%, 100% { opacity: 0.4; transform: scale(0.97); }
-    50%       { opacity: 1;   transform: scale(1.01); }
+  /* Inspo table content sits above the bartender */
+  .inspo-subtitle, .inspo-dice-grid, .inspo-result, .inspo-ascii {
+    position: relative; z-index: 1;
   }
-  #bartenderFlicker.bart-pulsing img { animation: bartPulseAnim 0.85s ease-in-out infinite; }
   #bartenderPassword {
     position: fixed; inset: 0; z-index: 9998; pointer-events: none;
     display: none; overflow: hidden;
@@ -2470,7 +2474,7 @@ button, select, input, textarea { touch-action: manipulation; }
     filter: drop-shadow(0 6px 16px rgba(200,160,255,0.5));
   }
   .inspo-die.rolling {
-    animation: dieRoll 1.6s cubic-bezier(0.36,0.07,0.19,0.97) forwards;
+    animation: dieRoll 1.6s cubic-bezier(0.36,0.07,0.19,0.97) infinite;
   }
   @keyframes dieRoll {
     0%   { transform: translateY(0) rotate(0deg) scale(1); }
@@ -3121,7 +3125,6 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Drum rows compact */
   #seqKick, #seqSnare, #seqHat, #seqClap {
     flex-wrap: nowrap;
-    overflow-x: auto;
   }
   .seq-row-label {
     min-width: 44px;
@@ -4701,11 +4704,6 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 
     <div class="landing-privacy" style="margin-top:14px;">Your songs are private. Only you can see them.</div>
   </div>
-</div>
-
-<!-- ── Bartender: dice flicker overlay ── -->
-<div id="bartenderFlicker">
-  <img src="./etherealbartenderinarustictavern.png" alt="">
 </div>
 
 <!-- ── Bartender: password check overlay ── -->
@@ -7096,7 +7094,7 @@ function initSequencer(song) {
   // Apply settings to DOM controls
   const apply = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
   apply('seqTime',  sd.time  || '4');
-  apply('seqBars',  sd.bars  || '2');
+  apply('seqBars',  sd.bars  || '8');
   apply('seqGrid',  sd.grid  || '1');
   apply('seqBpm',   sd.bpm   || '100');
   apply('seqSwing', sd.swing !== undefined ? sd.swing : 0);
@@ -7150,7 +7148,7 @@ function seqSaveSettings() {
   song.sequencer.key   = seqCurrentKey();
   song.sequencer.mode  = seqCurrentMode();
   song.sequencer.time  = document.getElementById('seqTime')?.value || '4';
-  song.sequencer.bars  = document.getElementById('seqBars')?.value || '2';
+  song.sequencer.bars  = document.getElementById('seqBars')?.value || '8';
   song.sequencer.part  = document.getElementById('seqPartAssign')?.value || '';
   song.sequencer.grid  = document.getElementById('seqGrid')?.value || '1';
   song.sequencer.bpm   = document.getElementById('seqBpm')?.value || '100';
@@ -7212,7 +7210,7 @@ function seqRebuild() {
 
 function seqGetStepCount(sd) {
   const time = parseInt(document.getElementById('seqTime')?.value || sd?.time || '4');
-  const bars = parseInt(document.getElementById('seqBars')?.value || sd?.bars || '2');
+  const bars = parseInt(document.getElementById('seqBars')?.value || sd?.bars || '8');
   const grid = parseInt(document.getElementById('seqGrid')?.value || sd?.grid || '1');
   return time * bars * grid;
 }
@@ -9153,15 +9151,43 @@ function dieInnerLines(label) {
 
 // ── Bartender image effects ───────────────────────────────────────
 function bartenderPulse(totalMs, onDone) {
-  const el = document.getElementById('bartenderFlicker');
-  if (!el) { if (onDone) onDone(); return; }
-  el.style.display = 'flex';
-  el.style.opacity = '1';
-  el.classList.add('bart-pulsing');
+  const el  = document.getElementById('bartenderFlicker');
+  const img = el?.querySelector('img');
+  if (!el || !img) { if (onDone) onDone(); return; }
+
+  // Reset to start state
+  el.style.transition  = 'none';
+  img.style.transition = 'none';
+  img.style.width      = '35%';
+  img.style.maxWidth   = '300px';
+  el.style.opacity     = '0';
+  el.style.display     = 'flex';
+  void el.offsetWidth; // force reflow
+
+  // Fade in the overlay
+  el.style.transition = 'opacity 1.2s ease';
+  el.style.opacity    = '0.92';
+
+  // Start growing the image
+  requestAnimationFrame(() => {
+    img.style.transition = `width ${totalMs / 1000}s ease-out, max-width ${totalMs / 1000}s ease-out`;
+    img.style.width      = '82%';
+    img.style.maxWidth   = '700px';
+  });
+
+  // After totalMs, fade out and call done
   setTimeout(() => {
-    el.classList.remove('bart-pulsing');
-    el.style.opacity = '0';
-    setTimeout(() => { el.style.display = 'none'; el.style.opacity = ''; if (onDone) onDone(); }, 250);
+    el.style.transition = 'opacity 0.5s ease';
+    el.style.opacity    = '0';
+    setTimeout(() => {
+      el.style.display     = 'none';
+      el.style.transition  = '';
+      el.style.opacity     = '';
+      img.style.transition = '';
+      img.style.width      = '';
+      img.style.maxWidth   = '';
+      if (onDone) onDone();
+    }, 500);
   }, totalMs);
 }
 
@@ -9187,8 +9213,8 @@ function rollInspoDie(dieIdx) {
   const result = document.getElementById('inspoResult');
   if (result) { result.style.opacity = '0'; }
 
-  // Pulse the bartender over the roll window
-  bartenderPulse(1600, () => {
+  // Reveal the bartender while the die rolls (8 seconds)
+  bartenderPulse(8000, () => {
     die.classList.remove('rolling');
     _inspoRolled = generateInspoSong();
     showInspoResult(_inspoRolled);
@@ -11916,7 +11942,7 @@ function renderDrumNotation() {
   const sd   = song?.sequencer || {};
   const timeSig = parseInt(document.getElementById('seqTime')?.value || sd.time || 4);
   const grid    = parseInt(document.getElementById('seqGrid')?.value || sd.grid || 1);
-  const bars    = parseInt(document.getElementById('seqBars')?.value || sd.bars || 2);
+  const bars    = parseInt(document.getElementById('seqBars')?.value || sd.bars || 8);
   const totalSteps  = timeSig * bars * grid;
   const stepsPerBar = timeSig * grid;
 
@@ -15656,6 +15682,7 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
   </div>
   <div class="inspo-table" id="inspoTable">
     <div class="inspo-table-texture"></div>
+    <div id="bartenderFlicker"><img src="./etherealbartenderinarustictavern.png" alt=""></div>
     <div class="inspo-subtitle">Choose your die · Roll for a song</div>
     <div class="inspo-dice-grid" id="inspoDiceGrid">
       <!-- Dice rendered by JS -->
