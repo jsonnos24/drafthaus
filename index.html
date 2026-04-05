@@ -2126,6 +2126,12 @@ button, select, input, textarea { touch-action: manipulation; }
     border-radius: 6px;
     filter: brightness(0.75) saturate(1.1);
     position: relative; z-index: 1;
+    transform-style: preserve-3d;
+    will-change: transform;
+    transition: transform 0.05s linear;
+  }
+  .inspo-bartender-col {
+    perspective: 600px;
   }
   /* Side-by-side layout: bartender left, dice right */
   .inspo-layout {
@@ -2133,7 +2139,7 @@ button, select, input, textarea { touch-action: manipulation; }
     gap: 32px; position: relative; z-index: 1;
   }
   .inspo-bartender-col {
-    flex: 0 0 auto; width: 56%; max-width: 480px; min-width: 260px;
+    flex: 0 0 auto; width: 38%; max-width: 300px; min-width: 160px;
   }
   .inspo-dice-col {
     flex: 1 1 0; min-width: 0;
@@ -6758,7 +6764,7 @@ var seqMelodyGain = null;
 var _pianoBuffers     = {};     // MIDI number → AudioBuffer
 var _pianoLoaded      = false;
 var _pianoLoading     = false;
-var _activeInstrument = 'synth'; // 'synth' | 'piano' | 'guitar' | combos with '+'
+var _activeInstrument = 'piano+synth'; // 'synth' | 'piano' | 'guitar' | combos with '+'
 function _instrHas(part) { return _activeInstrument.split('+').includes(part); }
 
 // ── Guitar sampler ────────────────────────────────────────────────
@@ -7427,7 +7433,7 @@ function initSequencer(song) {
   apply('seqSwing', sd.swing !== undefined ? sd.swing : 0);
   apply('seqVel',   sd.vel   !== undefined ? sd.vel   : 0.8);
   apply('seqWave',  sd.wave  || 'triangle');
-  const savedInst = sd.instrument || 'synth';
+  const savedInst = sd.instrument || 'piano+synth';
   _activeInstrument = savedInst;
   const instEl = document.getElementById('seqInstrumentSelect');
   if (instEl) instEl.value = savedInst;
@@ -7477,7 +7483,7 @@ function seqGetData(song) {
 }
 
 function seqInstrumentChanged() {
-  const val = document.getElementById('seqInstrumentSelect')?.value || 'synth';
+  const val = document.getElementById('seqInstrumentSelect')?.value || 'piano+synth';
   _activeInstrument = val;
   // Cut off any sustaining notes from the previous instrument
   if (seqChordsGain && seqAudioCtx) {
@@ -7509,7 +7515,7 @@ function seqSaveSettings() {
   song.sequencer.swing = document.getElementById('seqSwing')?.value || '0';
   song.sequencer.vel   = document.getElementById('seqVel')?.value || '0.8';
   song.sequencer.wave       = document.getElementById('seqWave')?.value || 'triangle';
-  song.sequencer.instrument = _activeInstrument || 'synth';
+  song.sequencer.instrument = _activeInstrument || 'piano+synth';
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
@@ -9426,7 +9432,8 @@ const DICE_DEFS = [
   { label:'D20', sides:20, color:'#c8a0ff', size:80, path:'M50,5 L95,27 L95,73 L50,95 L5,73 L5,27 Z' },
 ];
 
-let _inspoRolled = null;
+let _inspoRolled    = null;
+let _inspoLastDieIdx = null;
 
 
 // ── Roll for Inspiration ASCII art ───────────────────────────────
@@ -9550,6 +9557,37 @@ function dieInnerLines(label) {
 }
 
 // ── Bartender image effects ───────────────────────────────────────
+// ── Bartender mouse-follow (desktop only) ─────────────────────────
+(function() {
+  let targetX = 0, targetY = 0, curX = 0, curY = 0, raf = null;
+  const EASE = 0.07, MAX_TILT = 10, MAX_SHIFT = 12;
+
+  function tick() {
+    curX += (targetX - curX) * EASE;
+    curY += (targetY - curY) * EASE;
+    const img = document.getElementById('bartenderStatic');
+    if (img) {
+      img.style.transform = `translate(${curX * MAX_SHIFT}px, ${curY * MAX_SHIFT * 0.5}px) rotateY(${-curX * MAX_TILT}deg) rotateX(${curY * MAX_TILT * 0.5}deg)`;
+    }
+    raf = requestAnimationFrame(tick);
+  }
+
+  window.addEventListener('mousemove', e => {
+    if (window.matchMedia('(hover: hover)').matches) {
+      const img = document.getElementById('bartenderStatic');
+      if (!img) return;
+      const rect = img.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top  + rect.height / 2;
+      targetX = Math.max(-1, Math.min(1, (e.clientX - cx) / (window.innerWidth  / 2)));
+      targetY = Math.max(-1, Math.min(1, (e.clientY - cy) / (window.innerHeight / 2)));
+      if (!raf) tick();
+    }
+  });
+
+  window.addEventListener('mouseleave', () => { targetX = 0; targetY = 0; });
+})();
+
 function bartenderPulse(totalMs, onDone) {
   const el  = document.getElementById('bartenderFlicker');
   const img = el?.querySelector('img');
@@ -9670,16 +9708,13 @@ function rollInspoDie(dieIdx) {
       }, 4000);
     } else {
       // High roll (11–20) — generate song
-      _inspoRolled = generateInspoSong();
+      _inspoRolled     = generateInspoSong();
+      _inspoLastDieIdx = dieIdx;
       showInspoResult(_inspoRolled, dieLabel, dieRoll);
 
-      // Pulse for 4 seconds, then revert die face and restore other dice
-      setTimeout(() => {
-        die.classList.remove('die-value-showing');
-        if (textEl) { textEl.textContent = dieLabel; textEl.setAttribute('font-size', '22'); }
-        die.style.pointerEvents = '';
-        _inspoRestoreDice();
-      }, 4000);
+      // Keep number on die; restore interaction immediately
+      die.style.pointerEvents = '';
+      _inspoRestoreDice();
     }
   }, 1500);
 }
@@ -9731,6 +9766,19 @@ function generateInspoSong() {
   return { key, bpm, timeSig, pattern, title, chordSlots, kick, snare, hat, clap, root };
 }
 
+const INSPO_SUCCESS_LINES = [
+  "Congratulations — the muse has blessed this cursed little app.",
+  "Congratulations! The dice gods are finally rooting for you.",
+  "Congratulations, you rolled better than your last chord progression.",
+  "Congratulations! Even the bartender is impressed.",
+  "Congratulations — write this one down before you forget it.",
+  "Congratulations! The tavern erupts. Someone spills their ale.",
+  "Congratulations, this one might actually slap.",
+  "Congratulations — the universe said yes, for once.",
+  "Congratulations! Don't waste it. Seriously.",
+  "Congratulations, you've earned a momentary belief in yourself.",
+];
+
 function showInspoResult(data, dieLabel, dieRoll) {
   const result = document.getElementById('inspoResult');
   if (!result) return;
@@ -9740,8 +9788,11 @@ function showInspoResult(data, dieLabel, dieRoll) {
   const dieChip = (dieLabel && dieRoll != null)
     ? `<div class="inspo-chip" style="background:rgba(200,160,255,0.18);border-color:rgba(200,160,255,0.5);color:#e0b8ff;font-weight:700;">🎲 ${dieLabel} · ${dieRoll}</div>`
     : '';
+  const sassyLine = INSPO_SUCCESS_LINES[Math.floor(Math.random() * INSPO_SUCCESS_LINES.length)];
 
   result.innerHTML = `
+    <div style="font-family:'Playfair Display',serif;font-size:13px;font-style:italic;color:rgba(200,160,255,0.7);margin-bottom:8px;">${sassyLine}</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.15em;text-transform:uppercase;color:var(--faint);margin-bottom:3px;">Title</div>
     <span class="result-title">${data.title}</span>
     <div class="result-chips">
       ${dieChip}
@@ -9751,7 +9802,10 @@ function showInspoResult(data, dieLabel, dieRoll) {
       <div class="inspo-chip">🥁 ${data.pattern}</div>
       ${uniqueChords.map(c => `<div class="inspo-chip">${c}</div>`).join('')}
     </div>
-    <button class="inspo-go-btn" onclick="launchInspoSong()">⚔ Create Song & Open →</button>
+    <div style="display:flex;gap:8px;margin-top:4px;">
+      <button class="inspo-go-btn" onclick="launchInspoSong()">⚔ Create Song & Open →</button>
+      <button class="inspo-go-btn" style="background:#2c2f36;color:var(--muted);border:1px solid var(--border2);" onclick="rollInspoDie(_inspoLastDieIdx)">🎲 Reroll</button>
+    </div>
   `;
   result.style.opacity = '1';
 }
@@ -16427,7 +16481,7 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
         <option value="guitar">Guitar</option>
         <option value="guitar+piano">Guitar + Piano</option>
         <option value="guitar+synth">Guitar + Synth</option>
-        <option value="piano+synth">Piano + Synth</option>
+        <option value="piano+synth" selected>Piano + Synth</option>
         <option value="guitar+piano+synth">Guitar + Piano + Synth</option>
       </select>
       <span id="seqInstrumentLoading" style="display:none;">loading…</span>
