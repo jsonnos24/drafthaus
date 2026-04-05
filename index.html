@@ -2789,14 +2789,15 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ── Monitor status strip (between header and body) ── */
   #loopMonPill {
     display: flex; align-items: center; justify-content: center; gap: 8px;
-    padding: 8px 20px;
+    padding: 9px 20px;
     font-family: 'IBM Plex Mono', monospace; font-size: 10px;
     font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+    border-top: 1px solid rgba(255,255,255,0.07);
+    border-bottom: 1px solid rgba(255,255,255,0.07);
     transition: background 0.25s, color 0.25s;
     cursor: default;
-    /* idle/default */
-    color: #44484f; background: rgba(255,255,255,0.02);
+    /* idle/default — visible but understated */
+    color: #8a8fa0; background: rgba(255,255,255,0.04);
   }
   #loopMonPill.mon-muted {
     color: #ff9900;
@@ -4426,6 +4427,32 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 .vr-bt-cal-action:hover { background: rgba(255,255,255,0.1); }
 .vr-bt-cal-action:disabled { opacity: 0.4; cursor: default; }
 .vr-bt-cal-cancel { color: #6a5a42; }
+/* Monitor status strip */
+#vrMonPill {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 9px 20px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  transition: background 0.25s, color 0.25s;
+  cursor: default;
+  color: #8a8fa0; background: rgba(255,255,255,0.04);
+}
+#vrMonPill.vr-mon-muted {
+  color: #ff9900;
+  background: rgba(255,153,0,0.07);
+  border-bottom-color: rgba(255,153,0,0.2);
+  border-top-color: rgba(255,153,0,0.2);
+}
+#vrMonPill.vr-mon-live {
+  color: #00e87a;
+  background: rgba(0,232,122,0.06);
+  border-bottom-color: rgba(0,232,122,0.2);
+  border-top-color: rgba(0,232,122,0.2);
+}
+#vrMonPill .vr-mon-icon { font-size: 13px; }
+
 .vr-feedback-warn {
   margin: 0 12px 6px;
   padding: 6px 10px;
@@ -15257,6 +15284,26 @@ function _setDeckState(state) {
   if (!deck) return;
   deck.parentElement.classList.remove('vr-recording', 'vr-playing');
   if (state) deck.parentElement.classList.add('vr-' + state);
+  _vrUpdateMonPill(state);
+}
+function _vrUpdateMonPill(state) {
+  const pill  = _el('vrMonPill');
+  const label = _el('vrMonLabel');
+  if (!pill) return;
+  pill.classList.remove('vr-mon-muted', 'vr-mon-live');
+  const icon = pill.querySelector('.vr-mon-icon');
+  if (state === 'recording') {
+    pill.classList.add('vr-mon-muted');
+    if (icon)  icon.textContent  = '🔇';
+    if (label) label.textContent = 'Mon Muted (rec)';
+  } else if (state === 'playing') {
+    pill.classList.add('vr-mon-live');
+    if (icon)  icon.textContent  = '🔊';
+    if (label) label.textContent = 'Mon Live';
+  } else {
+    if (icon)  icon.textContent  = '🎧';
+    if (label) label.textContent = 'Monitor: Auto';
+  }
 }
 
 // ── Arm Sequencer toggle ────────────────────────────────────────
@@ -17279,6 +17326,8 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
         <span id="vrOutputLabel">Default</span>
       </button>
     </div>
+    <!-- Monitor status strip -->
+    <div id="vrMonPill" title="Monitor is auto-muted while recording to prevent feedback, and live during playback"><span class="vr-mon-icon">🎧</span><span id="vrMonLabel">Monitor: Auto</span></div>
     <!-- Same-device feedback warning -->
     <div class="vr-feedback-warn" id="vrFeedbackWarn" style="display:none">
       ⚠ Input &amp; output on same device — use your interface's direct monitor to avoid feedback
