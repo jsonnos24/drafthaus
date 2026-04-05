@@ -1725,6 +1725,19 @@ button, select, input, textarea { touch-action: manipulation; }
   .melody-quant-btn.active {
     border-color: var(--gold); color: var(--gold); background: rgba(245,166,35,0.1);
   }
+  /* ── Humanize toggle buttons ── */
+  .seq-humanize-btn {
+    font-size: 9px; padding: 4px 9px;
+    background: var(--card2); border: 1px dashed var(--border2);
+    color: var(--faint); border-radius: 4px; cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.05em;
+    transition: all 0.15s; white-space: nowrap; flex-shrink: 0;
+  }
+  .seq-humanize-btn.active {
+    background: rgba(0, 220, 130, 0.12); border-style: solid;
+    border-color: rgba(0, 220, 130, 0.5); color: #00dc82;
+    text-shadow: 0 0 6px rgba(0,220,130,0.3);
+  }
   .melody-roll {
     background: var(--card); border: 1px solid var(--border);
     border-radius: 8px; padding: 10px 12px; min-height: 48px;
@@ -7441,6 +7454,45 @@ var _seqSongSectionIdx = 0;    // which section we're currently playing
 var _seqSongSectionStep = 0;   // step within the current section
 var _seqTriggeredLoopTracks = new Set(); // loop track indices started by sequencer
 
+// ── Humanize: per-element timing jitter + velocity variation ──────────────
+var seqHumanizeChords = false;
+var seqHumanizeDrums  = false;
+var seqHumanizeMelody = false;
+
+function seqToggleHumanize(type) {
+  if (type === 'chords') seqHumanizeChords = !seqHumanizeChords;
+  if (type === 'drums')  seqHumanizeDrums  = !seqHumanizeDrums;
+  if (type === 'melody') seqHumanizeMelody = !seqHumanizeMelody;
+  seqUpdateHumanizeBtns();
+  const song = getCurrentSong();
+  if (song) {
+    seqGetData(song);
+    song.sequencer.humanize = { chords: seqHumanizeChords, drums: seqHumanizeDrums, melody: seqHumanizeMelody };
+    save();
+  }
+}
+
+function seqUpdateHumanizeBtns() {
+  const cb = document.getElementById('seqHumanizeChordsBtn');
+  const db = document.getElementById('seqHumanizeDrumsBtn');
+  const mb = document.getElementById('seqHumanizeMelodyBtn');
+  if (cb) cb.classList.toggle('active', seqHumanizeChords);
+  if (db) db.classList.toggle('active', seqHumanizeDrums);
+  if (mb) mb.classList.toggle('active', seqHumanizeMelody);
+}
+
+function seqLoadHumanize(song) {
+  const h = song?.sequencer?.humanize || {};
+  seqHumanizeChords = !!h.chords;
+  seqHumanizeDrums  = !!h.drums;
+  seqHumanizeMelody = !!h.melody;
+  seqUpdateHumanizeBtns();
+}
+
+// Keyboard slide-to-play state
+var _kbdDragging      = false;
+var _kbdTouchActiveKey = null;
+
 // Start looper tracks whose assigned part matches partId; stop any previously triggered ones.
 function _seqTriggerLoopsForPart(partId) {
   _seqTriggeredLoopTracks.forEach(function(i) {
@@ -7974,6 +8026,7 @@ function renderSequencerHtml(song) {
           <div style="flex:1;min-width:0;">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
               <div class="seq-chords-row" id="seqChordPills" style="margin-bottom:0;flex:1;"></div>
+              <button class="seq-humanize-btn" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords — adds subtle timing variation so they feel less robotic">〜 Humanize</button>
               <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;flex-shrink:0;" onclick="seqClearAllChordSlots()">Clear</button>
             </div>
             <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.08em;">↑ Click to fill progression · Drag into grid · <span style="opacity:0.7;">Keys <kbd style="font-family:inherit;background:var(--card2);border:1px solid var(--border2);border-radius:2px;padding:0 3px;font-size:8px;">1</kbd>–<kbd style="font-family:inherit;background:var(--card2);border:1px solid var(--border2);border-radius:2px;padding:0 3px;font-size:8px;">8</kbd> to play</span></div>
@@ -8001,6 +8054,7 @@ function renderSequencerHtml(song) {
               <option value="classical">Classical</option>
               <option value="random">🎲 Random</option>
             </select>
+            <button class="seq-humanize-btn" id="seqHumanizeDrumsBtn" onclick="seqToggleHumanize('drums')" title="Humanize drums — each hit gets slight random timing so it feels like a real drummer">〜 Humanize</button>
             <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="applyDrumPattern('clear')">Clear</button>
           </div>
         </div>
@@ -8142,6 +8196,9 @@ function initSequencer(song) {
   if (_instrHas('piano') && !_pianoLoaded && !_pianoLoading) loadPianoSamples();
   if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   setTimeout(seqApplyMixer, 0);
+
+  // Load humanize state
+  seqLoadHumanize(fresh);
 
   // Render sequence tabs
   seqRenderSequenceTabs();
@@ -9094,23 +9151,27 @@ function seqScheduleNotes() {
       const stepDur     = sec.stepDur;
       const beatsPerBar = sec.time * sec.grid;
       const swingOffset = (i % 2 === 1) ? stepDur * sec.swing * 0.5 : 0;
-      const noteTime    = _seqNextNoteTime + swingOffset;
+      const baseTime    = _seqNextNoteTime + swingOffset;
       const velocity    = sec.vel * (0.8 + Math.random() * 0.4);
+      // Per-element humanize jitter for song mode
+      const _hj = (ms) => (Math.random() - 0.5) * ms * 0.001;
+      const chordTime = seqHumanizeChords ? Math.max(0.001, baseTime + _hj(34)) : baseTime;
+      const noteTime  = baseTime;
 
       // Chord
       const chordName = sec.chordSlots[i] || '';
       if (chordName && loopChords[chordName]) {
         const midiNotes = loopChordsMidi?.[chordName];
         let samplerPlayed = false;
-        if (_hasPiano  && _pianoLoaded  && midiNotes) { seqPlayChordPiano(midiNotes, noteTime, velocity);  samplerPlayed = true; }
-        if (_hasGuitar && _guitarLoaded && midiNotes) { seqPlayChordGuitar(midiNotes, noteTime, velocity); samplerPlayed = true; }
-        if (_hasSynth || !samplerPlayed) seqPlayChord(loopChords[chordName], noteTime, velocity);
+        if (_hasPiano  && _pianoLoaded  && midiNotes) { seqPlayChordPiano(midiNotes, chordTime, velocity);  samplerPlayed = true; }
+        if (_hasGuitar && _guitarLoaded && midiNotes) { seqPlayChordGuitar(midiNotes, chordTime, velocity); samplerPlayed = true; }
+        if (_hasSynth || !samplerPlayed) seqPlayChord(loopChords[chordName], chordTime, velocity);
       }
-      // Drums
-      if (sec.kick[i])  seqPlayKick(noteTime, velocity);
-      if (sec.snare[i]) seqPlaySnare(noteTime, velocity * 0.8);
-      if (sec.hat[i])   seqPlayHat(noteTime, velocity * 0.6);
-      if (sec.clap[i])  seqPlayClap(noteTime, velocity * 0.7);
+      // Drums — per-instrument jitter
+      if (sec.kick[i])  seqPlayKick( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
+      if (sec.snare[i]) seqPlaySnare(seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, velocity * 0.8);
+      if (sec.hat[i])   seqPlayHat(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, velocity * 0.6);
+      if (sec.clap[i])  seqPlayClap( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, velocity * 0.7);
       if (seqMetOn) seqClick(noteTime, i % beatsPerBar === 0);
 
       // Visual delay for step indicator
@@ -9176,22 +9237,27 @@ function seqScheduleNotes() {
   while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
     const i = _seqStepIndex % totalSteps;
     const swingOffset = (i % 2 === 1) ? stepDur * swing * 0.5 : 0;
-    const noteTime  = _seqNextNoteTime + swingOffset;
+    const baseTime  = _seqNextNoteTime + swingOffset;
     const velocity  = vel * (0.8 + Math.random() * 0.4);
+    // Per-element humanize jitter (small random timing offsets that vary naturally)
+    const _hj = (ms) => (Math.random() - 0.5) * ms * 0.001; // convert ms to seconds
+    const chordTime = seqHumanizeChords ? Math.max(0.001, baseTime + _hj(34)) : baseTime;
+    const noteTime  = baseTime; // metro + melody stay on grid
 
     // ── Audio scheduling (runs on audio thread — unaffected by tab throttle) ──
     const slot = chordSlots[i];
     if (slot?.classList.contains('filled') && loopChords[slot.textContent]) {
       const midiNotes = loopChordsMidi?.[slot.textContent];
       let samplerPlayed = false;
-      if (_hasPiano  && _pianoLoaded  && midiNotes) { seqPlayChordPiano(midiNotes, noteTime, velocity);  samplerPlayed = true; }
-      if (_hasGuitar && _guitarLoaded && midiNotes) { seqPlayChordGuitar(midiNotes, noteTime, velocity); samplerPlayed = true; }
-      if (_hasSynth || !samplerPlayed) seqPlayChord(loopChords[slot.textContent], noteTime, velocity);
+      if (_hasPiano  && _pianoLoaded  && midiNotes) { seqPlayChordPiano(midiNotes, chordTime, velocity);  samplerPlayed = true; }
+      if (_hasGuitar && _guitarLoaded && midiNotes) { seqPlayChordGuitar(midiNotes, chordTime, velocity); samplerPlayed = true; }
+      if (_hasSynth || !samplerPlayed) seqPlayChord(loopChords[slot.textContent], chordTime, velocity);
     }
-    if (kickSlots[i]?.classList.contains('drum-on'))  seqPlayKick(noteTime, velocity);
-    if (snareSlots[i]?.classList.contains('drum-on')) seqPlaySnare(noteTime, velocity * 0.8);
-    if (hatSlots[i]?.classList.contains('drum-on'))   seqPlayHat(noteTime, velocity * 0.6);
-    if (clapSlots[i]?.classList.contains('drum-on'))  seqPlayClap(noteTime, velocity * 0.7);
+    // Drums — each instrument gets its own jitter for a natural, imprecise feel
+    if (kickSlots[i]?.classList.contains('drum-on'))  seqPlayKick( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
+    if (snareSlots[i]?.classList.contains('drum-on')) seqPlaySnare(seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, velocity * 0.8);
+    if (hatSlots[i]?.classList.contains('drum-on'))   seqPlayHat(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, velocity * 0.6);
+    if (clapSlots[i]?.classList.contains('drum-on'))  seqPlayClap( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, velocity * 0.7);
     if (seqMetOn) seqClick(noteTime, i % beatsPerBar === 0);
 
     // Melody: schedule once per loop start
@@ -9358,11 +9424,11 @@ function seqRenderKeyboard() {
       };
       const wKeyDown = () => { flash(); kbdPlayNote(note, oct); melodyRecordNote(note, oct, true); };
       const wKeyUp   = () => { melodyRecordNote(note, oct, false); };
-      key.addEventListener('mousedown', wKeyDown);
-      key.addEventListener('mouseup',   wKeyUp);
-      key.addEventListener('mouseleave',wKeyUp);
-      key.addEventListener('touchstart', e => { e.preventDefault(); wKeyDown(); });
-      key.addEventListener('touchend',   e => { e.preventDefault(); wKeyUp(); });
+      key.addEventListener('mousedown',  wKeyDown);
+      key.addEventListener('mouseup',    wKeyUp);
+      key.addEventListener('mouseleave', () => { if (_kbdDragging) wKeyUp(); else wKeyUp(); });
+      key.addEventListener('mouseenter', () => { if (_kbdDragging) wKeyDown(); });
+      key.addEventListener('touchstart', e => { e.preventDefault(); _kbdTouchActiveKey = key; wKeyDown(); });
       board.appendChild(key);
     });
 
@@ -9386,16 +9452,64 @@ function seqRenderKeyboard() {
       };
       const bKeyDown = () => { flash(); kbdPlayNote(note, oct); melodyRecordNote(note, oct, true); };
       const bKeyUp   = () => { melodyRecordNote(note, oct, false); };
-      bkey.addEventListener('mousedown', e => { e.stopPropagation(); bKeyDown(); });
-      bkey.addEventListener('mouseup',   bKeyUp);
-      bkey.addEventListener('mouseleave',bKeyUp);
-      bkey.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); bKeyDown(); });
-      bkey.addEventListener('touchend',   e => { e.preventDefault(); bKeyUp(); });
+      bkey.addEventListener('mousedown',  e => { e.stopPropagation(); bKeyDown(); });
+      bkey.addEventListener('mouseup',    bKeyUp);
+      bkey.addEventListener('mouseleave', () => { if (_kbdDragging) bKeyUp(); else bKeyUp(); });
+      bkey.addEventListener('mouseenter', e => { e.stopPropagation(); if (_kbdDragging) bKeyDown(); });
+      bkey.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); _kbdTouchActiveKey = bkey; bKeyDown(); });
       board.appendChild(bkey);
     });
   });
 
   el.appendChild(board);
+
+  // ── Slide-to-play: mouse drag ────────────────────────────────────
+  // Track mouse-down state so mouseenter on adjacent keys triggers play.
+  board.addEventListener('mousedown', () => { _kbdDragging = true; });
+  board.addEventListener('mouseup',   () => { _kbdDragging = false; });
+  // Safety: release drag if mouse leaves the whole keyboard container
+  el.addEventListener('mouseleave', () => { _kbdDragging = false; });
+  document.addEventListener('mouseup', () => { _kbdDragging = false; }, { passive: true });
+
+  // ── Slide-to-play: touch (mobile) ───────────────────────────────
+  // A single touchmove on the board tracks which key is under the finger
+  // and seamlessly transitions between keys without lifting.
+  board.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const elem  = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (!elem || !elem.classList.contains('seq-key')) return;
+    if (elem === _kbdTouchActiveKey) return; // still on same key — no change
+
+    // Leave the previous key
+    if (_kbdTouchActiveKey) {
+      const oldNote = _kbdTouchActiveKey.dataset.note;
+      const oldOct  = parseInt(_kbdTouchActiveKey.dataset.oct);
+      melodyRecordNote(oldNote, oldOct, false);
+      _kbdTouchActiveKey.style.background = _kbdTouchActiveKey._origBg;
+    }
+
+    // Enter the new key
+    _kbdTouchActiveKey = elem;
+    const newNote = elem.dataset.note;
+    const newOct  = parseInt(elem.dataset.oct);
+    elem.style.background = '#f5a623';
+    setTimeout(() => {
+      if (elem.style.background === 'rgb(245, 166, 35)') elem.style.background = elem._origBg;
+    }, 300);
+    kbdPlayNote(newNote, newOct);
+    melodyRecordNote(newNote, newOct, true);
+  }, { passive: false });
+
+  board.addEventListener('touchend', () => {
+    if (_kbdTouchActiveKey) {
+      const note = _kbdTouchActiveKey.dataset.note;
+      const oct  = parseInt(_kbdTouchActiveKey.dataset.oct);
+      melodyRecordNote(note, oct, false);
+      _kbdTouchActiveKey = null;
+    }
+    _kbdDragging = false;
+  });
 
   // Scroll to C4 (middle C) on open so the player starts in a useful range
   const c4Idx = octaves.indexOf(4);
@@ -9702,7 +9816,9 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs) {
   const wave = document.getElementById('melodyWave')?.value || document.getElementById('seqWave')?.value || 'sine';
 
   notes.forEach(n => {
-    const t = loopStartTime + n.startMs / 1000;
+    // Melody humanize: subtle timing drift (±15ms) + amplitude variation (±20%)
+    const melJitter = seqHumanizeMelody ? (Math.random() - 0.5) * 0.030 : 0;
+    const t = Math.max(loopStartTime, loopStartTime + n.startMs / 1000 + melJitter);
     const dur = n.durMs / 1000;
     const baseFreq = seqFreq(n.note);
     const octShift = (n.octave || 4) - 4;
@@ -9711,7 +9827,7 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs) {
     const o = ctx.createOscillator(), g = ctx.createGain();
     o.type = wave; o.frequency.value = freq;
     o.connect(g); g.connect(seqGetMelodyOut());
-    const amp = 0.22;
+    const amp = 0.22 * (seqHumanizeMelody ? (0.80 + Math.random() * 0.45) : 1.0);
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(amp, t + 0.02);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur + 0.05);
@@ -13495,6 +13611,7 @@ function renderKeyboardDrawerHtml(song) {
         <option value="square"${melodyWave==='square'?' selected':''}>Square</option>
         <option value="sawtooth"${melodyWave==='sawtooth'?' selected':''}>Saw</option>
       </select>
+      <button class="seq-humanize-btn${seqHumanizeMelody ? ' active' : ''}" id="seqHumanizeMelodyBtn" onclick="seqToggleHumanize('melody')" title="Humanize melody — adds subtle timing and volume variation to each note">〜 Humanize</button>
       <button class="seq-btn" style="font-size:10px;padding:4px 10px;background:var(--card2);border:1px solid var(--border2);color:var(--muted);border-radius:5px;" onclick="melodyClear()">Clear</button>
       <span class="melody-status" id="melodyStatus" style="margin-left:4px;"></span>
     </div>
