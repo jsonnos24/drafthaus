@@ -2586,10 +2586,9 @@ button, select, input, textarea { touch-action: manipulation; }
     0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 6px  rgba(200,160,255,0.5)); }
     50%       { transform: scale(1.14); filter: drop-shadow(0 0 26px rgba(200,160,255,1));   }
   }
-  /* Mobile: stack bartender above dice */
+  /* Mobile: hide bartender, dice go full width */
   @media (max-width: 600px) {
-    .inspo-layout { flex-direction: column; align-items: center; gap: 20px; }
-    .inspo-bartender-col { width: 60%; max-width: 220px; min-width: 0; }
+    .inspo-bartender-col { display: none; }
     .inspo-dice-col { width: 100%; }
   }
 
@@ -9993,6 +9992,12 @@ function rollInspoDie(dieIdx) {
   const dieLabel = dieDef?.label || '';
   const dieRoll  = dieDef ? Math.floor(Math.random() * dieDef.sides) + 1 : null;
 
+  // Reset die state from any previous roll
+  die.classList.remove('die-value-showing', 'rolling');
+  die.style.pointerEvents = '';
+  const textElReset = document.getElementById(`inspo-die-text-${dieIdx}`);
+  if (textElReset) { textElReset.textContent = dieLabel; textElReset.setAttribute('font-size', '22'); }
+
   // Fade out all other dice
   document.querySelectorAll('.inspo-die').forEach((d, i) => {
     if (i !== dieIdx) {
@@ -11699,13 +11704,36 @@ async function _loadStorageVoiceData() {
   _storageVoiceCache = result;
 }
 
+// Loop data cache: { songId -> { count, secs, docs:[{docId, storagePath}] } }
+let _storageLoopsCache = null;
+
+async function _loadStorageLoopsData() {
+  const uid = auth.currentUser?.uid;
+  const result = {};
+  if (!uid) { _storageLoopsCache = result; return; }
+  try {
+    const snap = await db.collection('song_loops').where('userId', '==', uid).get();
+    snap.forEach(doc => {
+      const d = doc.data();
+      const sid = d.songId;
+      if (!sid) return;
+      if (!result[sid]) result[sid] = { count: 0, secs: 0, docs: [] };
+      result[sid].count++;
+      result[sid].secs += d.duration || 0;
+      result[sid].docs.push({ docId: doc.id, storagePath: d.storagePath || '' });
+    });
+  } catch(e) { console.warn('[Storage] loops load error', e); }
+  _storageLoopsCache = result;
+}
+
 async function openStorageModal() {
   _storageVoiceCache = null;
+  _storageLoopsCache = null;
   document.getElementById('storageModal').classList.add('open');
   storageToggleShareRow(false);
   document.getElementById('storageTableBody').innerHTML =
-    '<tr><td colspan="7" class="storage-loading">Loading…</td></tr>';
-  await _loadStorageVoiceData();
+    '<tr><td colspan="10" class="storage-loading">Loading…</td></tr>';
+  await Promise.all([_loadStorageVoiceData(), _loadStorageLoopsData()]);
   renderStorageList();
 }
 
@@ -11716,6 +11744,7 @@ function closeStorageModal() {
 function renderStorageList() {
   const uid = auth.currentUser?.uid;
   const cache = _storageVoiceCache || {};
+  const loopsCache = _storageLoopsCache || {};
 
   // Sort: songs with most total audio first, then by json size
   const sorted = [...songs].filter(s => s.id).sort((a, b) => {
@@ -11737,14 +11766,20 @@ function renderStorageList() {
 
     const takesSize = takes?.count ? fmtAudioSize(takes.secs) : null;
     const trashSize = trash?.count ? fmtAudioSize(trash.secs) : null;
+    const loops = loopsCache[song.id];
+    const loopsSize = loops?.count ? fmtAudioSize(loops.secs) : null;
     const takesDisabled = (!isOwner || !takes?.count) ? 'disabled' : '';
     const trashDisabled = (!isOwner || !trash?.count) ? 'disabled' : '';
+    const loopsDisabled = (!isOwner || !loops?.count) ? 'disabled' : '';
 
     const takesCellHtml = takes?.count
       ? `<span>${takesSize}</span><br><span class="audio-count">${takes.count} take${takes.count !== 1 ? 's' : ''} · ~${Math.round(takes.secs)}s</span>`
       : `<span style="color:var(--border2);">—</span>`;
     const trashCellHtml = trash?.count
       ? `<span>${trashSize}</span><br><span class="audio-count">${trash.count} file${trash.count !== 1 ? 's' : ''} · ~${Math.round(trash.secs)}s</span>`
+      : `<span style="color:var(--border2);">—</span>`;
+    const loopsCellHtml = loops?.count
+      ? `<span>${loopsSize}</span><br><span class="audio-count">${loops.count} loop${loops.count !== 1 ? 's' : ''} · ~${Math.round(loops.secs)}s</span>`
       : `<span style="color:var(--border2);">—</span>`;
 
     return `<tr id="storage-row-${song.id}">
@@ -11755,11 +11790,15 @@ function renderStorageList() {
       <td class="td-check"><input type="checkbox" class="storage-check trash-check" data-song="${song.id}" data-type="trash" onchange="storageUpdateSel()" ${trashDisabled}></td>
       <td class="storage-audio-cell${trash?.count ? '' : ' empty'}">${trashCellHtml}</td>
       <td class="storage-audio-cell" style="font-size:10px;color:var(--faint);">${trashSize || ''}</td>
+      <td class="td-check"><input type="checkbox" class="storage-check loops-check" data-song="${song.id}" data-type="loops" onchange="storageUpdateSel()" ${loopsDisabled}></td>
+      <td class="storage-audio-cell${loops?.count ? '' : ' empty'}" style="color:#00ccff;">${loopsCellHtml}</td>
+      <td class="storage-audio-cell" style="font-size:10px;color:var(--faint);">${loopsSize || ''}</td>
     </tr>`;
   }).join('');
 
   document.getElementById('storageSelAllTakes').checked = false;
   document.getElementById('storageSelAllTrash').checked = false;
+  document.getElementById('storageSelAllLoops').checked = false;
   storageUpdateSel();
 }
 
@@ -11772,17 +11811,17 @@ function storageToggleAll(type, checked) {
 function storageUpdateSel() {
   const takesChecked = [...document.querySelectorAll('#storageTableBody .takes-check:checked')];
   const trashChecked = [...document.querySelectorAll('#storageTableBody .trash-check:checked')];
-  const total = takesChecked.length + trashChecked.length;
+  const loopsChecked = [...document.querySelectorAll('#storageTableBody .loops-check:checked')];
+  const total = takesChecked.length + trashChecked.length + loopsChecked.length;
 
   const parts = [];
   if (takesChecked.length) parts.push(takesChecked.length + ' takes');
   if (trashChecked.length) parts.push(trashChecked.length + ' trash');
+  if (loopsChecked.length) parts.push(loopsChecked.length + ' loops');
   document.getElementById('storageSelCount').textContent = total === 0 ? '0 selected' : parts.join(', ') + ' selected';
 
-  const hasAny = total > 0;
-  document.getElementById('storageDeleteBtn').disabled = !hasAny;
+  document.getElementById('storageDeleteBtn').disabled = total === 0;
 
-  // Share only makes sense for song-level selection — enable if any songs checked
   const songIds = new Set([
     ...takesChecked.map(cb => cb.dataset.song),
     ...trashChecked.map(cb => cb.dataset.song)
@@ -11793,15 +11832,17 @@ function storageUpdateSel() {
 async function storageDeleteSelected() {
   const takesIds = [...document.querySelectorAll('#storageTableBody .takes-check:checked')].map(cb => cb.dataset.song);
   const trashIds = [...document.querySelectorAll('#storageTableBody .trash-check:checked')].map(cb => cb.dataset.song);
-  if (!takesIds.length && !trashIds.length) return;
+  const loopsIds = [...document.querySelectorAll('#storageTableBody .loops-check:checked')].map(cb => cb.dataset.song);
+  if (!takesIds.length && !trashIds.length && !loopsIds.length) return;
 
   const getSongName = id => { const s = songs.find(x => x.id === id); return s?.title || s?.workingTitle || 'Untitled'; };
   const lines = [];
-  const allIds = new Set([...takesIds, ...trashIds]);
+  const allIds = new Set([...takesIds, ...trashIds, ...loopsIds]);
   allIds.forEach(id => {
     const parts = [];
     if (takesIds.includes(id)) parts.push('takes');
     if (trashIds.includes(id)) parts.push('trash');
+    if (loopsIds.includes(id)) parts.push('loops');
     lines.push(`  • ${getSongName(id)} (${parts.join(' + ')})`);
   });
 
@@ -11831,9 +11872,20 @@ async function storageDeleteSelected() {
       }
     } catch(e) { console.error('Delete trash error:', e); }
   }
+  for (const songId of loopsIds) {
+    try {
+      const loopData = (_storageLoopsCache || {})[songId];
+      if (loopData?.docs) {
+        for (const { docId, storagePath } of loopData.docs) {
+          if (storagePath) firebase.storage().ref(storagePath).delete().catch(() => {});
+          await db.collection('song_loops').doc(docId).delete();
+        }
+      }
+    } catch(e) { console.error('Delete loops error:', e); }
+  }
 
   if (btn) { btn.textContent = 'Delete Selected'; }
-  await _loadStorageVoiceData();
+  await Promise.all([_loadStorageVoiceData(), _loadStorageLoopsData()]);
   renderStorageList();
 }
 
@@ -15181,6 +15233,7 @@ function toggleDrawer(drawerId, openFn, closeFn) {
 document.addEventListener('keydown', function(e) {
   if (e.key !== 'Escape') return;
   if (document.getElementById('noSongModal')?.style.display !== 'none') { closeNoSongModal(); return; }
+  if (document.getElementById('vrOverlay')?.classList.contains('vr-open'))     { vrClose(); return; }
   if (document.getElementById('runThroughDrawer')?.classList.contains('open')) closeRunThroughDrawer();
   if (document.getElementById('seqDrawer')?.classList.contains('open'))        closeSeqDrawer();
   if (document.getElementById('practiceDrawer')?.classList.contains('open'))   closePracticeDrawer();
@@ -16781,9 +16834,12 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
             <th class="th-check" title="Select all takes"><input type="checkbox" id="storageSelAllTakes" class="storage-check takes-check" onchange="storageToggleAll('takes',this.checked)"></th>
             <th style="color:var(--teal);">Takes</th>
             <th class="th-audio">Size</th>
-            <th style="width:220px;">Song</th>
+            <th style="width:180px;">Song</th>
             <th class="th-check" title="Select all trash"><input type="checkbox" id="storageSelAllTrash" class="storage-check trash-check" onchange="storageToggleAll('trash',this.checked)"></th>
             <th style="color:var(--red);">Trash</th>
+            <th class="th-audio">Size</th>
+            <th class="th-check" title="Select all loops"><input type="checkbox" id="storageSelAllLoops" class="storage-check loops-check" onchange="storageToggleAll('loops',this.checked)"></th>
+            <th style="color:#00ccff;">Loops</th>
             <th class="th-audio">Size</th>
           </tr>
         </thead>
