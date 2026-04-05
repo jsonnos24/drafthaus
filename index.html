@@ -5518,6 +5518,8 @@ function openSong(id) {
   const song = songs.find(s => s.id === id);
   if (!song) return;
 
+  loopOnSongChange(song);
+
   // Open immediately with whatever data we have (stub or full)
   populateSongFields(song);
   // Default to run-through view, initialize inline render
@@ -12840,16 +12842,25 @@ var loopSharedStream = null; var loopTracks = []; var loopBuilt = false;
 var loopSongId = null;
 
 function openLooperDrawer() {
-  loopSongId = currentId || null;
   document.getElementById('looperDrawer').classList.add('open');
   document.getElementById('looperOverlay').classList.add('open');
-  const banner = document.getElementById('looperNoSongBanner');
-  if (banner) banner.style.display = loopSongId ? 'none' : 'block';
-  loopLoadSavedLoops();
+  const song = songs.find(s => s.id === currentId) || null;
+  loopOnSongChange(song);
 }
 function closeLooperDrawer() {
   document.getElementById('looperDrawer').classList.remove('open');
   document.getElementById('looperOverlay').classList.remove('open');
+}
+
+function loopOnSongChange(song) {
+  loopSongId = song ? song.id : null;
+  const nameEl = document.getElementById('looperDrawerSongName');
+  if (nameEl) nameEl.textContent = song ? (song.title || song.workingTitle || 'Untitled') : '';
+  const banner = document.getElementById('looperNoSongBanner');
+  if (banner) banner.style.display = loopSongId ? 'none' : 'block';
+  if (document.getElementById('looperDrawer')?.classList.contains('open')) {
+    loopLoadSavedLoops();
+  }
 }
 function loopMakeTrack(i) {
   return { id:i, color:LOOP_TRACK_COLORS[i], state:'idle', blob:null, buffer:null,
@@ -16303,7 +16314,7 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
   <div class="looper-drawer-header">
     <div>
       <div class="looper-drawer-title">⏺ Loop Station</div>
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:rgba(0,204,255,0.4);margin-top:3px;letter-spacing:0.1em;">4-track looper</div>
+      <div id="looperDrawerSongName" class="seq-drawer-song"></div>
     </div>
     <button class="looper-drawer-close" onclick="closeLooperDrawer()">✕</button>
   </div>
