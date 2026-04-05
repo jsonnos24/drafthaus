@@ -6758,7 +6758,8 @@ var seqMelodyGain = null;
 var _pianoBuffers     = {};     // MIDI number → AudioBuffer
 var _pianoLoaded      = false;
 var _pianoLoading     = false;
-var _activeInstrument = 'synth'; // 'synth' | 'piano' | 'guitar'
+var _activeInstrument = 'synth'; // 'synth' | 'piano' | 'guitar' | combos with '+'
+function _instrHas(part) { return _activeInstrument.split('+').includes(part); }
 
 // ── Guitar sampler ────────────────────────────────────────────────
 var _guitarBuffers  = {};     // MIDI number → AudioBuffer
@@ -6898,8 +6899,8 @@ async function initMidi() {
       _midiUpdateUI();
     };
     _midiUpdateUI();
-    if (_activeInstrument === 'piano') loadPianoSamples();
-    if (_activeInstrument === 'guitar') loadGuitarSamples();
+    if (_instrHas('piano')) loadPianoSamples();
+    if (_instrHas('guitar')) loadGuitarSamples();
   } catch(e) {
     console.warn('MIDI access denied:', e);
     _midiEnabled = false;
@@ -6916,11 +6917,16 @@ function _midiHandleMessage(msg) {
 
 function _midiNoteOn(midiNote, velocity) {
   getSeqAudioCtx();
-  if (_activeInstrument === 'piano' && _pianoLoaded) {
+  let samplerPlayed = false;
+  if (_instrHas('piano') && _pianoLoaded) {
     playPianoNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
-  } else if (_activeInstrument === 'guitar' && _guitarLoaded) {
+    samplerPlayed = true;
+  }
+  if (_instrHas('guitar') && _guitarLoaded) {
     playGuitarNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
-  } else {
+    samplerPlayed = true;
+  }
+  if (_instrHas('synth') || !samplerPlayed) {
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
     const ctx = getSeqAudioCtx();
     const o = ctx.createOscillator(), g = ctx.createGain();
@@ -7426,9 +7432,9 @@ function initSequencer(song) {
   const instEl = document.getElementById('seqInstrumentSelect');
   if (instEl) instEl.value = savedInst;
   const waveGroup = document.getElementById('seqWaveGroup');
-  if (waveGroup) waveGroup.style.display = (savedInst === 'piano' || savedInst === 'guitar') ? 'none' : '';
-  if (savedInst === 'piano' && !_pianoLoaded && !_pianoLoading) loadPianoSamples();
-  if (savedInst === 'guitar' && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
+  if (waveGroup) waveGroup.style.display = _instrHas('synth') ? '' : 'none';
+  if (_instrHas('piano') && !_pianoLoaded && !_pianoLoading) loadPianoSamples();
+  if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   setTimeout(seqApplyMixer, 0);
 
   // Chain of rAFs to ensure DOM is ready at each stage
@@ -7473,10 +7479,17 @@ function seqGetData(song) {
 function seqInstrumentChanged() {
   const val = document.getElementById('seqInstrumentSelect')?.value || 'synth';
   _activeInstrument = val;
+  // Cut off any sustaining notes from the previous instrument
+  if (seqChordsGain && seqAudioCtx) {
+    const now = seqAudioCtx.currentTime;
+    seqChordsGain.gain.cancelScheduledValues(now);
+    seqChordsGain.gain.setValueAtTime(0, now);
+    setTimeout(() => seqApplyMixer(), 80);
+  }
   const waveGroup = document.getElementById('seqWaveGroup');
-  if (waveGroup) waveGroup.style.display = (val === 'piano' || val === 'guitar') ? 'none' : '';
-  if (val === 'piano' && !_pianoLoaded && !_pianoLoading) loadPianoSamples();
-  if (val === 'guitar' && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
+  if (waveGroup) waveGroup.style.display = _instrHas('synth') ? '' : 'none';
+  if (_instrHas('piano') && !_pianoLoaded && !_pianoLoading) loadPianoSamples();
+  if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   seqSaveSettings();
 }
 
@@ -7710,15 +7723,15 @@ function seqPlayChordGuitar(midiNotes, time, velocity) {
 function seqPlayChordByName(name) {
   const key  = seqCurrentKey();
   const mode = seqCurrentMode();
-  if (_activeInstrument === 'piano' && _pianoLoaded) {
-    const midiMap = seqGenChordMidi(key, mode);
-    if (midiMap[name]) seqPlayChordPiano(midiMap[name], getSeqAudioCtx().currentTime, 0.8);
-  } else if (_activeInstrument === 'guitar' && _guitarLoaded) {
-    const midiMap = seqGenChordMidi(key, mode);
-    if (midiMap[name]) seqPlayChordGuitar(midiMap[name], getSeqAudioCtx().currentTime, 0.8);
-  } else {
+  const t    = getSeqAudioCtx().currentTime;
+  const midiMap   = seqGenChordMidi(key, mode);
+  const midiNotes = midiMap[name];
+  let samplerPlayed = false;
+  if (_instrHas('piano') && _pianoLoaded && midiNotes) { seqPlayChordPiano(midiNotes, t, 0.8); samplerPlayed = true; }
+  if (_instrHas('guitar') && _guitarLoaded && midiNotes) { seqPlayChordGuitar(midiNotes, t, 0.8); samplerPlayed = true; }
+  if (_instrHas('synth') || !samplerPlayed) {
     const chords = seqGenChords(key, mode);
-    if (chords[name]) seqPlayChord(chords[name], getSeqAudioCtx().currentTime, 0.8);
+    if (chords[name]) seqPlayChord(chords[name], t, 0.8);
   }
 }
 
@@ -7853,7 +7866,10 @@ function seqScheduleNotes() {
   const loopKey    = seqCurrentKey();
   const loopMode   = seqCurrentMode();
   const loopChords     = seqGenChords(loopKey, loopMode);
-  const _useSampler = (_activeInstrument === 'piano' && _pianoLoaded) || (_activeInstrument === 'guitar' && _guitarLoaded);
+  const _hasPiano  = _instrHas('piano');
+  const _hasGuitar = _instrHas('guitar');
+  const _hasSynth  = _instrHas('synth');
+  const _useSampler = (_hasPiano && _pianoLoaded) || (_hasGuitar && _guitarLoaded);
   const loopChordsMidi = _useSampler ? seqGenChordMidi(loopKey, loopMode) : null;
 
   const chordSlots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
@@ -7873,15 +7889,11 @@ function seqScheduleNotes() {
     // ── Audio scheduling (runs on audio thread — unaffected by tab throttle) ──
     const slot = chordSlots[i];
     if (slot?.classList.contains('filled') && loopChords[slot.textContent]) {
-      if (loopChordsMidi && loopChordsMidi[slot.textContent]) {
-        if (_activeInstrument === 'guitar' && _guitarLoaded) {
-          seqPlayChordGuitar(loopChordsMidi[slot.textContent], noteTime, velocity);
-        } else {
-          seqPlayChordPiano(loopChordsMidi[slot.textContent], noteTime, velocity);
-        }
-      } else {
-        seqPlayChord(loopChords[slot.textContent], noteTime, velocity);
-      }
+      const midiNotes = loopChordsMidi?.[slot.textContent];
+      let samplerPlayed = false;
+      if (_hasPiano  && _pianoLoaded  && midiNotes) { seqPlayChordPiano(midiNotes, noteTime, velocity);  samplerPlayed = true; }
+      if (_hasGuitar && _guitarLoaded && midiNotes) { seqPlayChordGuitar(midiNotes, noteTime, velocity); samplerPlayed = true; }
+      if (_hasSynth || !samplerPlayed) seqPlayChord(loopChords[slot.textContent], noteTime, velocity);
     }
     if (kickSlots[i]?.classList.contains('drum-on'))  seqPlayKick(noteTime, velocity);
     if (snareSlots[i]?.classList.contains('drum-on')) seqPlaySnare(noteTime, velocity * 0.8);
@@ -16413,6 +16425,10 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
         <option value="synth">Synth</option>
         <option value="piano">Piano</option>
         <option value="guitar">Guitar</option>
+        <option value="guitar+piano">Guitar + Piano</option>
+        <option value="guitar+synth">Guitar + Synth</option>
+        <option value="piano+synth">Piano + Synth</option>
+        <option value="guitar+piano+synth">Guitar + Piano + Synth</option>
       </select>
       <span id="seqInstrumentLoading" style="display:none;">loading…</span>
     </div>
