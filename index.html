@@ -1238,6 +1238,11 @@ button, select, input, textarea { touch-action: manipulation; }
     margin-top: 16px; padding-top: 16px;
     border-top: 1px solid var(--border);
   }
+  .seq-instrument-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 0 10px; border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+  }
   .seq-ctrl-group {
     display: flex; align-items: center; gap: 6px;
   }
@@ -8093,8 +8098,8 @@ function renderSequencerHtml(song) {
         <button id="midiConnectBtn" onclick="initMidi()" title="Connect MIDI device">Connect</button>
       </div>
 
-      <!-- Key (always visible) -->
-      <div class="seq-ctrl-group" style="padding-right:10px;border-right:1px solid var(--border2);">
+      <!-- Key -->
+      <div class="seq-ctrl-group">
         <span class="seq-label">Key</span>
         <span id="seqKeyDisplay" style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;color:var(--gold);letter-spacing:0.05em;"></span>
         <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged()">
@@ -8114,26 +8119,50 @@ function renderSequencerHtml(song) {
         </select>
       </div>
 
-      <!-- Bars (always visible) -->
-      <div class="seq-ctrl-group">
-        <span class="seq-label">Bars</span>
-        <select class="seq-select" id="seqBars" onchange="seqRebuild()">
-          ${['1','2','4','8','16'].map(b=>`<option value="${b}"${b===bars?' selected':''}>${b}</option>`).join('')}
-        </select>
-      </div>
-
-      <!-- BPM (always visible) -->
+      <!-- BPM -->
       <div class="seq-ctrl-group">
         <span class="seq-label">BPM</span>
         <input class="seq-input" type="number" id="seqBpm" value="${bpm}" min="40" max="240" style="width:60px" onchange="seqSaveSettings()">
       </div>
 
-      <!-- Play / Stop / Metro (always visible) -->
+      <!-- Time Signature -->
+      <div class="seq-ctrl-group">
+        <span class="seq-label">Time</span>
+        <select class="seq-select" id="seqTime" onchange="seqRebuild()">
+          <option value="4"${time==='4'?' selected':''}>4/4</option>
+          <option value="3"${time==='3'?' selected':''}>3/4</option>
+        </select>
+      </div>
+
+      <!-- Part assignment -->
+      <div class="seq-ctrl-group">
+        <span class="seq-label">Part</span>
+        <select class="seq-select" id="seqPartAssign" onchange="seqSaveSettings()" style="max-width:120px;">
+          <option value="">— None —</option>
+        </select>
+      </div>
+
+      <!-- Play / Stop / Metro -->
       <div class="seq-ctrl-group" style="margin-left:auto;">
         <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:13px;padding:8px 20px;font-weight:700;">▶ Play</button>
         <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="margin-left:4px;font-size:13px;padding:8px 20px;font-weight:700;">■ Stop</button>
         <button class="seq-btn seq-btn-met" id="seqMetBtn" onclick="seqToggleMet()" style="margin-left:4px;">Metro</button>
       </div>
+    </div>
+
+    <!-- ── Instrument row (below controls) ── -->
+    <div class="seq-instrument-row">
+      <span class="seq-label">Instrument</span>
+      <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()">
+        <option value="synth">Synth</option>
+        <option value="piano">Piano</option>
+        <option value="guitar">Guitar</option>
+        <option value="guitar+piano">Guitar + Piano</option>
+        <option value="guitar+synth">Guitar + Synth</option>
+        <option value="piano+synth" selected>Piano + Synth</option>
+        <option value="guitar+piano+synth">Guitar + Piano + Synth</option>
+      </select>
+      <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
     </div>
 
     <!-- ── A: Sequence tabs ── -->
@@ -8770,10 +8799,11 @@ function syncBpmUI(rawBpm) {
   const kEl = document.getElementById('kbdBpm'); if (kEl && parseInt(kEl.value) !== bpm) kEl.value = bpm;
 }
 
-// Sync time signature display in keyboard drawer whenever sequencer time changes.
+// Sync time signature select in keyboard drawer whenever sequencer time changes.
 function syncTimeSigUI() {
   const timeSig = document.getElementById('seqTime')?.value || '4';
-  const kEl = document.getElementById('kbdTimeSig'); if (kEl) kEl.textContent = timeSig + '/4';
+  const kEl = document.getElementById('kbdTimeSig');
+  if (kEl && kEl.tagName === 'SELECT' && kEl.value !== timeSig) kEl.value = timeSig;
 }
 
 function seqChangeKey() {
@@ -13648,28 +13678,39 @@ function renderKeyboardDrawerHtml(song) {
 
   return `
     <!-- Toolbar matching sequencer style -->
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 0 12px;border-bottom:1px solid var(--border2);margin-bottom:12px;">
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 0 10px;border-bottom:1px solid var(--border2);">
+      <!-- Settings gear -->
+      <button class="seq-btn seq-settings-btn" onclick="seqToggleSettings(event)" title="Settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+      <!-- MIDI -->
       <div class="seq-midi-status">
         <div id="midiStatusDot"></div>
         <span id="midiStatusLabel">MIDI</span>
         <button id="midiConnectBtn" onclick="initMidi()" title="Connect MIDI device">Connect</button>
       </div>
-      <div style="width:1px;background:var(--border2);height:20px;margin:0 2px;"></div>
+      <!-- Key -->
       <div class="seq-ctrl-group">
         <span class="seq-label">Key</span>
         <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;color:var(--gold);">${keyLabel}</span>
       </div>
-      <div style="width:1px;background:var(--border2);height:20px;margin:0 2px;"></div>
+      <!-- BPM -->
       <div class="seq-ctrl-group">
         <span class="seq-label">BPM</span>
         <input class="seq-input" type="number" id="kbdBpm" value="${bpm}" min="40" max="240" style="width:56px;" onchange="kbdBpmChanged()">
       </div>
-      <div style="width:1px;background:var(--border2);height:20px;margin:0 2px;"></div>
+      <!-- Time Sig -->
       <div class="seq-ctrl-group">
         <span class="seq-label">Time</span>
-        <span id="kbdTimeSig" style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;color:var(--muted);">${timeSig}/4</span>
+        <select class="seq-select" id="kbdTimeSig" onchange="kbdTimeSigChanged()">
+          <option value="4"${timeSig==='4'?' selected':''}>4/4</option>
+          <option value="3"${timeSig==='3'?' selected':''}>3/4</option>
+        </select>
       </div>
-      <div style="width:1px;background:var(--border2);height:20px;margin:0 2px;"></div>
+      <!-- Part -->
       <div class="seq-ctrl-group">
         <span class="seq-label">Part</span>
         <select id="kbdPartSelect" class="seq-select" style="font-size:10px;" onchange="kbdPartChanged()">
@@ -13677,6 +13718,7 @@ function renderKeyboardDrawerHtml(song) {
           ${partOptions}
         </select>
       </div>
+      <!-- Play / Stop / Metro / Rec -->
       <div class="seq-ctrl-group" style="margin-left:auto;gap:4px;">
         <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:11px;padding:6px 12px;">▶ Play</button>
         <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="font-size:11px;padding:6px 12px;">■ Stop</button>
@@ -13685,15 +13727,16 @@ function renderKeyboardDrawerHtml(song) {
       </div>
     </div>
 
-    <!-- Melody controls row -->
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
-      <button class="melody-quant-btn${melodyQuantize ? ' active' : ''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()">Quantize</button>
+    <!-- Instrument (wave) row -->
+    <div class="seq-instrument-row">
+      <span class="seq-label">Instrument</span>
       <select class="seq-select" id="melodyWave" onchange="melodyWaveChanged()" style="font-size:10px;">
         <option value="sine"${melodyWave==='sine'?' selected':''}>Sine</option>
         <option value="triangle"${melodyWave==='triangle'?' selected':''}>Triangle</option>
         <option value="square"${melodyWave==='square'?' selected':''}>Square</option>
-        <option value="sawtooth"${melodyWave==='sawtooth'?' selected':''}>Saw</option>
+        <option value="sawtooth"${melodyWave==='sawtooth'?' selected':''}>Sawtooth</option>
       </select>
+      <button class="melody-quant-btn${melodyQuantize ? ' active' : ''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()">Quantize</button>
       <button class="seq-humanize-btn${seqHumanizeMelody ? ' active' : ''}" id="seqHumanizeMelodyBtn" onclick="seqToggleHumanize('melody')" title="Humanize melody — adds subtle timing and volume variation to each note">〜 Humanize</button>
       <button class="seq-btn" style="font-size:10px;padding:4px 10px;background:var(--card2);border:1px solid var(--border2);color:var(--muted);border-radius:5px;" onclick="melodyClear()">Clear</button>
       <span class="melody-status" id="melodyStatus" style="margin-left:4px;"></span>
@@ -13776,6 +13819,17 @@ function kbdPartChanged() {
   song.sequencer.partId= partEl.value;
   save();
   seqRenderSequenceTabs();
+}
+
+function kbdTimeSigChanged() {
+  const val = document.getElementById('kbdTimeSig')?.value;
+  if (!val) return;
+  // Sync into sequencer seqTime select and trigger rebuild
+  const seqTimeEl = document.getElementById('seqTime');
+  if (seqTimeEl && seqTimeEl.value !== val) {
+    seqTimeEl.value = val;
+    seqRebuild();
+  }
 }
 
 function openKeyboardDrawer() {
@@ -18705,42 +18759,14 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
 
 <!-- ── Sequencer Settings Popup (portaled to body) ── -->
 <div id="seqSettingsPopup">
-  <div class="seq-popup-title">Sequencer Settings</div>
+  <div class="seq-popup-title">Settings</div>
   <div class="seq-popup-row" style="margin-bottom:10px;">
-    <div class="seq-ctrl-group">
-      <span class="seq-label">Instrument</span>
-      <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()">
-        <option value="synth">Synth</option>
-        <option value="piano">Piano</option>
-        <option value="guitar">Guitar</option>
-        <option value="guitar+piano">Guitar + Piano</option>
-        <option value="guitar+synth">Guitar + Synth</option>
-        <option value="piano+synth" selected>Piano + Synth</option>
-        <option value="guitar+piano+synth">Guitar + Piano + Synth</option>
-      </select>
-      <span id="seqInstrumentLoading" style="display:none;">loading…</span>
-    </div>
     <div class="seq-ctrl-group" id="seqWaveGroup">
-      <span class="seq-label">Wave</span>
+      <span class="seq-label">Wave Type</span>
       <select class="seq-select" id="seqWave">
         <option value="triangle">Triangle</option>
         <option value="sine">Sine</option>
         <option value="sawtooth">Sawtooth</option>
-      </select>
-    </div>
-  </div>
-  <div class="seq-popup-row">
-    <div class="seq-ctrl-group">
-      <span class="seq-label">Part</span>
-      <select class="seq-select" id="seqPartAssign" onchange="seqSaveSettings()" style="max-width:100px;">
-        <option value="">— None —</option>
-      </select>
-    </div>
-    <div class="seq-ctrl-group">
-      <span class="seq-label">Time</span>
-      <select class="seq-select" id="seqTime" onchange="seqRebuild()">
-        <option value="4">4/4</option>
-        <option value="3">3/4</option>
       </select>
     </div>
     <div class="seq-ctrl-group">
@@ -18752,13 +18778,25 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
       </select>
     </div>
   </div>
-  <div class="seq-popup-row" style="margin-top:10px;">
+  <div class="seq-popup-row" style="margin-bottom:10px;">
+    <div class="seq-ctrl-group">
+      <span class="seq-label">Bars</span>
+      <select class="seq-select" id="seqBars" onchange="seqRebuild()">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="4">4</option>
+        <option value="8">8</option>
+        <option value="16">16</option>
+      </select>
+    </div>
+  </div>
+  <div class="seq-popup-row">
     <div class="seq-ctrl-group">
       <span class="seq-label">Swing</span>
       <input type="range" class="seq-range" id="seqSwing" min="0" max="1" step="0.01" value="0">
     </div>
     <div class="seq-ctrl-group">
-      <span class="seq-label">Vel</span>
+      <span class="seq-label">Velocity</span>
       <input type="range" class="seq-range" id="seqVel" min="0" max="1" step="0.01" value="0.8">
     </div>
   </div>
