@@ -2785,6 +2785,34 @@ button, select, input, textarea { touch-action: manipulation; }
     cursor: pointer; transition: all 0.15s;
   }
   .looper-drawer-body .master-stop:hover { border-color: #ff6644; color: #ff6644; background: #1a0800; }
+
+  /* ── Monitor status pill ── */
+  #loopMonPill {
+    display: none; align-items: center; gap: 5px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 4px 9px; border-radius: 4px; border: 1px solid;
+    white-space: nowrap; flex-shrink: 0; transition: all 0.2s;
+  }
+  #loopMonPill.mon-muted {
+    display: flex; color: #ff9900;
+    border-color: rgba(255,153,0,0.35); background: rgba(255,153,0,0.08);
+  }
+  #loopMonPill.mon-live {
+    display: flex; color: #00e87a;
+    border-color: rgba(0,232,122,0.3); background: rgba(0,232,122,0.06);
+  }
+  #loopMonPill .mon-icon { font-size: 11px; }
+
+  /* ── Same-device feedback warning ── */
+  #loopFeedbackWarn {
+    display: none; margin-bottom: 10px;
+    padding: 7px 12px; border-radius: 6px;
+    background: rgba(220,120,40,0.10); border: 1px solid rgba(220,120,40,0.28);
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    color: #d8883a; letter-spacing: 0.04em; line-height: 1.5;
+  }
+
   .looper-drawer-body .metro-row { display: flex; align-items: center; gap: 10px; margin-left: 4px; }
   .looper-drawer-body .metro-dot {
     width: 18px; height: 18px; border-radius: 50%;
@@ -13066,6 +13094,7 @@ function openLooperDrawer() {
   document.getElementById('looperOverlay').classList.add('open');
   const song = songs.find(s => s.id === currentId) || null;
   loopOnSongChange(song);
+  loopCheckFeedbackWarning();
 }
 function closeLooperDrawer() {
   document.getElementById('looperDrawer').classList.remove('open');
@@ -13181,6 +13210,11 @@ async function loopHandleTrackClick(i){
 }
 async function loopStartRecording(i){
   const t=loopTracks[i];const stream=await loopEnsureMicStream();if(!stream)return;
+  // One-time hint: explain monitor muting on first ever recording
+  if (!localStorage.getItem('loop_rec_hint_shown')) {
+    localStorage.setItem('loop_rec_hint_shown', '1');
+    setTimeout(() => showToast('🎧 Speakers may be muted during recording to prevent feedback — use headphones for zero-latency monitoring.', 'info', 6000), 800);
+  }
   t.chunks=[];t.allChunks=[];t.prerollOffset=0;t.state='preroll';t.ledLit=0;
   t.recDuration=(loopBars*4*60)/loopBpm;
   const prd=(4*60)/loopBpm;t.prerollOffset=prd;
@@ -13340,6 +13374,46 @@ function loopUpdateTrackUI(i){
   const map={idle:{icon:'⏺',lbl:'Record',state:'EMPTY'},preroll:{icon:'⏳',lbl:'Cancel',state:'COUNT IN'},recording:{icon:'⏹',lbl:'Stop Rec',state:'REC...'},playing:{icon:'⏸',lbl:'Mute',state:'PLAY'},muted:{icon:'▶',lbl:'Unmute',state:'MUTED'}};
   const m=map[t.state]||map.idle;
   if(icon)icon.textContent=m.icon;if(label)label.textContent=m.lbl;if(stl){stl.textContent=m.state;stl.style.color=t.state==='preroll'?'#ff9900':t.state==='recording'?'#ff2200':t.state==='playing'?'#00e87a':t.state==='muted'?'#888':'#555b68';}
+  loopUpdateMonitorPill();
+}
+function loopUpdateMonitorPill() {
+  const pill  = document.getElementById('loopMonPill');
+  const label = document.getElementById('loopMonLabel');
+  if (!pill) return;
+  const isRecording = loopTracks.some(t => t.state === 'recording' || t.state === 'preroll');
+  const isPlaying   = loopTracks.some(t => t.state === 'playing');
+  const allIdle     = loopTracks.every(t => t.state === 'idle');
+  if (allIdle) {
+    pill.className = '';  // hidden
+  } else if (isRecording) {
+    pill.className = 'mon-muted';
+    const iconEl = pill.querySelector('.mon-icon');
+    if (iconEl) iconEl.textContent = '🔇';
+    if (label) label.textContent = 'MON MUTED';
+  } else if (isPlaying) {
+    pill.className = 'mon-live';
+    const iconEl = pill.querySelector('.mon-icon');
+    if (iconEl) iconEl.textContent = '🔊';
+    if (label) label.textContent = 'MON LIVE';
+  } else {
+    pill.className = '';
+  }
+}
+async function loopCheckFeedbackWarning() {
+  const warn = document.getElementById('loopFeedbackWarn');
+  if (!warn) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs  = devices.filter(d => d.kind === 'audioinput');
+    const outputs = devices.filter(d => d.kind === 'audiooutput');
+    // Default input & output — find by deviceId 'default' or first in list
+    const defIn  = inputs.find(d => d.deviceId === 'default') || inputs[0];
+    const defOut = outputs.find(d => d.deviceId === 'default') || outputs[0];
+    const sameGroup = defIn && defOut && defIn.groupId && defIn.groupId === defOut.groupId;
+    warn.style.display = sameGroup ? 'block' : 'none';
+  } catch(e) {
+    warn.style.display = 'none';
+  }
 }
 function loopAnyTrackActive(){return loopTracks.some(t=>['recording','playing','preroll'].includes(t.state));}
 
@@ -16543,6 +16617,10 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
     <div id="looperNoSongBanner" style="display:none;background:#1a0a00;border:1px solid #ff6600;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#ff9900;letter-spacing:0.05em;">
       ⚠ No song selected — open a song first to save recordings.
     </div>
+    <!-- Same-device feedback warning -->
+    <div id="loopFeedbackWarn">
+      ⚠ Mic &amp; speakers on same device — monitor may be muted while recording to prevent feedback. Use headphones for zero-latency monitoring.
+    </div>
     <!-- Global controls -->
     <div class="global-bar">
       <div class="ctrl-group">
@@ -16563,6 +16641,8 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
           <button class="bar-btn" onclick="loopSetBars(8)">8</button>
         </div>
       </div>
+      <!-- Monitor status pill -->
+      <div id="loopMonPill" title="Monitor output status during recording"><span class="mon-icon">🔇</span><span id="loopMonLabel">MON MUTED</span></div>
       <button class="master-stop" onclick="loopMasterStop()">■ Stop All</button>
     </div>
     <!-- Tracks grid -->
