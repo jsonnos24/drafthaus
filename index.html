@@ -1907,6 +1907,85 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-sub-body { display: block; }
   .seq-sub-collapsed .seq-sub-body { display: none; }
 
+  /* ── Sequence tabs ── */
+  .seq-tabs-strip {
+    display: flex; align-items: center; gap: 6px;
+    padding: 10px 14px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--card); flex-wrap: wrap;
+  }
+  .seq-tabs-label {
+    font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    text-transform: uppercase; letter-spacing: 0.14em; color: var(--faint);
+    margin-right: 4px; flex-shrink: 0;
+  }
+  .seq-tab {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px 4px 8px; border-radius: 6px;
+    border: 1px solid var(--border2); background: var(--card2);
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+    cursor: pointer; transition: border-color 0.15s, background 0.15s;
+    position: relative; white-space: nowrap;
+  }
+  .seq-tab:hover { border-color: var(--gold); }
+  .seq-tab.active { border-color: currentColor; background: rgba(255,255,255,0.06); }
+  .seq-tab-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .seq-tab-del {
+    background: none; border: none; cursor: pointer;
+    color: var(--faint); font-size: 10px; line-height: 1;
+    padding: 0 0 0 4px; margin-left: 2px;
+    transition: color 0.12s;
+  }
+  .seq-tab-del:hover { color: var(--red); }
+  .seq-tab-playing { box-shadow: 0 0 0 2px var(--gold); animation: seqTabPulse 1s ease infinite; }
+  @keyframes seqTabPulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+  .seq-tab-add {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: 6px;
+    border: 1px dashed var(--border2); background: transparent;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    color: var(--faint); cursor: pointer; transition: border-color 0.15s, color 0.15s;
+  }
+  .seq-tab-add:hover { border-color: var(--gold); color: var(--gold); }
+  .seq-tab-spacer { flex: 1; }
+  .seq-play-song-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 12px; border-radius: 6px;
+    border: 1px solid rgba(255,209,102,0.4); background: rgba(255,209,102,0.08);
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+    color: #ffd166; cursor: pointer; transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+  .seq-play-song-btn:hover { background: rgba(255,209,102,0.18); border-color: rgba(255,209,102,0.7); }
+  .seq-play-song-btn.playing { background: rgba(255,209,102,0.25); border-color: #ffd166; }
+  .seq-now-playing-badge {
+    font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    color: #ffd166; opacity: 0.8; letter-spacing: 0.05em;
+    display: none;
+  }
+  .seq-now-playing-badge.visible { display: inline; }
+  .seq-add-seq-popup {
+    position: fixed; background: var(--card); border: 1px solid var(--border2);
+    border-radius: 10px; padding: 12px; z-index: 10000;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5); min-width: 200px;
+    animation: seqPopIn 0.15s ease;
+  }
+  .seq-add-seq-popup-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--faint); margin-bottom: 8px;
+  }
+  .seq-add-seq-popup-parts {
+    display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto;
+  }
+  .seq-add-seq-part-btn {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    border-radius: 5px; border: none; background: transparent;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700;
+    cursor: pointer; text-align: left; width: 100%;
+    transition: background 0.1s;
+  }
+  .seq-add-seq-part-btn:hover { background: var(--card2); }
 
   /* ── Enhanced section headers ── */
   .section-label-row {
@@ -3161,7 +3240,7 @@ button, select, input, textarea { touch-action: manipulation; }
       display: flex;
       position: fixed;
       bottom: 0; left: 0; right: 0;
-      z-index: 1000;
+      z-index: 9950;
       background: rgba(10,10,12,0.97);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
@@ -7165,6 +7244,12 @@ var _seqStepIndex = 0;
 var _seqSchedulerCtx = null;
 var seqCurrentStep = -1;
 var seqSongId = null; // track which song the sequencer belongs to
+// ── Multi-sequence ─────────────────────────────────────────────────
+var seqActiveIdx = 0;          // which sequence is currently being edited
+var _seqPlayMode = 'loop';     // 'loop' | 'song'
+var _seqSongSections = [];     // pre-loaded section data for full-song play
+var _seqSongSectionIdx = 0;    // which section we're currently playing
+var _seqSongSectionStep = 0;   // step within the current section
 
 const SEQ_NOTES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const SEQ_SCALES = {
@@ -7638,6 +7723,11 @@ function renderSequencerHtml(song) {
 
   return `<div class="seq-panel" id="seqPanel">
 
+    <!-- ── Sequence tabs ── -->
+    <div class="seq-tabs-strip" id="seqTabsStrip">
+      <!-- Rendered by seqRenderSequenceTabs() after init -->
+    </div>
+
     <!-- ── Chord Progression + Beat Controls side by side ── -->
     <div class="seq-section seq-sub-section" id="seqSubChords">
       <div class="seq-sub-header" onclick="toggleSeqSub('seqSubChords')">
@@ -7779,9 +7869,12 @@ function renderSequencerHtml(song) {
 
 function initSequencer(song) {
   seqSongId = song.id;
+  seqActiveIdx = 0;  // reset to first sequence on each open
 
   // Always get freshest copy from songs array
   const fresh = songs.find(s => s.id === song.id) || song;
+  // Migrate + redirect song.sequencer to active sequence
+  getSongSequences(fresh);
   const sd = fresh.sequencer || {};
 
   console.log('initSequencer called, sequencer keys:', Object.keys(sd).join(', '));
@@ -7819,6 +7912,9 @@ function initSequencer(song) {
   if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   setTimeout(seqApplyMixer, 0);
 
+  // Render sequence tabs
+  seqRenderSequenceTabs();
+
   // Chain of rAFs to ensure DOM is ready at each stage
   requestAnimationFrame(() => {
     seqBuildGrids(fresh);
@@ -7853,9 +7949,218 @@ function seqVerifyData(song) {
   });
 }
 
+// ── Multi-sequence data layer ──────────────────────────────────────
+// Returns the song's sequences array, migrating from song.sequencer if needed.
+// Also ensures song.sequencer always points to the active sequence for compat.
+function getSongSequences(song) {
+  if (!song) return [];
+  if (!song.sequences || !song.sequences.length) {
+    // Migrate: wrap the existing sequencer object (or empty obj) as the first sequence
+    const base = song.sequencer ? { ...song.sequencer } : {};
+    if (!base.id) base.id = 'seq_' + Date.now() + '_0';
+    if (!base.partId && base.part) base.partId = base.part;
+    song.sequences = [base];
+  }
+  // Ensure every sequence has an id
+  song.sequences.forEach((s, i) => { if (!s.id) s.id = 'seq_' + Date.now() + '_' + i; });
+  // Keep song.sequencer pointing to the active sequence for backward compat
+  const idx = Math.min(seqActiveIdx, song.sequences.length - 1);
+  song.sequencer = song.sequences[idx];
+  return song.sequences;
+}
+
 function seqGetData(song) {
-  if (!song.sequencer) song.sequencer = {};
-  return song.sequencer;
+  const seqs = getSongSequences(song);
+  return seqs[Math.min(seqActiveIdx, seqs.length - 1)] || {};
+}
+
+// ── Sequence management ────────────────────────────────────────────
+
+function seqGetPartLabel(partId) {
+  if (!partId) return 'Unassigned';
+  const p = STRUCTURE_PARTS.find(p => p.id === partId);
+  return p ? p.label : partId;
+}
+function seqGetPartColor(partId) {
+  if (!partId) return 'var(--faint)';
+  const p = STRUCTURE_PARTS.find(p => p.id === partId);
+  return p ? p.color : 'var(--faint)';
+}
+
+function seqRenderSequenceTabs() {
+  const strip = document.getElementById('seqTabsStrip');
+  if (!strip) return;
+  const song = getCurrentSong();
+  if (!song) return;
+  const seqs = getSongSequences(song);
+  const nowPlayingIdx = (_seqPlayMode === 'song' && seqIsPlaying) ? _seqSongSectionIdx : -1;
+
+  const tabsHtml = seqs.map((seq, i) => {
+    const label   = seqGetPartLabel(seq.partId || seq.part);
+    const color   = seqGetPartColor(seq.partId || seq.part);
+    const active  = i === seqActiveIdx ? ' active' : '';
+    const playing = i === nowPlayingIdx ? ' seq-tab-playing' : '';
+    return `<button class="seq-tab${active}${playing}" style="color:${color};" onclick="seqSwitchToSequence(${i})" title="${label}">
+      <span class="seq-tab-dot" style="background:${color};"></span>
+      ${label}
+      ${seqs.length > 1 ? `<span class="seq-tab-del" onclick="event.stopPropagation();seqDeleteSequence(${i})" title="Remove">×</span>` : ''}
+    </button>`;
+  }).join('');
+
+  const nowPlayingHtml = _seqPlayMode === 'song' && seqIsPlaying && _seqSongSectionIdx < _seqSongSections.length
+    ? `<span class="seq-now-playing-badge visible">▶ ${seqGetPartLabel(_seqSongSections[_seqSongSectionIdx]?.partId)}</span>`
+    : '';
+
+  strip.innerHTML = `
+    <span class="seq-tabs-label">Sequences</span>
+    ${tabsHtml}
+    <button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button>
+    <span class="seq-tab-spacer"></span>
+    ${nowPlayingHtml}
+    <button class="seq-play-song-btn${(_seqPlayMode==='song'&&seqIsPlaying)?' playing':''}" onclick="seqPlaySong()" title="Play all sequences in song order" ${seqs.length < 2 ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : ''}>
+      ▶ Play Song
+    </button>`;
+}
+
+function seqSwitchToSequence(idx) {
+  const song = getCurrentSong();
+  if (!song) return;
+  const seqs = getSongSequences(song);
+  if (idx < 0 || idx >= seqs.length) return;
+  if (idx === seqActiveIdx) return;
+
+  // Save current DOM state before switching
+  seqSaveAllToCurrent(song);
+
+  seqActiveIdx = idx;
+  song.sequencer = seqs[idx]; // redirect compat alias
+
+  // Load new sequence into DOM
+  seqLoadSequenceIntoDOM(seqs[idx], song);
+  seqRenderSequenceTabs();
+}
+
+function seqSaveAllToCurrent(song) {
+  if (!song) return;
+  seqGetData(song); // ensure song.sequencer points to active seq
+  // Save settings from DOM
+  const sd = song.sequencer;
+  sd.bpm   = document.getElementById('seqBpm')?.value  || sd.bpm   || '100';
+  sd.time  = document.getElementById('seqTime')?.value || sd.time  || '4';
+  sd.bars  = document.getElementById('seqBars')?.value || sd.bars  || '2';
+  sd.grid  = document.getElementById('seqGrid')?.value || sd.grid  || '1';
+  sd.swing = document.getElementById('seqSwing')?.value|| sd.swing || '0';
+  sd.vel   = document.getElementById('seqVel')?.value  || sd.vel   || '0.8';
+  sd.part  = document.getElementById('seqPartAssign')?.value || sd.part || '';
+  sd.partId= sd.part;
+  // Save chord slots
+  const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
+  if (slots.length) {
+    sd.chordSlots   = slots.map(s => s.textContent.trim() || '');
+    sd.chordDegrees = slots.map(s => s.dataset.chordDegree ?? '');
+  }
+  // Save drum lanes
+  ['kick','snare','hat','clap'].forEach((lane, li) => {
+    const elId = ['seqKick','seqSnare','seqHat','seqClap'][li];
+    const el = document.getElementById(elId);
+    if (el) sd[lane] = [...el.querySelectorAll('.seq-slot')].map(s => s.classList.contains('drum-on') ? 1 : 0);
+  });
+  save();
+}
+
+function seqLoadSequenceIntoDOM(seq, song) {
+  if (!seq) return;
+  // Update BPM/time/bars/grid controls
+  const bpmEl = document.getElementById('seqBpm');   if (bpmEl) bpmEl.value = seq.bpm || '100';
+  const timeEl = document.getElementById('seqTime');  if (timeEl) timeEl.value = seq.time || '4';
+  const barsEl = document.getElementById('seqBars');  if (barsEl) barsEl.value = seq.bars || '2';
+  const gridEl = document.getElementById('seqGrid');  if (gridEl) gridEl.value = seq.grid || '1';
+  const swingEl = document.getElementById('seqSwing'); if (swingEl) swingEl.value = seq.swing || '0';
+  const velEl = document.getElementById('seqVel');    if (velEl) velEl.value = seq.vel || '0.8';
+  const partEl = document.getElementById('seqPartAssign'); if (partEl) partEl.value = seq.part || seq.partId || '';
+  // Rebuild grids with this sequence's data
+  seqBuildGrids({ sequencer: seq });
+  seqRenderChordPills(song);
+}
+
+function seqAddSequence(partId) {
+  const song = getCurrentSong();
+  if (!song) return;
+  const seqs = getSongSequences(song);
+  // Save current before adding
+  seqSaveAllToCurrent(song);
+  // Create a new sequence, inheriting BPM/time/grid from current
+  const cur = seqs[seqActiveIdx] || {};
+  const newSeq = {
+    id: 'seq_' + Date.now(),
+    partId: partId || null,
+    part:   partId || '',
+    bpm:    cur.bpm   || '100',
+    time:   cur.time  || '4',
+    bars:   cur.bars  || '2',
+    grid:   cur.grid  || '1',
+    swing:  cur.swing || '0',
+    vel:    cur.vel   || '0.8',
+    wave:   cur.wave  || 'triangle',
+    instrument: cur.instrument || 'piano+synth',
+    chordSlots: [], chordDegrees: [],
+    kick: [], snare: [], hat: [], clap: [], melody: [],
+    melodyQuantize: true, mixer: {},
+  };
+  seqs.push(newSeq);
+  seqActiveIdx = seqs.length - 1;
+  song.sequencer = newSeq;
+  save();
+  seqLoadSequenceIntoDOM(newSeq, song);
+  seqRenderSequenceTabs();
+  showToast('New sequence added — ' + seqGetPartLabel(partId), 'success', 2500);
+}
+
+function seqDeleteSequence(idx) {
+  const song = getCurrentSong();
+  if (!song) return;
+  const seqs = getSongSequences(song);
+  if (seqs.length <= 1) { showToast('You need at least one sequence.', 'info', 2000); return; }
+  const label = seqGetPartLabel(seqs[idx]?.partId || seqs[idx]?.part);
+  if (!confirm(`Remove the "${label}" sequence? This cannot be undone.`)) return;
+  seqs.splice(idx, 1);
+  seqActiveIdx = Math.min(seqActiveIdx, seqs.length - 1);
+  song.sequencer = seqs[seqActiveIdx];
+  save();
+  seqLoadSequenceIntoDOM(seqs[seqActiveIdx], song);
+  seqRenderSequenceTabs();
+}
+
+function seqShowAddSequencePopup(evt) {
+  // Close any existing popup
+  document.querySelector('.seq-add-seq-popup')?.remove();
+
+  const btn = evt.currentTarget;
+  const rect = btn.getBoundingClientRect();
+  const popup = document.createElement('div');
+  popup.className = 'seq-add-seq-popup';
+  popup.style.top  = (rect.bottom + 6) + 'px';
+  popup.style.left = Math.max(8, rect.left - 60) + 'px';
+
+  popup.innerHTML = `
+    <div class="seq-add-seq-popup-title">Add sequence for part</div>
+    <div class="seq-add-seq-popup-parts">
+      <button class="seq-add-seq-part-btn" style="color:var(--faint);" onclick="seqAddSequence(null);this.closest('.seq-add-seq-popup').remove()">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--faint);display:inline-block;flex-shrink:0;"></span>
+        Unassigned
+      </button>
+      ${STRUCTURE_PARTS.map(p => `
+        <button class="seq-add-seq-part-btn" style="color:${p.color};" onclick="seqAddSequence('${p.id}');this.closest('.seq-add-seq-popup').remove()">
+          <span style="width:8px;height:8px;border-radius:50%;background:${p.color};display:inline-block;flex-shrink:0;"></span>
+          ${p.label}
+        </button>`).join('')}
+    </div>`;
+
+  document.body.appendChild(popup);
+
+  // Close on outside click
+  const close = e => { if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('click', close, true); } };
+  setTimeout(() => document.addEventListener('click', close, true), 10);
 }
 
 function seqInstrumentChanged() {
@@ -7878,12 +8183,16 @@ function seqInstrumentChanged() {
 function seqSaveSettings() {
   const song = getCurrentSong();
   if (!song) return;
-  if (!song.sequencer) song.sequencer = {};
+  seqGetData(song); // ensure song.sequencer → active sequence
   song.sequencer.key   = seqCurrentKey();
   song.sequencer.mode  = seqCurrentMode();
   song.sequencer.time  = document.getElementById('seqTime')?.value || '4';
   song.sequencer.bars  = document.getElementById('seqBars')?.value || '8';
-  song.sequencer.part  = document.getElementById('seqPartAssign')?.value || '';
+  const partVal = document.getElementById('seqPartAssign')?.value || '';
+  song.sequencer.part  = partVal;
+  song.sequencer.partId= partVal;
+  // Re-render tabs if part changed
+  seqRenderSequenceTabs();
   song.sequencer.grid  = document.getElementById('seqGrid')?.value || '1';
   song.sequencer.bpm   = document.getElementById('seqBpm')?.value || '100';
   song.bpm = song.sequencer.bpm; // keep song BPM in sync with sequencer
@@ -8028,7 +8337,7 @@ function seqBuildGrids(song) {
 function seqSaveChordSlots() {
   const song = getCurrentSong();
   if (!song) return;
-  if (!song.sequencer) song.sequencer = {};
+  seqGetData(song); // ensure song.sequencer → active sequence
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
   song.sequencer.chordSlots   = slots.map(s => s.textContent.trim() || '');
   song.sequencer.chordDegrees = slots.map(s => s.dataset.chordDegree ?? '');
@@ -8067,7 +8376,7 @@ function seqSaveDrumLane(lane, elId) {
   if (!song) return;
   const el = document.getElementById(elId);
   if (!el) return;
-  if (!song.sequencer) song.sequencer = {};
+  seqGetData(song); // ensure song.sequencer → active sequence
   song.sequencer[lane] = [...el.querySelectorAll('.seq-slot')].map(s => s.classList.contains('drum-on') ? 1 : 0);
   song.updatedAt = Date.now();
   save();
@@ -8242,6 +8551,7 @@ document.addEventListener('click', function(e) {
 
 function seqPlay() {
   if (seqIsPlaying) return;
+  _seqPlayMode = 'loop';
   seqIsPlaying = true;
   document.getElementById('seqDrawerTab')?.classList.add('playing');
 
@@ -8256,13 +8566,141 @@ function seqPlay() {
   _seqTimer = setInterval(seqScheduleNotes, 25);
 }
 
+function seqPlaySong() {
+  if (seqIsPlaying) { seqStop(); return; }
+  const song = getCurrentSong();
+  if (!song) return;
+  const seqs = getSongSequences(song);
+  if (seqs.length < 2) { showToast('Add at least 2 sequences to play the full song.', 'info', 3000); return; }
+
+  // Sort sequences in STRUCTURE_PARTS order; unassigned go at end
+  const partOrder = STRUCTURE_PARTS.map(p => p.id);
+  const sorted = [...seqs].sort((a, b) => {
+    const ai = partOrder.indexOf(a.partId || a.part || '');
+    const bi = partOrder.indexOf(b.partId || b.part || '');
+    const av = ai === -1 ? 999 : ai;
+    const bv = bi === -1 ? 999 : bi;
+    return av - bv;
+  });
+
+  // Pre-load all section data (not from DOM — avoids DOM reads during playback)
+  const key  = seqCurrentKey();
+  const mode = seqCurrentMode();
+  _seqSongSections = sorted.map(seq => {
+    const bpm  = parseFloat(seq.bpm || 100);
+    const grid = parseInt(seq.grid || 1);
+    const time = parseInt(seq.time || 4);
+    const bars = parseInt(seq.bars || 2);
+    const totalSteps = time * bars * grid;
+    const stepDur    = (60 / bpm) / grid;
+    return {
+      partId:      seq.partId || seq.part || null,
+      chordSlots:  seq.chordSlots  || [],
+      chordDegrees:seq.chordDegrees|| [],
+      kick:        seq.kick   || [],
+      snare:       seq.snare  || [],
+      hat:         seq.hat    || [],
+      clap:        seq.clap   || [],
+      melody:      seq.melody || [],
+      totalSteps, stepDur, bpm, grid, time, bars,
+      swing: parseFloat(seq.swing || 0),
+      vel:   parseFloat(seq.vel   || 0.8),
+    };
+  });
+
+  _seqSongSectionIdx  = 0;
+  _seqSongSectionStep = 0;
+  _seqPlayMode = 'song';
+  seqIsPlaying = true;
+  document.getElementById('seqDrawerTab')?.classList.add('playing');
+
+  const ctx = getSeqAudioCtx();
+  _seqSchedulerCtx = ctx;
+  _seqNextNoteTime = ctx.currentTime + 0.05;
+  _seqTimer = setInterval(seqScheduleNotes, 25);
+
+  seqRenderSequenceTabs();
+  showToast('Playing full song — ' + sorted.map(s => seqGetPartLabel(s.partId||s.part)).join(' → '), 'success', 4000);
+}
+
 function seqScheduleNotes() {
   const ctx = _seqSchedulerCtx;
   if (!ctx || !seqIsPlaying) return;
 
-  const LOOKAHEAD = 0.15; // seconds to schedule ahead
+  const LOOKAHEAD = 0.15;
 
-  // Read live settings so knob/BPM changes take effect on next scheduled step
+  // ── SONG PLAY MODE — reads from pre-loaded section data, not DOM ──
+  if (_seqPlayMode === 'song') {
+    if (_seqSongSectionIdx >= _seqSongSections.length) { seqStop(); return; }
+    const loopKey  = seqCurrentKey();
+    const loopMode = seqCurrentMode();
+    const loopChords = seqGenChords(loopKey, loopMode);
+    const _hasPiano  = _instrHas('piano');
+    const _hasGuitar = _instrHas('guitar');
+    const _hasSynth  = _instrHas('synth');
+    const _useSampler = (_hasPiano && _pianoLoaded) || (_hasGuitar && _guitarLoaded);
+    const loopChordsMidi = _useSampler ? seqGenChordMidi(loopKey, loopMode) : null;
+
+    while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
+      if (_seqSongSectionIdx >= _seqSongSections.length) { seqStop(); return; }
+      const sec  = _seqSongSections[_seqSongSectionIdx];
+      const i    = _seqSongSectionStep;
+      const stepDur     = sec.stepDur;
+      const beatsPerBar = sec.time * sec.grid;
+      const swingOffset = (i % 2 === 1) ? stepDur * sec.swing * 0.5 : 0;
+      const noteTime    = _seqNextNoteTime + swingOffset;
+      const velocity    = sec.vel * (0.8 + Math.random() * 0.4);
+
+      // Chord
+      const chordName = sec.chordSlots[i] || '';
+      if (chordName && loopChords[chordName]) {
+        const midiNotes = loopChordsMidi?.[chordName];
+        let samplerPlayed = false;
+        if (_hasPiano  && _pianoLoaded  && midiNotes) { seqPlayChordPiano(midiNotes, noteTime, velocity);  samplerPlayed = true; }
+        if (_hasGuitar && _guitarLoaded && midiNotes) { seqPlayChordGuitar(midiNotes, noteTime, velocity); samplerPlayed = true; }
+        if (_hasSynth || !samplerPlayed) seqPlayChord(loopChords[chordName], noteTime, velocity);
+      }
+      // Drums
+      if (sec.kick[i])  seqPlayKick(noteTime, velocity);
+      if (sec.snare[i]) seqPlaySnare(noteTime, velocity * 0.8);
+      if (sec.hat[i])   seqPlayHat(noteTime, velocity * 0.6);
+      if (sec.clap[i])  seqPlayClap(noteTime, velocity * 0.7);
+      if (seqMetOn) seqClick(noteTime, i % beatsPerBar === 0);
+
+      // Visual delay for step indicator
+      const visualDelay = Math.max(0, (_seqNextNoteTime - ctx.currentTime) * 1000);
+      (function(si) {
+        setTimeout(() => {
+          if (!seqIsPlaying || _seqPlayMode !== 'song') return;
+          document.querySelectorAll('.seq-slot.playing').forEach(s => s.classList.remove('playing'));
+          // Highlight corresponding DOM slot if grid is visible
+          const chord = document.querySelectorAll('#seqChordGrid .seq-slot')[si];
+          const kick  = document.querySelectorAll('#seqKick .seq-slot')[si];
+          if (chord) chord.classList.add('playing');
+          if (kick)  kick.classList.add('playing');
+        }, visualDelay);
+      })(i);
+
+      _seqNextNoteTime += stepDur;
+      _seqSongSectionStep++;
+
+      // Advance to next section when this one finishes
+      if (_seqSongSectionStep >= sec.totalSteps) {
+        _seqSongSectionStep = 0;
+        _seqSongSectionIdx++;
+        // Update tab highlight to show which section is now playing
+        setTimeout(() => seqRenderSequenceTabs(), visualDelay + 50);
+        if (_seqSongSectionIdx >= _seqSongSections.length) {
+          // Schedule stop after last note plays
+          setTimeout(() => seqStop(), visualDelay + 200);
+          return;
+        }
+      }
+    }
+    return; // don't fall through to loop mode
+  }
+
+  // ── LOOP MODE — reads from live DOM slots ──
   const bpm       = parseFloat(document.getElementById('seqBpm')?.value   || 100);
   const grid      = parseInt(document.getElementById('seqGrid')?.value    || 1);
   const swing     = parseFloat(document.getElementById('seqSwing')?.value || 0);
@@ -8807,11 +9245,16 @@ function seqStop() {
   seqIsPlaying = false;
   clearInterval(_seqTimer);
   _seqTimer = null;
+  // Reset song-play state
+  _seqPlayMode = 'loop';
+  _seqSongSectionIdx  = 0;
+  _seqSongSectionStep = 0;
   document.querySelectorAll('.seq-slot.playing').forEach(s => s.classList.remove('playing'));
   document.getElementById('seqDrawerTab')?.classList.remove('playing');
   melodyScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} });
   melodyScheduledNodes = [];
   clearMelodyKeyHighlights();
+  seqRenderSequenceTabs();
   // Update the play button in the song list row
   try { renderGrid(); } catch(e) {}
 }
@@ -12507,25 +12950,53 @@ function _loopShowPicker(show) {
 
 function renderKeyboardDrawerHtml(song) {
   const sd = song?.sequencer || {};
-  const bpm = sd.bpm || 100;
   const melodyWave = sd.melodyWave || 'sine';
   const melodyQuantize = sd.melodyQuantize !== false;
   const mixer = sd.mixer || {};
 
-  const songHint = song
-    ? `<div class="kbd-open-seq-hint">
-        <span style="flex:1;">Melody is saved to <strong style="color:var(--text);">${song.title || song.workingTitle || 'Untitled'}</strong></span>
-        <button onclick="closeKeyboardDrawer();setTimeout(()=>toggleDrawer('seqDrawer',openSeqDrawer,closeSeqDrawer),200)">Open Beat Lab →</button>
-       </div>`
-    : `<div class="kbd-open-seq-hint" style="border-color:rgba(255,100,100,0.2);background:rgba(255,80,80,0.05);">
-        <span>No song open — melody won't be saved. <button onclick="closeKeyboardDrawer()" style="border-color:rgba(255,100,100,0.3);color:#ff8888;">Close</button></span>
-       </div>`;
+  if (!song) {
+    // No song — show picker
+    return `
+      <div style="padding:10px 0 16px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:0.08em;margin-bottom:12px;">
+          Choose a song to record melody into, or create one:
+        </div>
+        ${_buildDrawerSongPicker('_kbdDspLoad', '_kbdDspNew')}
+      </div>`;
+  }
+
+  const partOptions = STRUCTURE_PARTS.map(p =>
+    `<option value="${p.id}"${(sd.part||sd.partId)===p.id?' selected':''}>${p.label}</option>`
+  ).join('');
 
   return `
-    ${songHint}
+    <div class="kbd-open-seq-hint" style="margin-bottom:12px;">
+      <div style="display:flex;flex-direction:column;gap:4px;flex:1;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text);font-weight:700;">${song.title || song.workingTitle || 'Untitled'}</span>
+          <button onclick="kbdChangeSong()" style="font-family:'IBM Plex Mono',monospace;font-size:8px;color:var(--faint);background:none;border:1px solid var(--border2);border-radius:3px;padding:2px 6px;cursor:pointer;">Change</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.06em;">Part:</span>
+          <select id="kbdPartSelect" class="seq-select" style="font-size:9px;padding:2px 6px;" onchange="kbdPartChanged()">
+            <option value="">— None —</option>
+            ${partOptions}
+          </select>
+          <button onclick="closeKeyboardDrawer();setTimeout(()=>toggleDrawer('seqDrawer',openSeqDrawer,closeSeqDrawer),200)"
+            style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#ffd166;background:rgba(255,209,102,0.1);border:1px solid rgba(255,209,102,0.3);border-radius:4px;padding:2px 8px;cursor:pointer;">
+            ⊞ Beat Lab →
+          </button>
+        </div>
+      </div>
+    </div>
     <div class="kbd-wrap">
       <div class="kbd-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
         <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint);">Keyboard — 2 Octaves</span>
+        <div class="seq-midi-status" style="font-size:10px;">
+          <div id="midiStatusDot"></div>
+          <span id="midiStatusLabel">MIDI</span>
+          <button id="midiConnectBtn" onclick="initMidi()" title="Connect MIDI device">Connect</button>
+        </div>
       </div>
       <div id="seqKeyboard"></div>
     </div>
@@ -12570,6 +13041,51 @@ function renderKeyboardDrawerHtml(song) {
     </div>`;
 }
 
+// Keyboard drawer song-picker callbacks (window-level for inline onclick)
+window._kbdDspLoad = function(id) {
+  if (!id) return;
+  _drawerQuickLoad(id, function(song) {
+    const nameEl = document.getElementById('keyboardDrawerSongName');
+    if (nameEl) nameEl.textContent = song.title || song.workingTitle || 'Untitled';
+    seqSongId = song.id;
+    const body = document.getElementById('keyboardDrawerBody');
+    if (body) {
+      body.innerHTML = renderKeyboardDrawerHtml(song);
+      requestAnimationFrame(() => { seqRenderKeyboard(); seqRenderMelodyRoll(); _midiUpdateUI(); });
+    }
+  });
+};
+window._kbdDspNew = function() {
+  _drawerQuickNewSong(function(song) {
+    const nameEl = document.getElementById('keyboardDrawerSongName');
+    if (nameEl) nameEl.textContent = song.title || song.workingTitle || 'Untitled';
+    seqSongId = song.id;
+    const body = document.getElementById('keyboardDrawerBody');
+    if (body) {
+      body.innerHTML = renderKeyboardDrawerHtml(song);
+      requestAnimationFrame(() => { seqRenderKeyboard(); seqRenderMelodyRoll(); _midiUpdateUI(); });
+    }
+    showToast('New song created — open the editor to name it.', 'success', 4000);
+  });
+};
+
+function kbdChangeSong() {
+  const body = document.getElementById('keyboardDrawerBody');
+  if (body) body.innerHTML = renderKeyboardDrawerHtml(null);
+}
+
+function kbdPartChanged() {
+  const song = getCurrentSong();
+  if (!song) return;
+  const partEl = document.getElementById('kbdPartSelect');
+  if (!partEl) return;
+  seqGetData(song); // ensure song.sequencer → active seq
+  song.sequencer.part  = partEl.value;
+  song.sequencer.partId= partEl.value;
+  save();
+  seqRenderSequenceTabs();
+}
+
 function openKeyboardDrawer() {
   document.getElementById('keyboardDrawer').classList.add('open');
   document.getElementById('keyboardDrawerOverlay').classList.add('open');
@@ -12577,7 +13093,7 @@ function openKeyboardDrawer() {
 
   const song = getCurrentSong();
   const nameEl = document.getElementById('keyboardDrawerSongName');
-  if (nameEl) nameEl.textContent = song ? (song.title || song.workingTitle || 'Untitled') : 'Open a song to record melody';
+  if (nameEl) nameEl.textContent = song ? (song.title || song.workingTitle || 'Untitled') : 'Select a song';
 
   // Sync seqSongId so melody save works
   if (song) seqSongId = song.id;
@@ -12586,10 +13102,11 @@ function openKeyboardDrawer() {
   if (!body) return;
   body.innerHTML = renderKeyboardDrawerHtml(song);
 
-  // Render keyboard and melody roll
+  // Render keyboard, melody roll, and MIDI status
   requestAnimationFrame(() => {
     seqRenderKeyboard();
     seqRenderMelodyRoll();
+    _midiUpdateUI();
   });
 }
 
@@ -14092,9 +14609,17 @@ if (window.innerWidth <= 768) {
 // ── Song View Mode (Run Through vs Backend) ───────────────────────
 window._songViewMode = 'runthrough'; // 'runthrough' | 'backend'
 
+// Ensure we're showing the detail view (not the song list)
+function _ensureDetailView() {
+  if (document.getElementById('viewList')?.classList.contains('active')) {
+    showDetail();
+  }
+}
+
 // Go to editor (run-through) view and exit perf mode
 function stickyGoEditor() {
   if (!getCurrentSong()) { showNoSongModal(stickyGoEditor); return; }
+  _ensureDetailView();
   closeAllDrawers();
   setSongViewMode('runthrough');
   ilSetPerfMode(false);
@@ -14103,6 +14628,7 @@ function stickyGoEditor() {
 // Go to backend view (closes any open drawer first)
 function stickyGoBackend() {
   if (!getCurrentSong()) { showNoSongModal(stickyGoBackend); return; }
+  _ensureDetailView();
   closeAllDrawers();
   setSongViewMode('backend');
 }
@@ -14307,6 +14833,7 @@ function rtSeqTogglePlay() {
 
 function ilTogglePerfMode() {
   if (!getCurrentSong()) { showNoSongModal(ilTogglePerfMode); return; }
+  _ensureDetailView();
   // Close any open drawers before switching to perf/view mode
   closeAllDrawers();
   // If we're in backend, switch to the editor view first, then enter perf mode
@@ -15386,6 +15913,7 @@ document.addEventListener('keydown', function(e) {
   if (e.key !== 'Escape') return;
   if (document.getElementById('noSongModal')?.style.display !== 'none') { closeNoSongModal(); return; }
   if (document.getElementById('vrOverlay')?.classList.contains('vr-open'))     { vrClose(); return; }
+  if (document.getElementById('keyboardDrawer')?.classList.contains('open'))   { closeKeyboardDrawer(); return; }
   if (document.getElementById('runThroughDrawer')?.classList.contains('open')) closeRunThroughDrawer();
   if (document.getElementById('seqDrawer')?.classList.contains('open'))        closeSeqDrawer();
   if (document.getElementById('practiceDrawer')?.classList.contains('open'))   closePracticeDrawer();
