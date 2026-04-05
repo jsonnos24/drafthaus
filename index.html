@@ -2548,23 +2548,23 @@ button, select, input, textarea { touch-action: manipulation; }
   .inspo-result {
     text-align: center; padding: 20px;
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 11px; color: rgba(200,160,255,0.7);
-    letter-spacing: 0.1em; min-height: 60px;
+    font-size: 14px; color: rgba(200,160,255,0.85);
+    letter-spacing: 0.06em; min-height: 60px;
     transition: opacity 0.3s;
   }
   .inspo-result .result-title {
-    font-family: 'Playfair Display', serif; font-size: 22px;
-    font-style: italic; color: var(--purple); margin-bottom: 10px;
-    display: block;
+    font-family: 'Playfair Display', serif; font-size: 32px;
+    font-style: italic; color: var(--purple); margin-bottom: 14px;
+    display: block; line-height: 1.2;
   }
   .inspo-result .result-chips {
-    display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
-    margin-top: 8px;
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    margin-top: 12px;
   }
   .inspo-chip {
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 13px;
     background: rgba(200,160,255,0.1); border: 1px solid rgba(200,160,255,0.3);
-    color: var(--purple); border-radius: 4px; padding: 3px 8px;
+    color: var(--purple); border-radius: 6px; padding: 6px 14px;
   }
   .inspo-go-btn {
     display: block; margin: 20px auto 0;
@@ -2786,25 +2786,29 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .looper-drawer-body .master-stop:hover { border-color: #ff6644; color: #ff6644; background: #1a0800; }
 
-  /* ── Monitor status pill ── */
+  /* ── Monitor status strip (between header and body) ── */
   #loopMonPill {
-    display: flex; align-items: center; gap: 5px;
-    font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 8px 20px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
     font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
-    padding: 4px 9px; border-radius: 4px; border: 1px solid;
-    white-space: nowrap; flex-shrink: 0; transition: all 0.2s;
-    color: #555b68; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    transition: background 0.25s, color 0.25s;
     cursor: default;
+    /* idle/default */
+    color: #44484f; background: rgba(255,255,255,0.02);
   }
   #loopMonPill.mon-muted {
     color: #ff9900;
-    border-color: rgba(255,153,0,0.35); background: rgba(255,153,0,0.08);
+    background: rgba(255,153,0,0.07);
+    border-bottom-color: rgba(255,153,0,0.2);
   }
   #loopMonPill.mon-live {
     color: #00e87a;
-    border-color: rgba(0,232,122,0.3); background: rgba(0,232,122,0.06);
+    background: rgba(0,232,122,0.06);
+    border-bottom-color: rgba(0,232,122,0.2);
   }
-  #loopMonPill .mon-icon { font-size: 11px; }
+  #loopMonPill .mon-icon { font-size: 13px; }
 
   /* ── Same-device feedback warning ── */
   #loopFeedbackWarn {
@@ -3627,6 +3631,7 @@ button, select, input, textarea { touch-action: manipulation; }
   animation: welcomeFadeIn 0.5s ease forwards;
 }
 @keyframes welcomeFadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+@keyframes noSongModalIn { from{opacity:0} to{opacity:1} }
 
 .welcome-eyebrow {
   font-family: 'IBM Plex Mono', monospace; font-size: 11px;
@@ -12328,16 +12333,18 @@ window._loopDspNew = function() {
 var _noSongModalCallback = null;
 window._noSongModalLoad = function(id) {
   if (!id) return;
-  _drawerQuickLoad(id, function(song) {
-    closeNoSongModal();
-    if (_noSongModalCallback) _noSongModalCallback();
-  });
+  const cb = _noSongModalCallback;
+  closeNoSongModal();
+  openSong(id);          // navigates to song detail (calls showDetail)
+  if (cb) cb();          // then applies the intended view mode
 };
 window._noSongModalNew = function() {
   _drawerQuickNewSong(function(song) {
+    const cb = _noSongModalCallback;
     closeNoSongModal();
+    openSong(song.id);   // navigates to song detail
     showToast('New song created — you can name it in the editor.', 'success', 4000);
-    if (_noSongModalCallback) _noSongModalCallback();
+    if (cb) cb();        // then applies the intended view mode
   });
 };
 
@@ -16852,6 +16859,8 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
     </div>
     <button class="looper-drawer-close" onclick="closeLooperDrawer()">✕</button>
   </div>
+  <!-- Monitor status strip — always visible below header -->
+  <div id="loopMonPill" title="Monitor is auto-muted while recording to prevent feedback, and live during playback"><span class="mon-icon">🎧</span><span id="loopMonLabel">Monitor: Auto</span></div>
   <div class="looper-drawer-body" id="looperBody">
     <!-- Song picker (shown when no song is loaded) -->
     <div id="loopDspPicker" style="display:none;"></div>
@@ -16883,8 +16892,6 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
             <button class="bar-btn" onclick="loopSetBars(8)">8</button>
           </div>
         </div>
-        <!-- Monitor status pill -->
-        <div id="loopMonPill" title="Monitor is auto-muted while recording to prevent feedback, and live during playback"><span class="mon-icon">🎧</span><span id="loopMonLabel">Monitor: Auto</span></div>
         <button class="master-stop" onclick="loopMasterStop()">■ Stop All</button>
       </div>
       <!-- Tracks grid -->
@@ -17191,7 +17198,7 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
 
 <!-- ── No-song modal prompt ── -->
 <div id="noSongModalOverlay" onclick="closeNoSongModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;backdrop-filter:blur(2px);"></div>
-<div id="noSongModal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9001;background:var(--card);border:1px solid var(--border2);border-radius:12px;padding:32px 24px;width:min(92vw,380px);box-shadow:0 20px 60px rgba(0,0,0,0.7);animation:welcomeFadeIn 0.2s ease forwards;">
+<div id="noSongModal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9001;background:var(--card);border:1px solid var(--border2);border-radius:12px;padding:32px 24px;width:min(92vw,380px);box-shadow:0 20px 60px rgba(0,0,0,0.7);animation:noSongModalIn 0.2s ease forwards;">
   <button onclick="closeNoSongModal()" style="position:absolute;top:12px;right:14px;background:none;border:none;color:var(--faint);font-size:18px;cursor:pointer;line-height:1;">✕</button>
   <div id="noSongModalBody"></div>
 </div>
