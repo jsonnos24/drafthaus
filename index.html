@@ -3299,6 +3299,68 @@ button, select, input, textarea { touch-action: manipulation; }
   #seqSubChords .seq-sub-body { max-width: 700px; }
 
 
+/* ── Drawer Song Picker (no-song state for seq + looper) ─────── */
+.drawer-song-picker {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; text-align: center;
+  padding: 40px 32px; gap: 0;
+  animation: welcomeFadeIn 0.3s ease forwards;
+}
+.dsp-icon { font-size: 32px; opacity: 0.25; margin-bottom: 14px; }
+.dsp-title {
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.2em;
+  color: var(--faint); margin-bottom: 20px;
+}
+.dsp-select {
+  width: 100%; max-width: 320px;
+  background: var(--card2); border: 1px solid var(--border2);
+  border-radius: 8px; color: var(--text);
+  font-family: 'IBM Plex Mono', monospace; font-size: 13px;
+  padding: 11px 14px; outline: none; cursor: pointer;
+  transition: border-color 0.15s; margin-bottom: 10px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23505068'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center;
+  padding-right: 30px;
+}
+.dsp-select:focus { border-color: var(--gold); }
+.dsp-select option { background: var(--card); }
+.dsp-load-btn {
+  width: 100%; max-width: 320px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 11px 20px; border-radius: 8px; cursor: pointer;
+  background: var(--gold); color: #0a0a0c; border: none;
+  transition: background 0.15s, transform 0.1s; margin-bottom: 18px;
+}
+.dsp-load-btn:hover { background: var(--gold2); }
+.dsp-load-btn:active { transform: scale(0.98); }
+.dsp-divider {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; max-width: 320px; margin-bottom: 18px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--faint); letter-spacing: 0.15em; text-transform: uppercase;
+}
+.dsp-divider::before, .dsp-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+.dsp-new-btn {
+  width: 100%; max-width: 320px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 11px 20px; border-radius: 8px; cursor: pointer;
+  background: transparent; color: var(--teal);
+  border: 1px solid rgba(100,220,180,0.35);
+  transition: all 0.15s;
+}
+.dsp-new-btn:hover { background: rgba(100,220,180,0.08); border-color: var(--teal); }
+.dsp-new-btn:active { transform: scale(0.98); }
+.dsp-empty-hint {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--faint); margin-bottom: 12px; letter-spacing: 0.06em;
+}
+
 /* ── Toast Notifications ─────────────────────────────────────── */
 #toast-container {
   position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
@@ -5515,7 +5577,7 @@ function renderGrid() {
     const colsHeader = `<div class="song-list-cols-header">
       <span>Title</span><span>Status</span><span>Actions</span><span>Tape / Seq</span>
     </div>`;
-    const isCollapsed = true;
+    const isCollapsed = !_expandedProjs.has(proj);
     return `<div class="proj-group${isCollapsed?' collapsed':''}" id="pg-${proj}">
       <div class="proj-group-header" onclick="toggleProjGroup('${proj}')">
         <span class="proj-group-name">${esc(heading)}</span>
@@ -5627,8 +5689,17 @@ async function deleteLocalSong(id) {
   }
 }
 
+// Track which project groups the user has manually expanded
+const _expandedProjs = new Set();
 function toggleProjGroup(proj) {
-  document.getElementById('pg-'+proj)?.classList.toggle('collapsed');
+  const el = document.getElementById('pg-'+proj);
+  if (!el) return;
+  el.classList.toggle('collapsed');
+  if (el.classList.contains('collapsed')) {
+    _expandedProjs.delete(proj);
+  } else {
+    _expandedProjs.add(proj);
+  }
 }
 
 let _rowTimerInterval = null;
@@ -5695,6 +5766,68 @@ function newSong() {
   songs.unshift(song);
   save();
   openSong(song.id);
+}
+
+// ── Drawer-safe background song operations ────────────────────────
+// Load an existing song silently without navigating away from any open drawer.
+function _drawerQuickLoad(id, afterLoad) {
+  const song = songs.find(s => s.id === id);
+  if (!song) return;
+  currentId = id;
+  loopOnSongChange(song);
+  updateSeqDrawerTab();
+  renderGrid();
+  afterLoad(song);
+  // If stub, fetch full data and re-run afterLoad with complete song
+  if (song._fromSheet) {
+    fetchFullSongFromSheet(id).then(full => {
+      if (full && currentId === id) afterLoad(full);
+    });
+  }
+}
+
+// Create a new song silently without navigating away from any open drawer.
+function _drawerQuickNewSong(afterLoad) {
+  const song = {
+    id: genId(), workingTitle:'', title:'', bpm:'', key:'', tuning:'',
+    project:'', status:'idea', structure:{'verse-1':{checked:true},'chorus-1':{checked:true}},
+    sectionOrder:['verse-1','chorus-1'], chords:{}, instruments:{}, sequencer:{},
+    notes:'', moods:[], createdAt: Date.now(), updatedAt: Date.now()
+  };
+  songs.unshift(song);
+  save();
+  currentId = song.id;
+  loopOnSongChange(song);
+  updateSeqDrawerTab();
+  renderGrid();
+  // Sync to Firestore in background
+  try {
+    const uid = auth.currentUser?.uid || '';
+    db.collection('songs').doc(song.id).set({ ...song, ownerId: uid });
+  } catch(e) { console.error('[drawerQuickNewSong] sync error', e); }
+  afterLoad(song);
+}
+
+// Build the song picker HTML for use inside any drawer body element.
+// onLoadCb and onNewCb are names of window-level functions to call.
+function _buildDrawerSongPicker(onLoadCb, onNewCb) {
+  const uid = auth.currentUser?.uid;
+  const mySongs = songs.filter(s => !s.ownerId || s.ownerId === uid);
+  const hasSongs = mySongs.length > 0;
+  const options = mySongs.map(s =>
+    `<option value="${esc(s.id)}">${esc(s.title || s.workingTitle || 'Untitled')}</option>`
+  ).join('');
+
+  return `<div class="drawer-song-picker">
+    <div class="dsp-icon">🎵</div>
+    <div class="dsp-title">No song selected</div>
+    ${hasSongs ? `
+      <select class="dsp-select" id="dspSelect">${options}</select>
+      <button class="dsp-load-btn" onclick="${onLoadCb}(document.getElementById('dspSelect').value)">Load Song</button>
+      <div class="dsp-divider">or</div>
+    ` : `<div class="dsp-empty-hint">No songs yet — create one to get started</div>`}
+    <button class="dsp-new-btn" onclick="${onNewCb}()">${hasSongs ? '+ Create New Song' : '+ Create Your First Song'}</button>
+  </div>`;
 }
 
 function openSong(id) {
@@ -12150,16 +12283,66 @@ function encodeWAV(audioBuffer) {
 
 // ── Sequencer Drawer ──────────────────────────────────────────────
 
-function openSeqDrawer() {
-  const song = getCurrentSong();
-  if (!song) {
-    showToast('Open a song first to use the sequencer.', 'warn');
-    return;
-  }
+// Callbacks used by the seq drawer song picker (must be window-level for inline onclick)
+window._seqDspLoad = function(id) {
+  if (!id) return;
+  _drawerQuickLoad(id, function(song) {
+    const nameEl = document.getElementById('seqDrawerSongName');
+    if (nameEl) nameEl.textContent = song.title || song.workingTitle || 'Untitled';
+    const body = document.getElementById('seqDrawerBody');
+    if (body) { body.innerHTML = renderSequencerHtml(song); setTimeout(() => initSequencer(song), 0); }
+  });
+};
+window._seqDspNew = function() {
+  _drawerQuickNewSong(function(song) {
+    const nameEl = document.getElementById('seqDrawerSongName');
+    if (nameEl) nameEl.textContent = song.title || song.workingTitle || 'Untitled';
+    const body = document.getElementById('seqDrawerBody');
+    if (body) { body.innerHTML = renderSequencerHtml(song); setTimeout(() => initSequencer(song), 0); }
+    showToast('New song created — you can name it in the editor.', 'success', 4000);
+  });
+};
 
+// Callbacks used by the looper drawer song picker (must be window-level for inline onclick)
+window._loopDspLoad = function(id) {
+  if (!id) return;
+  _drawerQuickLoad(id, function(song) {
+    const nameEl = document.getElementById('looperDrawerSongName');
+    if (nameEl) nameEl.textContent = song.title || song.workingTitle || 'Untitled';
+    _loopShowPicker(false);
+    loopLoadSavedLoops();
+  });
+};
+window._loopDspNew = function() {
+  _drawerQuickNewSong(function(song) {
+    const nameEl = document.getElementById('looperDrawerSongName');
+    if (nameEl) nameEl.textContent = song.title || song.workingTitle || 'Untitled';
+    _loopShowPicker(false);
+    loopLoadSavedLoops();
+    showToast('New song created — you can name it in the editor.', 'success', 4000);
+  });
+};
+// Show or hide the looper picker vs the real looper controls
+function _loopShowPicker(show) {
+  const picker = document.getElementById('loopDspPicker');
+  const controls = document.getElementById('loopMainControls');
+  if (picker) picker.style.display = show ? 'block' : 'none';
+  if (controls) controls.style.display = show ? 'none' : 'block';
+}
+
+function openSeqDrawer() {
   document.getElementById('seqDrawer').classList.add('open');
   document.getElementById('seqDrawerOverlay').classList.add('open');
   document.getElementById('seqDrawerTab').style.display = 'none';
+
+  const song = getCurrentSong();
+  if (!song) {
+    const nameEl = document.getElementById('seqDrawerSongName');
+    if (nameEl) nameEl.textContent = '';
+    const body = document.getElementById('seqDrawerBody');
+    if (body) body.innerHTML = _buildDrawerSongPicker('_seqDspLoad', '_seqDspNew');
+    return;
+  }
 
   // Update song name in header
   const nameEl = document.getElementById('seqDrawerSongName');
@@ -13106,9 +13289,17 @@ function loopOnSongChange(song) {
   const nameEl = document.getElementById('looperDrawerSongName');
   if (nameEl) nameEl.textContent = song ? (song.title || song.workingTitle || 'Untitled') : '';
   const banner = document.getElementById('looperNoSongBanner');
-  if (banner) banner.style.display = loopSongId ? 'none' : 'block';
+  if (banner) banner.style.display = 'none'; // replaced by picker
   if (document.getElementById('looperDrawer')?.classList.contains('open')) {
-    loopLoadSavedLoops();
+    if (!loopSongId) {
+      // Render the picker into its container
+      const pickerEl = document.getElementById('loopDspPicker');
+      if (pickerEl) pickerEl.innerHTML = _buildDrawerSongPicker('_loopDspLoad', '_loopDspNew');
+      _loopShowPicker(true);
+    } else {
+      _loopShowPicker(false);
+      loopLoadSavedLoops();
+    }
   }
 }
 function loopMakeTrack(i) {
@@ -16613,47 +16804,50 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
     <button class="looper-drawer-close" onclick="closeLooperDrawer()">✕</button>
   </div>
   <div class="looper-drawer-body" id="looperBody">
-    <!-- No-song warning -->
-    <div id="looperNoSongBanner" style="display:none;background:#1a0a00;border:1px solid #ff6600;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#ff9900;letter-spacing:0.05em;">
-      ⚠ No song selected — open a song first to save recordings.
-    </div>
-    <!-- Same-device feedback warning -->
-    <div id="loopFeedbackWarn">
-      ⚠ Mic &amp; speakers on same device — monitor may be muted while recording to prevent feedback. Use headphones for zero-latency monitoring.
-    </div>
-    <!-- Global controls -->
-    <div class="global-bar">
-      <div class="ctrl-group">
-        <span class="ctrl-label">BPM</span>
-        <div class="bpm-wrap">
-          <button class="bpm-btn" onclick="loopChangeBpm(-1)">−</button>
-          <span class="ctrl-value accent" id="loopBpmDisplay">120</span>
-          <button class="bpm-btn" onclick="loopChangeBpm(1)">+</button>
+    <!-- Song picker (shown when no song is loaded) -->
+    <div id="loopDspPicker" style="display:none;"></div>
+    <!-- Main looper controls (hidden when picker is shown) -->
+    <div id="loopMainControls">
+      <!-- No-song warning (legacy, now hidden via loopOnSongChange) -->
+      <div id="looperNoSongBanner" style="display:none;"></div>
+      <!-- Same-device feedback warning -->
+      <div id="loopFeedbackWarn">
+        ⚠ Mic &amp; speakers on same device — monitor may be muted while recording to prevent feedback. Use headphones for zero-latency monitoring.
+      </div>
+      <!-- Global controls -->
+      <div class="global-bar">
+        <div class="ctrl-group">
+          <span class="ctrl-label">BPM</span>
+          <div class="bpm-wrap">
+            <button class="bpm-btn" onclick="loopChangeBpm(-1)">−</button>
+            <span class="ctrl-value accent" id="loopBpmDisplay">120</span>
+            <button class="bpm-btn" onclick="loopChangeBpm(1)">+</button>
+          </div>
         </div>
-      </div>
-      <div class="ctrl-divider"></div>
-      <div class="ctrl-group">
-        <span class="ctrl-label">Bars</span>
-        <div class="bars-row" id="loopBarsRow">
-          <button class="bar-btn" onclick="loopSetBars(1)">1</button>
-          <button class="bar-btn active" onclick="loopSetBars(2)">2</button>
-          <button class="bar-btn" onclick="loopSetBars(4)">4</button>
-          <button class="bar-btn" onclick="loopSetBars(8)">8</button>
+        <div class="ctrl-divider"></div>
+        <div class="ctrl-group">
+          <span class="ctrl-label">Bars</span>
+          <div class="bars-row" id="loopBarsRow">
+            <button class="bar-btn" onclick="loopSetBars(1)">1</button>
+            <button class="bar-btn active" onclick="loopSetBars(2)">2</button>
+            <button class="bar-btn" onclick="loopSetBars(4)">4</button>
+            <button class="bar-btn" onclick="loopSetBars(8)">8</button>
+          </div>
         </div>
+        <!-- Monitor status pill -->
+        <div id="loopMonPill" title="Monitor output status during recording"><span class="mon-icon">🔇</span><span id="loopMonLabel">MON MUTED</span></div>
+        <button class="master-stop" onclick="loopMasterStop()">■ Stop All</button>
       </div>
-      <!-- Monitor status pill -->
-      <div id="loopMonPill" title="Monitor output status during recording"><span class="mon-icon">🔇</span><span id="loopMonLabel">MON MUTED</span></div>
-      <button class="master-stop" onclick="loopMasterStop()">■ Stop All</button>
-    </div>
-    <!-- Tracks grid -->
-    <div class="tracks-grid" id="loopTracksGrid"></div>
-    <!-- Saved Loops -->
-    <div class="loop-saved-panel" id="loopSavedPanel" style="display:none;">
-      <div class="loop-saved-header">
-        <span class="loop-saved-title">Saved Loops</span>
-        <span class="loop-saved-hint">Click ↩ Load to drop into first open track</span>
+      <!-- Tracks grid -->
+      <div class="tracks-grid" id="loopTracksGrid"></div>
+      <!-- Saved Loops -->
+      <div class="loop-saved-panel" id="loopSavedPanel" style="display:none;">
+        <div class="loop-saved-header">
+          <span class="loop-saved-title">Saved Loops</span>
+          <span class="loop-saved-hint">Click ↩ Load to drop into first open track</span>
+        </div>
+        <div class="loop-saved-list" id="loopSavedList"></div>
       </div>
-      <div class="loop-saved-list" id="loopSavedList"></div>
     </div>
   </div>
 </div>
