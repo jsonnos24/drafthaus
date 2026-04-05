@@ -2871,7 +2871,7 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ── Keyboard Drawer ── */
   /* ── Mix drawer ── */
   .mix-drawer-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    position: fixed; inset: 0; background: transparent;
     z-index: 960; display: none;
   }
   .mix-drawer-overlay.open { display: block; }
@@ -7439,6 +7439,44 @@ var _seqPlayMode = 'loop';     // 'loop' | 'song'
 var _seqSongSections = [];     // pre-loaded section data for full-song play
 var _seqSongSectionIdx = 0;    // which section we're currently playing
 var _seqSongSectionStep = 0;   // step within the current section
+var _seqTriggeredLoopTracks = new Set(); // loop track indices started by sequencer
+
+// Start looper tracks whose assigned part matches partId; stop any previously triggered ones.
+function _seqTriggerLoopsForPart(partId) {
+  _seqTriggeredLoopTracks.forEach(function(i) {
+    var t = loopTracks[i]; if (!t) return;
+    loopStopPlayback(i); t.state = 'idle';
+    try { loopUpdateTrackUI(i); loopDrawRing(t, 0); } catch(e) {}
+  });
+  _seqTriggeredLoopTracks.clear();
+  if (!partId) return;
+  if (!loopAudioCtx) {
+    try {
+      loopAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      loopMasterGain = loopAudioCtx.createGain();
+      loopMasterGain.gain.value = 1.0;
+      loopMasterGain.connect(loopAudioCtx.destination);
+    } catch(e) { return; }
+  }
+  if (loopAudioCtx.state === 'suspended') loopAudioCtx.resume().catch(function(){});
+  loopTracks.forEach(function(t, i) {
+    if (t.partId === partId && t.buffer && t.state !== 'recording') {
+      t.state = 'playing'; loopStartPlayback(i);
+      try { loopUpdateTrackUI(i); } catch(e) {}
+      _seqTriggeredLoopTracks.add(i);
+    }
+  });
+}
+
+// Stop all looper tracks that the sequencer triggered.
+function _seqStopTriggeredLoops() {
+  _seqTriggeredLoopTracks.forEach(function(i) {
+    var t = loopTracks[i]; if (!t) return;
+    loopStopPlayback(i); t.state = 'idle';
+    try { loopUpdateTrackUI(i); loopDrawRing(t, 0); } catch(e) {}
+  });
+  _seqTriggeredLoopTracks.clear();
+}
 
 const SEQ_NOTES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const SEQ_SCALES = {
@@ -8953,24 +8991,40 @@ function seqPlay() {
   // pre-scheduled ~150ms ahead on the audio thread, which is immune to
   // browser background-tab throttling of setTimeout/setInterval.
   _seqTimer = setInterval(seqScheduleNotes, 25);
+
+  // Trigger looper tracks assigned to the current sequence's part.
+  // Prefer in-memory value; fall back to DOM in case the user changed the
+  // part dropdown without the object being saved yet.
+  const _curSeqForLoop = getSongSequences(getCurrentSong())[seqActiveIdx];
+  const _partFromDom = document.getElementById('seqPartAssign')?.value || null;
+  const _loopPartId  = _curSeqForLoop?.partId || _curSeqForLoop?.part || _partFromDom || null;
+  _seqTriggerLoopsForPart(_loopPartId);
 }
 
 function seqPlaySong() {
   if (seqIsPlaying) { seqStop(); return; }
   const song = getCurrentSong();
   if (!song) return;
-  const seqs = getSongSequences(song);
-  if (seqs.length < 2) { showToast('Add at least 2 sequences to play the full song.', 'info', 3000); return; }
+  // Flush DOM state for the active sequence before reading section data,
+  // so a part dropdown change that hasn't been auto-saved is captured.
+  seqSaveAllToCurrent(song);
 
-  // Sort sequences in STRUCTURE_PARTS order; unassigned go at end
+  const seqs = getSongSequences(song);
+
+  // Sort sequences in STRUCTURE_PARTS order; skip unassigned (no part)
+  // so stray empty sequences don't replay the previous part by accident.
   const partOrder = STRUCTURE_PARTS.map(p => p.id);
-  const sorted = [...seqs].sort((a, b) => {
-    const ai = partOrder.indexOf(a.partId || a.part || '');
-    const bi = partOrder.indexOf(b.partId || b.part || '');
-    const av = ai === -1 ? 999 : ai;
-    const bv = bi === -1 ? 999 : bi;
-    return av - bv;
-  });
+  const sorted = [...seqs]
+    .filter(s => !!(s.partId || s.part))   // only sequences with a part assigned
+    .sort((a, b) => {
+      const ai = partOrder.indexOf(a.partId || a.part || '');
+      const bi = partOrder.indexOf(b.partId || b.part || '');
+      const av = ai === -1 ? 999 : ai;
+      const bv = bi === -1 ? 999 : bi;
+      return av - bv;
+    });
+
+  if (sorted.length < 2) { showToast('Assign parts to at least 2 sequences to play the full song.', 'info', 3000); return; }
 
   // Pre-load all section data (not from DOM — avoids DOM reads during playback)
   const key  = seqCurrentKey();
@@ -9010,6 +9064,9 @@ function seqPlaySong() {
 
   seqRenderSequenceTabs();
   showToast('Playing full song — ' + sorted.map(s => seqGetPartLabel(s.partId||s.part)).join(' → '), 'success', 4000);
+
+  // Trigger looper tracks for the first section
+  _seqTriggerLoopsForPart(_seqSongSections[0]?.partId || null);
 }
 
 function seqScheduleNotes() {
@@ -9077,8 +9134,9 @@ function seqScheduleNotes() {
       if (_seqSongSectionStep >= sec.totalSteps) {
         _seqSongSectionStep = 0;
         _seqSongSectionIdx++;
-        // Update tab highlight to show which section is now playing
-        setTimeout(() => seqRenderSequenceTabs(), visualDelay + 50);
+        // Update tab highlight + trigger looper tracks for new section
+        const _nextPartId = _seqSongSections[_seqSongSectionIdx]?.partId || null;
+        setTimeout(() => { seqRenderSequenceTabs(); _seqTriggerLoopsForPart(_nextPartId); }, visualDelay + 50);
         if (_seqSongSectionIdx >= _seqSongSections.length) {
           // Schedule stop after last note plays
           setTimeout(() => seqStop(), visualDelay + 200);
@@ -9237,12 +9295,20 @@ function seqRenderKeyboard() {
   const el = document.getElementById('seqKeyboard');
   if (!el) return;
 
-  const W  = 75;   // white key width (2.5x)
-  const BW = 50;   // black key width (2.5x)
-  const WH = 120;  // white key height
-  const BH = 74;   // black key height
-  const octaves = [4, 5];
+  // 88-key range: A0–C8. Approximate with 7 full octaves (C1–B7) = 84 keys.
+  // Use narrower keys on desktop so more keys are visible without scrolling.
+  const isDesktop = window.innerWidth >= 768;
+  const W  = isDesktop ? 28 : 50;   // white key width
+  const BW = isDesktop ? 18 : 32;   // black key width
+  const WH = isDesktop ? 110 : 130; // white key height
+  const BH = isDesktop ? 68  : 82;  // black key height
+  const octaves = [1, 2, 3, 4, 5, 6, 7]; // 7 octaves ≈ 88 keys
   const totalWidth = 7 * octaves.length * W;
+
+  // Make the container scrollable so all keys are reachable
+  el.style.overflowX = 'auto';
+  el.style.overflowY = 'hidden';
+  el.style.paddingBottom = '6px'; // room for scrollbar
 
   // Get scale notes for current key/mode to highlight
   const key  = seqCurrentKey();
@@ -9330,6 +9396,15 @@ function seqRenderKeyboard() {
   });
 
   el.appendChild(board);
+
+  // Scroll to C4 (middle C) on open so the player starts in a useful range
+  const c4Idx = octaves.indexOf(4);
+  if (c4Idx >= 0) {
+    const c4X = c4Idx * 7 * W;
+    // Center C4 in the visible area
+    const containerW = el.clientWidth || el.offsetWidth || 300;
+    el.scrollLeft = Math.max(0, c4X - containerW / 2 + W * 3);
+  }
 }
 
 function kbdPlayNote(note, octave) {
@@ -9357,6 +9432,7 @@ function kbdPlayNote(note, octave) {
 
 // ── Melody Recorder ──────────────────────────────────────────────
 var melodyIsRecording = false;
+var melodyCountingIn  = false; // true while count-in is running (blocks re-entry)
 var melodyScheduledNodes = []; // track live oscillators for instant clear
 var melodyRecStart    = null;
 var melodyNoteStart   = null;
@@ -9366,14 +9442,24 @@ var melodyNotes       = []; // [{note, octave, startMs, durMs}]
 function melodyToggleRecord() {
   if (melodyIsRecording) {
     melodyStopRecord();
+  } else if (melodyCountingIn) {
+    // Cancel the ongoing count-in
+    melodyCountingIn = false;
+    const btn    = document.getElementById('melodyRecBtn');
+    const status = document.getElementById('melodyStatus');
+    if (btn)    { btn.classList.remove('recording'); btn.textContent = '⏺ Record'; }
+    if (status) status.textContent = '';
   } else {
     melodyStartRecord();
   }
 }
 
 async function melodyStartRecord() {
+  if (melodyCountingIn || melodyIsRecording) return; // guard against re-entry
+  melodyCountingIn = true;
+
   const song = getCurrentSong();
-  const bpm  = parseFloat(song?.sequencer?.bpm || document.getElementById('seqBpm')?.value || 100);
+  const bpm  = parseFloat(song?.sequencer?.bpm || document.getElementById('seqBpm')?.value || document.getElementById('kbdBpm')?.value || 100);
   const timeSig = parseInt(song?.sequencer?.time || document.getElementById('seqTime')?.value || 4);
   const stepMs  = (60000 / bpm); // one beat in ms
   const totalCountInBeats = timeSig * 2; // 2 bars
@@ -9397,7 +9483,7 @@ async function melodyStartRecord() {
     const barNum  = Math.floor(beat / timeSig) + 1;
     const beatNum = (beat % timeSig) + 1;
     setTimeout(() => {
-      if (status && melodyIsRecording === false) // only update during count-in
+      if (status && melodyCountingIn && !melodyIsRecording)
         status.textContent = `Count-in: ${barNum}-${beatNum}`;
     }, delayMs);
   }
@@ -9405,6 +9491,9 @@ async function melodyStartRecord() {
   // Wait for count-in to finish, then arm recording exactly on the downbeat
   const countInDurationMs = totalCountInBeats * stepMs;
   await new Promise(r => setTimeout(r, countInDurationMs - 20)); // 20ms early to absorb jitter
+
+  if (!melodyCountingIn) return; // was cancelled during count-in
+  melodyCountingIn = false;
   if (!document.getElementById('melodyRecBtn')) return; // drawer closed
 
   // Arm recording precisely
@@ -9420,6 +9509,7 @@ async function melodyStartRecord() {
 }
 
 function melodyStopRecord() {
+  melodyCountingIn  = false; // ensure count-in flag is cleared
   // Close any open note
   if (melodyActiveNote && melodyNoteStart !== null) {
     melodyActiveNote.durMs = Date.now() - melodyNoteStart;
@@ -9644,6 +9734,8 @@ function seqStop() {
   melodyScheduledNodes = [];
   clearMelodyKeyHighlights();
   seqRenderSequenceTabs();
+  // Stop any looper tracks that the sequencer triggered
+  _seqStopTriggeredLoops();
   // Update the play button in the song list row
   try { renderGrid(); } catch(e) {}
 }
@@ -13357,55 +13449,73 @@ function renderKeyboardDrawerHtml(song) {
   const partOptions = STRUCTURE_PARTS.map(p =>
     `<option value="${p.id}"${(sd.part||sd.partId)===p.id?' selected':''}>${p.label}</option>`
   ).join('');
+  const bpm = sd.bpm || song?.bpm || '100';
+  const keyLabel = song?.key || sd.key || '—';
 
   return `
-    <div class="kbd-open-seq-hint" style="margin-bottom:12px;">
-      <div style="display:flex;flex-direction:column;gap:4px;flex:1;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text);font-weight:700;">${song.title || song.workingTitle || 'Untitled'}</span>
-          <button onclick="kbdChangeSong()" style="font-family:'IBM Plex Mono',monospace;font-size:8px;color:var(--faint);background:none;border:1px solid var(--border2);border-radius:3px;padding:2px 6px;cursor:pointer;">Change</button>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.06em;">Part:</span>
-          <select id="kbdPartSelect" class="seq-select" style="font-size:9px;padding:2px 6px;" onchange="kbdPartChanged()">
-            <option value="">— None —</option>
-            ${partOptions}
-          </select>
-          <button onclick="closeKeyboardDrawer();setTimeout(()=>toggleDrawer('seqDrawer',openSeqDrawer,closeSeqDrawer),200)"
-            style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#ffd166;background:rgba(255,209,102,0.1);border:1px solid rgba(255,209,102,0.3);border-radius:4px;padding:2px 8px;cursor:pointer;">
-            ⊞ Sequencer →
-          </button>
-        </div>
+    <!-- Toolbar matching sequencer style -->
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 0 12px;border-bottom:1px solid var(--border2);margin-bottom:12px;">
+      <div class="seq-midi-status">
+        <div id="midiStatusDot"></div>
+        <span id="midiStatusLabel">MIDI</span>
+        <button id="midiConnectBtn" onclick="initMidi()" title="Connect MIDI device">Connect</button>
       </div>
-    </div>
-    <div class="kbd-wrap">
-      <div class="kbd-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint);">Keyboard — 2 Octaves</span>
-        <div class="seq-midi-status" style="font-size:10px;">
-          <div id="midiStatusDot"></div>
-          <span id="midiStatusLabel">MIDI</span>
-          <button id="midiConnectBtn" onclick="initMidi()" title="Connect MIDI device">Connect</button>
-        </div>
+      <div style="width:1px;background:var(--border2);height:20px;margin:0 2px;"></div>
+      <div class="seq-ctrl-group">
+        <span class="seq-label">Key</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;color:var(--gold);">${keyLabel}</span>
       </div>
-      <div id="seqKeyboard"></div>
-    </div>
-    <div class="melody-section">
-      <div class="melody-controls">
-        <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:11px;padding:6px 14px;">▶ Play</button>
-        <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="font-size:11px;padding:6px 14px;">■ Stop</button>
-        <div style="width:1px;background:var(--border2);height:24px;margin:0 4px;"></div>
-        <button class="melody-rec-btn" id="melodyRecBtn" onclick="melodyToggleRecord()">⏺ Record</button>
-        <button class="melody-quant-btn${melodyQuantize ? ' active' : ''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()">Quantize</button>
-        <select class="seq-select" id="melodyWave" onchange="melodyWaveChanged()" style="font-size:10px;">
-          <option value="sine"${melodyWave==='sine'?' selected':''}>Sine</option>
-          <option value="triangle"${melodyWave==='triangle'?' selected':''}>Triangle</option>
-          <option value="square"${melodyWave==='square'?' selected':''}>Square</option>
-          <option value="sawtooth"${melodyWave==='sawtooth'?' selected':''}>Saw</option>
+      <div style="width:1px;background:var(--border2);height:20px;margin:0 2px;"></div>
+      <div class="seq-ctrl-group">
+        <span class="seq-label">BPM</span>
+        <input class="seq-input" type="number" id="kbdBpm" value="${bpm}" min="40" max="240" style="width:56px;" onchange="kbdBpmChanged()">
+      </div>
+      <div style="width:1px;background:var(--border2);height:20px;margin:0 2px;"></div>
+      <div class="seq-ctrl-group">
+        <span class="seq-label">Part</span>
+        <select id="kbdPartSelect" class="seq-select" style="font-size:10px;" onchange="kbdPartChanged()">
+          <option value="">— None —</option>
+          ${partOptions}
         </select>
-        <button class="seq-btn" style="font-size:10px;padding:5px 10px;background:var(--card2);border:1px solid var(--border2);color:var(--muted);border-radius:5px;" onclick="melodyClear()">Clear Melody</button>
-        <span class="melody-status" id="melodyStatus"></span>
       </div>
-      <div class="melody-roll" id="melodyRoll"></div>
+      <div class="seq-ctrl-group" style="margin-left:auto;gap:4px;">
+        <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:11px;padding:6px 12px;">▶ Play</button>
+        <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="font-size:11px;padding:6px 12px;">■ Stop</button>
+        <button class="seq-btn seq-btn-met" id="kbdMetBtn" onclick="seqToggleMet()" style="font-size:11px;padding:6px 10px;">Metro</button>
+        <button class="melody-rec-btn" id="melodyRecBtn" onclick="melodyToggleRecord()">⏺ Rec</button>
+      </div>
+    </div>
+
+    <!-- Melody controls row -->
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      <button class="melody-quant-btn${melodyQuantize ? ' active' : ''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()">Quantize</button>
+      <select class="seq-select" id="melodyWave" onchange="melodyWaveChanged()" style="font-size:10px;">
+        <option value="sine"${melodyWave==='sine'?' selected':''}>Sine</option>
+        <option value="triangle"${melodyWave==='triangle'?' selected':''}>Triangle</option>
+        <option value="square"${melodyWave==='square'?' selected':''}>Square</option>
+        <option value="sawtooth"${melodyWave==='sawtooth'?' selected':''}>Saw</option>
+      </select>
+      <button class="seq-btn" style="font-size:10px;padding:4px 10px;background:var(--card2);border:1px solid var(--border2);color:var(--muted);border-radius:5px;" onclick="melodyClear()">Clear</button>
+      <span class="melody-status" id="melodyStatus" style="margin-left:4px;"></span>
+    </div>
+
+    <!-- Keyboard (scrollable, 7 octaves) -->
+    <div id="seqKeyboard" style="margin-bottom:12px;"></div>
+
+    <!-- Melody roll -->
+    <div class="melody-roll" id="melodyRoll"></div>
+
+    <!-- Back to Sequencer -->
+    <div style="padding:16px 0 4px;">
+      <button onclick="closeKeyboardDrawer();setTimeout(()=>toggleDrawer('seqDrawer',openSeqDrawer,closeSeqDrawer),200)"
+        style="display:flex;align-items:center;gap:8px;width:100%;background:rgba(255,209,102,0.07);border:1px solid rgba(255,209,102,0.2);border-radius:8px;padding:12px 16px;cursor:pointer;text-align:left;transition:background 0.15s;">
+        <span style="font-size:16px;line-height:1;">🎛</span>
+        <div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:#ffd166;letter-spacing:0.08em;">Back to Sequencer</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);margin-top:2px;">Edit chords, beats, and arrangement</div>
+        </div>
+        <span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#ffd166;opacity:0.7;">← Open</span>
+      </button>
     </div>`;
 }
 
@@ -13440,6 +13550,20 @@ window._kbdDspNew = function() {
 function kbdChangeSong() {
   const body = document.getElementById('keyboardDrawerBody');
   if (body) body.innerHTML = renderKeyboardDrawerHtml(null);
+}
+
+function kbdBpmChanged() {
+  const song = getCurrentSong();
+  if (!song) return;
+  const val = document.getElementById('kbdBpm')?.value;
+  if (!val) return;
+  seqGetData(song);
+  song.sequencer.bpm = val;
+  song.bpm = val;
+  save();
+  // Sync into sequencer DOM if open
+  const seqBpmEl = document.getElementById('seqBpm');
+  if (seqBpmEl) seqBpmEl.value = val;
 }
 
 function kbdPartChanged() {
@@ -16315,7 +16439,8 @@ function renderMixDrawerHtml() {
       <span class="mix-ch-label">${label}</span>
       <input type="range" orient="vertical" min="0" max="100" value="${vol}"
         oninput="seqMixerChange('${ch}','Vol',this.value/100)"
-        title="${label} volume">
+        ondblclick="this.value=80;seqMixerChange('${ch}','Vol',0.8)"
+        title="${label} volume — double-click to reset">
       <div class="mix-ch-btns">
         <button id="mix-solo-${ch}" class="mix-sm-btn${solod?' solo-active':''}" onclick="seqMixerToggle('${ch}','Solo')">S</button>
         <button id="mix-mute-${ch}" class="mix-sm-btn${muted?' mute-active':''}" onclick="seqMixerToggle('${ch}','Mute')">M</button>
@@ -16329,7 +16454,9 @@ function renderMixDrawerHtml() {
       <div class="mix-master-row">
         <span class="mix-master-label">Master</span>
         <input class="mix-master-fader" type="range" min="0" max="100" value="${seqVol}" id="mixSeqMaster"
-          oninput="mixSetSeqMaster(this.value);document.getElementById('mixSeqMasterVal').textContent=this.value+'%'">
+          oninput="mixSetSeqMaster(this.value);document.getElementById('mixSeqMasterVal').textContent=this.value+'%'"
+          ondblclick="this.value=100;mixSetSeqMaster(100);document.getElementById('mixSeqMasterVal').textContent='100%'"
+          title="Sequencer master volume — double-click to reset to unity">
         <span class="mix-master-val" id="mixSeqMasterVal">${seqVol}%</span>
       </div>
     </div>
@@ -16342,7 +16469,9 @@ function renderMixDrawerHtml() {
       <div class="mix-master-row">
         <span class="mix-master-label">Looper</span>
         <input class="mix-master-fader" type="range" min="0" max="100" value="${loopVol}" id="mixLoopMaster"
-          oninput="mixSetLoopMaster(this.value);document.getElementById('mixLoopMasterVal').textContent=this.value+'%'">
+          oninput="mixSetLoopMaster(this.value);document.getElementById('mixLoopMasterVal').textContent=this.value+'%'"
+          ondblclick="this.value=100;mixSetLoopMaster(100);document.getElementById('mixLoopMasterVal').textContent='100%'"
+          title="Looper master volume — double-click to reset to unity">
         <span class="mix-master-val" id="mixLoopMasterVal">${loopVol}%</span>
       </div>
     </div>`;
@@ -16383,7 +16512,30 @@ function closeMixDrawer() {
   document.getElementById('mixDrawerOverlay').classList.remove('open');
 }
 
+// Toggle Mix without closing other open drawers — it floats over everything
+function mixToggle() {
+  const drawer = document.getElementById('mixDrawer');
+  if (drawer?.classList.contains('open')) {
+    closeMixDrawer();
+  } else {
+    openMixDrawer();
+  }
+}
+
+// Double-click any mix slider to return it to unity (100)
+function mixResetToUnity(sliderId, applyFn, unityVal) {
+  const el = document.getElementById(sliderId);
+  if (!el) return;
+  el.value = unityVal !== undefined ? unityVal : 100;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  if (applyFn) applyFn(el.value);
+}
+
 function closeAllDrawers(exceptId) {
+  // Close tape overlay too (it's a full-screen overlay, not a side drawer)
+  if (exceptId !== 'vrOverlay' && document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
+    vrClose();
+  }
   const pairs = [
     ['seqDrawer',          closeSeqDrawer],
     ['looperDrawer',       closeLooperDrawer],
@@ -16391,7 +16543,7 @@ function closeAllDrawers(exceptId) {
     ['practiceDrawer',     closePracticeDrawer],
     ['runThroughDrawer',   closeRunThroughDrawer],
     ['keyboardDrawer',     closeKeyboardDrawer],
-    ['mixDrawer',          closeMixDrawer],
+    // mixDrawer intentionally omitted — it floats over other drawers
   ];
   pairs.forEach(([id, closeFn]) => {
     if (id === exceptId) return;
@@ -16605,8 +16757,19 @@ function _resetUI() {
   _el('vrPauseBtn').classList.remove('vr-paused');
   _el('vrPlayAllBtn').disabled = true;
   _vrPaused = false;
-  // Redraw flat line now that the canvas is visible and properly laid out
-  requestAnimationFrame(_drawFlatLine);
+  // Try to restore the last take waveform; fall back to flat line if none cached
+  const _restoreReelWave = () => {
+    const lbl = _el('vrWaveCanvas')?.parentElement?.querySelector('.vr-window-label');
+    // Find the most recent cached take for this song
+    let restored = false;
+    if (_vrWaveformCache.size > 0) {
+      // Use the last entry added to cache (most recent decode)
+      const lastKey = [..._vrWaveformCache.keys()].pop();
+      if (lastKey) { _drawReelWindowWaveform(lastKey, null); restored = true; }
+    }
+    if (!restored) { _drawFlatLine(); if (lbl) lbl.style.opacity = '1'; }
+  };
+  requestAnimationFrame(_restoreReelWave);
 }
 
 // ── Microphone ────────────────────────────────────────────────
@@ -17131,6 +17294,58 @@ function _drawFlatLine() {
   }
 }
 
+// ── Reel window waveform (shows last take peaks when idle) ─────
+async function _drawReelWindowWaveform(takeId, url) {
+  // Use cached peaks if available, otherwise decode from URL
+  let peaks = _vrWaveformCache.get(takeId);
+  if (!peaks) {
+    if (!url) return; // no URL and not in cache — nothing to draw
+    try {
+      const resp = await fetch(url);
+      const arrayBuf = await resp.arrayBuffer();
+      const tempCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuf = await tempCtx.decodeAudioData(arrayBuf);
+      tempCtx.close();
+      const ch = audioBuf.getChannelData(0);
+      const POINTS = 400;
+      const chunkSize = Math.max(1, Math.floor(ch.length / POINTS));
+      peaks = new Float32Array(POINTS);
+      for (let i = 0; i < POINTS; i++) {
+        let max = 0;
+        const start = i * chunkSize;
+        for (let j = 0; j < chunkSize; j++) {
+          const v = Math.abs(ch[start + j] || 0);
+          if (v > max) max = v;
+        }
+        peaks[i] = max;
+      }
+      _vrWaveformCache.set(takeId, peaks);
+    } catch(e) { return; }
+  }
+  requestAnimationFrame(() => {
+    const canvas = _el('vrWaveCanvas');
+    if (!canvas || _vrRecording) return; // don't clobber live waveform
+    const ctx = canvas.getContext('2d');
+    const W = canvas.offsetWidth || 200;
+    const H = canvas.offsetHeight || 52;
+    canvas.width = W; canvas.height = H;
+    ctx.clearRect(0, 0, W, H);
+    const barW = Math.max(1, W / peaks.length - 0.3);
+    for (let i = 0; i < peaks.length; i++) {
+      const x = (i / peaks.length) * W;
+      const barH = Math.max(1, peaks[i] * H * 0.85);
+      const y = (H - barH) / 2;
+      // Gradient: dim amber → brighter gold at peaks
+      const brightness = 0.35 + peaks[i] * 0.65;
+      ctx.fillStyle = `rgba(${Math.round(120 + brightness * 100)}, ${Math.round(80 + brightness * 70)}, ${Math.round(20 + brightness * 20)}, 0.85)`;
+      ctx.fillRect(x, y, barW, barH);
+    }
+    // Remove the DRAFTHAUS label while waveform is showing
+    const lbl = _el('vrWaveCanvas')?.parentElement?.querySelector('.vr-window-label');
+    if (lbl) lbl.style.opacity = '0';
+  });
+}
+
 // ── Countdown ─────────────────────────────────────────────────
 function _startCountdown(cb) {
   let count = 3;
@@ -17170,8 +17385,15 @@ function _startCountdown(cb) {
 window.vrMicFromList = function() {
   const autoRecord = !!window._ilPerfMode;
 
+  // Toggle: close if already open
+  if (document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
+    vrClose();
+    return;
+  }
+
   if (currentId) {
-    // Song already open — open the deck
+    // Song already open — open the deck, close any open drawers first
+    closeAllDrawers('vrOverlay');
     vrOpen();
     if (autoRecord) setTimeout(vrToggleRec, 80);
     return;
@@ -17475,6 +17697,14 @@ window.vrLoadTakes = async function() {
       const d = doc.data();
       if (d.downloadUrl) _decodeTakeWaveform(doc.id, d.downloadUrl);
     });
+    // Show the most recent take's waveform in the reel window
+    if (!_vrRecording) {
+      const lastDoc = snap.docs[snap.docs.length - 1];
+      if (lastDoc) {
+        const ld = lastDoc.data();
+        if (ld.downloadUrl) _drawReelWindowWaveform(lastDoc.id, ld.downloadUrl);
+      }
+    }
     _el('vrPlayAllBtn').disabled = snap.empty;
     // Update quota display
     const { remaining } = await _vrGetQuota();
@@ -18512,10 +18742,10 @@ document.addEventListener('DOMContentLoaded', () => { _drawFlatLine(); });
     <span class="bottom-nav-label">Sequencer</span>
   </button>
   <button class="bottom-nav-item nav-looper" onclick="toggleDrawer('looperDrawer', openLooperDrawer, closeLooperDrawer)">
-    <span class="bottom-nav-icon"><svg width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#c0392b"/><circle cx="12" cy="12" r="10" fill="none" stroke="#e74c3c" stroke-width="1.5" opacity="0.6"/><circle cx="9" cy="9" r="3" fill="rgba(255,255,255,0.12)"/></svg></span>
+    <span class="bottom-nav-icon" style="font-size:20px;line-height:1;">⍜</span>
     <span class="bottom-nav-label">Looper</span>
   </button>
-  <button class="bottom-nav-item nav-mix" onclick="toggleDrawer('mixDrawer', openMixDrawer, closeMixDrawer)">
+  <button class="bottom-nav-item nav-mix" onclick="mixToggle()">
     <span class="bottom-nav-icon">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
         <line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="currentColor"/>
