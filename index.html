@@ -1778,6 +1778,18 @@ button, select, input, textarea { touch-action: manipulation; }
     border-color: rgba(0, 220, 130, 0.5); color: #00dc82;
     text-shadow: 0 0 6px rgba(0,220,130,0.3);
   }
+  /* ── Chord mode toggle (Compose / Preview) ── */
+  .seq-chord-mode-btn {
+    font-size: 9px; padding: 4px 9px;
+    background: rgba(245,166,35,0.12); border: 1px solid rgba(245,166,35,0.4);
+    color: var(--gold); border-radius: 4px; cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.05em;
+    transition: all 0.15s; white-space: nowrap; flex-shrink: 0; font-weight: 700;
+  }
+  .seq-chord-mode-btn.active {
+    background: rgba(100,180,255,0.12); border-color: rgba(100,180,255,0.5);
+    color: #64b4ff;
+  }
   .melody-roll {
     background: var(--card); border: 1px solid var(--border);
     border-radius: 8px; padding: 10px 12px; min-height: 48px;
@@ -2925,13 +2937,13 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ── Mix drawer ── */
   .mix-drawer-overlay {
     position: fixed; inset: 0; background: transparent;
-    z-index: 960; display: none;
+    z-index: 9100; display: none;
   }
   .mix-drawer-overlay.open { display: block; }
   .mix-drawer {
     position: fixed; right: 0; top: 0; bottom: 0; width: min(92vw, 340px);
     background: var(--panel); border-left: 1px solid var(--border2);
-    z-index: 970; transform: translateX(100%);
+    z-index: 9101; transform: translateX(100%);
     transition: transform 0.28s cubic-bezier(.4,0,.2,1);
     display: flex; flex-direction: column; overflow: hidden;
   }
@@ -7527,6 +7539,9 @@ var _seqSongSectionIdx = 0;    // which section we're currently playing
 var _seqSongSectionStep = 0;   // step within the current section
 var _seqTriggeredLoopTracks = new Set(); // loop track indices started by sequencer
 
+// ── Chord pill mode: 'compose' fills next grid slot, 'preview' just plays ──
+var seqChordMode = 'compose';
+
 // ── Humanize: per-element timing jitter + velocity variation ──────────────
 var seqHumanizeChords = true;  // default ON — chords sound most natural with subtle timing variation
 var seqHumanizeDrums  = false;
@@ -7585,6 +7600,13 @@ function _seqTriggerLoopsForPart(partId) {
     } catch(e) { return; }
   }
   if (loopAudioCtx.state === 'suspended') loopAudioCtx.resume().catch(function(){});
+  // Always sync partIds from the saved song data so changes in the looper UI
+  // are reflected immediately without needing a stop/restart cycle.
+  var _syncSong = getCurrentSong();
+  loopTracks.forEach(function(t, i) {
+    var savedPart = _syncSong?.loopTracks?.[i]?.partId;
+    if (savedPart !== undefined) t.partId = savedPart;
+  });
   loopTracks.forEach(function(t, i) {
     if (t.partId === partId && t.buffer && t.state !== 'recording') {
       t.state = 'playing'; loopStartPlayback(i);
@@ -8198,6 +8220,7 @@ function renderSequencerHtml(song) {
         <div style="margin-bottom:10px;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
             <div class="seq-chords-row" id="seqChordPills" style="margin-bottom:0;flex:1;"></div>
+            <button class="seq-chord-mode-btn" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Compose mode — clicking a chord fills the next grid slot">✏ Compose</button>
             <button class="seq-humanize-btn" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords — adds subtle timing variation so they feel less robotic">〜 Humanize</button>
             <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;flex-shrink:0;" onclick="seqClearAllChordSlots()">Clear</button>
           </div>
@@ -8425,6 +8448,13 @@ function seqSwitchToSequence(idx) {
   // Load new sequence into DOM
   seqLoadSequenceIntoDOM(seqs[idx], song);
   seqRenderSequenceTabs();
+
+  // If playing in single-loop mode, re-trigger loops for the new sequence's part
+  if (seqIsPlaying && _seqPlayMode === 'loop') {
+    const _newSeq = seqs[idx];
+    const _newPartId = _newSeq?.partId || _newSeq?.part || document.getElementById('seqPartAssign')?.value || null;
+    _seqTriggerLoopsForPart(_newPartId);
+  }
 }
 
 function seqSaveAllToCurrent(song) {
@@ -8946,8 +8976,27 @@ function seqClearAllChordSlots() {
   seqSaveChordSlots();
 }
 
+function seqToggleChordMode() {
+  seqChordMode = seqChordMode === 'compose' ? 'preview' : 'compose';
+  const btn = document.getElementById('seqChordModeBtn');
+  if (btn) {
+    btn.textContent = seqChordMode === 'compose' ? '✏ Compose' : '▶ Preview';
+    btn.title = seqChordMode === 'compose'
+      ? 'Compose mode — clicking a chord fills the next grid slot'
+      : 'Preview mode — clicking a chord just plays it, nothing is added to the grid';
+    btn.classList.toggle('active', seqChordMode === 'preview');
+  }
+  // Update pill tooltips
+  document.querySelectorAll('.seq-chord-pill').forEach(pill => {
+    pill.title = seqChordMode === 'compose'
+      ? 'Click to fill next slot · Drag into grid'
+      : 'Click to preview chord · Drag into grid to compose';
+  });
+}
+
 function seqClickFillChord(name, degree) {
   seqPlayChordByName(name);
+  if (seqChordMode === 'preview') return; // preview only — don't fill the grid
   // Find next empty slot in the chord grid
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
   const emptySlot = slots.find(s => !s.classList.contains('filled'));
@@ -14837,6 +14886,8 @@ function loopOnSongChange(song) {
   if (nameEl) nameEl.textContent = song ? (song.title || song.workingTitle || 'Untitled') : '';
   const banner = document.getElementById('looperNoSongBanner');
   if (banner) banner.style.display = 'none'; // replaced by picker
+  // Always re-sync part selects when song changes, even if drawer is closed
+  loopSyncPartSelects();
   if (document.getElementById('looperDrawer')?.classList.contains('open')) {
     if (!loopSongId) {
       // Render the picker into its container
@@ -14867,6 +14918,27 @@ function loopSaveTrackSetting(i, key, value) {
   song.loopTracks[i][key] = value;
   if (loopTracks[i]) loopTracks[i][key] = value;
   save();
+}
+
+// Sync part-select dropdowns and in-memory partIds to the current song's saved data.
+// Safe to call on song change — does NOT clear audio buffers.
+function loopSyncPartSelects() {
+  const song = getCurrentSong();
+  for (let i = 0; i < 4; i++) {
+    const saved   = song?.loopTracks?.[i] || {};
+    const partId  = saved.partId    || '';
+    const count   = saved.loopCount || 1;
+    // Sync in-memory track
+    if (loopTracks[i]) {
+      loopTracks[i].partId    = partId;
+      loopTracks[i].loopCount = count;
+    }
+    // Sync UI selects
+    const partEl  = document.getElementById(`ltrack-part-${i}`);
+    const countEl = document.getElementById(`ltrack-count-${i}`);
+    if (partEl)  partEl.value  = partId;
+    if (countEl) countEl.value = String(count);
+  }
 }
 function loopBuildUI() {
   const grid = document.getElementById('loopTracksGrid');
@@ -16829,6 +16901,65 @@ document.addEventListener('keydown', function(e) {
   if (document.getElementById('inspoDrawer')?.classList.contains('open'))      closeInspoDrawer();
 });
 
+
+// ── Global drawer hotkeys ───────────────────────────────────────────
+// T=tape, K=keyboard, S=sequencer, L=looper, M=mix, R=run-through, E=editor, B=backend
+document.addEventListener('keydown', function(e) {
+  // Don't fire when typing in inputs
+  const tag = e.target?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+  // Don't fire when modifier keys are held (e.g. Ctrl+S for save)
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  switch (e.key.toLowerCase()) {
+    case 't': {
+      e.preventDefault();
+      const overlay = document.getElementById('vrOverlay');
+      if (overlay?.classList.contains('vr-open')) vrClose(); else vrOpen();
+      break;
+    }
+    case 'k': {
+      e.preventDefault();
+      const kd = document.getElementById('keyboardDrawer');
+      if (kd?.classList.contains('open')) closeKeyboardDrawer(); else openKeyboardDrawer();
+      break;
+    }
+    case 's': {
+      e.preventDefault();
+      const sd = document.getElementById('seqDrawer');
+      if (sd?.classList.contains('open')) closeSeqDrawer(); else openSeqDrawer();
+      break;
+    }
+    case 'l': {
+      e.preventDefault();
+      const ld = document.getElementById('looperDrawer');
+      if (ld?.classList.contains('open')) closeLooperDrawer(); else openLooperDrawer();
+      break;
+    }
+    case 'm': {
+      e.preventDefault();
+      const md = document.getElementById('mixDrawer');
+      if (md?.classList.contains('open')) closeMixDrawer(); else openMixDrawer();
+      break;
+    }
+    case 'r': {
+      e.preventDefault();
+      const rd = document.getElementById('runThroughDrawer');
+      if (rd?.classList.contains('open')) closeRunThroughDrawer(); else openRunThroughDrawer();
+      break;
+    }
+    case 'e': {
+      e.preventDefault();
+      stickyGoEditor();
+      break;
+    }
+    case 'b': {
+      e.preventDefault();
+      stickyGoBackend();
+      break;
+    }
+  }
+});
 
 // ── Sequencer: keyboard 1-8 plays scale intervals ──────────────────
 document.addEventListener('keydown', function(e) {
