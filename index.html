@@ -6016,6 +6016,54 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 }
 /* ── End Storage Modal ───────────────────────────────────────── */
 
+/* ── Keyboard Shortcuts panel ───────────────────────────────── */
+.ks-wrap { position: relative; }
+.ks-btn {
+  background: none; border: none; cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.09em; text-transform: uppercase;
+  color: #ff2d8a; padding: 3px 7px; border-radius: 4px;
+  border: 1px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.ks-btn:hover { color: #ff69b4; border-color: rgba(255,45,138,0.3); }
+.ks-panel {
+  display: none; position: absolute; top: calc(100% + 8px); left: 0;
+  z-index: 9000; width: 280px;
+  background: var(--card); border: 1px solid var(--border2);
+  border-radius: 12px; padding: 14px 16px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+}
+.ks-panel.open { display: block; }
+.ks-title {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--gold); margin-bottom: 10px;
+}
+.ks-section-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 8px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--faint); margin: 8px 0 4px;
+}
+.ks-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 0;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted);
+}
+.ks-row span { flex: 1; }
+.ks-row kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+  color: var(--text); background: var(--card2);
+  border: 1px solid var(--border2); border-radius: 4px;
+  padding: 2px 6px; min-width: 22px;
+  box-shadow: 0 1px 0 var(--border2);
+  flex-shrink: 0;
+}
+.ks-sep { height: 1px; background: var(--border); margin: 6px 0; }
+@media(max-width:700px) { .ks-btn { display: none; } }
+
 </style>
 </head>
 <body>
@@ -6061,9 +6109,32 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 
 <!-- ── Header ───────────────────── -->
 <header class="site-header" id="siteHeader">
-  <!-- Left: logo + currently drafting -->
+  <!-- Left: logo + shortcuts link -->
   <div class="header-left" style="display:flex;flex-direction:column;align-items:flex-start;gap:0;">
-    <span class="header-logo" onclick="showList()" style="cursor:pointer;" title="Back to drafts">Drafthaus</span>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <span class="header-logo" onclick="showList()" style="cursor:pointer;" title="Back to drafts">Drafthaus</span>
+      <div class="ks-wrap" id="ksWrap">
+        <button class="ks-btn" onclick="toggleKsPanel()" title="Keyboard shortcuts">Keyboard Shortcuts</button>
+        <div class="ks-panel" id="ksPanel">
+          <div class="ks-title">Keyboard Shortcuts</div>
+          <div class="ks-section-label">Views</div>
+          <div class="ks-row"><kbd>E</kbd><span>Lyrics view</span></div>
+          <div class="ks-row"><kbd>R</kbd><span>Rehearse (perf) mode</span></div>
+          <div class="ks-row"><kbd>B</kbd><span>Backend view</span></div>
+          <div class="ks-sep"></div>
+          <div class="ks-section-label">Drawers</div>
+          <div class="ks-row"><kbd>T</kbd><span>4-Track recorder</span></div>
+          <div class="ks-row"><kbd>K</kbd><span>Keyboard &amp; Melody</span></div>
+          <div class="ks-row"><kbd>S</kbd><span>Sequencer</span></div>
+          <div class="ks-row"><kbd>L</kbd><span>Looper</span></div>
+          <div class="ks-row"><kbd>M</kbd><span>Mix</span></div>
+          <div class="ks-sep"></div>
+          <div class="ks-section-label">General</div>
+          <div class="ks-row"><kbd>Esc</kbd><span>Close open drawer</span></div>
+          <div class="ks-row"><kbd>1</kbd>–<kbd>8</kbd><span>Play scale notes (Sequencer open)</span></div>
+        </div>
+      </div>
+    </div>
     <span id="headerDrafting"></span>
   </div>
 
@@ -18017,6 +18088,15 @@ document.addEventListener('click', function(e) {
   if (wrap && !wrap.contains(e.target)) wrap.classList.remove('open');
 });
 
+// ── Keyboard shortcuts panel ──────────────────────────────────────
+function toggleKsPanel() {
+  document.getElementById('ksPanel')?.classList.toggle('open');
+}
+document.addEventListener('click', function(e) {
+  const wrap = document.getElementById('ksWrap');
+  if (wrap && !wrap.contains(e.target)) document.getElementById('ksPanel')?.classList.remove('open');
+});
+
 // ── Search / filter ───────────────────────────────────────────────
 window._searchTerm = '';
 function filterSongs(val) {
@@ -18380,8 +18460,7 @@ document.addEventListener('keydown', function(e) {
       // R is reserved for tape record when tape is open
       if (document.getElementById('vrOverlay')?.classList.contains('vr-open')) break;
       e.preventDefault();
-      // Toggle Rehearse (perf) mode — same as the REHEARSE nav button
-      ilSetPerfMode(!window._ilPerfMode);
+      ilTogglePerfMode();
       break;
     }
     case 'e': {
