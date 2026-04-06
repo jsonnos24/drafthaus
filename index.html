@@ -2,8 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<link rel="icon" type="image/png" href="favicon.png">
-<link rel="icon" type="image/jpeg" href="favicon.jpeg"><!-- fallback if PNG not present -->
+<link rel="icon" type="image/jpeg" href="favicon.jpeg">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3000,7 +2999,6 @@ button, select, input, textarea { touch-action: manipulation; }
   .mix-ch input[type=range] {
     writing-mode: vertical-lr; direction: rtl;
     width: 28px; height: 90px; cursor: pointer; accent-color: var(--gold);
-    -webkit-appearance: slider-vertical;
   }
   .mix-ch-btns { display: flex; gap: 4px; }
   .mix-sm-btn {
@@ -8793,10 +8791,6 @@ function initSequencer(song) {
   // Migrate + redirect song.sequencer to active sequence
   getSongSequences(fresh);
   const sd = fresh.sequencer || {};
-
-  console.log('initSequencer called, sequencer keys:', Object.keys(sd).join(', '));
-  console.log('chordSlots:', (sd.chordSlots||[]).filter(Boolean).length, 'filled');
-  console.log('kick hits:', (sd.kick||[]).filter(Boolean).length);
 
   // Sync key dropdown in sequencer
   const seqKD = document.getElementById('seqKeySelect');
@@ -17796,7 +17790,7 @@ let _vrDevices         = { inputs: [], outputs: [] };
 let _mtAudioCtx     = null;
 let _mtMasterGain   = null;
 let _mtArmedTrack   = -1;   // 0–3 or -1
-let _mtIsPlaying    = false;
+var _mtIsPlaying    = false;
 let _mtPlayStartCtx = 0;    // audioCtx.currentTime when transport started
 let _mtPlayheadRaf  = null;
 let _mtRecTimer     = null;
@@ -18271,12 +18265,20 @@ async function _mtFinishRecording(trackIdx, mimeType) {
   }
 
   _vrUploading = true;
-  await _uploadTake(blob, durSec, mimeType, trackIdx);
+  const newTake = await _uploadTake(blob, durSec, mimeType, trackIdx);
   _vrUploading = false;
   _setStatus('Saved ✓');
-  // Reset active take index so vrLoadTakes() auto-selects the newly recorded take
-  if (_mtTracks[trackIdx]) _mtTracks[trackIdx].activeTakeIdx = -1;
-  vrLoadTakes();
+  // Reload the takes list, then load the newly recorded take directly by ID
+  await vrLoadTakes();
+  if (newTake && _mtTracks[trackIdx]) {
+    const t = _mtTracks[trackIdx];
+    const idx = t.takes.findIndex(tk => tk.id === newTake.id);
+    if (idx >= 0) {
+      t.activeTakeIdx = idx;
+      await _mtLoadTakeBuffer(trackIdx, t.takes[idx]);
+      _mtRenderTakesPanel(trackIdx);
+    }
+  }
   _el('mtPlayBtn').disabled = !_mtTracks.some(t=>t&&t.buffer);
 }
 
@@ -18297,7 +18299,7 @@ async function _vrGetQuota() {
   } catch(e) { return { used: 0, remaining: VR_QUOTA_SECONDS }; }
 }
 
-// ── Upload (with trackNum) ─────────────────────────────────────
+// ── Upload (with trackNum) — returns new doc ID ────────────────
 async function _uploadTake(blob, duration, mimeType, trackIdx) {
   const uid = auth.currentUser?.uid;
   const ext = mimeType.includes('webm') ? 'webm' : (mimeType.includes('wav') ? 'wav' : 'ogg');
@@ -18307,7 +18309,7 @@ async function _uploadTake(blob, duration, mimeType, trackIdx) {
     const ref  = firebase.storage().ref(path);
     const snap = await ref.put(blob, { contentType: mimeType });
     const url  = await snap.ref.getDownloadURL();
-    await db.collection('voice_takes').add({
+    const docRef = await db.collection('voice_takes').add({
       songId: _vrSongId, userId: uid,
       filename: fname, storagePath: path,
       downloadUrl: url,
@@ -18316,9 +18318,12 @@ async function _uploadTake(blob, duration, mimeType, trackIdx) {
       trackNum: typeof trackIdx === 'number' ? trackIdx : 0,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
+    return { id: docRef.id, downloadUrl: url, mimeType, duration: Math.round(duration),
+             trackNum: typeof trackIdx === 'number' ? trackIdx : 0 };
   } catch(err) {
     console.error('[MT] upload error', err);
     _setStatus('Upload failed — check storage rules');
+    return null;
   }
 }
 
@@ -18390,7 +18395,10 @@ async function _mtLoadTakeBuffer(trackIdx, take) {
     // Update master duration display
     const dur = _mtMaxDuration();
     const dd = _el('mtDurDisplay'); if(dd) dd.textContent=_fmtDur(dur);
-  } catch(e) { console.warn('[MT] buffer load failed track '+trackIdx, e); }
+  } catch(e) {
+    console.warn('[MT] buffer load failed track '+trackIdx, e);
+    _setStatus('⚠ Could not load audio — ' + (e?.message || 'network error'));
+  }
 }
 
 function _mtDrawTrackWaveform(trackIdx, buffer, color) {
