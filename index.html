@@ -5566,6 +5566,82 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 }
 .vr-feedback-warn.visible { display: block; }
 
+/* ── Ensemble Launcher ───────────────────────────────────────── */
+.mt-ensemble {
+  margin: 6px 12px 2px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+}
+.mt-ensemble-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 8px; font-weight: 700;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  color: #6a5a42; margin-bottom: 8px;
+}
+.mt-ensemble-chips {
+  display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 9px;
+}
+.mt-ensemble-chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 9px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px; cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+  color: #6a5a42;
+  transition: all 0.15s;
+  user-select: none;
+}
+.mt-ensemble-chip:hover {
+  background: rgba(255,255,255,0.07); color: #9a8a6a;
+}
+.mt-ensemble-chip.active {
+  background: rgba(200,169,110,0.12);
+  border-color: rgba(200,169,110,0.35);
+  color: #c8a96e;
+}
+.mt-ensemble-chip .chip-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; opacity: 0.5; flex-shrink: 0;
+}
+.mt-ensemble-chip.active .chip-dot { opacity: 1; }
+.mt-ensemble-btns {
+  display: flex; gap: 7px;
+}
+.mt-ensemble-launch {
+  flex: 1; padding: 7px 10px;
+  background: rgba(80,200,100,0.1);
+  border: 1px solid rgba(80,200,100,0.3);
+  border-radius: 6px; cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  color: #6ecb82; text-transform: uppercase;
+  transition: all 0.15s;
+}
+.mt-ensemble-launch:hover {
+  background: rgba(80,200,100,0.18);
+  border-color: rgba(80,200,100,0.5);
+  box-shadow: 0 0 10px rgba(80,200,100,0.2);
+}
+.mt-ensemble-stop {
+  padding: 7px 12px;
+  background: rgba(200,80,80,0.1);
+  border: 1px solid rgba(200,80,80,0.3);
+  border-radius: 6px; cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  color: #c86060; text-transform: uppercase;
+  transition: all 0.15s;
+}
+.mt-ensemble-stop:hover {
+  background: rgba(200,80,80,0.18);
+  border-color: rgba(200,80,80,0.5);
+  box-shadow: 0 0 10px rgba(200,80,80,0.2);
+}
+
 /* ── 4-Track lanes ───────────────────────────────────────────── */
 .mt-tracks {
   padding: 8px 12px 4px;
@@ -18809,6 +18885,7 @@ window.vrOpen = function(autoRecord) {
   if (!_mtTracks.length) mtBuildUI();
   _vrEnumerateDevices();
   vrLoadTakes();
+  ensembleInitUI();
 };
 
 window.vrClose = function() {
@@ -18819,6 +18896,82 @@ window.vrClose = function() {
 
 window.vrOverlayClick = function(e) {
   if (e.target === _el('vrOverlay')) vrClose();
+};
+
+// ══ ENSEMBLE LAUNCHER ═══════════════════════════════════════════
+const _ENS_STORAGE_KEY = 'drafthaus-ensemble';
+const _ENS_DEFAULTS = { '4track': true, seq: true, kbd: true, loop: true };
+
+function _ensembleGetPrefs() {
+  try { return Object.assign({}, _ENS_DEFAULTS, JSON.parse(localStorage.getItem(_ENS_STORAGE_KEY) || '{}')); }
+  catch(e) { return Object.assign({}, _ENS_DEFAULTS); }
+}
+
+function _ensembleSavePrefs(prefs) {
+  try { localStorage.setItem(_ENS_STORAGE_KEY, JSON.stringify(prefs)); } catch(e) {}
+}
+
+window.ensembleInitUI = function() {
+  const prefs = _ensembleGetPrefs();
+  Object.keys(_ENS_DEFAULTS).forEach(key => {
+    const chip = document.getElementById('ensChip-' + key);
+    if (chip) chip.classList.toggle('active', !!prefs[key]);
+  });
+};
+
+window.ensembleToggleChip = function(key) {
+  const prefs = _ensembleGetPrefs();
+  prefs[key] = !prefs[key];
+  _ensembleSavePrefs(prefs);
+  const chip = document.getElementById('ensChip-' + key);
+  if (chip) chip.classList.toggle('active', prefs[key]);
+};
+
+window.ensembleLaunch = function() {
+  const prefs = _ensembleGetPrefs();
+  const song = songs.find(s => s.id === currentId);
+
+  // 4-Track: play only if there are loaded tracks
+  if (prefs['4track']) {
+    if (_mtTracks.some(t => t && t.buffer) && !_mtIsPlaying) {
+      mtPlay();
+    }
+  }
+
+  // Chord Progression (Sequencer): boot DOM if needed then play
+  if (prefs.seq && !seqIsPlaying) {
+    if (song) {
+      _rowSeqBoot(song);
+    } else if (!seqIsPlaying) {
+      seqPlay();
+    }
+  }
+
+  // Looper: start any idle tracks that have buffers loaded
+  if (prefs.loop) {
+    loopEnsureAudioCtx().then(() => {
+      loopTracks.forEach((t, i) => {
+        if (t.buffer && t.state !== 'playing' && t.state !== 'recording') {
+          loopUnmuteTrack(i);
+        }
+      });
+    }).catch(() => {});
+  }
+
+  // Keyboard: open the keyboard drawer (no auto-play available)
+  if (prefs.kbd) {
+    const kd = document.getElementById('keyboardDrawer');
+    if (kd && !kd.classList.contains('open')) openKeyboardDrawer();
+  }
+};
+
+window.ensembleStop = function() {
+  // Stop 4-track
+  vrStop();
+  // Stop sequencer
+  if (seqIsPlaying) seqStop();
+  // Stop looper
+  loopMasterStop();
 };
 
 // Close any open takes panel when clicking outside it
@@ -20417,6 +20570,29 @@ document.addEventListener('DOMContentLoaded', () => {
     <div id="vrMonPill"><span class="vr-mon-icon">🎧</span><span id="vrMonLabel">Monitor: Auto</span></div>
     <div class="vr-feedback-warn" id="vrFeedbackWarn">
       ⚠ Input &amp; output on same device — use your interface's direct monitor to avoid feedback
+    </div>
+
+    <!-- ── Ensemble Launcher ── -->
+    <div class="mt-ensemble" id="mtEnsemble">
+      <div class="mt-ensemble-label">Launch Together</div>
+      <div class="mt-ensemble-chips">
+        <div class="mt-ensemble-chip active" id="ensChip-4track" onclick="ensembleToggleChip('4track')">
+          <span class="chip-dot"></span>4-Track
+        </div>
+        <div class="mt-ensemble-chip active" id="ensChip-seq" onclick="ensembleToggleChip('seq')">
+          <span class="chip-dot"></span>Chord Prog
+        </div>
+        <div class="mt-ensemble-chip active" id="ensChip-kbd" onclick="ensembleToggleChip('kbd')">
+          <span class="chip-dot"></span>Keyboard
+        </div>
+        <div class="mt-ensemble-chip active" id="ensChip-loop" onclick="ensembleToggleChip('loop')">
+          <span class="chip-dot"></span>Looper
+        </div>
+      </div>
+      <div class="mt-ensemble-btns">
+        <button class="mt-ensemble-launch" onclick="ensembleLaunch()">▶ Launch Together</button>
+        <button class="mt-ensemble-stop" onclick="ensembleStop()">■ Stop All</button>
+      </div>
     </div>
 
     <!-- ── 4 Track lanes ── -->
