@@ -4269,12 +4269,12 @@ button, select, input, textarea { touch-action: manipulation; }
 /* Lyrics editor */
 .il-lyrics-edit-wrap { margin-top: 10px; }
 .il-lyrics-edit-toggle-btn {
-  background: none; border: none; color: var(--faint);
-  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
-  text-transform: uppercase; letter-spacing: 0.1em;
-  cursor: pointer; padding: 2px 0; transition: color 0.12s; display: block;
+  background: none; border: none; color: var(--gold);
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600;
+  cursor: pointer; padding: 4px 0; transition: color 0.12s; display: block;
 }
-.il-lyrics-edit-toggle-btn:hover { color: var(--gold); }
+.il-lyrics-edit-toggle-btn:hover { color: #fff; }
 .il-lyrics-raw {
   font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--text);
   background: rgba(255,255,255,0.04); border: 1px solid var(--border2); border-radius: 6px;
@@ -4287,6 +4287,10 @@ button, select, input, textarea { touch-action: manipulation; }
 
 /* ── Performance mode (Run Through view) ────────────────────────── */
 /* Applied via .il-perf-mode on #songViewRunthrough */
+
+/* Hide add-section and empty-lyrics placeholder in all run-through views */
+#songViewRunthrough .il-add-section-row { display: none; }
+#songViewRunthrough .il-cc-empty-lyrics { display: none; }
 
 /* Hide all editing controls */
 #songViewRunthrough.il-perf-mode .il-chord-palette { display: none; }
@@ -5623,7 +5627,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 #vrOverlay.vr-rt-compact {
   inset: auto;
   right: 0; top: 0; bottom: 0;
-  width: 300px;
+  width: 220px;
   background: transparent;
   backdrop-filter: none;
   padding: 0;
@@ -5631,24 +5635,27 @@ body.il-perf-active #ilScrollFloat { display: flex; }
   justify-content: flex-end;
 }
 #vrOverlay.vr-rt-compact #vrDeck {
-  width: 300px; max-width: 300px;
+  width: 220px; max-width: 220px;
   max-height: 100dvh; height: 100dvh;
-  border-radius: 14px 0 0 14px;
+  border-radius: 12px 0 0 12px;
   border-right: none;
   overflow-y: auto;
 }
-#vrOverlay.vr-rt-compact .vr-deck-header { padding: 8px 12px 6px; }
-#vrOverlay.vr-rt-compact .vr-deck-song   { font-size: 9px; }
-#vrOverlay.vr-rt-compact .vr-device-bar  { padding: 5px 10px; gap: 4px; }
-#vrOverlay.vr-rt-compact .vr-device-btn  { font-size: 9px; padding: 3px 6px; }
-#vrOverlay.vr-rt-compact #vrMonPill      { font-size: 9px; padding: 2px 10px; }
-#vrOverlay.vr-rt-compact .mt-tracks      { padding: 4px 8px 2px; }
-#vrOverlay.vr-rt-compact .mt-track       { margin-bottom: 4px; }
-#vrOverlay.vr-rt-compact .mt-waveform-wrap  { min-height: 34px; }
-#vrOverlay.vr-rt-compact .mt-waveform-canvas { height: 34px; }
-#vrOverlay.vr-rt-compact .mt-transport   { padding: 6px 10px 4px; }
-#vrOverlay.vr-rt-compact .vr-time-limit  { font-size: 9px; padding: 2px 10px 2px; }
-#vrOverlay.vr-rt-compact .vr-trash-toggle { padding: 5px 10px; font-size: 9px; }
+#vrOverlay.vr-rt-compact .vr-deck-header { padding: 6px 10px 4px; }
+#vrOverlay.vr-rt-compact .vr-deck-song   { font-size: 8px; }
+#vrOverlay.vr-rt-compact .vr-device-bar  { padding: 4px 8px; gap: 3px; }
+#vrOverlay.vr-rt-compact .vr-device-btn  { font-size: 8px; padding: 2px 5px; }
+#vrOverlay.vr-rt-compact #vrMonPill      { font-size: 8px; padding: 2px 8px; }
+#vrOverlay.vr-rt-compact .mt-tracks      { padding: 3px 6px 2px; }
+#vrOverlay.vr-rt-compact .mt-track       { margin-bottom: 3px; }
+#vrOverlay.vr-rt-compact .mt-waveform-wrap  { min-height: 26px; }
+#vrOverlay.vr-rt-compact .mt-waveform-canvas { height: 26px; }
+#vrOverlay.vr-rt-compact .mt-transport   { padding: 4px 8px 3px; }
+#vrOverlay.vr-rt-compact .vr-time-limit  { font-size: 8px; padding: 2px 8px; }
+#vrOverlay.vr-rt-compact .vr-trash-toggle { padding: 4px 8px; font-size: 8px; }
+#vrOverlay.vr-rt-compact .mt-arm-btn,
+#vrOverlay.vr-rt-compact .mt-takes-btn  { font-size: 8px; padding: 2px 5px; }
+#vrOverlay.vr-rt-compact .mt-track-label { font-size: 8px; }
 
 /* ── Mini recording bar ──────────────────────────────────────── */
 #vrMiniBar {
@@ -7058,6 +7065,26 @@ function addSectionToSong(partId) {
   song.structure[partId] = { ...(song.structure[partId] || {}), checked: true, count: song.structure[partId]?.count || 1 };
   if (!song.sectionOrder.includes(partId)) song.sectionOrder.push(partId);
   song.updatedAt = Date.now();
+
+  // Auto-create a blank sequence for this part if one doesn't exist yet
+  const seqs = getSongSequences(song);
+  const alreadyHasSeq = seqs.some(s => (s.partId || s.part) === partId);
+  if (!alreadyHasSeq) {
+    const cur = seqs[seqActiveIdx] || seqs[0] || {};
+    seqs.push({
+      id: 'seq_' + Date.now(),
+      partId: partId, part: partId,
+      bpm: cur.bpm || '100', time: cur.time || '4',
+      bars: cur.bars || '16', grid: cur.grid || '1',
+      swing: cur.swing || '0', vel: cur.vel || '0.8',
+      wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano+synth',
+      chordSlots: [], chordDegrees: [],
+      kick: [], snare: [], hat: [], clap: [], melody: [],
+      melodyQuantize: true, mixer: {},
+    });
+    if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
+  }
+
   save();
   renderStructure(song);
   scheduleSyncToSheet(song);
@@ -8673,6 +8700,7 @@ function renderSequencerHtml(song) {
       <!-- Play / Stop / Metro -->
       <div class="seq-ctrl-group" style="margin-left:auto;">
         <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:13px;padding:8px 20px;font-weight:700;">▶ Play</button>
+        <button class="seq-btn seq-btn-play" onclick="seqPlaySong()" style="margin-left:4px;font-size:13px;padding:8px 20px;font-weight:700;" title="Play all parts in order">▶▶ All</button>
         <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="margin-left:4px;font-size:13px;padding:8px 20px;font-weight:700;">■ Stop</button>
         <button class="seq-btn seq-btn-met" id="seqMetBtn" onclick="seqToggleMet()" style="margin-left:4px;">Metro</button>
       </div>
@@ -8928,10 +8956,7 @@ function seqRenderSequenceTabs() {
     ${tabsHtml}
     <button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button>
     <span class="seq-tab-spacer"></span>
-    ${nowPlayingHtml}
-    <button class="seq-play-song-btn${(_seqPlayMode==='song'&&seqIsPlaying)?' playing':''}" onclick="seqPlaySong()" title="Play all sequences in draft order" ${seqs.length < 2 ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : ''}>
-      ▶ Play All Sequences
-    </button>`;
+    ${nowPlayingHtml}`;
 }
 
 function seqSwitchToSequence(idx) {
@@ -16466,16 +16491,60 @@ function ilScrollSpeedChange(val) {
 }
 
 // Seq play/stop toggle for perf mode metro bar
+var _rtSeqCountdownTimer = null;
 function rtSeqTogglePlay() {
-  if (seqIsPlaying) {
+  const btn = document.getElementById('rtSeqPlayBtn');
+  // If playing or counting down, stop everything
+  if (seqIsPlaying || _rtSeqCountdownTimer) {
+    clearTimeout(_rtSeqCountdownTimer); _rtSeqCountdownTimer = null;
     seqStop();
-    const btn = document.getElementById('rtSeqPlayBtn');
     if (btn) btn.textContent = '▶ Seq';
-  } else {
-    seqPlay();
-    const btn = document.getElementById('rtSeqPlayBtn');
-    if (btn) btn.textContent = '■ Seq';
+    const cd = document.getElementById('rtSeqCountdown');
+    if (cd) cd.remove();
+    return;
   }
+  // Build full-screen countdown overlay
+  const existing = document.getElementById('rtSeqCountdown');
+  if (existing) existing.remove();
+  const cd = document.createElement('div');
+  cd.id = 'rtSeqCountdown';
+  cd.style.cssText = 'position:fixed;bottom:140px;right:24px;z-index:9999;display:flex;flex-direction:column;' +
+    'align-items:center;pointer-events:none;' +
+    'background:rgba(10,10,14,0.85);border-radius:16px;padding:16px 28px 12px;' +
+    'box-shadow:0 4px 32px rgba(0,0,0,0.6);border:1px solid rgba(245,166,35,0.25);';
+  cd.innerHTML = '<div id="rtSeqCdLabel" style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;' +
+    'letter-spacing:0.2em;text-transform:uppercase;color:var(--gold);margin-bottom:8px;opacity:0.7;">Starting in</div>' +
+    '<div id="rtSeqCdNum" style="font-family:\'IBM Plex Mono\',monospace;font-size:80px;font-weight:700;' +
+    'color:var(--gold);line-height:1;text-shadow:0 0 30px rgba(245,166,35,0.7),0 0 60px rgba(245,166,35,0.3);' +
+    'animation:rtCdPop 0.3s cubic-bezier(0.34,1.56,0.64,1) both;"></div>';
+  document.body.appendChild(cd);
+  // Inject keyframe if not already present
+  if (!document.getElementById('rtCdStyle')) {
+    const s = document.createElement('style');
+    s.id = 'rtCdStyle';
+    s.textContent = '@keyframes rtCdPop{from{transform:scale(1.7);opacity:0}to{transform:scale(1);opacity:1}}';
+    document.head.appendChild(s);
+  }
+  if (btn) btn.textContent = '■ Seq';
+  let count = 4;
+  function tick() {
+    const numEl = document.getElementById('rtSeqCdNum');
+    if (!numEl) return;
+    if (count === 0) {
+      cd.remove();
+      _rtSeqCountdownTimer = null;
+      seqPlay();
+      ilScrollStart();
+      return;
+    }
+    // Re-trigger animation by replacing the element
+    numEl.style.animation = 'none';
+    numEl.textContent = count;
+    requestAnimationFrame(() => { numEl.style.animation = 'rtCdPop 0.3s cubic-bezier(0.34,1.56,0.64,1) both'; });
+    count--;
+    _rtSeqCountdownTimer = setTimeout(tick, 1000);
+  }
+  tick();
 }
 
 function ilTogglePerfMode() {
@@ -18192,6 +18261,10 @@ window.vrToggleRec = async function() {
 
     _vrRecording = true;
     _mtRecStartMs = Date.now();
+
+    // Arm Sequencer: auto-start sequencer when recording begins
+    if (_vrSeqArmed && !seqIsPlaying) { seqPlay(); }
+
     _el('mtStopBtn').disabled = false;
     _el('mtPlayBtn').disabled = true;
     _el('mtMiniBar', 'vrMiniBar'); // show mini bar
