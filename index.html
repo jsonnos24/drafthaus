@@ -3430,6 +3430,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .looper-drawer-body .track-card.recording { border-color: #ff2200; }
   .looper-drawer-body .track-card.preroll { border-color: #ff9900; }
   .looper-drawer-body .track-card.playing { border-color: #00e87a; }
+  .looper-drawer-body .track-card.ready { border-color: rgba(200,169,110,0.5); }
   .looper-drawer-body .track-num {
     font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 1.5px; color: #ffd166;
   }
@@ -3439,6 +3440,7 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .looper-drawer-body .track-card.recording .track-state-label { color: #ff2200; }
   .looper-drawer-body .track-card.playing .track-state-label { color: #00e87a; }
+  .looper-drawer-body .track-card.ready .track-state-label { color: #e8c84a; }
   .looper-drawer-body .ring-wrap { position: relative; width: 52px; height: 52px; cursor: pointer; flex-shrink: 0; }
   .looper-drawer-body .ring-wrap:hover .ring-btn { filter: brightness(1.15); }
   .looper-drawer-body .ring-canvas { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; }
@@ -3453,6 +3455,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .looper-drawer-body .ring-btn:active { transform: scale(0.97); }
   .looper-drawer-body .track-card.recording .ring-btn { border-color: #ff2200; box-shadow: inset 0 2px 8px rgba(0,0,0,0.5), 0 0 20px rgba(255,34,0,0.25); }
   .looper-drawer-body .track-card.playing .ring-btn { border-color: #00e87a; box-shadow: inset 0 2px 8px rgba(0,0,0,0.5), 0 0 20px rgba(0,232,122,0.2); }
+  .looper-drawer-body .track-card.ready .ring-btn { border-color: rgba(200,169,110,0.6); box-shadow: inset 0 2px 8px rgba(0,0,0,0.5), 0 0 12px rgba(200,169,110,0.15); }
   .looper-drawer-body .ring-btn-icon { font-size: 10px; line-height: 1; transition: color 0.15s; }
   .looper-drawer-body .ring-btn-label { font-family: 'IBM Plex Mono', monospace; font-size: 6px; letter-spacing: 1px; color: #ffd166; text-transform: uppercase; }
   .looper-drawer-body .track-controls { display: flex; gap: 8px; align-items: center; width: 100%; }
@@ -7206,6 +7209,8 @@ function _drawerQuickLoad(id, afterLoad) {
       if (full && currentId === id) afterLoad(full);
     });
   }
+  // Pre-load 4-track takes and saved loops in the background so Launch works immediately
+  setTimeout(() => { mtPreloadForSong(id); loopPreloadForSong(id); }, 0);
 }
 
 // Create a new song silently without navigating away from any open drawer.
@@ -7288,6 +7293,9 @@ function openSong(id) {
       }
     });
   }
+
+  // Pre-load 4-track takes and saved loops in the background so Launch works immediately
+  setTimeout(() => { mtPreloadForSong(id); loopPreloadForSong(id); }, 0);
 }
 
 function populateSongFields(song) {
@@ -16421,6 +16429,7 @@ var loopAudioCtx = null;
 var loopMetroScheduler = null; var loopMetroBeat = 0;
 var loopMetroNextTime = 0; var loopMetroRunning = false;
 var loopSharedStream = null; var loopTracks = []; var loopBuilt = false;
+var _loopPreloadedSongId = null; // song ID whose loops have been background-loaded
 var loopSongId = null;
 var loopMasterGain = null; // master fader for all looper output
 
@@ -16625,7 +16634,10 @@ function loopScheduleVisualBeat(beat,delay){
 }
 async function loopHandleTrackClick(i){
   await loopEnsureAudioCtx();const t=loopTracks[i];
-  if(t.state==='idle')loopStartRecording(i);
+  if(t.state==='idle'){
+    if(t.buffer){t.state='playing';loopStartPlayback(i);loopUpdateTrackUI(i);loopStartMetronome();}
+    else loopStartRecording(i);
+  }
   else if(t.state==='preroll')loopClearTrack(i);
   else if(t.state==='recording')loopFinishRecording(i,true);
   else if(t.state==='playing')loopMuteTrack(i);
@@ -16808,10 +16820,12 @@ function loopUpdateTrackUI(i){
   const t=loopTracks[i];
   const card=document.getElementById(`ltrack-card-${i}`);if(!card)return;
   const icon=document.getElementById(`lring-icon-${i}`),label=document.getElementById(`lring-label-${i}`),stl=document.getElementById(`lstate-label-${i}`);
-  card.className='track-card'+(t.state==='recording'?' recording':t.state==='preroll'?' preroll':t.state==='playing'?' playing':'');
-  const map={idle:{icon:'⏺',lbl:'Record',state:'EMPTY'},preroll:{icon:'⏳',lbl:'Cancel',state:'COUNT IN'},recording:{icon:'⏹',lbl:'Stop Rec',state:'REC...'},playing:{icon:'⏸',lbl:'Mute',state:'PLAY'},muted:{icon:'▶',lbl:'Unmute',state:'MUTED'}};
+  const _isReady = t.state==='idle' && !!t.buffer;
+  card.className='track-card'+(t.state==='recording'?' recording':t.state==='preroll'?' preroll':t.state==='playing'?' playing':_isReady?' ready':'');
+  const idleMode = _isReady ? {icon:'▶',lbl:'Play',state:'READY'} : {icon:'⏺',lbl:'Record',state:'EMPTY'};
+  const map={idle:idleMode,preroll:{icon:'⏳',lbl:'Cancel',state:'COUNT IN'},recording:{icon:'⏹',lbl:'Stop Rec',state:'REC...'},playing:{icon:'⏸',lbl:'Mute',state:'PLAY'},muted:{icon:'▶',lbl:'Unmute',state:'MUTED'}};
   const m=map[t.state]||map.idle;
-  if(icon)icon.textContent=m.icon;if(label)label.textContent=m.lbl;if(stl){stl.textContent=m.state;stl.style.color=t.state==='preroll'?'#ff9900':t.state==='recording'?'#ff2200':t.state==='playing'?'#00e87a':t.state==='muted'?'#888':'#ffd166';}
+  if(icon)icon.textContent=m.icon;if(label)label.textContent=m.lbl;if(stl){stl.textContent=m.state;stl.style.color=t.state==='preroll'?'#ff9900':t.state==='recording'?'#ff2200':t.state==='playing'?'#00e87a':t.state==='muted'?'#888':_isReady?'#e8c84a':'#ffd166';}
   loopUpdateMonitorPill();
 }
 function loopUpdateMonitorPill() {
@@ -16972,6 +16986,62 @@ async function loopDeleteSavedLoop(docId, storagePath) {
     }
   } catch(e) {
     console.error('[Looper] delete error', e);
+  }
+}
+
+// ── Silent background preload — called on song open so Loop Launch works immediately ──
+async function loopPreloadForSong(songId) {
+  if (!songId || !loopTracks.length) return;
+  // Skip if buffers are already loaded for this song
+  if (_loopPreloadedSongId === songId && loopTracks.some(t => t && t.buffer)) return;
+  // Clear buffers from a previously-loaded song (only if not actively recording/playing)
+  if (_loopPreloadedSongId !== songId && !loopAnyTrackActive()) {
+    loopTracks.forEach((t, i) => { if (t) loopClearTrack(i); });
+  }
+  try {
+    const snap = await db.collection('song_loops')
+      .where('songId', '==', songId)
+      .orderBy('createdAt', 'asc')
+      .get();
+    if (snap.empty) return;
+    // Most recent saved loop per trackNum
+    const byTrack = {};
+    snap.docs.forEach(doc => {
+      const d = doc.data();
+      const ti = typeof d.trackNum === 'number' ? Math.min(3, Math.max(0, d.trackNum)) : 0;
+      byTrack[ti] = { id: doc.id, ...d };
+    });
+    const song = songs.find(s => s.id === songId);
+    await loopEnsureAudioCtx();
+    for (const [tiStr, loopDoc] of Object.entries(byTrack)) {
+      const ti = parseInt(tiStr, 10);
+      const t = loopTracks[ti]; if (!t || t.buffer) continue;
+      try {
+        const resp = await fetch(loopDoc.downloadUrl);
+        const arrayBuf = await resp.arrayBuffer();
+        const audioBuf = await loopAudioCtx.decodeAudioData(arrayBuf);
+        t.buffer = audioBuf;
+        t.recDuration = audioBuf.duration;
+        t.blob = null;
+        // Restore part assignment from saved song settings
+        const savedPart = song?.loopTracks?.[ti]?.partId || '';
+        t.partId = savedPart;
+        const partEl = document.getElementById(`ltrack-part-${ti}`);
+        if (partEl && savedPart) partEl.value = savedPart;
+        // Update bar counter and ring UI to show loaded state
+        const ctr = document.getElementById(`lbar-counter-${ti}`);
+        if (ctr) ctr.textContent = audioBuf.duration.toFixed(1) + 's';
+        loopUpdateTrackUI(ti);
+        if (t.canvas && t.ctx2d) loopDrawRing(t, LOOP_NUM_LEDS);
+      } catch(e) {
+        console.warn('[Looper] preload failed track', ti, e);
+      }
+    }
+    _loopPreloadedSongId = songId;
+    loopSyncPartSelects();
+    console.log('[Looper] preloaded loops for song', songId);
+  } catch(e) {
+    console.warn('[Looper] preload error', e);
   }
 }
 
@@ -18857,6 +18927,7 @@ let _mtRecTimer     = null;
 let _mtRecStartMs   = 0;
 let _mtStream       = null; // mic MediaStream (shared)
 let _mtTracks       = [];   // 4 track objects, built by mtBuildUI
+let _mtPreloadedSongId = null; // song ID whose takes have been background-loaded
 
 // ── Helpers ────────────────────────────────────────────────────
 function _el(id) { return document.getElementById(id); }
@@ -19529,6 +19600,10 @@ window.vrLoadTakes = async function() {
         if (!t.buffer || t.activeTakeIdx !== validIdx) {
           t.activeTakeIdx = validIdx;
           await _mtLoadTakeBuffer(i, activeTake);
+        } else {
+          // Buffer already loaded (preloaded in background) — re-draw waveform now
+          // that the canvas is visible and has correct dimensions
+          _mtDrawTrackWaveform(i, t.buffer, t.color);
         }
       }
     }
@@ -19542,6 +19617,44 @@ window.vrLoadTakes = async function() {
     hideDrawerLoading();
   }
 };
+
+// ── Silent background preload — called on song open so Launch works immediately ──
+async function mtPreloadForSong(songId) {
+  if (!songId) return;
+  // Skip if we already have buffers for this exact song
+  if (_mtPreloadedSongId === songId && _mtTracks.some(t => t && t.buffer)) return;
+  // Build track objects if the 4-track overlay was never opened
+  if (!_mtTracks.length) mtBuildUI();
+  // Clear stale buffers from a previously-loaded song (only if not playing)
+  if (_mtPreloadedSongId !== songId && !_mtIsPlaying && !_vrRecording) {
+    _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
+  }
+  try {
+    const snap = await db.collection('voice_takes')
+      .where('songId', '==', songId)
+      .orderBy('createdAt', 'asc')
+      .get();
+    const byTrack = [[],[],[],[]];
+    snap.docs.forEach(doc => {
+      const d = doc.data();
+      const ti = typeof d.trackNum === 'number' ? Math.min(3, Math.max(0, d.trackNum)) : 0;
+      byTrack[ti].push({ id: doc.id, ...d });
+    });
+    for (let i = 0; i < 4; i++) {
+      const t = _mtTracks[i]; if (!t) continue;
+      t.takes = byTrack[i];
+      if (t.takes.length > 0 && !t.buffer) {
+        const validIdx = t.takes.length - 1;
+        t.activeTakeIdx = validIdx;
+        await _mtLoadTakeBuffer(i, t.takes[validIdx]);
+      }
+    }
+    _mtPreloadedSongId = songId;
+    console.log('[MT] preloaded takes for song', songId);
+  } catch(e) {
+    console.warn('[MT] preload error', e);
+  }
+}
 
 async function _mtLoadTakeBuffer(trackIdx, take) {
   const t = _mtTracks[trackIdx]; if (!t) return;
