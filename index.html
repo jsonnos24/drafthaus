@@ -4328,8 +4328,10 @@ button, select, input, textarea { touch-action: manipulation; }
 #songViewRunthrough.il-perf-mode .il-part { margin-bottom: 16px; }
 /* No chart area gap since palette is gone */
 #songViewRunthrough.il-perf-mode .il-chart-area-row { margin-top: 2px; }
-/* Compact section label */
-#songViewRunthrough.il-perf-mode .il-part-side { padding-top: 0; }
+/* Remove section indicators entirely in perf mode (dot, line, label all gone) */
+#songViewRunthrough.il-perf-mode .il-part-side { display: none; }
+/* Header is hidden in perf mode — reclaim that space at the top */
+#songViewRunthrough.il-perf-mode { padding-top: 14px; }
 /* Clearance for fixed metronome bar + autoscroll bar (no bottom nav in perf mode) */
 #songViewRunthrough.il-perf-mode { padding-bottom: 160px; }
 
@@ -4447,8 +4449,9 @@ button, select, input, textarea { touch-action: manipulation; }
 }
 .rt-mso-row { display: flex; align-items: center; gap: 10px; }
 
-/* ── Perf mode: hide bottom nav + sticky song bar ───────────────── */
+/* ── Perf mode: hide bottom nav, top header + sticky song bar ───── */
 body.il-perf-active #bottomNav { display: none; }
+body.il-perf-active #siteHeader { display: none; }
 body.il-perf-active #stickySongBar { display: none !important; }
 /* In perf mode, Run Through button is redundant — hide it in both nav areas */
 body.il-perf-active #navSubRunBtn  { display: none; }
@@ -4621,11 +4624,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
   .il-part-side { width: 32px; padding-right: 10px; margin-right: 12px; }
   .il-part-name { font-size: 9px; }
   /* ── Perf mode mobile overrides ─────────────────────────────── */
-  /* Hide VERSE/CHORUS labels; keep just the colored dot + thin border strip */
-  #songViewRunthrough.il-perf-mode .il-part-side {
-    width: 10px; padding-right: 2px; margin-right: 8px; gap: 0;
-  }
-  #songViewRunthrough.il-perf-mode .il-part-name { display: none; }
+  /* Part side already hidden globally — no further override needed */
   /* Flush content with top of section indicator */
   #songViewRunthrough.il-perf-mode .il-chart-area-row { margin-top: 0; }
   /* Chord slot: tighter so chord sits right above the lyric */
@@ -4637,7 +4636,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
   /* Tighter spacing between lyric lines */
   #songViewRunthrough.il-perf-mode .il-cc-line { margin-bottom: 3px; }
   /* Less space between words */
-  #songViewRunthrough.il-perf-mode .il-cc-word-group { margin-right: 8px; margin-bottom: 0; }
+  #songViewRunthrough.il-perf-mode .il-cc-word-group { margin-right: 5px; margin-bottom: 0; }
   #songViewRunthrough.il-perf-mode .il-cc-word-col { padding: 0; }
 }
 
@@ -11934,13 +11933,7 @@ function rollInspoDie(dieIdx) {
           </div>`;
         result.style.opacity = '1';
       }
-      setTimeout(() => {
-        die.classList.remove('die-value-showing');
-        if (textEl) { textEl.textContent = dieLabel; textEl.setAttribute('font-size', '22'); }
-        if (result) { result.style.opacity = '0'; result.innerHTML = ''; }
-        die.style.pointerEvents = '';
-        _inspoRestoreDice();
-      }, 2000);
+      die.style.pointerEvents = '';
     } else if (dieRoll <= 10) {
       // Near-miss (9–10) — so close, still no song
       const nearMissLines = [
@@ -11958,13 +11951,7 @@ function rollInspoDie(dieIdx) {
           </div>`;
         result.style.opacity = '1';
       }
-      setTimeout(() => {
-        die.classList.remove('die-value-showing');
-        if (textEl) { textEl.textContent = dieLabel; textEl.setAttribute('font-size', '22'); }
-        if (result) { result.style.opacity = '0'; result.innerHTML = ''; }
-        die.style.pointerEvents = '';
-        _inspoRestoreDice();
-      }, 2000);
+      die.style.pointerEvents = '';
     } else {
       // High roll (11–20) — success, generate draft
       _inspoRolled     = generateInspoSong();
@@ -18071,8 +18058,6 @@ window.vrToggleArmSeq = function() {
 
 // ── Open from song list / perf mode ───────────────────────────
 window.vrMicFromList = function() {
-  const song = songs.find(s => s.id === currentId);
-  if (!song) { showToast('No song selected.', 'warn'); return; }
   if (_el('vrOverlay')?.classList.contains('vr-open')) { vrClose(); return; }
   vrOpen();
 };
@@ -18787,6 +18772,7 @@ window.vrToggleBtPanel = function(e) {
   const lat=_el('vrBtLatencyInput'); if(lat) lat.value=_vrBtLatencyMs;
   _el('vrBtLatencyRow').classList.toggle('visible',_vrBtSync);
   const r=btn.getBoundingClientRect();
+  panel.style.top='auto';
   panel.style.bottom=(window.innerHeight-r.top+6)+'px';
   panel.style.left=Math.min(r.left,window.innerWidth-266)+'px';
   panel.classList.add('open');
