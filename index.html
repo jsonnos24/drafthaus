@@ -5585,29 +5585,35 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 }
 .mt-ensemble-chip {
   display: flex; align-items: center; gap: 5px;
-  padding: 4px 9px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.1);
+  padding: 4px 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
   border-radius: 20px; cursor: pointer;
   font-family: 'IBM Plex Mono', monospace;
   font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
-  color: #6a5a42;
+  color: #4a3e2e;
+  opacity: 0.55;
   transition: all 0.15s;
   user-select: none;
+  -webkit-appearance: none; appearance: none;
+  text-align: left; line-height: 1;
 }
 .mt-ensemble-chip:hover {
-  background: rgba(255,255,255,0.07); color: #9a8a6a;
+  opacity: 0.8; color: #7a6a50;
 }
 .mt-ensemble-chip.active {
-  background: rgba(200,169,110,0.12);
-  border-color: rgba(200,169,110,0.35);
+  background: rgba(200,169,110,0.14);
+  border-color: rgba(200,169,110,0.4);
   color: #c8a96e;
+  opacity: 1;
 }
-.mt-ensemble-chip .chip-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: currentColor; opacity: 0.5; flex-shrink: 0;
+.mt-ensemble-chip.active:hover {
+  background: rgba(200,169,110,0.22);
 }
-.mt-ensemble-chip.active .chip-dot { opacity: 1; }
+.mt-ensemble-chip .chip-check {
+  font-size: 8px; flex-shrink: 0; opacity: 0;
+}
+.mt-ensemble-chip.active .chip-check { opacity: 1; }
 .mt-ensemble-btns {
   display: flex; gap: 7px;
 }
@@ -18900,7 +18906,7 @@ window.vrOverlayClick = function(e) {
 
 // ══ ENSEMBLE LAUNCHER ═══════════════════════════════════════════
 const _ENS_STORAGE_KEY = 'drafthaus-ensemble';
-const _ENS_DEFAULTS = { '4track': true, seq: true, kbd: true, loop: true };
+const _ENS_DEFAULTS = { '4track': true, seq: true, drums: true, kbd: true, loop: true };
 
 function _ensembleGetPrefs() {
   try { return Object.assign({}, _ENS_DEFAULTS, JSON.parse(localStorage.getItem(_ENS_STORAGE_KEY) || '{}')); }
@@ -18938,24 +18944,40 @@ window.ensembleLaunch = function() {
     }
   }
 
-  // Chord Progression (Sequencer): boot DOM if needed then play
-  if (prefs.seq && !seqIsPlaying) {
+  // Chord Progression + Drum Beat (both use the same sequencer)
+  if ((prefs.seq || prefs.drums) && !seqIsPlaying) {
     if (song) {
       _rowSeqBoot(song);
-    } else if (!seqIsPlaying) {
+    } else {
       seqPlay();
     }
   }
 
-  // Looper: start any idle tracks that have buffers loaded
+  // Looper: respect part assignments
   if (prefs.loop) {
-    loopEnsureAudioCtx().then(() => {
-      loopTracks.forEach((t, i) => {
-        if (t.buffer && t.state !== 'playing' && t.state !== 'recording') {
-          loopUnmuteTrack(i);
+    if (prefs.seq || prefs.drums) {
+      // Sequencer is also launching — seqPlay() calls _seqTriggerLoopsForPart()
+      // internally, so loop triggering is already handled. Do nothing here.
+    } else {
+      // Looper-only launch: trigger loops for the current sequence's part,
+      // the same way seqPlay does it, so part assignments are respected.
+      loopEnsureAudioCtx().then(() => {
+        const _curSeq = song ? (getSongSequences(song)[seqActiveIdx] || getSongSequences(song)[0]) : null;
+        const _partFromDom = document.getElementById('seqPartAssign')?.value || null;
+        const partId = _curSeq?.partId || _curSeq?.part || _partFromDom || null;
+        if (partId) {
+          _seqTriggerLoopsForPart(partId);
+        } else {
+          // No part context at all — fall back to starting any loaded, idle tracks
+          loopTracks.forEach((t, i) => {
+            if (t.buffer && t.state !== 'playing' && t.state !== 'recording') {
+              t.state = 'playing'; loopStartPlayback(i);
+              try { loopUpdateTrackUI(i); } catch(e) {}
+            }
+          });
         }
-      });
-    }).catch(() => {});
+      }).catch(() => {});
+    }
   }
 
   // Keyboard: open the keyboard drawer (no auto-play available)
@@ -20576,18 +20598,21 @@ document.addEventListener('DOMContentLoaded', () => {
     <div class="mt-ensemble" id="mtEnsemble">
       <div class="mt-ensemble-label">Launch Together</div>
       <div class="mt-ensemble-chips">
-        <div class="mt-ensemble-chip active" id="ensChip-4track" onclick="ensembleToggleChip('4track')">
-          <span class="chip-dot"></span>4-Track
-        </div>
-        <div class="mt-ensemble-chip active" id="ensChip-seq" onclick="ensembleToggleChip('seq')">
-          <span class="chip-dot"></span>Chord Prog
-        </div>
-        <div class="mt-ensemble-chip active" id="ensChip-kbd" onclick="ensembleToggleChip('kbd')">
-          <span class="chip-dot"></span>Keyboard
-        </div>
-        <div class="mt-ensemble-chip active" id="ensChip-loop" onclick="ensembleToggleChip('loop')">
-          <span class="chip-dot"></span>Looper
-        </div>
+        <button class="mt-ensemble-chip active" id="ensChip-4track" onclick="ensembleToggleChip('4track')">
+          <span class="chip-check">✓</span>4-Track
+        </button>
+        <button class="mt-ensemble-chip active" id="ensChip-seq" onclick="ensembleToggleChip('seq')">
+          <span class="chip-check">✓</span>Chord Prog
+        </button>
+        <button class="mt-ensemble-chip active" id="ensChip-drums" onclick="ensembleToggleChip('drums')">
+          <span class="chip-check">✓</span>Drum Beat
+        </button>
+        <button class="mt-ensemble-chip active" id="ensChip-kbd" onclick="ensembleToggleChip('kbd')">
+          <span class="chip-check">✓</span>Keyboard
+        </button>
+        <button class="mt-ensemble-chip active" id="ensChip-loop" onclick="ensembleToggleChip('loop')">
+          <span class="chip-check">✓</span>Looper
+        </button>
       </div>
       <div class="mt-ensemble-btns">
         <button class="mt-ensemble-launch" onclick="ensembleLaunch()">▶ Launch Together</button>
