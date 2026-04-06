@@ -3089,6 +3089,77 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .mix-sm-btn.solo-active { background: var(--gold); color: #0a0a0c; border-color: var(--gold); }
   .mix-sm-btn.mute-active { background: var(--red);  color: #fff;     border-color: var(--red); }
+
+  /* ── Mix drawer ensemble vertical faders ── */
+  .mix-ens-channels {
+    display: flex; gap: 10px; justify-content: center; padding: 4px 0;
+  }
+  .mix-ens-ch {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    min-width: 44px;
+  }
+  .mix-ens-ch-label {
+    font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint);
+    text-align: center; line-height: 1.2;
+  }
+  .mix-ens-btn {
+    width: 32px; height: 80px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border2);
+    border-radius: 4px; cursor: pointer;
+    position: relative; overflow: hidden; padding: 0;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+    -webkit-appearance: none; appearance: none;
+  }
+  .mix-ens-btn::before {
+    content: ''; position: absolute; top: 10px; bottom: 10px;
+    left: 50%; transform: translateX(-50%);
+    width: 3px; background: rgba(255,255,255,0.06); border-radius: 2px;
+  }
+  .mix-ens-knob {
+    position: absolute; left: 3px; right: 3px; height: 12px;
+    background: #1e1c18; border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 2px; z-index: 1;
+    top: 56px;
+    transition: top 0.15s, background 0.15s, border-color 0.15s;
+  }
+  .mix-ens-btn.active {
+    border-color: rgba(200,169,110,0.4);
+    background: rgba(200,169,110,0.06);
+    box-shadow: 0 0 8px rgba(200,169,110,0.1);
+  }
+  .mix-ens-btn.active .mix-ens-knob {
+    top: 10px;
+    background: #3a2e18;
+    border-color: rgba(200,169,110,0.6);
+  }
+  .mix-ens-btn:hover { border-color: rgba(200,169,110,0.2); }
+  .mix-ens-btn.active:hover { border-color: rgba(200,169,110,0.65); }
+  .mix-ens-launch-row {
+    display: flex; gap: 8px; margin-top: 10px;
+  }
+  .mix-ens-launch {
+    flex: 1; padding: 7px 8px;
+    background: rgba(80,200,100,0.08);
+    border: 1px solid rgba(80,200,100,0.25);
+    border-radius: 5px; cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.1em;
+    color: #6ecb82; text-transform: uppercase; transition: all 0.15s;
+  }
+  .mix-ens-launch:hover { background: rgba(80,200,100,0.15); border-color: rgba(80,200,100,0.45); }
+  .mix-ens-stop {
+    padding: 7px 10px;
+    background: rgba(200,80,80,0.08);
+    border: 1px solid rgba(200,80,80,0.25);
+    border-radius: 5px; cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.1em;
+    color: #c86060; text-transform: uppercase; transition: all 0.15s;
+  }
+  .mix-ens-stop:hover { background: rgba(200,80,80,0.15); border-color: rgba(200,80,80,0.45); }
+
   .bottom-nav-item.nav-mix .bottom-nav-label { color: #c8a0ff; }
   .bottom-nav-item.nav-mix .bottom-nav-icon  { filter: drop-shadow(0 0 4px #c8a0ff); }
 
@@ -5534,8 +5605,22 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 
 /* ── Device bar (carried over) ───────────────────────────────── */
 .vr-device-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 8px 16px; border-bottom: 1px solid #1e2130;
+}
+.vr-io-group {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.vr-io-row {
   display: flex; align-items: center; gap: 6px;
-  padding: 8px 16px; border-bottom: 1px solid #1e2130;
+}
+.vr-io-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: #4a3e28;
+  min-width: 38px;
+}
+.vr-io-extras {
+  display: flex; gap: 5px; align-items: center;
 }
 .vr-device-btn {
   display: inline-flex; align-items: center; gap: 4px;
@@ -18410,6 +18495,32 @@ function renderMixDrawerHtml() {
           title="Looper master volume — double-click to reset to unity">
         <span class="mix-master-val" id="mixLoopMasterVal">${loopVol}%</span>
       </div>
+    </div>
+    <div>
+      <div class="mix-section-label">Launch Together</div>
+      <div class="mix-ens-channels">${(()=>{
+        const ensPrefs = _ensembleGetPrefs();
+        return [
+          {key:'4track', label:'4-Track'},
+          {key:'seq',    label:'Chords'},
+          {key:'drums',  label:'Drums'},
+          {key:'kbd',    label:'Keys'},
+          {key:'loop',   label:'Looper'},
+        ].map(it => {
+          const active = !!ensPrefs[it.key];
+          return \`<div class="mix-ens-ch">
+            <button class="mix-ens-btn\${active?' active':''}" id="ensChip-\${it.key}"
+              onclick="ensembleToggleChip('\${it.key}')" title="\${it.label}">
+              <span class="mix-ens-knob"></span>
+            </button>
+            <span class="mix-ens-ch-label">\${it.label}</span>
+          </div>\`;
+        }).join('');
+      })()}</div>
+      <div class="mix-ens-launch-row">
+        <button class="mix-ens-launch" onclick="ensembleLaunch()">▶ Launch</button>
+        <button class="mix-ens-stop" onclick="ensembleStop()">■ Stop All</button>
+      </div>
     </div>`;
 }
 
@@ -20574,50 +20685,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
     <!-- Device / settings bar -->
     <div class="vr-device-bar">
-      <button class="vr-device-btn" id="vrInputBtn" onclick="vrToggleDevicePicker('input')" title="Select input device">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        <span id="vrInputLabel">Default</span>
-      </button>
-      <button class="vr-device-btn vr-ec-btn" id="vrEcBtn" onclick="vrToggleEC()" title="Echo cancellation">EC</button>
-      <button class="vr-device-btn vr-bt-btn" id="vrBtBtn" onclick="vrToggleBtPanel(event)" title="Bluetooth latency compensation">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6.5,6.5 17.5,17.5"/><polyline points="17.5,6.5 6.5,17.5"/><polyline points="12,3 18.5,9.5 12,16"/><polyline points="12,8 18.5,14.5 12,21"/></svg>
-      </button>
-      <button class="vr-device-btn" id="vrOutputBtn" onclick="vrToggleDevicePicker('output')" title="Select output device">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path d="M15.54,8.46a5,5,0,0,1,0,7.07" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M19.07,4.93a10,10,0,0,1,0,14.14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
-        <span id="vrOutputLabel">Default</span>
-      </button>
+      <div class="vr-io-group">
+        <div class="vr-io-row">
+          <span class="vr-io-label">Input:</span>
+          <button class="vr-device-btn" id="vrInputBtn" onclick="vrToggleDevicePicker('input')" title="Select input device">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span id="vrInputLabel">Default</span>
+          </button>
+        </div>
+        <div class="vr-io-row">
+          <span class="vr-io-label">Output:</span>
+          <button class="vr-device-btn" id="vrOutputBtn" onclick="vrToggleDevicePicker('output')" title="Select output device">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path d="M15.54,8.46a5,5,0,0,1,0,7.07" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M19.07,4.93a10,10,0,0,1,0,14.14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+            <span id="vrOutputLabel">Default</span>
+          </button>
+        </div>
+      </div>
+      <div class="vr-io-extras">
+        <button class="vr-device-btn vr-ec-btn" id="vrEcBtn" onclick="vrToggleEC()" title="Echo cancellation">EC</button>
+        <button class="vr-device-btn vr-bt-btn" id="vrBtBtn" onclick="vrToggleBtPanel(event)" title="Bluetooth latency compensation">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6.5,6.5 17.5,17.5"/><polyline points="17.5,6.5 6.5,17.5"/><polyline points="12,3 18.5,9.5 12,16"/><polyline points="12,8 18.5,14.5 12,21"/></svg>
+        </button>
+      </div>
     </div>
 
     <!-- Monitor pill -->
     <div id="vrMonPill"><span class="vr-mon-icon">🎧</span><span id="vrMonLabel">Monitor: Auto</span></div>
     <div class="vr-feedback-warn" id="vrFeedbackWarn">
       ⚠ Input &amp; output on same device — use your interface's direct monitor to avoid feedback
-    </div>
-
-    <!-- ── Ensemble Launcher ── -->
-    <div class="mt-ensemble" id="mtEnsemble">
-      <div class="mt-ensemble-label">Launch Together</div>
-      <div class="mt-ensemble-chips">
-        <button class="mt-ensemble-chip active" id="ensChip-4track" onclick="ensembleToggleChip('4track')">
-          <span class="chip-check">✓</span>4-Track
-        </button>
-        <button class="mt-ensemble-chip active" id="ensChip-seq" onclick="ensembleToggleChip('seq')">
-          <span class="chip-check">✓</span>Chord Prog
-        </button>
-        <button class="mt-ensemble-chip active" id="ensChip-drums" onclick="ensembleToggleChip('drums')">
-          <span class="chip-check">✓</span>Drum Beat
-        </button>
-        <button class="mt-ensemble-chip active" id="ensChip-kbd" onclick="ensembleToggleChip('kbd')">
-          <span class="chip-check">✓</span>Keyboard
-        </button>
-        <button class="mt-ensemble-chip active" id="ensChip-loop" onclick="ensembleToggleChip('loop')">
-          <span class="chip-check">✓</span>Looper
-        </button>
-      </div>
-      <div class="mt-ensemble-btns">
-        <button class="mt-ensemble-launch" onclick="ensembleLaunch()">▶ Launch Together</button>
-        <button class="mt-ensemble-stop" onclick="ensembleStop()">■ Stop All</button>
-      </div>
     </div>
 
     <!-- ── 4 Track lanes ── -->
