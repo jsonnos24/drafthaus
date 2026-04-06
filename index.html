@@ -4187,6 +4187,7 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Full-width items inside the palette grid */
   .il-key-sel,
   .il-palette-section-label,
+  .il-palette-toggle,
   .il-palette-sep,
   .il-palette-label { grid-column: 1 / -1; }
   /* Pills fill their cell evenly */
@@ -4210,12 +4211,38 @@ button, select, input, textarea { touch-action: manipulation; }
   font-size: 11px; text-transform: uppercase;
   letter-spacing: 0.18em; color: var(--gold); margin-bottom: 6px;
 }
-.il-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 40px; }
+.il-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
 .il-meta-chip {
   font-family: 'IBM Plex Mono', monospace; font-size: 12px;
   color: var(--muted); background: var(--card);
   border: 1px solid var(--border); border-radius: 4px; padding: 4px 12px;
 }
+.il-tips-toggle {
+  background: none; border: none; cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--border); padding: 3px 7px; border-radius: 4px;
+  border: 1px solid var(--border); transition: color 0.15s, border-color 0.15s;
+}
+.il-tips-toggle:hover { color: var(--gold); border-color: var(--gold); }
+.il-tips-panel {
+  background: var(--card); border: 1px solid var(--border2);
+  border-radius: 10px; padding: 14px 18px;
+  margin-bottom: 32px; margin-top: 4px;
+}
+.il-tips-list {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  letter-spacing: 0.04em; line-height: 2;
+  color: var(--muted); padding-left: 18px; margin: 0;
+}
+.il-tips-list strong { color: var(--gold); font-weight: 700; }
+.il-tips-rehearse-btn {
+  background: none; border: none; cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  color: var(--gold); padding: 0; text-decoration: underline;
+  text-underline-offset: 2px; letter-spacing: 0.04em;
+}
+.il-tips-rehearse-btn:hover { color: #fff; }
 .il-part {
   margin-bottom: 48px;
   display: flex; gap: 0; align-items: stretch;
@@ -4299,6 +4326,17 @@ button, select, input, textarea { touch-action: manipulation; }
   text-transform: uppercase; letter-spacing: 0.12em; color: var(--faint);
   margin-top: 2px;
 }
+.il-palette-toggle {
+  background: none; border: none; cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace; font-size: 8px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--gold); padding: 3px 0; margin-top: 2px;
+  display: flex; align-items: center; gap: 4px; width: 100%; text-align: left;
+  transition: color 0.15s;
+}
+.il-palette-toggle:hover { color: #fff; }
+.il-palette-toggle .il-ptog-arrow { font-style: normal; font-size: 9px; line-height: 1; }
+.il-palette-section-pills { display: contents; }
 .il-palette-sep {
   height: 1px; background: var(--border); margin: 2px 0;
 }
@@ -12799,22 +12837,53 @@ function ilGetKeyChords(key) {
 
 const CHROMATIC_NOTES = ['E','F','F#','G','G#','A','A#','B','C','C#','D','D#'];
 
+function ilPaletteIsCollapsed(section) {
+  const v = localStorage.getItem('drafthaus-palette-' + section + '-collapsed');
+  return v === null ? true : v === 'true'; // default collapsed
+}
+
+function ilTogglePaletteSection(section) {
+  const wasCollapsed = ilPaletteIsCollapsed(section);
+  const nowCollapsed = !wasCollapsed;
+  localStorage.setItem('drafthaus-palette-' + section + '-collapsed', nowCollapsed ? 'true' : 'false');
+  // Update all pill containers for this section
+  document.querySelectorAll(`[id^="ilps-${section}-"]`).forEach(el => {
+    el.style.display = nowCollapsed ? 'none' : 'contents';
+  });
+  // Update all toggle arrows for this section
+  document.querySelectorAll(`[id^="ilpt-${section}-"] .il-ptog-arrow`).forEach(el => {
+    el.textContent = nowCollapsed ? '▸' : '▾';
+  });
+}
+
 function ilRenderPaletteHtml(partId, song) {
   const key    = song?.key || '';
   const chords = ilGetKeyChords(key);
   const pill   = (c, cls) =>
     `<span class="il-palette-pill${cls ? ' ' + cls : ''}" draggable="true" data-part="${partId}" data-chord="${esc(c)}"
       ondragstart="ilTrayChordDragStart(event)">${esc(c)}</span>`;
+
+  const chordsCollapsed = ilPaletteIsCollapsed('chords');
+  const notesCollapsed  = ilPaletteIsCollapsed('notes');
+
   let html = '';
   if (chords.length) {
-    html += `<div class="il-palette-section-label">${esc(key)}</div>`;
+    const cArrow = chordsCollapsed ? '▸' : '▾';
+    html += `<button class="il-palette-toggle" id="ilpt-chords-${partId}" onclick="ilTogglePaletteSection('chords')">
+      <span class="il-ptog-arrow">${cArrow}</span><span>${esc(key)}</span>
+    </button>`;
+    html += `<div class="il-palette-section-pills" id="ilps-chords-${partId}" style="display:${chordsCollapsed ? 'none' : 'contents'}">`;
     html += chords.map(c => pill(c, '')).join('');
+    html += `</div>`;
     html += `<div class="il-palette-sep"></div>`;
-    html += `<div class="il-palette-section-label">Notes</div>`;
-  } else {
-    html += `<div class="il-palette-section-label">Notes</div>`;
   }
+  const nArrow = notesCollapsed ? '▸' : '▾';
+  html += `<button class="il-palette-toggle" id="ilpt-notes-${partId}" onclick="ilTogglePaletteSection('notes')">
+    <span class="il-ptog-arrow">${nArrow}</span><span>Notes</span>
+  </button>`;
+  html += `<div class="il-palette-section-pills" id="ilps-notes-${partId}" style="display:${notesCollapsed ? 'none' : 'contents'}">`;
   html += CHROMATIC_NOTES.map(c => pill(c, 'il-palette-note')).join('');
+  html += `</div>`;
   return html;
 }
 
@@ -16928,6 +16997,16 @@ function ilSaveTitleEdit(el) {
   renderGrid();
 }
 
+function ilToggleTips() {
+  const panel = document.getElementById('ilTipsPanel');
+  const btn   = document.querySelector('.il-tips-toggle');
+  if (!panel) return;
+  const nowOpen = panel.style.display === 'none';
+  panel.style.display = nowOpen ? 'block' : 'none';
+  localStorage.setItem('drafthaus-lyrics-tips-open', nowOpen ? 'true' : 'false');
+  if (btn) btn.innerHTML = (nowOpen ? '▾' : '▸') + ' How to use';
+}
+
 function ilRenderBody(song) {
   const inner = document.getElementById('rtBodyInlineInner');
   if (!inner || !song) return;
@@ -16939,16 +17018,24 @@ function ilRenderBody(song) {
 
   let partsHtml = '';
   if (rtActiveParts.length === 0) {
-    partsHtml = `<div class="il-no-sections-state" style="padding:40px 24px;border:1px dashed var(--border);border-radius:10px;text-align:center;color:var(--faint);">
-      <div style="font-size:28px;opacity:.2;margin-bottom:14px;">🎵</div>
-      <div style="font-family:'Playfair Display',serif;font-size:18px;font-style:italic;opacity:.4;color:var(--text);margin-bottom:8px;">No sections yet</div>
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.08em;margin-bottom:16px;">Add a section below, or switch to Backend to build your draft structure.</div>
+    partsHtml = `<div class="il-no-sections-state" style="padding:32px 24px;border:1px dashed var(--border);border-radius:10px;color:var(--faint);">
+      <div style="font-size:24px;opacity:.2;margin-bottom:12px;text-align:center;">🎵</div>
+      <div style="font-family:'Playfair Display',serif;font-size:18px;font-style:italic;opacity:.4;color:var(--text);margin-bottom:16px;text-align:center;">No sections yet</div>
+      <ol style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.05em;line-height:1.9;padding-left:18px;margin:0 0 16px;">
+        <li>Add a section using the menu below</li>
+        <li>Select <strong style="color:var(--gold)">Edit Lyrics</strong> on the section</li>
+        <li>Enter your lyrics in the editor</li>
+        <li>Close the editor when done</li>
+        <li>Drag <strong style="color:var(--gold)">Notes</strong> or <strong style="color:var(--gold)">Chords</strong> from the palette over words to annotate</li>
+        <li><button onclick="setSongViewMode('runthrough')" style="background:none;border:none;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.05em;color:var(--gold);padding:0;text-decoration:underline;text-underline-offset:2px;">Rehearse view</button> is a clean performance view</li>
+      </ol>
     </div>`;
   } else {
     partsHtml = rtActiveParts.map(part => ilMakePartHtml(part, song)).join('');
   }
 
   const addSelHtml = ilBuildAddOptions();
+  const ilTipsOpen = localStorage.getItem('drafthaus-lyrics-tips-open') === 'true';
   inner.innerHTML = `
     ${working}<h1 class="il-song-title" contenteditable="true" spellcheck="false"
       id="ilSongTitleEl"
@@ -16956,7 +17043,20 @@ function ilRenderBody(song) {
       onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
       style="outline:none;cursor:text;min-width:60px;"
       title="Click to edit title">${title}</h1>
-    <div class="il-meta">${keyChip}${bpmChip}</div>
+    <div class="il-meta">${keyChip}${bpmChip}
+      <button class="il-tips-toggle" onclick="ilToggleTips()" title="How to use Lyrics view">
+        ${ilTipsOpen ? '▾' : '▸'} How to use
+      </button>
+    </div>
+    <div class="il-tips-panel" id="ilTipsPanel" style="display:${ilTipsOpen ? 'block' : 'none'}">
+      <ol class="il-tips-list">
+        <li>Add a section using the menu at the bottom</li>
+        <li>Select <strong>Edit Lyrics</strong> on the section</li>
+        <li>Enter your lyrics in the editor, then close it</li>
+        <li>Drag <strong>Notes</strong> or <strong>Chords</strong> from the side palette onto words to annotate</li>
+        <li><button onclick="setSongViewMode('runthrough')" class="il-tips-rehearse-btn">Rehearse view</button> — clean performance view with all your annotations</li>
+      </ol>
+    </div>
     ${partsHtml}
     <div class="il-add-wrap" id="ilAddWrap">
       <select class="il-add-sel" id="ilAddSel" onchange="ilAddSection(this)">${addSelHtml}</select>
