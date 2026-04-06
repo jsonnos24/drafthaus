@@ -5621,6 +5621,37 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 }
 .vr-countdown-cancel-btn:hover { background: rgba(180,30,30,0.45); border-color: rgba(255,80,80,0.9); }
 
+/* ── 4-track compact panel: run-through / perf mode ─────────── */
+#vrOverlay.vr-rt-compact {
+  inset: auto;
+  right: 0; top: 0; bottom: 0;
+  width: 300px;
+  background: transparent;
+  backdrop-filter: none;
+  padding: 0;
+  align-items: stretch;
+  justify-content: flex-end;
+}
+#vrOverlay.vr-rt-compact #vrDeck {
+  width: 300px; max-width: 300px;
+  max-height: 100dvh; height: 100dvh;
+  border-radius: 14px 0 0 14px;
+  border-right: none;
+  overflow-y: auto;
+}
+#vrOverlay.vr-rt-compact .vr-deck-header { padding: 8px 12px 6px; }
+#vrOverlay.vr-rt-compact .vr-deck-song   { font-size: 9px; }
+#vrOverlay.vr-rt-compact .vr-device-bar  { padding: 5px 10px; gap: 4px; }
+#vrOverlay.vr-rt-compact .vr-device-btn  { font-size: 9px; padding: 3px 6px; }
+#vrOverlay.vr-rt-compact #vrMonPill      { font-size: 9px; padding: 2px 10px; }
+#vrOverlay.vr-rt-compact .mt-tracks      { padding: 4px 8px 2px; }
+#vrOverlay.vr-rt-compact .mt-track       { margin-bottom: 4px; }
+#vrOverlay.vr-rt-compact .mt-waveform-wrap  { min-height: 34px; }
+#vrOverlay.vr-rt-compact .mt-waveform-canvas { height: 34px; }
+#vrOverlay.vr-rt-compact .mt-transport   { padding: 6px 10px 4px; }
+#vrOverlay.vr-rt-compact .vr-time-limit  { font-size: 9px; padding: 2px 10px 2px; }
+#vrOverlay.vr-rt-compact .vr-trash-toggle { padding: 5px 10px; font-size: 9px; }
+
 /* ── Mini recording bar ──────────────────────────────────────── */
 #vrMiniBar {
   display: none; position: fixed; right: 12px; top: 60px; z-index: 1100;
@@ -10468,6 +10499,9 @@ function kbdSwitchMelodyTab(idx) {
   // Save current melody notes to the outgoing sequence
   if (seqs[kbdMelodySeqIdx]) seqs[kbdMelodySeqIdx].melody = melodyNotes.slice();
   kbdMelodySeqIdx = idx;
+  // Sync main sequencer's active index so Play uses the same sequence
+  seqActiveIdx = idx;
+  song.sequencer = seqs[idx];
   const newSeq = seqs[idx];
   // Load new sequence's melody + instrument
   melodyNotes = (newSeq.melody || []).slice();
@@ -14430,6 +14464,7 @@ function renderKeyboardDrawerHtml(song) {
       <!-- Play / Stop / Metro / Rec -->
       <div class="seq-ctrl-group" style="margin-left:auto;gap:4px;">
         <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:11px;padding:6px 12px;">▶ Play</button>
+        <button class="seq-btn seq-btn-play" onclick="seqPlaySong()" style="font-size:11px;padding:6px 12px;" title="Play all parts in order">▶▶ All</button>
         <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="font-size:11px;padding:6px 12px;">■ Stop</button>
         <button class="seq-btn seq-btn-met" id="kbdMetBtn" onclick="seqToggleMet()" style="font-size:11px;padding:6px 10px;">Metro</button>
         <button class="melody-rec-btn" id="melodyRecBtn" onclick="melodyToggleRecord()">⏺ Rec</button>
@@ -18022,6 +18057,8 @@ var _mtScrubOffset = 0; // seek position set while paused
 window.vrOpen = function(autoRecord) {
   _vrSongId = currentId || null;
   if (!_vrSongId) { showNoSongModal(function() { vrOpen(autoRecord); }); return; }
+  const _inRT = !!window._ilPerfMode || !!document.getElementById('runThroughDrawer')?.classList.contains('open');
+  _el('vrOverlay').classList.toggle('vr-rt-compact', _inRT);
   _el('vrOverlay').classList.add('vr-open');
   const song = songs.find(s => s.id === _vrSongId);
   const nameEl = _el('vrDeckSongName');
@@ -18036,7 +18073,7 @@ window.vrOpen = function(autoRecord) {
 window.vrClose = function() {
   if (_vrRecording) { showToast('Stop recording before closing.', 'warn'); return; }
   _mtStopAll();
-  _el('vrOverlay').classList.remove('vr-open');
+  _el('vrOverlay').classList.remove('vr-open', 'vr-rt-compact');
 };
 
 window.vrOverlayClick = function(e) {
@@ -18101,12 +18138,16 @@ async function _mtRunCountdown(cb) {
   const num = _el('vrGlobalCountNum');
   if (!go || !num) { cb(); return; }
   go.classList.add('vr-active');
+  // Use compact corner style when in run-through / perf mode
+  if (window._ilPerfMode || document.getElementById('runThroughDrawer')?.classList.contains('open')) {
+    go.classList.add('vr-perf-countdown');
+  }
   for (let n = 3; n >= 1; n--) {
     num.textContent = n;
     await new Promise(r => { _mtCountTimer = setTimeout(r, 1000); });
     if (!_mtCountTimer) return; // cancelled
   }
-  go.classList.remove('vr-active');
+  go.classList.remove('vr-active', 'vr-perf-countdown');
   _mtCountTimer = null;
   cb();
 }
@@ -18233,6 +18274,8 @@ async function _mtFinishRecording(trackIdx, mimeType) {
   await _uploadTake(blob, durSec, mimeType, trackIdx);
   _vrUploading = false;
   _setStatus('Saved ✓');
+  // Reset active take index so vrLoadTakes() auto-selects the newly recorded take
+  if (_mtTracks[trackIdx]) _mtTracks[trackIdx].activeTakeIdx = -1;
   vrLoadTakes();
   _el('mtPlayBtn').disabled = !_mtTracks.some(t=>t&&t.buffer);
 }
@@ -18440,6 +18483,10 @@ window.mtUseTake = async function(trackIdx, takeIdx) {
   t.activeTakeIdx = takeIdx;
   await _mtLoadTakeBuffer(trackIdx, t.takes[takeIdx]);
   _mtRenderTakesPanel(trackIdx);
+  // Close the panel so the user can see the updated waveform in the lane
+  const panel = _el('mt-takes-panel-'+trackIdx);
+  if (panel) panel.classList.remove('open');
+  _setStatus('T' + (takeIdx + 1) + ' loaded ✓');
 };
 
 // ── Per-take waveform cache (for takes panels) ─────────────────
