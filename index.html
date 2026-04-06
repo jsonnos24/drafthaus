@@ -5778,6 +5778,30 @@ const QUALITIES = [
 let songs = []; // always load fresh from Firestore; localStorage is write-only cache
 let currentId = null;
 let saveTimer = null;
+let userProjects = []; // user-defined folder names, persisted in users/{uid}.projects
+
+async function loadUserProjects() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    const doc = await db.collection('users').doc(uid).get();
+    const data = doc.data() || {};
+    if (Array.isArray(data.projects) && data.projects.length) {
+      userProjects = data.projects;
+    } else {
+      // First login — seed default folders
+      userProjects = ['Ideas', 'Drafts', 'Finished'];
+      db.collection('users').doc(uid).set({ projects: userProjects }, { merge: true }).catch(() => {});
+    }
+    renderGrid();
+  } catch(e) { console.warn('loadUserProjects error', e); }
+}
+
+function saveUserProjects() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  db.collection('users').doc(uid).set({ projects: userProjects }, { merge: true }).catch(() => {});
+}
 
 function save() {
   localStorage.setItem('track_songs', JSON.stringify(songs));
@@ -5893,7 +5917,7 @@ function renderGrid() {
   const searchWrap = document.getElementById('searchWrap');
   if (searchWrap) searchWrap.style.display = songs.length >= 5 ? '' : 'none';
 
-  if (songs.length === 0) {
+  if (songs.length === 0 && userProjects.length === 0) {
     grid.innerHTML = `<div class="welcome-screen">
       <div class="welcome-eyebrow">Welcome to Drafthaus</div>
       <div class="welcome-title">Your songwriter's workshop.</div>
@@ -6044,18 +6068,20 @@ function renderGrid() {
   function buildProjGroup(proj, list, recentProjs, totalGroups) {
     const heading = proj==='__none__' ? 'Unassigned' : proj;
     const isUnassigned = proj === '__none__';
+    const isEmpty = list.length === 0;
     const rows = list.map(song => buildSongRow(song, true, false)).join('');
-    const colsHeader = `<div class="song-list-cols-header">
+    const colsHeader = isEmpty ? '' : `<div class="song-list-cols-header">
       <span>Title</span><span>Status</span><span>Actions</span><span>Tape / Seq</span>
     </div>`;
-    const isCollapsed = !_expandedProjs.has(proj);
+    const emptyHint = isEmpty ? `<div style="padding:14px 16px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);font-style:italic;">No drafts yet — <button onclick="event.stopPropagation();newSong()" style="background:none;border:none;color:var(--gold);font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;">+ create one</button></div>` : '';
+    const isCollapsed = !isEmpty && !_expandedProjs.has(proj); // empty folders start expanded
     return `<div class="proj-group${isCollapsed?' collapsed':''}" id="pg-${proj}">
       <div class="proj-group-header" onclick="toggleProjGroup('${proj}')">
         <span class="proj-group-name">${esc(heading)}</span>
-        <span class="proj-group-count">${list.length} draft${list.length===1?'':'s'}</span>
+        <span class="proj-group-count">${isEmpty ? 'Empty' : list.length + ' draft' + (list.length===1?'':'s')}</span>
         <span class="proj-group-chevron">▼</span>
       </div>
-      <div class="proj-group-songs">${colsHeader}${rows}</div>
+      <div class="proj-group-songs">${colsHeader}${rows}${emptyHint}</div>
     </div>`;
   }
 
@@ -6067,6 +6093,11 @@ function renderGrid() {
     if (!myGroups[proj]) myGroups[proj] = [];
     myGroups[proj].push(s);
   });
+  // Add empty groups for user-defined projects not yet represented by songs
+  // (only when not searching, so empty folders don't clutter search results)
+  if (!q) {
+    userProjects.forEach(p => { if (!myGroups[p]) myGroups[p] = []; });
+  }
   // Find the 2 most recently updated projects (do this before sorting keys)
   const projLastUpdated = {};
   displayMy.forEach(s => {
@@ -6076,9 +6107,14 @@ function renderGrid() {
   const recentProjs = Object.keys(projLastUpdated)
     .sort((a,b) => projLastUpdated[b] - projLastUpdated[a])
     .slice(0, 2);
-  // Sort projects by most recently updated, Unassigned always last
+  // Sort: user-defined projects in their saved order first, then others by recency, Unassigned last
   const myProjKeys = Object.keys(myGroups).sort((a,b) => {
     if (a==='__none__') return 1; if (b==='__none__') return -1;
+    const uiA = userProjects.indexOf(a);
+    const uiB = userProjects.indexOf(b);
+    if (uiA !== -1 && uiB !== -1) return uiA - uiB; // both user-defined: preserve order
+    if (uiA !== -1) return -1; // a is user-defined, comes first
+    if (uiB !== -1) return 1;  // b is user-defined, comes first
     return (projLastUpdated[b]||0) - (projLastUpdated[a]||0);
   });
   myProjKeys.forEach(k => myGroups[k].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)));
@@ -6181,7 +6217,11 @@ function rowLoadSong(id) {
 }
 
 function getProjectList() {
-  return [...new Set(songs.map(s => (s.project||'').trim()).filter(Boolean))].sort();
+  const fromSongs = songs.map(s => (s.project||'').trim()).filter(Boolean);
+  // User-defined projects come first (in their saved order), then any song-derived extras
+  const result = [...userProjects];
+  fromSongs.forEach(p => { if (!result.includes(p)) result.push(p); });
+  return result;
 }
 
 function renderProjectSelect(currentProject) {
@@ -10860,6 +10900,8 @@ async function syncToSheet(song) {
       moods:          song.moods          || [],
       instruments:    encodeInstrumentsForFirestore(song.instruments),
       sequencer:      song.sequencer      || {},
+      sequences:      song.sequences      || [],
+      loopTracks:     song.loopTracks     || [],
       lyrics:         song.lyrics         || {},
       chordPositions: song.chordPositions || {},
       updatedAt:      song.updatedAt      || Date.now(),
