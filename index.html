@@ -2017,6 +2017,9 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-tab-del:hover { color: var(--red); }
   .seq-tab-playing { box-shadow: 0 0 0 2px var(--gold); animation: seqTabPulse 1s ease infinite; }
   @keyframes seqTabPulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+  .seq-tab.seq-tab-dragging { opacity: 0.35; cursor: grabbing; }
+  .seq-tab.seq-tab-drag-over { border-color: var(--gold) !important; box-shadow: 0 0 0 2px var(--gold); background: rgba(245,166,35,0.08); }
+  .seq-tab { cursor: grab; }
   .seq-tab-add {
     display: inline-flex; align-items: center; gap: 4px;
     padding: 4px 10px; border-radius: 6px;
@@ -2140,6 +2143,48 @@ button, select, input, textarea { touch-action: manipulation; }
     color: var(--faint); cursor: pointer; transition: background 0.1s;
   }
   .seq-conflict-cancel:hover { background: var(--card2); }
+
+  /* ── Lyrics-delete warning modal ── */
+  .lyrics-warn-modal {
+    position: fixed; inset: 0; z-index: 20000;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.65); backdrop-filter: blur(4px);
+    animation: seqPopIn 0.15s ease;
+  }
+  .lyrics-warn-box {
+    background: var(--card); border: 1px solid var(--border2);
+    border-radius: 14px; padding: 24px; width: min(90vw, 380px);
+    box-shadow: 0 16px 48px rgba(0,0,0,0.7);
+  }
+  .lyrics-warn-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.14em; color: #e05050;
+    margin-bottom: 10px;
+  }
+  .lyrics-warn-body { font-size: 13px; line-height: 1.6; color: var(--text); margin-bottom: 10px; }
+  .lyrics-warn-preview {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    color: var(--faint); background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; margin-bottom: 16px;
+    max-height: 80px; overflow: hidden; line-height: 1.5; white-space: pre-wrap;
+  }
+  .lyrics-warn-btns { display: flex; gap: 8px; }
+  .lyrics-warn-confirm {
+    flex: 1; padding: 9px; border-radius: 7px;
+    border: 1px solid #e05050; background: transparent;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+    color: #e05050; cursor: pointer; letter-spacing: 0.1em; text-transform: uppercase;
+    transition: background 0.1s;
+  }
+  .lyrics-warn-confirm:hover { background: rgba(224,80,80,0.12); }
+  .lyrics-warn-cancel {
+    flex: 1; padding: 9px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--card2);
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+    color: var(--text); cursor: pointer; letter-spacing: 0.1em; text-transform: uppercase;
+    transition: background 0.1s;
+  }
+  .lyrics-warn-cancel:hover { background: var(--surface); }
 
   /* ── Enhanced section headers ── */
   .section-label-row {
@@ -7389,7 +7434,7 @@ function repeatSongPart(partId) {
   renderPreview(song);
 }
 
-function deleteSongPart(partId) {
+function _doDeleteSongPart(partId) {
   const song = getCurrentSong();
   if (!song) return;
   _pushStructUndo(song);
@@ -7417,7 +7462,38 @@ function deleteSongPart(partId) {
   renderSectionOrderSidebar(song);
   if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
   if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
+  // Sync Lyrics/Rehearse view
+  if (typeof rtActiveParts !== 'undefined') {
+    rtActiveParts = getActiveParts(song);
+    if (typeof ilRenderBody === 'function') ilRenderBody(song);
+  }
   scheduleSyncToSheet(song);
+}
+
+function deleteSongPart(partId) {
+  const song = getCurrentSong();
+  if (!song) return;
+  const partLabel = STRUCTURE_PARTS.find(p => p.id === partId)?.label || partId;
+  const lyricText = (song.lyrics?.[partId] || rtLyricEdits?.[partId] || '').trim();
+  if (lyricText.length > 0) {
+    // Show styled warning — lyrics will be lost
+    document.querySelector('.lyrics-warn-modal')?.remove();
+    const preview = lyricText.length > 120 ? lyricText.slice(0, 120) + '…' : lyricText;
+    const modal = document.createElement('div');
+    modal.className = 'lyrics-warn-modal';
+    modal.innerHTML = `<div class="lyrics-warn-box">
+      <div class="lyrics-warn-title">⚠ Delete "${esc(partLabel)}"?</div>
+      <div class="lyrics-warn-body">This section has lyrics. Deleting it will permanently erase them.</div>
+      <div class="lyrics-warn-preview">${esc(preview)}</div>
+      <div class="lyrics-warn-btns">
+        <button class="lyrics-warn-cancel" onclick="this.closest('.lyrics-warn-modal').remove()">Cancel</button>
+        <button class="lyrics-warn-confirm" onclick="this.closest('.lyrics-warn-modal').remove();_doDeleteSongPart('${partId}')">Delete &amp; lose lyrics</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+  } else {
+    _doDeleteSongPart(partId);
+  }
 }
 
 // ── Chords ─────────────────────────────────────────────────────────
@@ -8995,6 +9071,46 @@ function seqGetPartColor(partId) {
   return p ? p.color : 'var(--faint)';
 }
 
+// ── Sequence tab drag-to-reorder ──────────────────────────────────
+var _seqTabDragFromIdx = null;
+
+function seqTabDragStart(e, idx) {
+  _seqTabDragFromIdx = idx;
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.classList.add('seq-tab-dragging');
+}
+function seqTabDragOver(e, idx) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('.seq-tab').forEach(t => t.classList.remove('seq-tab-drag-over'));
+  if (_seqTabDragFromIdx !== null && idx !== _seqTabDragFromIdx) e.currentTarget.classList.add('seq-tab-drag-over');
+}
+function seqTabDrop(e, idx) {
+  e.preventDefault();
+  document.querySelectorAll('.seq-tab').forEach(t => t.classList.remove('seq-tab-drag-over', 'seq-tab-dragging'));
+  if (_seqTabDragFromIdx === null || _seqTabDragFromIdx === idx) { _seqTabDragFromIdx = null; return; }
+  const song = getCurrentSong();
+  if (!song) return;
+  const seqs = getSongSequences(song);
+  const from = _seqTabDragFromIdx, to = idx;
+  _seqTabDragFromIdx = null;
+  const [moved] = seqs.splice(from, 1);
+  seqs.splice(to, 0, moved);
+  // Update active index
+  if (seqActiveIdx === from) seqActiveIdx = to;
+  else if (seqActiveIdx > from && seqActiveIdx <= to) seqActiveIdx--;
+  else if (seqActiveIdx < from && seqActiveIdx >= to) seqActiveIdx++;
+  kbdMelodySeqIdx = seqActiveIdx;
+  song.sequencer = seqs[seqActiveIdx];
+  save();
+  seqRenderSequenceTabs();
+  kbdRenderMelodyTabs(song);
+}
+function seqTabDragEnd() {
+  _seqTabDragFromIdx = null;
+  document.querySelectorAll('.seq-tab').forEach(t => t.classList.remove('seq-tab-dragging', 'seq-tab-drag-over'));
+}
+
 function seqRenderSequenceTabs() {
   const strip = document.getElementById('seqTabsStrip');
   if (!strip) return;
@@ -9008,7 +9124,13 @@ function seqRenderSequenceTabs() {
     const color   = seqGetPartColor(seq.partId || seq.part);
     const active  = i === seqActiveIdx ? ' active' : '';
     const playing = i === nowPlayingIdx ? ' seq-tab-playing' : '';
-    return `<button class="seq-tab${active}${playing}" style="color:${color};" onclick="seqSwitchToSequence(${i})" title="${label}">
+    return `<button class="seq-tab${active}${playing}" style="color:${color};"
+      onclick="seqSwitchToSequence(${i})" title="${label}"
+      draggable="true"
+      ondragstart="seqTabDragStart(event,${i})"
+      ondragover="seqTabDragOver(event,${i})"
+      ondrop="seqTabDrop(event,${i})"
+      ondragend="seqTabDragEnd()">
       <span class="seq-tab-dot" style="background:${color};"></span>
       ${label}
       <span class="seq-tab-edit" onclick="event.stopPropagation();seqShowTabEditPopup(event,${i})" title="Reassign or reorder">✎</span>
@@ -10583,7 +10705,13 @@ function kbdRenderMelodyTabs(song) {
     const color = seqGetPartColor(seq.partId || seq.part);
     const active = i === kbdMelodySeqIdx ? ' active' : '';
     const noteCount = (seq.melody || []).length;
-    return `<button class="seq-tab${active}" style="color:${color};" onclick="kbdSwitchMelodyTab(${i})" title="Edit melody for: ${label}">
+    return `<button class="seq-tab${active}" style="color:${color};"
+      onclick="kbdSwitchMelodyTab(${i})" title="Edit melody for: ${label}"
+      draggable="true"
+      ondragstart="seqTabDragStart(event,${i})"
+      ondragover="seqTabDragOver(event,${i})"
+      ondrop="seqTabDrop(event,${i})"
+      ondragend="seqTabDragEnd()">
       <span class="seq-tab-dot" style="background:${color};"></span>
       ${label}${noteCount ? `<span style="font-size:9px;opacity:0.55;margin-left:3px;">${noteCount}♪</span>` : ''}
     </button>`;
@@ -12236,10 +12364,8 @@ function launchInspoSong() {
 
   closeInspoDrawer();
 
-  // Open song then open sequencer drawer
-  currentId = song.id;
-  populateSongFields(song);
-  showDetail();
+  // Fully open the song so all views (Lyrics, Rehearse, Backend) are in sync
+  openSong(song.id);
   setTimeout(() => openSeqDrawer(), 400);
 }
 
@@ -16430,6 +16556,9 @@ function setSongViewMode(mode) {
   if (mode === 'runthrough') {
     rtEl.style.display = '';
     beEl.style.display = 'none';
+    // If the displayed song doesn't match the current song, re-init
+    const _rtSong = getCurrentSong();
+    if (_rtSong && _ilInitSongId !== _rtSong.id) ilInitAndRender(_rtSong);
     // Reset perf mode when coming back from backend
     ilSetPerfMode(false);
   } else {
@@ -16718,8 +16847,10 @@ function ilKeyChangerHtml(partId, song) {
 }
 var rtChordPositions = {}; // {partId: [{chord, line, word}]}
 var rtLyricEdits     = {}; // {partId: 'raw string'}
+var _ilInitSongId    = null; // tracks which song was last initialized in Lyrics/Rehearse view
 
 function ilInitAndRender(song) {
+  _ilInitSongId = song?.id || null;
   // Always start in editor mode when re-rendering
   ilSetPerfMode(false);
   const activeParts = getActiveParts(song);
@@ -16778,7 +16909,7 @@ function ilRenderBody(song) {
 
   let partsHtml = '';
   if (rtActiveParts.length === 0) {
-    partsHtml = `<div style="padding:40px 24px;border:1px dashed var(--border);border-radius:10px;text-align:center;color:var(--faint);">
+    partsHtml = `<div class="il-no-sections-state" style="padding:40px 24px;border:1px dashed var(--border);border-radius:10px;text-align:center;color:var(--faint);">
       <div style="font-size:28px;opacity:.2;margin-bottom:14px;">🎵</div>
       <div style="font-family:'Playfair Display',serif;font-size:18px;font-style:italic;opacity:.4;color:var(--text);margin-bottom:8px;">No sections yet</div>
       <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.08em;margin-bottom:16px;">Add a section below, or switch to Backend to build your draft structure.</div>
@@ -17231,6 +17362,9 @@ function ilAddSection(sel) {
   const addWrap = document.getElementById('ilAddWrap');
   if (!inner || !addWrap) return;
 
+  // Remove "No sections yet" placeholder if present
+  inner.querySelector('.il-no-sections-state')?.remove();
+
   const block = document.createElement('div');
   block.innerHTML = ilMakePartHtml(part, getCurrentSong() || {});
   inner.insertBefore(block.firstElementChild, addWrap);
@@ -17271,6 +17405,9 @@ function ilAddSection(sel) {
       if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
       if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
     }
+    // Sync Backend structure panel so it reflects the new section immediately
+    if (typeof renderStructure === 'function') renderStructure(song);
+    if (typeof renderSectionOrderSidebar === 'function') renderSectionOrderSidebar(song);
   }
 
   ilScheduleSave();
