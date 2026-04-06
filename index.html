@@ -5930,13 +5930,11 @@ body.il-perf-active #ilScrollFloat { display: flex; }
   border-bottom: 1px solid var(--border); position: sticky; top: 0;
   background: var(--card); z-index: 2;
 }
-.storage-table th.th-check  { width: 32px; text-align: center; padding: 10px 6px; }
-.storage-table th.th-audio  { width: 120px; }
+.storage-table th.th-audio  { width: 170px; }
 .storage-table td {
-  padding: 10px 10px; border-bottom: 1px solid var(--border);
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
-.storage-table td.td-check  { text-align: center; padding: 10px 6px; }
 .storage-table tr:last-child td { border-bottom: none; }
 .storage-table tr:hover td { background: rgba(255,255,255,0.02); }
 .storage-check {
@@ -5944,17 +5942,25 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 }
 .storage-check.takes-check { accent-color: var(--teal); }
 .storage-check.trash-check { accent-color: var(--red); }
+.storage-check.loops-check { accent-color: #00ccff; }
 .storage-song-name {
   font-family: 'Playfair Display', serif; font-size: 14px;
   color: var(--text); font-style: italic;
 }
 .storage-song-name.untitled { color: var(--faint); font-style: italic; }
 .storage-audio-cell {
-  font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted);
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--teal);
   line-height: 1.5;
 }
+.storage-audio-cell.trash-type { color: var(--red); }
+.storage-audio-cell.loops-type { color: #00ccff; }
 .storage-audio-cell .audio-count { color: var(--faint); font-size: 9px; }
 .storage-audio-cell.empty { color: var(--border2); }
+.storage-audio-label {
+  display: flex; align-items: flex-start; gap: 8px; cursor: pointer;
+}
+.storage-audio-label input[type="checkbox"] { margin-top: 1px; flex-shrink: 0; }
+.storage-audio-info { display: flex; flex-direction: column; gap: 1px; }
 .storage-footer {
   border-top: 1px solid var(--border); flex-shrink: 0;
 }
@@ -14161,7 +14167,7 @@ async function openStorageModal() {
   document.getElementById('storageModal').classList.add('open');
   storageToggleShareRow(false);
   document.getElementById('storageTableBody').innerHTML =
-    '<tr><td colspan="10" class="storage-loading">Loading…</td></tr>';
+    '<tr><td colspan="4" class="storage-loading">Loading…</td></tr>';
   await Promise.all([_loadStorageVoiceData(), _loadStorageLoopsData()]);
   renderStorageList();
 }
@@ -14201,27 +14207,39 @@ function renderStorageList() {
     const trashDisabled = (!isOwner || !trash?.count) ? 'disabled' : '';
     const loopsDisabled = (!isOwner || !loops?.count) ? 'disabled' : '';
 
-    const takesCellHtml = takes?.count
-      ? `<span>${takesSize}</span><br><span class="audio-count">${takes.count} take${takes.count !== 1 ? 's' : ''} · ~${Math.round(takes.secs)}s</span>`
-      : `<span style="color:var(--border2);">—</span>`;
-    const trashCellHtml = trash?.count
-      ? `<span>${trashSize}</span><br><span class="audio-count">${trash.count} file${trash.count !== 1 ? 's' : ''} · ~${Math.round(trash.secs)}s</span>`
-      : `<span style="color:var(--border2);">—</span>`;
-    const loopsCellHtml = loops?.count
-      ? `<span>${loopsSize}</span><br><span class="audio-count">${loops.count} loop${loops.count !== 1 ? 's' : ''} · ~${Math.round(loops.secs)}s</span>`
-      : `<span style="color:var(--border2);">—</span>`;
 
+    const takesInner = takes?.count
+      ? `<label class="storage-audio-label">
+           <input type="checkbox" class="storage-check takes-check" data-song="${song.id}" data-type="takes" onchange="storageUpdateSel()" ${takesDisabled}>
+           <span class="storage-audio-info">
+             <span>${takesSize}</span>
+             <span class="audio-count">${takes.count} take${takes.count !== 1 ? 's' : ''} · ~${Math.round(takes.secs)}s</span>
+           </span>
+         </label>`
+      : '<span style="color:var(--border2);">—</span>';
+    const trashInner = trash?.count
+      ? `<label class="storage-audio-label">
+           <input type="checkbox" class="storage-check trash-check" data-song="${song.id}" data-type="trash" onchange="storageUpdateSel()" ${trashDisabled}>
+           <span class="storage-audio-info">
+             <span>${trashSize}</span>
+             <span class="audio-count">${trash.count} file${trash.count !== 1 ? 's' : ''} · ~${Math.round(trash.secs)}s</span>
+           </span>
+         </label>`
+      : '<span style="color:var(--border2);">—</span>';
+    const loopsInner = loops?.count
+      ? `<label class="storage-audio-label">
+           <input type="checkbox" class="storage-check loops-check" data-song="${song.id}" data-type="loops" onchange="storageUpdateSel()" ${loopsDisabled}>
+           <span class="storage-audio-info">
+             <span>${loopsSize}</span>
+             <span class="audio-count">${loops.count} loop${loops.count !== 1 ? 's' : ''} · ~${Math.round(loops.secs)}s</span>
+           </span>
+         </label>`
+      : '<span style="color:var(--border2);">—</span>';
     return `<tr id="storage-row-${song.id}">
-      <td class="td-check"><input type="checkbox" class="storage-check takes-check" data-song="${song.id}" data-type="takes" onchange="storageUpdateSel()" ${takesDisabled}></td>
-      <td class="storage-audio-cell${takes?.count ? '' : ' empty'}">${takesCellHtml}</td>
-      <td class="storage-audio-cell" style="font-size:10px;color:var(--faint);">${takesSize || ''}</td>
       <td>${nameHtml}${!isOwner ? ' <span style="font-size:9px;color:var(--faint);font-family:\'IBM Plex Mono\',monospace;">(shared)</span>' : ''}</td>
-      <td class="td-check"><input type="checkbox" class="storage-check trash-check" data-song="${song.id}" data-type="trash" onchange="storageUpdateSel()" ${trashDisabled}></td>
-      <td class="storage-audio-cell${trash?.count ? '' : ' empty'}">${trashCellHtml}</td>
-      <td class="storage-audio-cell" style="font-size:10px;color:var(--faint);">${trashSize || ''}</td>
-      <td class="td-check"><input type="checkbox" class="storage-check loops-check" data-song="${song.id}" data-type="loops" onchange="storageUpdateSel()" ${loopsDisabled}></td>
-      <td class="storage-audio-cell${loops?.count ? '' : ' empty'}" style="color:#00ccff;">${loopsCellHtml}</td>
-      <td class="storage-audio-cell" style="font-size:10px;color:var(--faint);">${loopsSize || ''}</td>
+      <td class="storage-audio-cell${takes?.count ? '' : ' empty'}">${takesInner}</td>
+      <td class="storage-audio-cell${trash?.count ? ' trash-type' : ' empty'}">${trashInner}</td>
+      <td class="storage-audio-cell${loops?.count ? ' loops-type' : ' empty'}">${loopsInner}</td>
     </tr>`;
   }).join('');
 
@@ -19818,16 +19836,25 @@ document.addEventListener('DOMContentLoaded', () => {
       <table class="storage-table">
         <thead>
           <tr>
-            <th class="th-check" title="Select all takes"><input type="checkbox" id="storageSelAllTakes" class="storage-check takes-check" onchange="storageToggleAll('takes',this.checked)"></th>
-            <th style="color:var(--teal);">Takes</th>
-            <th class="th-audio">Size</th>
-            <th style="width:180px;">Draft</th>
-            <th class="th-check" title="Select all trash"><input type="checkbox" id="storageSelAllTrash" class="storage-check trash-check" onchange="storageToggleAll('trash',this.checked)"></th>
-            <th style="color:var(--red);">Trash</th>
-            <th class="th-audio">Size</th>
-            <th class="th-check" title="Select all loops"><input type="checkbox" id="storageSelAllLoops" class="storage-check loops-check" onchange="storageToggleAll('loops',this.checked)"></th>
-            <th style="color:#00ccff;">Loops</th>
-            <th class="th-audio">Size</th>
+            <th style="min-width:160px;">Draft</th>
+            <th class="th-audio" style="color:var(--teal);">
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer;" title="Select all voice takes">
+                <input type="checkbox" id="storageSelAllTakes" class="storage-check takes-check" onchange="storageToggleAll('takes',this.checked)">
+                Voice Takes
+              </label>
+            </th>
+            <th class="th-audio" style="color:var(--red);">
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer;" title="Select all voice trash">
+                <input type="checkbox" id="storageSelAllTrash" class="storage-check trash-check" onchange="storageToggleAll('trash',this.checked)">
+                Voice Trash
+              </label>
+            </th>
+            <th class="th-audio" style="color:#00ccff;">
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer;" title="Select all loops">
+                <input type="checkbox" id="storageSelAllLoops" class="storage-check loops-check" onchange="storageToggleAll('loops',this.checked)">
+                Loop Station
+              </label>
+            </th>
           </tr>
         </thead>
         <tbody id="storageTableBody"></tbody>
