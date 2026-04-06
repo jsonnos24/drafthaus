@@ -47,7 +47,7 @@
   --teal:     #64dcb4;
   --text:     #eeeef5;
   --muted:    #9898b0;
-  --faint:    #8a8aaa;
+  --faint:    #f5a623;
 }
 
 /* ── Slate Mode (bright-room theme) ─────────────────────────── */
@@ -61,7 +61,7 @@ html.slate-mode {
   --border2:  #4c5085;
   --text:     #e2e2f0;
   --muted:    #a8a8c8;
-  --faint:    #8888aa;
+  --faint:    #f5a623;
 }
 /* Hardcoded rgba(10,10,12,...) overrides for slate mode */
 html.slate-mode .site-header            { background: rgba(28,31,46,0.94); }
@@ -9054,9 +9054,22 @@ function seqAddSequence(partId) {
   seqs.push(newSeq);
   seqActiveIdx = seqs.length - 1;
   song.sequencer = newSeq;
+
+  // Two-way sync: add part to song structure if not already there
+  if (partId) {
+    if (!song.structure) song.structure = {};
+    if (!song.sectionOrder) song.sectionOrder = [];
+    if (!song.structure[partId]?.checked) {
+      song.structure[partId] = { ...(song.structure[partId] || {}), checked: true, count: song.structure[partId]?.count || 1 };
+      if (!song.sectionOrder.includes(partId)) song.sectionOrder.push(partId);
+      if (typeof renderStructure === 'function') renderStructure(song);
+    }
+  }
+
   save();
   seqLoadSequenceIntoDOM(newSeq, song);
   seqRenderSequenceTabs();
+  if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
   showToast('New sequence added — ' + seqGetPartLabel(partId), 'success', 2500);
 }
 
@@ -10503,7 +10516,7 @@ function kbdRenderMelodyTabs(song) {
       ${label}${noteCount ? `<span style="font-size:9px;opacity:0.55;margin-left:3px;">${noteCount}♪</span>` : ''}
     </button>`;
   }).join('');
-  strip.innerHTML = `<span class="seq-tabs-label">Melody for</span>${tabsHtml}`;
+  strip.innerHTML = `<span class="seq-tabs-label">Melody for</span>${tabsHtml}<button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button>`;
 }
 
 function kbdSwitchMelodyTab(idx) {
@@ -12212,7 +12225,7 @@ function openRunThroughTab() {
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#0a0a0c;--surface:#111115;--card:#18181e;--border:#28283a;
-  --gold:#f5a623;--text:#eeeef5;--muted:#9898b0;--faint:#8a8aaa;}
+  --gold:#f5a623;--text:#eeeef5;--muted:#9898b0;--faint:#f5a623;}
 html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;
   padding:48px 32px 100px;max-width:780px;margin:0 auto;-webkit-font-smoothing:antialiased;}
@@ -15148,6 +15161,9 @@ document.addEventListener('keydown', function(e) {
   if (e.code !== 'Space') return;
   const drawer = document.getElementById('keyboardDrawer');
   if (!drawer || !drawer.classList.contains('open')) return;
+  // 4-track takes priority — let its handler deal with space
+  const overlay = document.getElementById('vrOverlay');
+  if (overlay && overlay.classList.contains('vr-open')) return;
   const tag = document.activeElement?.tagName?.toLowerCase();
   if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
   e.preventDefault();
@@ -17053,6 +17069,35 @@ function ilAddSection(sel) {
   const newBlock = document.getElementById('ilpart-' + partId);
   if (newBlock) setTimeout(() => newBlock.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
 
+  // Sync to song structure and auto-create a sequence for this part
+  const song = getCurrentSong();
+  if (song) {
+    if (!song.structure) song.structure = {};
+    if (!song.sectionOrder) song.sectionOrder = [];
+    if (!song.structure[partId]?.checked) {
+      song.structure[partId] = { ...(song.structure[partId] || {}), checked: true, count: song.structure[partId]?.count || 1 };
+      if (!song.sectionOrder.includes(partId)) song.sectionOrder.push(partId);
+    }
+    // Auto-create a blank sequence for this part if one doesn't exist
+    const seqs = getSongSequences(song);
+    const alreadyHasSeq = seqs.some(s => (s.partId || s.part) === partId);
+    if (!alreadyHasSeq) {
+      const cur = seqs[seqActiveIdx] || seqs[0] || {};
+      seqs.push({
+        id: 'seq_' + Date.now(), partId, part: partId,
+        bpm: cur.bpm || '100', time: cur.time || '4',
+        bars: cur.bars || '16', grid: cur.grid || '1',
+        swing: cur.swing || '0', vel: cur.vel || '0.8',
+        wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano+synth',
+        chordSlots: [], chordDegrees: [],
+        kick: [], snare: [], hat: [], clap: [], melody: [],
+        melodyQuantize: true, mixer: {},
+      });
+      if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
+      if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
+    }
+  }
+
   ilScheduleSave();
 }
 
@@ -18265,6 +18310,8 @@ window.vrToggleRec = async function() {
     // Arm Sequencer: auto-start sequencer when recording begins
     if (_vrSeqArmed && !seqIsPlaying) { seqPlay(); }
 
+    const recBtn = _el('mtRecBtn');
+    if (recBtn) { recBtn.innerHTML = ''; recBtn.textContent = 'Stop Recording'; recBtn.style.fontSize = '10px'; recBtn.style.letterSpacing = '0.04em'; recBtn.style.padding = '0 10px'; }
     _el('mtStopBtn').disabled = false;
     _el('mtPlayBtn').disabled = true;
     _el('mtMiniBar', 'vrMiniBar'); // show mini bar
@@ -18306,7 +18353,9 @@ function _mtStopRecording() {
   if (_mtPlayheadRaf) { cancelAnimationFrame(_mtPlayheadRaf); _mtPlayheadRaf = null; }
   const sl = _mtArmedTrack >= 0 ? _el('mt-state-'+_mtArmedTrack) : null;
   if (sl) { sl.textContent=''; sl.className='mt-track-state'; }
-  _el('mtRecBtn').classList.remove('mt-active');
+  const recBtn = _el('mtRecBtn');
+  if (recBtn) { recBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>'; recBtn.style.fontSize = ''; recBtn.style.letterSpacing = ''; recBtn.style.padding = ''; }
+  recBtn?.classList.remove('mt-active');
   _el('mtStopBtn').disabled = true;
   _setStatus('Saving…');
   _mtUpdateMonPill('');
