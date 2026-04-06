@@ -5257,16 +5257,18 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 #vrOverlay {
   display: none; position: fixed; inset: 0; z-index: 1100;
   background: rgba(0,0,0,0.65); backdrop-filter: blur(6px);
-  align-items: flex-end; justify-content: center;
+  align-items: center; justify-content: center;
+  padding: 20px 16px;
+  box-sizing: border-box;
 }
 #vrOverlay.vr-open { display: flex; }
 #vrDeck {
   background: #13151c; border: 1px solid #2a2d38;
-  border-bottom: none; border-radius: 16px 16px 0 0;
+  border-radius: 16px;
   width: 100%; max-width: 780px;
-  max-height: 92dvh; overflow-y: auto;
-  box-shadow: 0 -8px 40px rgba(0,0,0,0.6);
-  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  max-height: calc(100dvh - 40px); overflow-y: auto;
+  box-shadow: 0 8px 60px rgba(0,0,0,0.7);
+  padding-bottom: 16px;
 }
 .vr-deck-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -17957,11 +17959,21 @@ window.vrLoadTakes = async function() {
       t.takes = byTrack[i];
       _mtRenderTakesPanel(i);
       _mtUpdateTakesBtn(i);
-      // Auto-select the last take as active if none loaded
-      if (t.takes.length > 0 && !t.buffer) {
-        const latest = t.takes[t.takes.length - 1];
-        t.activeTakeIdx = t.takes.length - 1;
-        await _mtLoadTakeBuffer(i, latest);
+      if (t.takes.length === 0) {
+        // All takes deleted — clear buffer and waveform canvas
+        t.buffer = null; t.duration = 0; t.activeTakeIdx = -1;
+        if (t.waveCtx && t.waveCanvas) {
+          t.waveCtx.clearRect(0, 0, t.waveCanvas.width, t.waveCanvas.height);
+        }
+      } else {
+        // Always keep active take in sync — re-load if missing or index shifted
+        const validIdx = t.activeTakeIdx >= 0 && t.activeTakeIdx < t.takes.length
+          ? t.activeTakeIdx : t.takes.length - 1;
+        const activeTake = t.takes[validIdx];
+        if (!t.buffer || t.activeTakeIdx !== validIdx) {
+          t.activeTakeIdx = validIdx;
+          await _mtLoadTakeBuffer(i, activeTake);
+        }
       }
     }
     _el('mtPlayBtn').disabled = !_mtTracks.some(t=>t&&t.buffer);
