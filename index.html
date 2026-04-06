@@ -2164,11 +2164,11 @@ button, select, input, textarea { touch-action: manipulation; }
   .proj-group-header:hover { opacity: 0.65; }
   .proj-group-name {
     font-family: 'IBM Plex Mono', monospace; font-size: 10px;
-    text-transform: uppercase; letter-spacing: 0.18em; color: var(--faint); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.18em; color: var(--gold); font-weight: 600;
   }
   .proj-group-count {
     font-family: 'IBM Plex Mono', monospace; font-size: 10px;
-    color: var(--faint); letter-spacing: 0.06em; opacity: 0.55;
+    color: var(--text); letter-spacing: 0.06em; opacity: 0.45;
   }
   .proj-group-chevron { margin-left: auto; font-size: 9px; color: var(--faint); transition: transform 0.2s; opacity: 0.5; }
   .proj-group.collapsed .proj-group-chevron { transform: rotate(-90deg); }
@@ -6531,15 +6531,10 @@ function renderGrid() {
   const recentProjs = Object.keys(projLastUpdated)
     .sort((a,b) => projLastUpdated[b] - projLastUpdated[a])
     .slice(0, 2);
-  // Sort: user-defined projects in their saved order first, then others by recency, Unassigned last
+  // Sort: alphabetical A-Z, Unassigned always last
   const myProjKeys = Object.keys(myGroups).sort((a,b) => {
     if (a==='__none__') return 1; if (b==='__none__') return -1;
-    const uiA = userProjects.indexOf(a);
-    const uiB = userProjects.indexOf(b);
-    if (uiA !== -1 && uiB !== -1) return uiA - uiB; // both user-defined: preserve order
-    if (uiA !== -1) return -1; // a is user-defined, comes first
-    if (uiB !== -1) return 1;  // b is user-defined, comes first
-    return (projLastUpdated[b]||0) - (projLastUpdated[a]||0);
+    return a.toLowerCase().localeCompare(b.toLowerCase());
   });
   myProjKeys.forEach(k => myGroups[k].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)));
   const mostRecentProj = recentProjs[0] || null;
@@ -6770,6 +6765,7 @@ function _buildDrawerSongPicker(onLoadCb, onNewCb) {
 function openSong(id) {
   document.getElementById('loadSheetBtn')?.classList.remove('load-btn-glow');
   currentId = id;
+  localStorage.setItem('drafthaus-last-song', id);
   const song = songs.find(s => s.id === id);
   if (!song) return;
 
@@ -13148,7 +13144,16 @@ async function loadSongsFromSheet() {
     save();
     renderGrid();
     setSyncStatus('saved', 'Loaded ✓');
-    
+
+    // Auto-restore last open song in backend view
+    if (!currentId) {
+      const lastId = localStorage.getItem('drafthaus-last-song');
+      if (lastId && songs.find(s => s.id === lastId)) {
+        openSong(lastId);
+        setSongViewMode('backend');
+      }
+    }
+
   } catch(e) {
     stopFunnyMessages();
     console.error('loadSongsFromSheet error:', e);
@@ -15127,7 +15132,10 @@ document.addEventListener('keydown', function(e) {
 // ── Spacebar + R shortcut for tape deck ──────────────────────────
 document.addEventListener('keydown', function(e) {
   const overlay = document.getElementById('vrOverlay');
-  if (!overlay || !overlay.classList.contains('vr-open')) return;
+  const miniBar = document.getElementById('vrMiniBar');
+  const deckVisible = (overlay && overlay.classList.contains('vr-open')) ||
+                      (miniBar && miniBar.style.display !== 'none' && miniBar.offsetParent !== null);
+  if (!deckVisible) return;
   const tag = e.target?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -18034,15 +18042,8 @@ window.mtWaveformSeek = function(trackIdx, e) {
     if (_mtPlayheadRaf) { cancelAnimationFrame(_mtPlayheadRaf); _mtPlayheadRaf = null; }
     _mtStartPlayback(seekTo);
   } else {
-    // Just update the visual playhead position (set _mtPlaybackOffset for next play)
-    _mtTracks.forEach((tr, i) => {
-      const ph = _el('mt-playhead-'+i); if (!ph) return;
-      if (tr && tr.buffer) { ph.style.display='block'; ph.style.left=(pct*100)+'%'; }
-    });
-    const fill = _el('mtProgressFill'); if(fill) fill.style.width=(pct*100)+'%';
-    const td = _el('mtTimeDisplay'); if(td) td.textContent=_fmtDur(seekTo);
-    // Store offset so next play starts from here
-    _mtScrubOffset = seekTo;
+    // Start playback from clicked position
+    _mtStartPlayback(seekTo);
   }
 };
 var _mtScrubOffset = 0; // seek position set while paused
