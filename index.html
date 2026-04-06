@@ -414,12 +414,10 @@ select.field-input option { background: var(--card); }
 .sp-chord-pill small { font-size: 8px; opacity: 0.7; }
 .sp-chord-rm { background: none; border: none; color: var(--faint); cursor: pointer; font-size: 10px; line-height: 1; padding: 0 1px; }
 .sp-chord-rm:hover { color: var(--red); }
-.sp-chord-dup { background: none; border: none; color: var(--faint); cursor: pointer; font-size: 9px; line-height: 1; padding: 0 1px; opacity: 0; transition: opacity 0.1s, color 0.1s; }
-.sp-chord-pill:hover .sp-chord-dup { opacity: 1; }
-.sp-chord-dup:hover { color: var(--gold); }
-.chord-dup-btn { background: none; border: none; color: var(--faint); cursor: pointer; font-size: 9px; line-height: 1; padding: 0 2px; opacity: 0; transition: opacity 0.1s, color 0.1s; }
-.chord-pill:hover .chord-dup-btn { opacity: 1; }
-.chord-dup-btn:hover { color: var(--gold); }
+.sp-chord-dup { background: none; border: none; color: var(--faint); cursor: pointer; font-size: 9px; line-height: 1; padding: 0 1px; opacity: 0.4; transition: opacity 0.1s, color 0.1s; }
+.sp-chord-dup:hover { opacity: 1; color: var(--gold); }
+.chord-dup-btn { background: none; border: none; color: var(--faint); cursor: pointer; font-size: 9px; line-height: 1; padding: 0 2px; opacity: 0.4; transition: opacity 0.1s, color 0.1s; }
+.chord-dup-btn:hover { opacity: 1; color: var(--gold); }
 .sp-add-chord-btn { font-family: 'IBM Plex Mono', monospace; font-size: 8px; text-transform: uppercase; letter-spacing: 0.06em; padding: 1px 5px; border: 1px dashed var(--border2); background: none; color: var(--faint); border-radius: 3px; cursor: pointer; white-space: nowrap; transition: all 0.1s; min-height: 18px; }
 .sp-add-chord-btn:hover { border-color: var(--gold); color: var(--gold); }
 .sp-picker { flex-direction: row; gap: 4px; align-items: center; flex-wrap: wrap; margin-top: 5px; width: 100%; }
@@ -3169,7 +3167,7 @@ button, select, input, textarea { touch-action: manipulation; }
     border-bottom: 2px solid rgba(255,80,0,0.7);
     border-radius: 6px 6px 4px 4px; cursor: pointer;
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    font-size: 13px; font-weight: 700; letter-spacing: 0.12em;
     color: #ffb84a; text-transform: uppercase;
     animation: thrusterFlicker 0.9s ease-in-out infinite;
     transition: color 0.15s, border-color 0.15s, background 0.15s;
@@ -3181,12 +3179,7 @@ button, select, input, textarea { touch-action: manipulation; }
     color: #ffd066;
     animation: thrusterFlickerHover 0.6s ease-in-out infinite;
   }
-  .ens-launch-flame {
-    font-size: 15px; line-height: 1;
-    display: block;
-    animation: flamePulse 0.75s ease-in-out infinite;
-    transform-origin: bottom center;
-  }
+
   .mix-ens-stop {
     padding: 7px 10px;
     background: rgba(200,80,80,0.08);
@@ -7196,6 +7189,7 @@ function newSong() {
 // ── Drawer-safe background song operations ────────────────────────
 // Load an existing song silently without navigating away from any open drawer.
 function _drawerQuickLoad(id, afterLoad) {
+  _stopAllAudio();
   const song = songs.find(s => s.id === id);
   if (!song) return;
   currentId = id;
@@ -7259,7 +7253,15 @@ function _buildDrawerSongPicker(onLoadCb, onNewCb) {
   </div>`;
 }
 
+// Stop all active audio when switching songs so nothing bleeds across sessions
+function _stopAllAudio() {
+  try { if (typeof vrStop === 'function') vrStop(); } catch(e) {}
+  try { if (typeof seqIsPlaying !== 'undefined' && seqIsPlaying && typeof seqStop === 'function') seqStop(); } catch(e) {}
+  try { if (typeof loopMasterStop === 'function') loopMasterStop(); } catch(e) {}
+}
+
 function openSong(id) {
+  _stopAllAudio();
   document.getElementById('loadSheetBtn')?.classList.remove('load-btn-glow');
   currentId = id;
   localStorage.setItem('drafthaus-last-song', id);
@@ -8114,12 +8116,12 @@ function renderInstSections(song) {
         <div class="chord-quickpick">
           ${quickChords.map((c,i) => `<button class="chord-qbtn${i===0?' is-i':''}" onclick="instAddChordQuick('${inst.id}','${part.id}','${c.root}','${c.quality}')">${c.label}</button>`).join('')}
           <button class="chord-qbtn other-btn" onclick="toggleChordPicker('${inst.id}','${part.id}')">+ Other</button>
+          <button class="sp-undo-btn" onclick="undoInstChordAction('${inst.id}','${part.id}')" title="Undo last chord" style="padding:2px 7px;font-size:9px;min-height:0;">↩</button>
         </div>
         <div id="cpicker-${inst.id}-${part.id}" style="display:none;flex-direction:row;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
           <select class="chord-select" id="icr-${inst.id}-${part.id}" style="font-size:11px;padding:3px 6px;">${rootOpts}</select>
           <select class="chord-select" id="icq-${inst.id}-${part.id}" style="font-size:11px;padding:3px 6px;">${qualOpts}</select>
           <button class="chord-add" style="padding:4px 10px;font-size:11px;" onclick="instAddChord('${inst.id}','${part.id}')">+ Add</button>
-          <button class="sp-undo-btn" onclick="undoInstChordAction('${inst.id}','${part.id}')" title="Undo">↩</button>
         </div>
         <div id="cpills-${inst.id}-${part.id}" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:24px;"></div>
         <div style="margin-top:10px;">
@@ -10484,6 +10486,7 @@ function seqPlaySong() {
       totalSteps, stepDur, bpm, grid, time, bars,
       swing: parseFloat(seq.swing || 0),
       vel:   parseFloat(seq.vel   || 0.8),
+      _seqIdx: seqs.indexOf(seq),
     };
   });
 
@@ -10582,9 +10585,25 @@ function seqScheduleNotes() {
       if (_seqSongSectionStep >= sec.totalSteps) {
         _seqSongSectionStep = 0;
         _seqSongSectionIdx++;
-        // Update tab highlight + trigger looper tracks for new section
-        const _nextPartId = _seqSongSections[_seqSongSectionIdx]?.partId || null;
-        setTimeout(() => { seqRenderSequenceTabs(); _seqTriggerLoopsForPart(_nextPartId); }, visualDelay + 50);
+        // Update tab highlight, grid display, and trigger looper tracks for new section
+        const _nextSectionIdx = _seqSongSectionIdx;
+        const _nextPartId = _seqSongSections[_nextSectionIdx]?.partId || null;
+        setTimeout(() => {
+          // Find which sequence tab corresponds to this section so we can highlight + load it
+          const song = getCurrentSong();
+          if (song && _nextSectionIdx < _seqSongSections.length) {
+            const nextSeq = _seqSongSections[_nextSectionIdx];
+            const seqs = getSongSequences(song);
+            // _seqIdx is the index of this section in the original seqs array (stored at build time)
+            const tabIdx = (nextSeq._seqIdx !== undefined && nextSeq._seqIdx >= 0) ? nextSeq._seqIdx : -1;
+            if (tabIdx >= 0 && tabIdx < seqs.length && tabIdx !== seqActiveIdx) {
+              seqActiveIdx = tabIdx;
+              seqLoadSequenceIntoDOM(seqs[tabIdx], song);
+            }
+          }
+          seqRenderSequenceTabs();
+          _seqTriggerLoopsForPart(_nextPartId);
+        }, visualDelay + 50);
         if (_seqSongSectionIdx >= _seqSongSections.length) {
           // Schedule stop after last note plays
           setTimeout(() => seqStop(), visualDelay + 200);
@@ -18701,7 +18720,7 @@ function renderMixDrawerHtml() {
         }).join('');
       })()}</div>
       <div class="mix-ens-launch-row">
-        <button class="mix-ens-launch" onclick="ensembleLaunch()">▶ Launch<span class="ens-launch-flame">🔥</span></button>
+        <button class="mix-ens-launch" onclick="ensembleLaunch()">▶ Launch</button>
         <button class="mix-ens-stop" onclick="ensembleStop()">■ Stop All</button>
       </div>
     </div>`;
@@ -19226,7 +19245,37 @@ window.ensembleToggleChip = function(key) {
   _ensembleSavePrefs(prefs);
   const chip = document.getElementById('ensChip-' + key);
   if (chip) chip.classList.toggle('active', prefs[key]);
+  // Apply all gain nodes immediately so audio reflects the toggle right away
+  _ensembleApplyAllGains(prefs);
 };
+
+function _ensembleApplyAllGains(prefs) {
+  // 4-track
+  if (_mtMasterGain) try {
+    _mtMasterGain.gain.value = prefs['4track'] ? 1.0 : 0.0;
+  } catch(e) {}
+  // Chords — seqChordsGain covers synth + piano + guitar (all connect via seqGetChordsOut)
+  if (seqChordsGain) try {
+    const ctx = getSeqAudioCtx();
+    seqChordsGain.gain.setTargetAtTime(prefs.seq ? 1.0 : 0.0, ctx.currentTime, 0.02);
+  } catch(e) {}
+  // Drums
+  if (seqDrumsGain) try {
+    const ctx = getSeqAudioCtx();
+    seqDrumsGain.gain.setTargetAtTime(prefs.drums ? 1.0 : 0.0, ctx.currentTime, 0.02);
+  } catch(e) {}
+  // Keys — keyboard and sequencer melody share seqMelodyGain
+  if (seqMelodyGain) try {
+    const ctx = getSeqAudioCtx();
+    seqMelodyGain.gain.setTargetAtTime(prefs.kbd ? 1.0 : 0.0, ctx.currentTime, 0.02);
+  } catch(e) {}
+  // Looper
+  if (loopMasterGain) try {
+    loopMasterGain.gain.value = prefs.loop ? 1.0 : 0.0;
+  } catch(e) {}
+}
+// Keep old name as alias
+function _ensembleApplyDrumGain(prefs) { _ensembleApplyAllGains(prefs); }
 
 window.ensembleLaunch = function() {
   const prefs = _ensembleGetPrefs();
@@ -19247,6 +19296,8 @@ window.ensembleLaunch = function() {
       seqPlay();
     }
   }
+  // Apply all channel mutes — runs whether or not things just started or were already playing
+  _ensembleApplyAllGains(prefs);
 
   // Looper: respect part assignments
   if (prefs.loop) {
@@ -19289,6 +19340,10 @@ window.ensembleStop = function() {
   if (seqIsPlaying) seqStop();
   // Stop looper
   loopMasterStop();
+  // Reset all gains to 1.0 so the next Launch re-applies prefs from a clean state
+  [_mtMasterGain, seqChordsGain, seqDrumsGain, seqMelodyGain, loopMasterGain].forEach(g => {
+    if (g) try { g.gain.cancelScheduledValues(0); g.gain.value = 1.0; } catch(e) {}
+  });
 };
 
 // Close any open takes panel when clicking outside it
