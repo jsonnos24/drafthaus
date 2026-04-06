@@ -414,6 +414,12 @@ select.field-input option { background: var(--card); }
 .sp-chord-pill small { font-size: 8px; opacity: 0.7; }
 .sp-chord-rm { background: none; border: none; color: var(--faint); cursor: pointer; font-size: 10px; line-height: 1; padding: 0 1px; }
 .sp-chord-rm:hover { color: var(--red); }
+.sp-chord-dup { background: none; border: none; color: var(--faint); cursor: pointer; font-size: 9px; line-height: 1; padding: 0 1px; opacity: 0; transition: opacity 0.1s, color 0.1s; }
+.sp-chord-pill:hover .sp-chord-dup { opacity: 1; }
+.sp-chord-dup:hover { color: var(--gold); }
+.chord-dup-btn { background: none; border: none; color: var(--faint); cursor: pointer; font-size: 9px; line-height: 1; padding: 0 2px; opacity: 0; transition: opacity 0.1s, color 0.1s; }
+.chord-pill:hover .chord-dup-btn { opacity: 1; }
+.chord-dup-btn:hover { color: var(--gold); }
 .sp-add-chord-btn { font-family: 'IBM Plex Mono', monospace; font-size: 8px; text-transform: uppercase; letter-spacing: 0.06em; padding: 1px 5px; border: 1px dashed var(--border2); background: none; color: var(--faint); border-radius: 3px; cursor: pointer; white-space: nowrap; transition: all 0.1s; min-height: 18px; }
 .sp-add-chord-btn:hover { border-color: var(--gold); color: var(--gold); }
 .sp-picker { flex-direction: row; gap: 4px; align-items: center; flex-wrap: wrap; margin-top: 5px; width: 100%; }
@@ -7466,7 +7472,7 @@ function renderStructure(song) {
     const count = song.structure[p.id]?.count || 1;
     const chords = song.chords[p.id] || [];
     const chordPillsHtml = chords.length
-      ? chords.map((c, ci) => `<span class="sp-chord-pill" style="border-color:${p.color}55;color:${p.color};">${c.root}${c.quality && c.quality !== 'maj' ? `<small>${c.quality}</small>` : ''}<button class="sp-chord-rm" onclick="event.stopPropagation();removeSongPartChord('${p.id}',${ci})">×</button></span>`).join('')
+      ? chords.map((c, ci) => `<span class="sp-chord-pill" style="border-color:${p.color}55;color:${p.color};">${c.root}${c.quality && c.quality !== 'maj' ? `<small>${c.quality}</small>` : ''}<button class="sp-chord-dup" onclick="event.stopPropagation();duplicateSongPartChord('${p.id}',${ci})" title="Duplicate">⧉</button><button class="sp-chord-rm" onclick="event.stopPropagation();removeSongPartChord('${p.id}',${ci})">×</button></span>`).join('')
       : `<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);font-style:italic;">no chords yet</span>`;
     return `<div class="struct-part checked" style="border-color:${p.color}55;border-left-color:${p.color};"
       draggable="true" data-ssp-idx="${i}" data-ssp-id="${p.id}"
@@ -7483,6 +7489,7 @@ function renderStructure(song) {
       <div class="sp-chords-area">
         <div style="display:flex;flex-wrap:wrap;gap:4px;flex:1;align-items:center;">${chordPillsHtml}</div>
         <button class="sp-add-chord-btn" onclick="event.stopPropagation();toggleSongPartPicker('${p.id}')">+ chord</button>
+        <button class="sp-undo-btn" onclick="event.stopPropagation();undoPartAction()" title="Undo last chord change" style="padding:1px 5px;font-size:8px;min-height:18px;">↩</button>
       </div>
       <div class="sp-picker" id="spp-${p.id}" style="display:none;">
         <select class="chord-select" id="sppr-${p.id}" style="font-size:10px;padding:2px 5px;min-height:24px;">${rootOpts}</select>
@@ -7775,6 +7782,74 @@ function undoPartAction() {
   scheduleSyncToSheet(song);
 }
 
+function duplicateSongPartChord(partId, idx) {
+  const song = getCurrentSong(); if (!song) return;
+  if (!song.chords) song.chords = {};
+  if (!song.chords[partId]) return;
+  _pushStructUndo(song);
+  const copy = JSON.parse(JSON.stringify(song.chords[partId][idx]));
+  song.chords[partId].splice(idx + 1, 0, copy);
+  song.updatedAt = Date.now(); save();
+  renderStructure(song); scheduleSyncToSheet(song);
+}
+
+// ── Instrument chord undo stack ────────────────────────────────────
+const _instChordUndoStack = {};
+
+function _pushInstChordUndo(instId, partId) {
+  const song = getCurrentSong(); if (!song) return;
+  const key = instId + ':' + partId;
+  if (!_instChordUndoStack[key]) _instChordUndoStack[key] = [];
+  const part = song?.instruments?.[instId]?.[partId];
+  _instChordUndoStack[key].push(part ? JSON.parse(JSON.stringify(part)) : null);
+  if (_instChordUndoStack[key].length > 20) _instChordUndoStack[key].shift();
+}
+
+window.undoInstChordAction = function(instId, partId) {
+  const song = getCurrentSong(); if (!song) return;
+  const key = instId + ':' + partId;
+  const stack = _instChordUndoStack[key];
+  if (!stack || !stack.length) { showToast('Nothing to undo', 'warn'); return; }
+  const prev = stack.pop();
+  if (!song.instruments) song.instruments = {};
+  if (!song.instruments[instId]) song.instruments[instId] = {};
+  song.instruments[instId][partId] = prev || { chords: [], beats: [] };
+  song.updatedAt = Date.now(); save();
+  const openIds = [...document.querySelectorAll('#instSections .inst-section-block:not(.collapsed)')].map(el => el.id);
+  renderInstSections(song);
+  openIds.forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('collapsed'); });
+  scheduleSyncToSheet(song);
+};
+
+window.duplicateInstChord = function(instId, partId, idx) {
+  const song = getCurrentSong(); if (!song) return;
+  if (!song?.instruments?.[instId]?.[partId]) return;
+  _pushInstChordUndo(instId, partId);
+  const part = song.instruments[instId][partId];
+  // Duplicate the chord entry
+  const chord = JSON.parse(JSON.stringify(part.chords[idx]));
+  part.chords.splice(idx + 1, 0, chord);
+  // Duplicate corresponding beats & update beatMeta indices
+  if (part.beatMeta && part.beats) {
+    const origBeatIdxs = part.beatMeta.map((m, i) => m?.chordIdx === idx ? i : -1).filter(i => i >= 0);
+    // Shift all chordIdx > idx up by 1 (chords array just grew)
+    part.beatMeta.forEach(m => { if (m && m.chordIdx > idx) m.chordIdx++; });
+    // Insert duplicate beats right after the last original beat for this chord
+    if (origBeatIdxs.length) {
+      const insertAfter = origBeatIdxs[origBeatIdxs.length - 1];
+      const dupBeats = origBeatIdxs.map(bi => JSON.parse(JSON.stringify(part.beats[bi])));
+      const dupMeta  = origBeatIdxs.map(() => ({ chordIdx: idx + 1 }));
+      part.beats.splice(insertAfter + 1, 0, ...dupBeats);
+      part.beatMeta.splice(insertAfter + 1, 0, ...dupMeta);
+    }
+  }
+  song.updatedAt = Date.now(); save();
+  const openIds = [...document.querySelectorAll('#instSections .inst-section-block:not(.collapsed)')].map(el => el.id);
+  renderInstSections(song);
+  openIds.forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('collapsed'); });
+  scheduleSyncToSheet(song);
+};
+
 function toggleSongPartPicker(partId) {
   const el = document.getElementById('spp-' + partId);
   if (!el) return;
@@ -8036,6 +8111,7 @@ function renderInstSections(song) {
           <select class="chord-select" id="icr-${inst.id}-${part.id}" style="font-size:11px;padding:3px 6px;">${rootOpts}</select>
           <select class="chord-select" id="icq-${inst.id}-${part.id}" style="font-size:11px;padding:3px 6px;">${qualOpts}</select>
           <button class="chord-add" style="padding:4px 10px;font-size:11px;" onclick="instAddChord('${inst.id}','${part.id}')">+ Add</button>
+          <button class="sp-undo-btn" onclick="undoInstChordAction('${inst.id}','${part.id}')" title="Undo">↩</button>
         </div>
         <div id="cpills-${inst.id}-${part.id}" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:24px;"></div>
         <div style="margin-top:10px;">
@@ -8337,7 +8413,7 @@ function renderChordPillsDraggable(instId, partId) {
     pill.draggable = true;
     pill.dataset.idx = i;
     pill.style.cursor = 'grab';
-    pill.innerHTML = `<span class="chord-root">${esc(c.root)}</span><span class="chord-qual"> ${esc(c.quality)}</span><button class="chord-remove" onclick="instRemoveChord('${instId}','${partId}',${i})">×</button>`;
+    pill.innerHTML = `<span class="chord-root">${esc(c.root)}</span><span class="chord-qual"> ${esc(c.quality)}</span><button class="chord-dup-btn" onclick="event.stopPropagation();duplicateInstChord('${instId}','${partId}',${i})" title="Duplicate">⧉</button><button class="chord-remove" onclick="instRemoveChord('${instId}','${partId}',${i})">×</button>`;
 
     pill.addEventListener('dragstart', e => {
       e.dataTransfer.setData('text/plain', i);
@@ -8477,6 +8553,7 @@ function instAddChord(instId, partId) {
   if (!song.instruments) song.instruments = {};
   if (!song.instruments[instId]) song.instruments[instId] = {};
   if (!song.instruments[instId][partId]) song.instruments[instId][partId] = { chords: [], beats: [] };
+  _pushInstChordUndo(instId, partId);
   const root = document.getElementById('icr-'+instId+'-'+partId).value;
   const qv   = document.getElementById('icq-'+instId+'-'+partId).value;
   const ql   = QUALITIES.find(q=>q.v===qv)?.l || qv;
@@ -8528,6 +8605,7 @@ function instAddChord(instId, partId) {
 function instRemoveChord(instId, partId, idx) {
   const song = getCurrentSong();
   if (!song?.instruments?.[instId]?.[partId]) return;
+  _pushInstChordUndo(instId, partId);
   song.instruments[instId][partId].chords.splice(idx, 1);
   // Find and remove the beat that was tagged with this chordIdx
   const meta = song.instruments[instId][partId].beatMeta || [];
