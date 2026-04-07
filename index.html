@@ -20705,7 +20705,14 @@ window.vrToggleRec = async function() {
   if (_vrRecording) { _mtStopRecording(); return; }
   if (_mtArmedTrack < 0) { showToast('Arm a track first.', 'warn'); return; }
   const { remaining } = await _vrGetQuota();
-  if (remaining <= 0) { _setStatus('Quota full — delete takes to free space'); return; }
+  if (remaining <= 0) {
+    if (userTier === 'free') {
+      showUpgradeModal(`You've used your ${getTierLimits().recordingMinutes} minutes of free recording storage. Upgrade for more.`);
+    } else {
+      _setStatus('Recording quota full — delete takes to free space');
+    }
+    return;
+  }
 
   _el('mtRecBtn').classList.add('mt-active');
   _setStatus('Get ready…');
@@ -20857,7 +20864,8 @@ async function _mtFinishRecording(trackIdx, mimeType) {
 // ── Quota ──────────────────────────────────────────────────────
 async function _vrGetQuota() {
   const uid = auth.currentUser?.uid;
-  if (!uid) return { used: 0, remaining: VR_QUOTA_SECONDS };
+  const quotaSecs = getTierLimits().recordingMinutes * 60;
+  if (!uid) return { used: 0, remaining: quotaSecs };
   try {
     const [takesSnap, trashSnap] = await Promise.all([
       db.collection('voice_takes').where('userId', '==', uid).get(),
@@ -20867,8 +20875,8 @@ async function _vrGetQuota() {
       ...takesSnap.docs.map(d => d.data().duration || 0),
       ...trashSnap.docs.map(d => d.data().duration || 0)
     ].reduce((sum, d) => sum + d, 0);
-    return { used, remaining: Math.max(0, VR_QUOTA_SECONDS - used) };
-  } catch(e) { return { used: 0, remaining: VR_QUOTA_SECONDS }; }
+    return { used, remaining: Math.max(0, quotaSecs - used) };
+  } catch(e) { return { used: 0, remaining: quotaSecs }; }
 }
 
 // ── Upload (with trackNum) — returns new doc ID ────────────────
