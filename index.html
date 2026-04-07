@@ -6353,6 +6353,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
       <div class="ks-panel" id="ksPanel">
         <div class="ks-title">Keyboard Shortcuts</div>
         <div class="ks-section-label">Views</div>
+        <div class="ks-row"><kbd>H</kbd><span>Home — Draft List &amp; Storage</span></div>
         <div class="ks-row"><kbd>L</kbd><span>Lyrics view</span></div>
         <div class="ks-row"><kbd>R</kbd><span>Rehearse/Perform Mode</span></div>
         <div class="ks-row"><kbd>B</kbd><span>Backend view</span></div>
@@ -6934,11 +6935,11 @@ function renderGrid() {
         ${assignItem}${shareItem}${deleteItem}
       </div>
     </div>`;
-    // ── Sequencer play/stop ──
+    // ── Launch / stop ──
     const isPlaying = seqIsPlaying && currentId === song.id;
     const seqCell = `<div class="sl-seq-cell" onclick="event.stopPropagation()">
       <button class="sl-seq-btn${isPlaying?' playing':''}" id="slseq-${song.id}"
-        onclick="rowSeqToggle('${song.id}')" title="${isPlaying?'Stop':'Play sequencer'}">
+        onclick="rowSeqToggle('${song.id}')" title="${isPlaying?'Stop all':'Launch'}">
         ${isPlaying ? '■' : '▶'}
       </button>
     </div>`;
@@ -6954,7 +6955,7 @@ function renderGrid() {
         </svg>
       </button>
       <button class="sl-seq-btn${isPlaying?' playing':''}" id="slseq-${song.id}"
-        onclick="rowSeqToggle('${song.id}')" title="${isPlaying?'Stop':'Play sequencer'}">
+        onclick="rowSeqToggle('${song.id}')" title="${isPlaying?'Stop all':'Launch'}">
         ${isPlaying ? '■' : '▶'}
       </button>
       <div class="sl-takes-dropdown" id="sltdrop-${song.id}">
@@ -8971,10 +8972,22 @@ function _midiNoteOn(midiNote, velocity) {
     o.start(t); o.stop(t + 2.1);
   }
   _midiHighlightKey(midiNote, true);
+  // Record to melody if recording is active
+  if (typeof melodyRecordNote === 'function') {
+    const noteName = SEQ_NOTES[midiNote % 12];
+    const oct = Math.floor(midiNote / 12) - 1;
+    melodyRecordNote(noteName, oct, true);
+  }
 }
 
 function _midiNoteOff(midiNote) {
   _midiHighlightKey(midiNote, false);
+  // Record note-off to melody if recording is active
+  if (typeof melodyRecordNote === 'function') {
+    const noteName = SEQ_NOTES[midiNote % 12];
+    const oct = Math.floor(midiNote / 12) - 1;
+    melodyRecordNote(noteName, oct, false);
+  }
 }
 
 function _midiHighlightKey(midiNote, on) {
@@ -9298,6 +9311,8 @@ function renderSequencerHtml(song) {
         <select class="seq-select" id="seqTime" onchange="seqRebuild()">
           <option value="4"${time==='4'?' selected':''}>4/4</option>
           <option value="3"${time==='3'?' selected':''}>3/4</option>
+          <option value="6"${time==='6'?' selected':''}>6/8</option>
+          <option value="5"${time==='5'?' selected':''}>5/4</option>
         </select>
       </div>
 
@@ -9405,6 +9420,15 @@ function renderSequencerHtml(song) {
             <option value="edm">EDM</option>
             <option value="blues">Blues</option>
             <option value="classical">Classical</option>
+            <option disabled>── 6/8 ──</option>
+            <option value="six8">6/8 Groove</option>
+            <option value="six8_rock">6/8 Rock</option>
+            <option value="six8_folk">6/8 Folk</option>
+            <option value="six8_ballad">6/8 Ballad</option>
+            <option disabled>── 5/4 ──</option>
+            <option value="five4">5/4</option>
+            <option value="five4_jazz">5/4 Jazz</option>
+            <option value="five4_rock">5/4 Rock</option>
             <option value="random">🎲 Random</option>
           </select>
           <button class="seq-humanize-btn" id="seqHumanizeDrumsBtn" onclick="seqToggleHumanize('drums')" title="Humanize drums — each hit gets slight random timing so it feels like a real drummer">〜 Humanize</button>
@@ -9612,6 +9636,10 @@ function _seqSyncUndoBtn() {
   const btn = document.getElementById('seqUndoBtn');
   if (btn) btn.style.opacity = _seqUndoStack.length ? '0.8' : '0.3';
 }
+function _kbdSyncUndoBtn() {
+  const btn = document.getElementById('kbdUndoBtn');
+  if (btn) btn.style.opacity = _seqUndoStack.length ? '0.8' : '0.3';
+}
 
 window.seqUndoActive = function() {
   if (!_seqUndoStack.length) { showToast('Nothing to undo', 'info', 1500); return; }
@@ -9619,15 +9647,23 @@ window.seqUndoActive = function() {
   const song = getCurrentSong();
   if (!song) return;
   song.sequences = snap.sequences;
-  seqActiveIdx   = Math.min(snap.activeIdx, snap.sequences.length - 1);
-  song.sequencer = song.sequences[seqActiveIdx];
+  seqActiveIdx      = Math.min(snap.activeIdx, snap.sequences.length - 1);
+  kbdMelodySeqIdx   = Math.min(kbdMelodySeqIdx, snap.sequences.length - 1);
+  song.sequencer    = song.sequences[seqActiveIdx];
   seqLoadSequenceIntoDOM(song.sequencer, song);
   seqRenderSequenceTabs();
   seqRenderChordPills(song);
   if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
+  // Resync in-memory melody notes for the keyboard drawer
+  const melSeq = song.sequences[kbdMelodySeqIdx];
+  if (melSeq && typeof melodyNotes !== 'undefined') {
+    melodyNotes = (melSeq.melody || []).slice();
+    if (typeof seqRenderMelodyRoll === 'function') seqRenderMelodyRoll();
+  }
   save();
   showToast('Undone', 'success', 1500);
   _seqSyncUndoBtn();
+  _kbdSyncUndoBtn();
 };
 
 window.seqDuplicateActive = function() {
@@ -10568,6 +10604,15 @@ function seqPlaySong() {
   _seqTriggerLoopsForPart(_seqSongSections[0]?.partId || null);
 }
 
+// Returns true if step i should get an accented metronome click.
+// 6/8: accent beat 1 AND beat 4 (the two compound downbeats in each 3+3 bar).
+// All others: accent beat 1 only.
+function _seqIsAccentBeat(stepInBar, beatsPerBar, timeSig) {
+  if (stepInBar === 0) return true;
+  if (timeSig === 6) return stepInBar === Math.floor(beatsPerBar / 2);
+  return false;
+}
+
 function seqScheduleNotes() {
   const ctx = _seqSchedulerCtx;
   if (!ctx || !seqIsPlaying) return;
@@ -10614,7 +10659,7 @@ function seqScheduleNotes() {
       if (sec.snare[i]) seqPlaySnare(seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, velocity * 0.8);
       if (sec.hat[i])   seqPlayHat(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, velocity * 0.6);
       if (sec.clap[i])  seqPlayClap( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, velocity * 0.7);
-      if (seqMetOn) seqClick(noteTime, i % beatsPerBar === 0);
+      if (seqMetOn) seqClick(noteTime, _seqIsAccentBeat(i % beatsPerBar, beatsPerBar, sec.time));
 
       // Melody: schedule all notes once per section start
       if (i === 0) {
@@ -10724,7 +10769,7 @@ function seqScheduleNotes() {
     if (snareSlots[i]?.classList.contains('drum-on')) seqPlaySnare(seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, velocity * 0.8);
     if (hatSlots[i]?.classList.contains('drum-on'))   seqPlayHat(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, velocity * 0.6);
     if (clapSlots[i]?.classList.contains('drum-on'))  seqPlayClap( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, velocity * 0.7);
-    if (seqMetOn) seqClick(noteTime, i % beatsPerBar === 0);
+    if (seqMetOn) seqClick(noteTime, _seqIsAccentBeat(i % beatsPerBar, beatsPerBar, time_sig));
 
     // Melody: schedule once per loop start
     if (i === 0) {
@@ -11070,9 +11115,8 @@ async function melodyStartRecord() {
   const stepMs  = (60000 / bpm); // one beat in ms
   const totalCountInBeats = timeSig * 2; // 2 bars
 
-  const btn    = document.getElementById('melodyRecBtn');
-  const status = document.getElementById('melodyStatus');
-  if (btn) btn.textContent = '…';
+  // Give the button a quick visual cue that recording is starting
+  { const b = document.getElementById('melodyRecBtn'); if (b) b.textContent = '…'; }
 
   const ctx = getSeqAudioCtx();
 
@@ -11080,7 +11124,7 @@ async function melodyStartRecord() {
   const startTime = ctx.currentTime + 0.05; // small buffer
   for (let beat = 0; beat < totalCountInBeats; beat++) {
     const t = startTime + beat * (stepMs / 1000);
-    seqClick(t, beat % timeSig === 0);
+    seqClick(t, _seqIsAccentBeat(beat % timeSig, timeSig, timeSig));
   }
 
   // Update status display using setTimeout (visual only, not timing-critical)
@@ -11089,8 +11133,9 @@ async function melodyStartRecord() {
     const barNum  = Math.floor(beat / timeSig) + 1;
     const beatNum = (beat % timeSig) + 1;
     setTimeout(() => {
-      if (status && melodyCountingIn && !melodyIsRecording)
-        status.textContent = `Count-in: ${barNum}-${beatNum}`;
+      const s = document.getElementById('melodyStatus');
+      if (s && melodyCountingIn && !melodyIsRecording)
+        s.textContent = `Count-in: ${barNum}-${beatNum}`;
     }, delayMs);
   }
 
@@ -11100,13 +11145,17 @@ async function melodyStartRecord() {
 
   if (!melodyCountingIn) return; // was cancelled during count-in
   melodyCountingIn = false;
-  if (!document.getElementById('melodyRecBtn')) return; // drawer closed
+
+  // Re-fetch DOM refs after the async wait — the drawer may have been rebuilt during count-in
+  const btn    = document.getElementById('melodyRecBtn');
+  const status = document.getElementById('melodyStatus');
+  if (!btn) return; // drawer was closed during count-in
 
   // Arm recording precisely
   melodyIsRecording = true;
   melodyRecStart = Date.now();
   melodyNotes = [];
-  if (btn) { btn.classList.add('recording'); btn.textContent = '⏹ Stop'; }
+  btn.classList.add('recording'); btn.textContent = '⏹ Stop';
   if (status) status.textContent = '● RECORDING';
   seqRenderMelodyRoll();
 
@@ -11249,12 +11298,14 @@ function melodyClear() {
 function saveMelody() {
   const song = getCurrentSong();
   if (!song) return;
+  seqPushUndo(); // snapshot BEFORE overwriting melody
   const seqs = getSongSequences(song);
   const targetSeq = seqs[kbdMelodySeqIdx] || song.sequencer || {};
   targetSeq.melody = melodyNotes.slice();
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
+  _kbdSyncUndoBtn();
 }
 
 function kbdRenderMelodyTabs(song) {
@@ -11277,8 +11328,33 @@ function kbdRenderMelodyTabs(song) {
       ${label}${noteCount ? `<span style="font-size:9px;opacity:0.55;margin-left:3px;">${noteCount}♪</span>` : ''}
     </button>`;
   }).join('');
-  strip.innerHTML = `<span class="seq-tabs-label">Melody for</span>${tabsHtml}<button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button>`;
+  const undoOpacity = _seqUndoStack.length ? '0.8' : '0.3';
+  strip.innerHTML = `<span class="seq-tabs-label">Melody for</span>${tabsHtml}<button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button><button class="seq-tab-add" onclick="kbdDuplicateMelodySeq()" title="Duplicate this sequence's melody" style="font-size:13px;padding:2px 7px;">⧉</button><button class="seq-tab-add" id="kbdUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:${undoOpacity};">↩</button>`;
 }
+
+window.kbdDuplicateMelodySeq = function() {
+  const song = getCurrentSong();
+  if (!song) return;
+  const seqs = getSongSequences(song);
+  // Save current in-memory melody back to the sequence before cloning
+  if (seqs[kbdMelodySeqIdx]) seqs[kbdMelodySeqIdx].melody = melodyNotes.slice();
+  seqSaveAllToCurrent(song);
+  seqPushUndo(); // snapshot BEFORE mutating
+  const src = seqs[kbdMelodySeqIdx];
+  if (!src) return;
+  const clone = JSON.parse(JSON.stringify(src));
+  clone.id = 'seq_' + Date.now();
+  seqs.splice(kbdMelodySeqIdx + 1, 0, clone);
+  kbdMelodySeqIdx = kbdMelodySeqIdx + 1;
+  seqActiveIdx    = kbdMelodySeqIdx;
+  song.sequencer  = clone;
+  melodyNotes     = (clone.melody || []).slice();
+  save();
+  seqRenderMelodyRoll();
+  kbdRenderMelodyTabs(song);
+  seqRenderSequenceTabs();
+  showToast('Sequence duplicated', 'success', 2000);
+};
 
 function kbdSwitchMelodyTab(idx) {
   const song = getCurrentSong();
@@ -12226,8 +12302,14 @@ function hideDrawerStatus(delay) {
     if (bar) bar.className = bar.className.replace(' visible', '').replace('visible', '').trim();
   }, delay || 0);
 }
-function showDrawerLoading(text) { showDrawerStatus('loading', text || 'Loading…'); }
-function hideDrawerLoading()     { hideDrawerStatus(400); }
+function showDrawerLoading(text) {
+  showDrawerStatus('loading', text || 'Loading…');
+  _dsbStartFunny();
+}
+function hideDrawerLoading() {
+  _dsbStopFunny();
+  hideDrawerStatus(400);
+}
 
 // ── Google Sheets Sync ─────────────────────────────────────────────
 function setSyncStatus(state, label) {
@@ -12492,19 +12574,53 @@ function showStartupPasswordPrompt() {
 // ── Inspiration Mode ─────────────────────────────────
 // ═══════════════════════════════════════════════════════
 
-const INSPO_WORDS_A = ['Midnight','Crimson','Silver','Hollow','Shadow','Distant','Ancient','Burning','Frozen','Velvet','Electric','Broken','Golden','Phantom','Silent','Wandering','Fading','Neon','Cosmic','Iron'];
-const INSPO_WORDS_B = ['Echo','Storm','Fire','Dream','Rain','Ghost','Signal','Memory','Tide','Pulse','Road','Horizon','River','Wire','Flame','Cipher','Sorrow','Sky','Mirror','Stone'];
-const INSPO_WORDS_C = ['Theory','Machine','Lullaby','Protocol','Sequence','Garden','Archive','Frequency','Atlas','Manifesto','Requiem','Engine','Chronicle','Anthem','Ritual','Blueprint','Cascade','Remnant','Overture','Codex'];
+const INSPO_WORDS_A = [
+  'Midnight','Crimson','Silver','Hollow','Shadow','Distant','Ancient','Burning','Frozen','Velvet',
+  'Electric','Broken','Golden','Phantom','Silent','Wandering','Fading','Neon','Cosmic','Iron',
+  'Amber','Bleeding','Fractured','Lucid','Obsidian','Reckless','Scattered','Tender','Wasted','Violet',
+  'Ashen','Blind','Cathedral','Drowning','Empty','Falling','Glowing','Hungry','Infinite','Jade',
+];
+const INSPO_WORDS_B = [
+  'Echo','Storm','Fire','Dream','Rain','Ghost','Signal','Memory','Tide','Pulse',
+  'Road','Horizon','River','Wire','Flame','Cipher','Sorrow','Sky','Mirror','Stone',
+  'Ache','Bliss','Current','Dusk','Ember','Fugue','Haze','Instinct','Lament','Myth',
+  'Nerve','Oracle','Reverie','Static','Throne','Vapor','Wound','Zenith','Breach','Drift',
+];
+const INSPO_WORDS_C = [
+  'Theory','Machine','Lullaby','Protocol','Sequence','Garden','Archive','Frequency','Atlas','Manifesto',
+  'Requiem','Engine','Chronicle','Anthem','Ritual','Blueprint','Cascade','Remnant','Overture','Codex',
+  'Allegory','Cipher','Doctrine','Elegy','Fable','Geometry','Heresy','Interlude','Labyrinth','Monolith',
+  'Nocturne','Oracle','Psalm','Quartet','Relic','Synthesis','Talisman','Uprising','Vessel','Wilderness',
+];
 
-const INSPO_KEYS = ['C major','D major','E major','F major','G major','A major','B major','C minor','D minor','E minor','F minor','G minor','A minor','B minor','C# major','F# major','Bb major','Eb major'];
-const INSPO_BPMS = [70,75,80,85,88,90,92,95,100,104,108,110,115,120,125,128,130,135,140];
-const INSPO_TIME_SIGS = ['4','4','4','4','4','3','3'];  // weighted toward 4/4
+const INSPO_KEYS = [
+  'C major','D major','E major','F major','G major','A major','B major',
+  'C minor','D minor','E minor','F minor','G minor','A minor','B minor',
+  'C# major','F# major','Bb major','Eb major',
+  'Ab major','Db major','Gb major','D# minor','G# minor','C# minor',
+  'F# minor','B minor','E major','A major','Bb minor','Eb minor',
+  'G# major','D# major','A# minor','D# major','G major','A minor',
+];
+const INSPO_BPMS = [
+  60,65,68,70,72,75,78,80,82,85,
+  88,90,92,95,98,100,102,104,106,108,
+  110,112,115,118,120,122,124,125,128,130,
+  132,135,138,140,145,150,155,160,
+];
+const INSPO_TIME_SIGS = ['4','4','4','4','4','4','3','3','6','5'];  // mostly 4/4, some odd
 
-const INSPO_DRUM_PATTERNS = ['rock1','rock2','pop','hiphop','altrock','edm','blues','country','motown','punk','jazz','shoegaze'];
+const INSPO_DRUM_PATTERNS_44 = [
+  'rock1','rock2','pop','hiphop','altrock','edm','blues','country','motown','punk','jazz','shoegaze',
+  'rock1','pop','hiphop','edm','blues','jazz','punk','country','altrock','motown','shoegaze','rock2',
+];
+const INSPO_DRUM_PATTERNS_68 = ['six8','six8_rock','six8_folk','six8_ballad'];
+const INSPO_DRUM_PATTERNS_54 = ['five4','five4_jazz','five4_rock'];
+// Legacy flat list used elsewhere
+const INSPO_DRUM_PATTERNS = [...INSPO_DRUM_PATTERNS_44];
 
-// D20 SVG shapes
+// D100 SVG shapes
 const DICE_DEFS = [
-  { label:'D20', sides:20, color:'#c8a0ff', size:80, path:'M50,5 L95,27 L95,73 L50,95 L5,73 L5,27 Z' },
+  { label:'D100', sides:100, color:'#c8a0ff', size:80, path:'M50,5 77,14 93,36 93,64 77,86 50,95 23,86 7,64 7,36 23,14' },
 ];
 
 let _inspoRolled    = null;
@@ -12612,11 +12728,12 @@ function renderInspoDice() {
 
 function svgPoints(label) {
   const p = {
-    D4:  '50,8 92,82 8,82',
-    D6:  '12,12 88,12 88,88 12,88',
-    D8:  '50,5 95,50 50,95 5,50',
-    D12: '50,5 79,18 93,46 83,75 60,90 40,90 17,75 7,46 21,18',
-    D20: '50,5 95,28 95,72 50,95 5,72 5,28',
+    D4:   '50,8 92,82 8,82',
+    D6:   '12,12 88,12 88,88 12,88',
+    D8:   '50,5 95,50 50,95 5,50',
+    D12:  '50,5 79,18 93,46 83,75 60,90 40,90 17,75 7,46 21,18',
+    D20:  '50,5 95,28 95,72 50,95 5,72 5,28',
+    D100: '50,5 77,14 93,36 93,64 77,86 50,95 23,86 7,64 7,36 23,14',
   };
   return p[label] || p.D20;
 }
@@ -12628,6 +12745,11 @@ function dieInnerLines(label) {
     <line x1="50" y1="5" x2="50" y2="42" stroke="rgba(200,160,255,0.2)" stroke-width="1.5"/>
     <line x1="95" y1="28" x2="50" y2="42" stroke="rgba(200,160,255,0.2)" stroke-width="1.5"/>
     <line x1="5"  y1="28" x2="50" y2="42" stroke="rgba(200,160,255,0.2)" stroke-width="1.5"/>`;
+  if (label === 'D100') return `
+    <line x1="50" y1="5"  x2="50" y2="95" stroke="rgba(200,160,255,0.15)" stroke-width="1.5"/>
+    <line x1="7"  y1="50" x2="93" y2="50" stroke="rgba(200,160,255,0.15)" stroke-width="1.5"/>
+    <line x1="23" y1="14" x2="77" y2="86" stroke="rgba(200,160,255,0.12)" stroke-width="1"/>
+    <line x1="77" y1="14" x2="23" y2="86" stroke="rgba(200,160,255,0.12)" stroke-width="1"/>`;
   return '';
 }
 
@@ -12760,17 +12882,19 @@ function rollInspoDie(dieIdx) {
     }
     die.classList.add('die-value-showing');
 
-    if (dieRoll <= 8) {
-      // Low roll (1–8) — failure, D&D-flavored
-      const failLines = [
+    if (dieRoll <= 40) {
+      // Low roll (1–40) — failure, D&D-flavored
+      const specificLine =
         dieRoll === 1  ? "NAT 1. Critical fumble. Your lute snaps in two." :
-        dieRoll === 2  ? "A 2. The Witch turns you to stone." :
-        dieRoll === 3  ? "Death by 1,000 cuts. The muse bleeds out." :
-        dieRoll === 4  ? "You rolled a 4. The bard class weeps." :
-        dieRoll === 5  ? "The goblin stole your inspiration. Classic." :
-        dieRoll === 6  ? "You fail your Charisma check. Badly." :
-        dieRoll === 7  ? "A 7. The tavern falls silent. Crickets." :
-                         "An 8. Almost respectable. Still a failure.",
+        dieRoll <= 5   ? "A catastrophic roll. The muse files a restraining order." :
+        dieRoll <= 10  ? "Single digits. The goblin stole your inspiration. Classic." :
+        dieRoll <= 15  ? "You fail your Charisma check. Badly." :
+        dieRoll <= 20  ? "The bard class weeps at your roll." :
+        dieRoll <= 25  ? "Death by 1,000 cuts. The muse bleeds out." :
+        dieRoll <= 30  ? "A low roll. The melody ran away. You were too slow." :
+        dieRoll <= 35  ? "Not today, songwriter. Not today." :
+                         "A 40. Almost out of fail territory. Still failing.";
+      const failLines = [
         "The dice gods are unimpressed. Try again.",
         "Critical fail. Even the bartender winced.",
         "Your creativity rolled off a cliff.",
@@ -12781,10 +12905,26 @@ function rollInspoDie(dieIdx) {
         "The universe said no. Loudly.",
         "You fall into a trap. No loot, no song.",
         "A low roll. The muse has left the building.",
+        "The melody ran away. You were too slow.",
+        "Inspiration fumbled. The dungeon collapses on itself.",
+        "A nat-almost-nothing. The tavern collectively sighs.",
+        "You rolled so low the bard asked for his dice back.",
+        "The spell fizzled. Even the candles look disappointed.",
+        "The song existed for one millisecond then vanished.",
+        "The muse checked her calendar. You weren't on it.",
+        "A roll so low it circled back to impressive. Almost.",
+        "Your riff tripped and fell. The dungeon clapped sarcastically.",
+        "Even the goblin had better ideas today. Roll again.",
+        "The chorus fled into the night. Couldn't be helped.",
+        "Forty whole sides of failure available. You found one.",
+        "The inspiration train left. You were still tying your shoes.",
+        "A dungeon-grade disaster. The DM is writing notes.",
+        "Your chord progression fell into the trap room.",
+        "The muse sent a two-word text: 'lol no'.",
+        "Out of 100 outcomes, you found this one. Impressive, badly.",
+        "The tavern boos politely. The bartender offers sympathy ale.",
       ];
-      const msg = dieRoll <= 8 && dieRoll >= 1
-        ? failLines[0]  // use the specific line for 1–8
-        : failLines[Math.floor(Math.random() * failLines.length)];
+      const msg = specificLine || failLines[Math.floor(Math.random() * failLines.length)];
       if (result) {
         result.innerHTML = `
           <span style="font-family:'Playfair Display',serif;font-size:26px;font-style:italic;color:rgba(200,160,255,0.6);line-height:1.3;">${dieRoll} — ${msg}</span>
@@ -12794,13 +12934,28 @@ function rollInspoDie(dieIdx) {
         result.style.opacity = '1';
       }
       die.style.pointerEvents = '';
-    } else if (dieRoll <= 10) {
-      // Near-miss (9–10) — so close, still no song
+    } else if (dieRoll <= 55) {
+      // Near-miss (41–55) — so close, still no song
       const nearMissLines = [
-        "A 9… You dodged the boulder, but tripped landing.",
-        "A 10. The door to inspiration was open. You walked past it.",
+        "You dodged the boulder, but tripped on the landing.",
+        "The door to inspiration was open. You walked past it.",
         "So close. The muse waved from across the street.",
         "Almost. The tavern politely slow-claps.",
+        "The chorus was right there. You were one chord short.",
+        "So near. The bridge collapsed before you crossed it.",
+        "The melody started to form, then lost confidence.",
+        "The muse arrived but took one look and left.",
+        "You almost had it. The idea dissolved at dawn.",
+        "Like a capo on the wrong fret. So close, so wrong.",
+        "The riff materialized for a second. Then got shy.",
+        "Halfway there. The bard gives you a sympathy nod.",
+        "The universe left you on read.",
+        "A 50 out of 100. Precisely mediocre. The dice are trolling.",
+        "You were this close. The muse is impressed by your almost.",
+        "The hook materialized. Then remembered another appointment.",
+        "Forty-nine percent inspiration. One percent short of magic.",
+        "The melody peeked out from behind the curtain, then retreated.",
+        "You had the vibe. The vibe had other plans.",
       ];
       const msg = nearMissLines[Math.floor(Math.random() * nearMissLines.length)];
       if (result) {
@@ -12813,7 +12968,7 @@ function rollInspoDie(dieIdx) {
       }
       die.style.pointerEvents = '';
     } else {
-      // High roll (11–20) — success, generate draft
+      // High roll (56–100) — success, generate draft
       _inspoRolled     = generateInspoSong();
       _inspoLastDieIdx = dieIdx;
       showInspoResult(_inspoRolled, dieLabel, dieRoll);
@@ -12832,7 +12987,12 @@ function generateInspoSong() {
   const key     = rand(INSPO_KEYS);
   const bpm     = rand(INSPO_BPMS);
   const timeSig = rand(INSPO_TIME_SIGS);
-  const pattern = rand(INSPO_DRUM_PATTERNS);
+  // Pick a drum pattern appropriate to the time signature
+  const patternPool = timeSig === '6' ? INSPO_DRUM_PATTERNS_68
+                    : timeSig === '5' ? INSPO_DRUM_PATTERNS_54
+                    : timeSig === '3' ? ['waltz', ...INSPO_DRUM_PATTERNS_44]
+                    : INSPO_DRUM_PATTERNS_44;
+  const pattern = rand(patternPool);
   const title   = rand(INSPO_WORDS_A) + ' ' + rand(INSPO_WORDS_B) + (Math.random() > 0.5 ? ' ' + rand(INSPO_WORDS_C) : '');
 
   // Generate random chord progression (4–6 chords from the key)
@@ -12888,6 +13048,21 @@ const INSPO_SUCCESS_LINES = [
   "The dungeon master nods approvingly. Write it down.",
   "You've earned a momentary belief in yourself. Use it.",
   "Perception check passed. The idea was right there all along.",
+  "A high roll in a low-roll world. Make it count.",
+  "The muse was sleeping. You woke her up. She's actually excited.",
+  "Bardic performance: unlocked. The crowd holds its breath.",
+  "You hit the riff. The dungeon echoes it back.",
+  "Fortune favors the songwriter. For now.",
+  "The fates conspired and somehow this is your era.",
+  "Spellcraft: successful. The vibes are enchanted.",
+  "You rolled a 17 and the melody just walked in uninvited.",
+  "The song existed before this. You just found it.",
+  "Critical inspiration! Even the tavern cat is intrigued.",
+  "The stars aligned. Your capo is in the right place.",
+  "You've leveled up in spontaneous genius. Don't overthink it.",
+  "The gods of songwriting are briefly on your side. Move fast.",
+  "Excellent roll. The bard buys you a round.",
+  "You've unlocked something. Write it before it escapes.",
 ];
 
 function showInspoResult(data, dieLabel, dieRoll) {
@@ -12909,7 +13084,7 @@ function showInspoResult(data, dieLabel, dieRoll) {
       ${dieChip}
       <div class="inspo-chip">🎵 ${data.key}</div>
       <div class="inspo-chip">♩ ${data.bpm} BPM</div>
-      <div class="inspo-chip">${data.timeSig}/4</div>
+      <div class="inspo-chip">${data.timeSig === '6' ? '6/8' : data.timeSig === '5' ? '5/4' : data.timeSig + '/4'}</div>
       <div class="inspo-chip">🥁 ${data.pattern}</div>
       ${uniqueChords.map(c => `<div class="inspo-chip">${c}</div>`).join('')}
     </div>
@@ -13134,6 +13309,8 @@ body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-ser
   <select class="metro-select" id="metroTimeSel" onchange="metroChangeTime(this.value)">
     <option value="4"${metroInitTime===4?' selected':''}>4/4</option>
     <option value="3"${metroInitTime===3?' selected':''}>3/4</option>
+    <option value="6"${metroInitTime===6?' selected':''}>6/8</option>
+    <option value="5"${metroInitTime===5?' selected':''}>5/4</option>
   </select>
   <div class="metro-sep"></div>
   <div class="metro-dots" id="metroDots"></div>
@@ -15316,6 +15493,8 @@ function renderKeyboardDrawerHtml(song) {
         <select class="seq-select" id="kbdTimeSig" onchange="kbdTimeSigChanged()">
           <option value="4"${timeSig==='4'?' selected':''}>4/4</option>
           <option value="3"${timeSig==='3'?' selected':''}>3/4</option>
+          <option value="6"${timeSig==='6'?' selected':''}>6/8</option>
+          <option value="5"${timeSig==='5'?' selected':''}>5/4</option>
         </select>
       </div>
       <!-- Bars -->
@@ -15602,7 +15781,8 @@ const MOODS = [
   '😌 Chill','😢 Melancholy','🔥 Energetic','😤 Angry','🥰 Romantic',
   '🌙 Dreamy','⚡ Intense','😊 Upbeat','🌧 Dark','🤔 Reflective',
   '💃 Dance','🎸 Raw','🌊 Flowing','😰 Anxious','✨ Euphoric',
-  '🌅 Hopeful','🥀 Heartbreak','😎 Cool','🌀 Trippy','🏔 Epic'
+  '🌅 Hopeful','🥀 Heartbreak','😎 Cool','🌀 Trippy','🏔 Epic',
+  '😒 Sarcastic','🗡 Biting'
 ];
 
 function renderMoodPanel(selected) {
@@ -15886,6 +16066,64 @@ const DRUM_PATTERNS = {
     hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
   },
+  // ── 6/8 patterns (12 steps = one bar of 6 eighth notes, groups of 3+3) ──
+  six8: {
+    name: '6/8 Groove',
+    // Kick on beat 1 & 4, snare on beat 4, hat on all 6 eighth notes
+    kick:  [1,0,0, 0,0,0, 1,0,0, 0,0,0],
+    snare: [0,0,0, 0,0,0, 0,0,0, 1,0,0],
+    hat:   [1,1,1, 1,1,1, 1,1,1, 1,1,1],
+    clap:  [0,0,0, 0,0,0, 1,0,0, 0,0,0],
+  },
+  six8_rock: {
+    name: '6/8 Rock',
+    // Kick on 1,3,4 — driving compound feel
+    kick:  [1,0,0, 1,0,0, 1,0,0, 0,0,0],
+    snare: [0,0,0, 0,0,0, 0,0,0, 1,0,0],
+    hat:   [1,1,1, 1,1,1, 1,1,1, 1,1,1],
+    clap:  [0,0,0, 0,0,0, 0,0,0, 1,0,0],
+  },
+  six8_folk: {
+    name: '6/8 Folk',
+    // Classic lilting 6/8: kick 1, snare 4, hat on downbeats of each triplet
+    kick:  [1,0,0, 0,0,0, 0,0,0, 0,0,0],
+    snare: [0,0,0, 0,0,0, 1,0,0, 0,0,0],
+    hat:   [1,0,1, 0,1,0, 1,0,1, 0,1,0],
+    clap:  [0,0,0, 0,0,0, 1,0,0, 0,0,0],
+  },
+  six8_ballad: {
+    name: '6/8 Ballad',
+    // Slow flowing 6/8: sparse kick, snare on 4, gentle hats
+    kick:  [1,0,0, 0,0,0, 0,0,0, 0,0,0],
+    snare: [0,0,0, 0,0,0, 0,0,0, 1,0,0],
+    hat:   [1,0,0, 1,0,0, 1,0,0, 1,0,0],
+    clap:  [0,0,0, 0,0,0, 0,0,0, 0,0,0],
+  },
+  // ── 5/4 patterns (20 steps = one bar of 5 quarter notes at 16th-note resolution) ──
+  five4: {
+    name: '5/4',
+    // 3+2 grouping: kick on 1&4, snare on 2&5
+    kick:  [1,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+    snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0],
+    hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+    clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0],
+  },
+  five4_jazz: {
+    name: '5/4 Jazz',
+    // "Take Five" style: sparse kick, snare on 3, jazz hats
+    kick:  [1,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+    snare: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,1,0],
+    hat:   [1,0,1,0, 1,1,0,0, 1,0,1,0, 1,0,0,0, 1,0,0,0],
+    clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+  },
+  five4_rock: {
+    name: '5/4 Rock',
+    // Aggressive 5/4: kick on 1&3, driving hats
+    kick:  [1,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,1,0, 0,0,0,0],
+    snare: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    hat:   [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
+    clap:  [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+  },
   random: {
     name: 'Random',
     kick:  null,
@@ -16119,7 +16357,9 @@ function renderDrumNotation() {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(timeSig, PAD_L - 12, staffY + LINE_GAP);
-  ctx.fillText(grid === 1 ? 4 : grid === 2 ? 8 : 16, PAD_L - 12, staffY + LINE_GAP * 3);
+  // 6/8 always shows 8 as the beat value; others follow the grid subdivision
+  const staffDenom = timeSig === 6 ? 8 : (grid === 1 ? 4 : grid === 2 ? 8 : 16);
+  ctx.fillText(staffDenom, PAD_L - 12, staffY + LINE_GAP * 3);
 
   // ── Bar lines ─────────────────────────────────────────────────
   ctx.strokeStyle = '#888';
@@ -16272,9 +16512,38 @@ const FUNNY_LOADING_MSGS = [
   "summoning creative energy…",
   "the bassist playing the wrong song…",
   "turning it off and on again…",
+  "explaining why you need one more synth…",
+  "waiting for the vocalist to finish warming up…",
+  "disputing whether it's in 4/4 or 'creative time'…",
+  "wondering if the piano is actually in tune…",
+  "telling everyone this take is definitely the one…",
+  "writing a 3-chord song about needing 3 more chords…",
+  "asking if that note was intentional or not…",
+  "the keyboard player unplugging the wrong cable…",
+  "debating whether to add cowbell…",
+  "the drummer explaining why tempo is just a suggestion…",
+  "adding compression to the compression…",
+  "the lead singer adjusting the mic stand for 4 minutes…",
+  "convincing yourself the demo IS the final mix…",
+  "naming the project 'final_final_v3_USE_THIS.wav'…",
+  "accidentally deleting the best take…",
+  "the engineer asking 'can you give me more jazz?'…",
+  "wondering if reverb fixes everything…",
+  "finding the one song idea from 2019…",
+  "the guitarist playing a different song during soundcheck…",
+  "trying to remember what BPM 'felt right'…",
+  "looking for the lyrics on a napkin somewhere…",
+  "the bassist showing up exactly when it's time to leave…",
+  "transposing to a key nobody can sing in…",
+  "explaining why the click track is optional…",
+  "deciding this is definitely the right capo position…",
+  "the drummer texting 'omw' for the third time…",
+  "adding just one more reverb tail…",
+  "uploading the vibe to the cloud…",
 ];
 
 let _funnyMsgInterval = null;
+let _dsbFunnyInterval = null; // separate instance for the drawer status bar
 
 function startFunnyMessages(elId) {
   const el = document.getElementById(elId);
@@ -16294,6 +16563,33 @@ function startFunnyMessages(elId) {
 function stopFunnyMessages() {
   clearInterval(_funnyMsgInterval);
   _funnyMsgInterval = null;
+}
+
+// Start cycling funny messages in the drawer status bar (used while loading takes, samples, etc.)
+function _dsbStartFunny() {
+  clearInterval(_dsbFunnyInterval);
+  const lbl = document.getElementById('drawerStatusText');
+  if (!lbl) return;
+  let i = Math.floor(Math.random() * FUNNY_LOADING_MSGS.length);
+  // Delay 900ms before replacing the real loading text with funny messages
+  _dsbFunnyInterval = setTimeout(() => {
+    lbl.style.transition = 'opacity 0.2s';
+    lbl.style.opacity = '0';
+    setTimeout(() => { lbl.textContent = FUNNY_LOADING_MSGS[i]; lbl.style.opacity = '1'; }, 200);
+    _dsbFunnyInterval = setInterval(() => {
+      i = (i + 1) % FUNNY_LOADING_MSGS.length;
+      lbl.style.opacity = '0';
+      setTimeout(() => { lbl.textContent = FUNNY_LOADING_MSGS[i]; lbl.style.opacity = '1'; }, 200);
+    }, 2200);
+  }, 900);
+}
+
+function _dsbStopFunny() {
+  clearTimeout(_dsbFunnyInterval);
+  clearInterval(_dsbFunnyInterval);
+  _dsbFunnyInterval = null;
+  const lbl = document.getElementById('drawerStatusText');
+  if (lbl) lbl.style.transition = '';
 }
 
 // ── Saved Chord Bank ──────────────────────────────────────────────
@@ -18469,18 +18765,30 @@ document.addEventListener('click', () => {
 });
 
 function rowSeqToggle(id) {
-  // Stop any currently playing song first
-  if (seqIsPlaying) {
-    seqStop();
-    if (currentId === id) { renderGrid(); return; } // was playing this song — just stop
+  // If the ensemble is running, stop everything
+  if (seqIsPlaying || _mtIsPlaying) {
+    ensembleStop();
+    if (currentId === id) { renderGrid(); return; } // was this song — just stop
   }
   const song = songs.find(s => s.id === id);
   if (!song) return;
   // Switch to this song
   currentId = id;
   populateSongFields(song);
-  // Silently render seq into the drawer body so the DOM slots exist, then play
-  _rowSeqBoot(song);
+  // Launch sequencer / looper / keyboard immediately — no waiting for audio files
+  ensembleLaunch();
+  renderGrid();
+  // Load 4-track takes in parallel (they may not be preloaded if this song wasn't open).
+  // As soon as the buffers are ready, start 4-track playback if the ensemble is still running.
+  const prefs = _ensembleGetPrefs();
+  if (prefs['4track']) {
+    mtPreloadForSong(id).then(() => {
+      if (currentId !== id) return;          // user switched away
+      if (!seqIsPlaying && !_mtIsPlaying) return; // ensemble was stopped
+      if (_mtIsPlaying) return;              // 4-track already started (was preloaded)
+      if (_mtTracks.some(t => t && t.buffer)) mtPlay();
+    }).catch(() => {});
+  }
 }
 
 function _rowSeqBoot(song) {
@@ -18901,7 +19209,7 @@ document.addEventListener('keydown', function(e) {
 
 
 // ── Global drawer hotkeys ───────────────────────────────────────────
-// T=tape, K=keyboard, S=sequencer, L=looper, M=mix, R=run-through, E=editor, B=backend
+// T=tape, K=keyboard, S=sequencer, L=looper, M=mix, R=run-through, E=editor, B=backend, H=home/draft list
 document.addEventListener('keydown', function(e) {
   // Don't fire when typing in inputs
   const tag = e.target?.tagName;
@@ -18955,6 +19263,11 @@ document.addEventListener('keydown', function(e) {
     case 'b': {
       e.preventDefault();
       stickyGoBackend();
+      break;
+    }
+    case 'h': {
+      e.preventDefault();
+      if (typeof showList === 'function') showList();
       break;
     }
   }
@@ -19146,14 +19459,29 @@ window.mtProgressSeek = function(event) {
 // old compat alias
 window.vrProgressSeek = window.mtProgressSeek;
 
-// ── Ensure AudioContext ────────────────────────────────────────
-async function _mtEnsureCtx() {
+// ── Ensure AudioContext exists (sync, no resume) ───────────────
+// Safe to call anywhere — decodeAudioData works without the ctx running
+function _mtCreateCtxSync() {
   if (!_mtAudioCtx) _mtAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (_mtAudioCtx.state === 'suspended') await _mtAudioCtx.resume();
   if (!_mtMasterGain) {
     _mtMasterGain = _mtAudioCtx.createGain();
     _mtMasterGain.gain.value = 1.0;
     _mtMasterGain.connect(_mtAudioCtx.destination);
+  }
+}
+
+// ── Ensure AudioContext is running (resume if suspended) ───────
+// Only call from within a user gesture — iOS Safari won't resume otherwise.
+// A 1-second race prevents hanging if the browser silently blocks resume.
+async function _mtEnsureCtx() {
+  _mtCreateCtxSync();
+  if (_mtAudioCtx.state === 'suspended') {
+    try {
+      await Promise.race([
+        _mtAudioCtx.resume(),
+        new Promise(r => setTimeout(r, 1000)),
+      ]);
+    } catch(e) {}
   }
 }
 
@@ -19288,6 +19616,10 @@ window.vrOpen = function(autoRecord) {
   const ecBtn = _el('vrEcBtn'); if (ecBtn) ecBtn.classList.toggle('vr-ec-active', _vrEchoCancellation);
   const btBtn = _el('vrBtBtn'); if (btBtn) btBtn.classList.toggle('vr-bt-active', _vrBtSync);
   if (!_mtTracks.length) mtBuildUI();
+  // Kick off AudioContext creation + resume synchronously within the user gesture
+  // so iOS Safari allows it — vrLoadTakes runs async and would be too late
+  _mtCreateCtxSync();
+  if (_mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(() => {});
   _vrEnumerateDevices();
   vrLoadTakes();
   ensembleInitUI();
@@ -19801,7 +20133,9 @@ async function _mtLoadTakeBuffer(trackIdx, take) {
   try {
     const resp   = await fetch(take.downloadUrl);
     const arrBuf = await resp.arrayBuffer();
-    await _mtEnsureCtx();
+    // Use sync helper — decodeAudioData works without the context running,
+    // so we never await resume() here (would hang on mobile outside a user gesture)
+    _mtCreateCtxSync();
     const buf = await _mtAudioCtx.decodeAudioData(arrBuf);
     t.buffer   = buf;
     t.duration = buf.duration;
@@ -20828,6 +21162,8 @@ document.addEventListener('DOMContentLoaded', () => {
         <select class="rt-msel" id="rtMetroTimeSel" onchange="rtMetroChangeTime(this.value)">
           <option value="4">4/4</option>
           <option value="3">3/4</option>
+          <option value="6">6/8</option>
+          <option value="5">5/4</option>
         </select>
         <div class="rt-msep"></div>
         <div class="rt-mdots" id="rtMetroDots"></div>
@@ -20897,6 +21233,8 @@ document.addEventListener('DOMContentLoaded', () => {
       <select class="rt-msel" id="rtMetroTimeSel2" onchange="rtMetroChangeTime(this.value)">
         <option value="4">4/4</option>
         <option value="3">3/4</option>
+        <option value="6">6/8</option>
+        <option value="5">5/4</option>
       </select>
       <button class="rt-mbtn rt-tap" id="rtTapBtn2" onclick="rtTapTempo()" title="Tap Tempo">TAP</button>
     </div>
