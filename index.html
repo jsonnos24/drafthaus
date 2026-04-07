@@ -9595,6 +9595,69 @@ function seqTabDragEnd() {
   document.querySelectorAll('.seq-tab').forEach(t => t.classList.remove('seq-tab-dragging', 'seq-tab-drag-over'));
 }
 
+// ── Sequencer Undo Stack ──────────────────────────────────────────
+var _seqUndoStack = [];
+const _SEQ_UNDO_MAX = 20;
+
+function seqPushUndo(song) {
+  if (!song) return;
+  seqGetData(song);
+  const seq = song.sequencer;
+  if (!seq) return;
+  _seqUndoStack.push({
+    kick:         (seq.kick         || []).slice(),
+    snare:        (seq.snare        || []).slice(),
+    hat:          (seq.hat          || []).slice(),
+    clap:         (seq.clap         || []).slice(),
+    chordSlots:   (seq.chordSlots   || []).slice(),
+    chordDegrees: (seq.chordDegrees || []).slice(),
+    melody:       (seq.melody       || []).map(n => Object.assign({}, n)),
+  });
+  if (_seqUndoStack.length > _SEQ_UNDO_MAX) _seqUndoStack.shift();
+  _seqSyncUndoBtn();
+}
+
+function _seqSyncUndoBtn() {
+  const btn = document.getElementById('seqUndoBtn');
+  if (btn) btn.style.opacity = _seqUndoStack.length ? '0.8' : '0.3';
+}
+
+window.seqUndoActive = function() {
+  if (!_seqUndoStack.length) { showToast('Nothing to undo', 'info', 1500); return; }
+  const snap = _seqUndoStack.pop();
+  const song = getCurrentSong();
+  if (!song) return;
+  seqGetData(song);
+  const seq = song.sequencer;
+  if (!seq) return;
+  Object.assign(seq, snap);
+  seqBuildGrids({ sequencer: seq });
+  seqRenderChordPills(song);
+  save();
+  showToast('Undone', 'success', 1500);
+  _seqSyncUndoBtn();
+};
+
+window.seqDuplicateActive = function() {
+  const song = getCurrentSong();
+  if (!song) return;
+  const seqs = getSongSequences(song);
+  seqSaveAllToCurrent(song);
+  const src = seqs[seqActiveIdx];
+  if (!src) return;
+  const clone = JSON.parse(JSON.stringify(src));
+  clone.id = 'seq_' + Date.now();
+  seqs.splice(seqActiveIdx + 1, 0, clone);
+  seqActiveIdx = seqActiveIdx + 1;
+  song.sequencer = clone;
+  _seqUndoStack = [];
+  save();
+  seqLoadSequenceIntoDOM(clone, song);
+  seqRenderSequenceTabs();
+  if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
+  showToast('Sequence duplicated', 'success', 2000);
+};
+
 function seqRenderSequenceTabs() {
   const strip = document.getElementById('seqTabsStrip');
   if (!strip) return;
@@ -9629,8 +9692,11 @@ function seqRenderSequenceTabs() {
     <span class="seq-tabs-label">Sequences</span>
     ${tabsHtml}
     <button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button>
+    <button class="seq-tab-add" onclick="seqDuplicateActive()" title="Duplicate current sequence" style="font-size:13px;padding:2px 7px;">⧉</button>
+    <button class="seq-tab-add" id="seqUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:0.3;">↩</button>
     <span class="seq-tab-spacer"></span>
     ${nowPlayingHtml}`;
+  _seqSyncUndoBtn();
 }
 
 function seqSwitchToSequence(idx) {
@@ -9642,6 +9708,9 @@ function seqSwitchToSequence(idx) {
 
   // Save current DOM state before switching
   seqSaveAllToCurrent(song);
+
+  // Clear undo history — undo is per-sequence, don't bleed across tabs
+  _seqUndoStack = [];
 
   seqActiveIdx = idx;
   song.sequencer = seqs[idx]; // redirect compat alias
@@ -10173,6 +10242,7 @@ function seqSaveChordSlots() {
   const song = getCurrentSong();
   if (!song) return;
   seqGetData(song); // ensure song.sequencer → active sequence
+  seqPushUndo(song); // snapshot BEFORE overwriting
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
   song.sequencer.chordSlots   = slots.map(s => s.textContent.trim() || '');
   song.sequencer.chordDegrees = slots.map(s => s.dataset.chordDegree ?? '');
@@ -10235,6 +10305,7 @@ function seqSaveDrumLane(lane, elId) {
   const el = document.getElementById(elId);
   if (!el) return;
   seqGetData(song); // ensure song.sequencer → active sequence
+  seqPushUndo(song); // snapshot BEFORE overwriting so undo restores previous state
   song.sequencer[lane] = [...el.querySelectorAll('.seq-slot')].map(s => s.classList.contains('drum-on') ? 1 : 0);
   song.updatedAt = Date.now();
   save();
