@@ -840,11 +840,11 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Song list rows — hide Key & BPM on mobile to give title room */
   /* On mobile: hide Status column, keep Title | Actions | Sequencer */
   .song-list-row { padding: 10px 12px; min-height: 52px;
-    grid-template-columns: 1fr 52px 52px !important; }
+    grid-template-columns: 24px 1fr 52px 52px !important; }
   .song-list-cols-header { padding: 4px 12px;
-    grid-template-columns: 1fr 52px 52px !important; }
-  .song-list-row > *:nth-child(2),
-  .song-list-cols-header > *:nth-child(2) { display: none !important; }
+    grid-template-columns: 24px 1fr 52px 52px !important; }
+  .song-list-row > *:nth-child(3),
+  .song-list-cols-header > *:nth-child(3) { display: none !important; }
   .sl-actions-btn { padding: 7px 10px; font-size: 14px; min-height: 40px; }
   .sl-seq-btn { padding: 7px 10px; font-size: 14px; min-height: 40px; }
   .song-list-moods { font-size: 12px; }
@@ -2255,10 +2255,10 @@ button, select, input, textarea { touch-action: manipulation; }
   .proj-group.collapsed .proj-group-chevron { transform: rotate(-90deg); }
   .proj-group-songs { display: block; }
   .proj-group.collapsed .proj-group-songs { display: none; }
-  /* Song list column grid: title | status | actions | sequencer */
+  /* Song list column grid: cb | title | status | actions | sequencer */
   .song-list-cols-header {
     display: grid;
-    grid-template-columns: 1fr 120px 96px 96px;
+    grid-template-columns: 28px 1fr 120px 96px 96px;
     align-items: center;
     padding: 5px 16px 5px 16px;
     border-top: 1px solid var(--border);
@@ -2272,10 +2272,35 @@ button, select, input, textarea { touch-action: manipulation; }
   .song-list-cols-header span:first-child { text-align: left; }
   .song-list-row {
     display: grid;
-    grid-template-columns: 1fr 120px 96px 96px;
+    grid-template-columns: 28px 1fr 120px 96px 96px;
     align-items: center;
     padding: 10px 16px; min-height: 46px; border-top: 1px solid var(--border);
     transition: background 0.12s;
+  }
+  /* ── Share checkbox ── */
+  .sl-share-cb {
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sl-share-cb input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none;
+    width: 14px; height: 14px; border-radius: 4px;
+    border: 1.5px solid rgba(200,160,255,0.35);
+    background: transparent;
+    cursor: pointer; transition: all 0.15s; flex-shrink: 0;
+    position: relative;
+  }
+  .sl-share-cb input[type="checkbox"]:checked {
+    background: rgba(200,160,255,0.2);
+    border-color: var(--purple);
+  }
+  .sl-share-cb input[type="checkbox"]:checked::after {
+    content: '⬡';
+    position: absolute; top: -3px; left: -1px;
+    font-size: 13px; color: var(--purple); line-height: 1;
+  }
+  .sl-share-cb input[type="checkbox"]:not(:checked):hover {
+    border-color: rgba(200,160,255,0.7);
+    background: rgba(200,160,255,0.06);
   }
   .song-list-row:hover { background: var(--card2); }
   .song-list-row.active-row { background: rgba(245,166,35,0.06); border-left: 3px solid var(--gold); padding-left: 13px; }
@@ -7003,8 +7028,15 @@ function renderGrid() {
     const sharingCount = (song.sharedWith?.length||0) + (song.sharedReadOnly?.length||0);
     const sharingIndicator = isOwnerSharing ? `<span class="sharing-indicator" title="Shared with ${sharingCount} person${sharingCount===1?'':'s'}"></span>` : '';
     const titleHtml = esc(song.title||song.workingTitle) || '<span style="color:var(--faint);font-style:italic;">Untitled</span>';
+    // Share checkbox — checked/purple if song has any active sharing
+    const hasSharing = !!(song.publicToken || song.sharedWith?.length || song.sharedReadOnly?.length || isViewOnly);
+    const cbTitle = isViewOnly ? 'View only' : (hasSharing ? `Shared with ${sharingCount} person${sharingCount===1?'':'s'}${song.publicToken?' + public link':''}` : 'Share this song');
+    const shareCb = `<div class="sl-share-cb" onclick="event.stopPropagation();rowShareSong('${song.id}')">
+      <input type="checkbox" ${hasSharing?'checked':''} title="${cbTitle}" onclick="event.preventDefault();event.stopPropagation();rowShareSong('${song.id}')">
+    </div>`;
     return `<div class="song-list-row${isActive?' active-row':''}${(isShared||isViewOnly)?' shared-row':''}" id="row-${song.id}"
       style="cursor:pointer;" onclick="rowLoadSong('${song.id}')">
+      ${shareCb}
       <div class="song-list-title">${titleHtml}${sharedBadge}${viewOnlyBadge}${sharingIndicator}</div>
       ${statusCell}${actionsHtml}${tapeCell}
     </div>`;
@@ -7016,7 +7048,7 @@ function renderGrid() {
     const isEmpty = list.length === 0;
     const rows = list.map(song => buildSongRow(song, true, false)).join('');
     const colsHeader = isEmpty ? '' : `<div class="song-list-cols-header">
-      <span>Title</span><span>Status</span><span>Actions</span><span>4-Track / Seq</span>
+      <span></span><span>Title</span><span>Status</span><span>Actions</span><span>4-Track / Seq</span>
     </div>`;
     const emptyHint = isEmpty ? `<div style="padding:14px 16px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);font-style:italic;">No drafts yet — <button onclick="event.stopPropagation();newSong()" style="background:none;border:none;color:var(--gold);font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;">+ create one</button></div>` : '';
     const isCollapsed = !isEmpty && !_expandedProjs.has(proj); // empty folders start expanded
@@ -7068,7 +7100,7 @@ function renderGrid() {
   let sharedHtml = '';
   if (displayShared.length) {
     const colsHeader = `<div class="song-list-cols-header">
-      <span>Title</span><span>Status</span><span>Actions</span><span>4-Track / Seq</span>
+      <span></span><span>Title</span><span>Status</span><span>Actions</span><span>4-Track / Seq</span>
     </div>`;
     const sharedRows = displayShared
       .sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0))
