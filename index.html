@@ -6457,6 +6457,11 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 <!-- ── Detail View ───────────────── -->
 <div class="view" id="viewDetail">
   <div class="container">
+    <!-- View-only banner (shown when song._viewOnly = true) -->
+    <div id="viewOnlyBanner" style="display:none;background:rgba(0,200,160,0.1);border:1px solid rgba(0,200,160,0.3);border-radius:8px;padding:8px 16px;margin-bottom:12px;display:none;align-items:center;gap:10px;">
+      <span style="font-size:16px;">👁</span>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--teal);">You have <strong>view-only</strong> access to this draft. Changes won't be saved.</div>
+    </div>
     <div id="stickySongBar" class="sticky-song-bar" style="display:none;">
       <button onclick="showList()" style="padding:9px 20px;font-size:13px;font-family:'IBM Plex Mono',monospace;font-weight:700;letter-spacing:0.08em;background:transparent;border:2px solid var(--gold);color:var(--gold);border-radius:8px;cursor:pointer;flex-shrink:0;transition:all 0.15s;" onmouseover="this.style.background='rgba(245,166,35,0.15)'" onmouseout="this.style.background='transparent'">← Back to Draft List</button>
     </div>
@@ -6991,13 +6996,16 @@ function renderGrid() {
         <div class="sl-takes-drop-loading">Loading…</div>
       </div>
     </div>`;
-    const sharedBadge = isShared ? '<span class="shared-badge" title="Shared with you">⬡</span>' : '';
-    const isOwnerSharing = !isShared && song.sharedWith && song.sharedWith.length > 0;
-    const sharingIndicator = isOwnerSharing ? `<span class="sharing-indicator" title="Shared with ${song.sharedWith.length} person${song.sharedWith.length===1?'':'s'}"></span>` : '';
+    const isViewOnly = !!song._viewOnly;
+    const sharedBadge = (isShared && !isViewOnly) ? '<span class="shared-badge" title="Shared with you (can edit)">⬡</span>' : '';
+    const viewOnlyBadge = isViewOnly ? '<span class="shared-badge" style="background:rgba(0,200,160,0.15);border-color:rgba(0,200,160,0.4);color:var(--teal);font-size:8px;width:auto;padding:0 5px;border-radius:4px;" title="View only">👁 view</span>' : '';
+    const isOwnerSharing = !isShared && !isViewOnly && (song.sharedWith?.length || song.sharedReadOnly?.length);
+    const sharingCount = (song.sharedWith?.length||0) + (song.sharedReadOnly?.length||0);
+    const sharingIndicator = isOwnerSharing ? `<span class="sharing-indicator" title="Shared with ${sharingCount} person${sharingCount===1?'':'s'}"></span>` : '';
     const titleHtml = esc(song.title||song.workingTitle) || '<span style="color:var(--faint);font-style:italic;">Untitled</span>';
-    return `<div class="song-list-row${isActive?' active-row':''}${isShared?' shared-row':''}" id="row-${song.id}"
+    return `<div class="song-list-row${isActive?' active-row':''}${(isShared||isViewOnly)?' shared-row':''}" id="row-${song.id}"
       style="cursor:pointer;" onclick="rowLoadSong('${song.id}')">
-      <div class="song-list-title">${titleHtml}${sharedBadge}${sharingIndicator}</div>
+      <div class="song-list-title">${titleHtml}${sharedBadge}${viewOnlyBadge}${sharingIndicator}</div>
       ${statusCell}${actionsHtml}${tapeCell}
     </div>`;
   }
@@ -7364,6 +7372,9 @@ function populateSongFields(song) {
   updatePanelTitles(song);
   renderStructure(song);
   renderSectionOrderSidebar(song);
+  // Show/hide view-only banner
+  const vob = document.getElementById('viewOnlyBanner');
+  if (vob) vob.style.display = song._viewOnly ? 'flex' : 'none';
 }
 
 function getCurrentSong() {
@@ -7373,6 +7384,7 @@ function getCurrentSong() {
 function saveField() {
   const song = getCurrentSong();
   if (!song) return;
+  if (song._viewOnly) return; // Never save changes for view-only songs
   song.workingTitle = document.getElementById('fWorkingTitle').value;
   song.title        = document.getElementById('fTitle').value;
   _updateDraftingHeader();
@@ -12388,6 +12400,7 @@ function setSyncStatus(state, label) {
 }
 
 function scheduleSyncToSheet(song) {
+  if (song?._viewOnly) return; // Never sync view-only songs
   clearTimeout(saveTimer);
   setSyncStatus('syncing', 'Saving…');
   saveTimer = setTimeout(() => syncToSheet(song), 1200);
@@ -12444,6 +12457,7 @@ async function syncToSheet(song) {
       id:             song.id,
       ownerId:        song.ownerId        || uid,
       sharedWith:     song.sharedWith     || [],
+      sharedReadOnly: song.sharedReadOnly || [],
       project:        song.project        || '',
       workingTitle:   song.workingTitle   || '',
       title:          song.title          || '',
@@ -12465,6 +12479,7 @@ async function syncToSheet(song) {
       chordPositions: song.chordPositions || {},
       updatedAt:      song.updatedAt      || Date.now(),
       createdAt:      song.createdAt      || Date.now(),
+      ...(song.publicToken ? { publicToken: song.publicToken } : {}),
     });
     await db.collection('songs').doc(song.id).set(payload);
     clearPendingSync(song.id);
@@ -12549,6 +12564,12 @@ document.addEventListener('DOMContentLoaded', function() {
   localStorage.removeItem('track_songs'); // purge stale cache — Firestore is source of truth
   renderGrid();
   updateSeqDrawerTab();
+
+  // Check for public view URL params (?view=SONGID&token=TOKEN) — no auth needed
+  // Fire-and-forget; if it finds a valid public link it will intercept the UI
+  if (window.location.search.includes('view=') && window.location.search.includes('token=')) {
+    setTimeout(() => checkPublicViewMode().catch(e => console.warn('publicView error:', e)), 100);
+  }
 
   // Auth handled by onAuthStateChanged
 });
@@ -14174,10 +14195,38 @@ function startSyncPolling() {
 
   const errHandler = e => console.warn('Firestore listener error:', e);
 
-  const unsubOwned  = db.collection('songs').where('ownerId', '==', uid).onSnapshot(handleSnapshot, errHandler);
-  const unsubShared = db.collection('songs').where('sharedWith', 'array-contains', uid).onSnapshot(handleSnapshot, errHandler);
+  const handleSnapshotViewOnly = snapshot => {
+    snapshot.docChanges().forEach(change => {
+      const s = normalizeLoadedSong({ ...change.doc.data(), _fromSheet: false, _viewOnly: true });
+      if (change.type === 'added' || change.type === 'modified') {
+        const remoteTs = s.updatedAt || 0;
+        const idx = songs.findIndex(x => x.id === s.id);
+        if (idx >= 0) {
+          if (remoteTs > (songs[idx].updatedAt || 0) + 2000) {
+            songs[idx] = s;
+            if (currentId === s.id) {
+              populateSongFields(s);
+              if (window._songViewMode === 'runthrough') ilInitAndRender(s);
+              else renderStructure(s);
+              setSyncStatus('saved', '↓ Draft updated ✓');
+            }
+          }
+        } else {
+          songs.push(s);
+        }
+      } else if (change.type === 'removed') {
+        songs = songs.filter(x => x.id !== change.doc.id);
+      }
+    });
+    save();
+    renderGrid();
+  };
 
-  _firestoreUnsubscribe = () => { unsubOwned(); unsubShared(); };
+  const unsubOwned    = db.collection('songs').where('ownerId', '==', uid).onSnapshot(handleSnapshot, errHandler);
+  const unsubShared   = db.collection('songs').where('sharedWith', 'array-contains', uid).onSnapshot(handleSnapshot, errHandler);
+  const unsubReadOnly = db.collection('songs').where('sharedReadOnly', 'array-contains', uid).onSnapshot(handleSnapshotViewOnly, errHandler);
+
+  _firestoreUnsubscribe = () => { unsubOwned(); unsubShared(); unsubReadOnly(); };
 }
 
 function stopSyncPolling() {
@@ -14204,14 +14253,16 @@ async function loadSongsFromSheet() {
 
   try {
     const uid = auth.currentUser?.uid;
-    const [ownedSnap, sharedSnap] = await Promise.all([
+    const [ownedSnap, sharedSnap, readOnlySnap] = await Promise.all([
       db.collection('songs').where('ownerId', '==', uid).get(),
       db.collection('songs').where('sharedWith', 'array-contains', uid).get(),
+      db.collection('songs').where('sharedReadOnly', 'array-contains', uid).get(),
     ]);
     stopFunnyMessages();
 
     const allDocs = [...ownedSnap.docs, ...sharedSnap.docs];
-    if (!allDocs.length) {
+    const readOnlyIds = new Set(readOnlySnap.docs.map(d => d.id));
+    if (!allDocs.length && !readOnlySnap.docs.length) {
       setSyncStatus('saved', 'No drafts yet');
       renderGrid();
       return;
@@ -14223,6 +14274,13 @@ async function loadSongsFromSheet() {
       fsIds.add(s.id);
       const idx = songs.findIndex(x => x.id === s.id);
       if (idx >= 0) songs[idx] = s;
+      else songs.push(s);
+    });
+    readOnlySnap.docs.forEach(doc => {
+      const s = normalizeLoadedSong({ ...doc.data(), _fromSheet: false, _viewOnly: true });
+      fsIds.add(s.id);
+      const idx = songs.findIndex(x => x.id === s.id);
+      if (idx >= 0) songs[idx] = { ...songs[idx], _viewOnly: true };
       else songs.push(s);
     });
 
@@ -14563,12 +14621,18 @@ async function loadSongFromSheet(id, btnIdx) {
 function openShareModal() {
   const song = getCurrentSong();
   if (!song) return;
+  if (song._viewOnly) {
+    // View-only users can't share — just show a brief status note
+    setSyncStatus('saved', '👁 View only — you cannot reshare this draft');
+    return;
+  }
   document.getElementById('shareModal').classList.add('open');
   document.getElementById('shareEmailInput').value = '';
   document.getElementById('shareError').textContent = '';
   document.getElementById('shareSuccess').textContent = '';
   document.getElementById('shareModalSongName').textContent =
     (song.title || song.workingTitle || 'Untitled').toUpperCase();
+  renderSharePublicLink(song);
   renderSharedWithList(song);
   setTimeout(() => document.getElementById('shareEmailInput').focus(), 100);
 }
@@ -14579,32 +14643,45 @@ function closeShareModal() {
 
 function renderSharedWithList(song) {
   const list = document.getElementById('sharedWithList');
-  if (!song.sharedWith?.length) { list.innerHTML = ''; return; }
+  const editUids = song.sharedWith || [];
+  const viewUids = song.sharedReadOnly || [];
+  if (!editUids.length && !viewUids.length) { list.innerHTML = ''; return; }
+
+  const makeRow = (uid, role) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;
+      padding:6px 0;border-bottom:1px solid var(--border);font-family:'IBM Plex Mono',monospace;font-size:11px;">
+      <div>
+        <span id="share-label-${role}-${uid}" style="color:var(--muted);">${uid}</span>
+        <span style="font-size:9px;color:${role==='edit'?'var(--purple)':'var(--teal)'};margin-left:6px;text-transform:uppercase;letter-spacing:0.08em;">${role==='edit'?'✏️ edit':'👁 view'}</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:3px 8px;"
+        onclick="${role==='edit'?`removeShare('${uid}')`:`removeReadOnlyShare('${uid}')`}">Remove</button>
+    </div>`;
+
   list.innerHTML = `
     <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);
       text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px;">Shared with</div>
-    ${song.sharedWith.map(uid => `
-      <div style="display:flex;align-items:center;justify-content:space-between;
-        padding:6px 0;border-bottom:1px solid var(--border);font-family:'IBM Plex Mono',monospace;font-size:11px;">
-        <span id="share-label-${uid}" style="color:var(--muted);">${uid}</span>
-        <button class="btn btn-ghost btn-sm" style="font-size:10px;padding:3px 8px;"
-          onclick="removeShare('${uid}')">Remove</button>
-      </div>`).join('')}`;
+    ${editUids.map(u => makeRow(u, 'edit')).join('')}
+    ${viewUids.map(u => makeRow(u, 'view')).join('')}`;
+
   // Async-resolve UIDs to emails
-  song.sharedWith.forEach(uid => {
+  const resolveUid = (uid, role) => {
     db.collection('users').doc(uid).get().then(doc => {
-      const el = document.getElementById('share-label-' + uid);
+      const el = document.getElementById('share-label-' + role + '-' + uid);
       if (el && doc.exists) el.textContent = doc.data().email || uid;
     });
-  });
+  };
+  editUids.forEach(u => resolveUid(u, 'edit'));
+  viewUids.forEach(u => resolveUid(u, 'view'));
 }
 
 async function submitShare() {
-  const email = document.getElementById('shareEmailInput').value.trim().toLowerCase();
-  const errEl = document.getElementById('shareError');
-  const okEl  = document.getElementById('shareSuccess');
-  const btn   = document.getElementById('shareSubmitBtn');
-  const song  = getCurrentSong();
+  const email  = document.getElementById('shareEmailInput').value.trim().toLowerCase();
+  const role   = document.getElementById('shareRoleSelect')?.value || 'edit';
+  const errEl  = document.getElementById('shareError');
+  const okEl   = document.getElementById('shareSuccess');
+  const btn    = document.getElementById('shareSubmitBtn');
+  const song   = getCurrentSong();
   if (!song) return;
 
   errEl.textContent = ''; okEl.textContent = '';
@@ -14621,17 +14698,39 @@ async function submitShare() {
       return;
     }
     const targetUid = snap.docs[0].data().uid;
-    if (song.sharedWith?.includes(targetUid)) {
-      errEl.textContent = 'Already shared with this person.';
+    const alreadyEdit = song.sharedWith?.includes(targetUid);
+    const alreadyView = song.sharedReadOnly?.includes(targetUid);
+    if ((role === 'edit' && alreadyEdit) || (role === 'view' && alreadyView)) {
+      errEl.textContent = 'Already shared with this person in that role.';
       return;
     }
-    await db.collection('songs').doc(song.id).update({
-      sharedWith: firebase.firestore.FieldValue.arrayUnion(targetUid)
-    });
-    // Update local copy
-    song.sharedWith = [...(song.sharedWith || []), targetUid];
+    if (role === 'edit') {
+      // Remove from view-only if upgrading
+      if (alreadyView) {
+        await db.collection('songs').doc(song.id).update({
+          sharedReadOnly: firebase.firestore.FieldValue.arrayRemove(targetUid)
+        });
+        song.sharedReadOnly = (song.sharedReadOnly || []).filter(u => u !== targetUid);
+      }
+      await db.collection('songs').doc(song.id).update({
+        sharedWith: firebase.firestore.FieldValue.arrayUnion(targetUid)
+      });
+      song.sharedWith = [...(song.sharedWith || []), targetUid];
+    } else {
+      // View-only — remove from edit if downgrading
+      if (alreadyEdit) {
+        await db.collection('songs').doc(song.id).update({
+          sharedWith: firebase.firestore.FieldValue.arrayRemove(targetUid)
+        });
+        song.sharedWith = (song.sharedWith || []).filter(u => u !== targetUid);
+      }
+      await db.collection('songs').doc(song.id).update({
+        sharedReadOnly: firebase.firestore.FieldValue.arrayUnion(targetUid)
+      });
+      song.sharedReadOnly = [...(song.sharedReadOnly || []), targetUid];
+    }
     save();
-    okEl.textContent = `Shared with ${email} ✓`;
+    okEl.textContent = `Shared with ${email} (${role === 'edit' ? 'can edit' : 'view only'}) ✓`;
     document.getElementById('shareEmailInput').value = '';
     renderSharedWithList(song);
   } catch(e) {
@@ -14655,6 +14754,213 @@ async function removeShare(targetUid) {
   } catch(e) {
     console.error('removeShare error:', e);
   }
+}
+
+async function removeReadOnlyShare(targetUid) {
+  const song = getCurrentSong();
+  if (!song) return;
+  try {
+    await db.collection('songs').doc(song.id).update({
+      sharedReadOnly: firebase.firestore.FieldValue.arrayRemove(targetUid)
+    });
+    song.sharedReadOnly = (song.sharedReadOnly || []).filter(u => u !== targetUid);
+    save();
+    renderSharedWithList(song);
+  } catch(e) {
+    console.error('removeReadOnlyShare error:', e);
+  }
+}
+
+// ── Public Shareable Link ──────────────────────────────────────────
+
+function renderSharePublicLink(song) {
+  const el = document.getElementById('shareLinkSection');
+  if (!el) return;
+  if (song.publicToken) {
+    const url = _getPublicUrl(song);
+    el.innerHTML = `
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+        <input id="shareLinkInput" type="text" readonly value="${esc(url)}"
+          class="field-input" style="font-size:10px;padding:5px 8px;font-family:'IBM Plex Mono',monospace;flex:1;color:var(--muted);cursor:text;" onclick="this.select()">
+        <button class="btn btn-sm" onclick="copyPublicLink()" style="white-space:nowrap;background:rgba(200,160,255,0.15);color:var(--purple);border:1px solid rgba(200,160,255,0.35);font-size:10px;">📋 Copy</button>
+      </div>
+      <button class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--faint);" onclick="revokePublicLink()">🗑 Revoke Link</button>`;
+  } else {
+    el.innerHTML = `
+      <button class="btn btn-sm" onclick="generatePublicLink()" id="genLinkBtn"
+        style="background:rgba(200,160,255,0.15);color:var(--purple);border:1px solid rgba(200,160,255,0.35);font-size:11px;width:100%;">
+        🔗 Generate Public Link
+      </button>`;
+  }
+}
+
+function _getPublicUrl(song) {
+  const base = window.location.href.split('?')[0].split('#')[0];
+  return base + '?view=' + song.id + '&token=' + song.publicToken;
+}
+
+async function generatePublicLink() {
+  const song = getCurrentSong();
+  if (!song) return;
+  const btn = document.getElementById('genLinkBtn');
+  if (btn) { btn.textContent = 'Generating…'; btn.disabled = true; }
+  try {
+    const token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    await db.collection('songs').doc(song.id).update({ publicToken: token });
+    song.publicToken = token;
+    save();
+    renderSharePublicLink(song);
+  } catch(e) {
+    console.error('generatePublicLink error:', e);
+    if (btn) { btn.textContent = '🔗 Generate Public Link'; btn.disabled = false; }
+  }
+}
+
+function copyPublicLink() {
+  const inp = document.getElementById('shareLinkInput');
+  if (!inp) return;
+  inp.select();
+  try {
+    navigator.clipboard.writeText(inp.value).then(() => {
+      const btn = inp.nextElementSibling;
+      if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; setTimeout(() => { btn.textContent = orig; }, 2000); }
+    });
+  } catch(e) {
+    document.execCommand('copy');
+  }
+}
+
+async function revokePublicLink() {
+  const song = getCurrentSong();
+  if (!song) return;
+  if (!confirm('Revoke public link? Anyone with the current link will no longer be able to view this song.')) return;
+  try {
+    await db.collection('songs').doc(song.id).update({ publicToken: firebase.firestore.FieldValue.delete() });
+    delete song.publicToken;
+    save();
+    renderSharePublicLink(song);
+  } catch(e) {
+    console.error('revokePublicLink error:', e);
+  }
+}
+
+// ── Public View (no auth required) ────────────────────────────────
+
+async function checkPublicViewMode() {
+  const params = new URLSearchParams(window.location.search);
+  const viewId = params.get('view');
+  const token  = params.get('token');
+  if (!viewId || !token) return false;
+
+  // Intercept landing — show public view overlay immediately
+  const lo = document.getElementById('landingOverlay');
+  if (lo) lo.classList.add('hidden');
+  const pv = document.getElementById('publicViewOverlay');
+  if (!pv) return true;
+  pv.classList.remove('hidden');
+  pv.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:'IBM Plex Mono',monospace;color:var(--faint);font-size:13px;">Loading song…</div>`;
+
+  try {
+    const doc = await db.collection('songs').doc(viewId).get();
+    if (!doc.exists) { _showPublicViewError('Song not found or link has expired.'); return true; }
+    const song = doc.data();
+    if (!song.publicToken || song.publicToken !== token) {
+      _showPublicViewError('This link is invalid or has been revoked.');
+      return true;
+    }
+    _renderPublicView(song);
+  } catch(e) {
+    _showPublicViewError('Could not load the song. The link may be incorrect.<br><small style="color:var(--faint);">' + (e.message||'') + '</small>');
+  }
+  return true;
+}
+
+function _showPublicViewError(msg) {
+  const pv = document.getElementById('publicViewOverlay');
+  if (!pv) return;
+  pv.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:20px;padding:40px;text-align:center;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:28px;color:var(--purple);">⬡</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--red);">${msg}</div>
+      <a href="${window.location.pathname}" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--purple);">Open Drafthaus →</a>
+    </div>`;
+}
+
+function _renderPublicView(song) {
+  const pv = document.getElementById('publicViewOverlay');
+  if (!pv) return;
+
+  const title = esc(song.title || song.workingTitle || 'Untitled Draft');
+  const workTitle = song.title && song.workingTitle ? `<div style="font-size:13px;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-top:4px;">${esc(song.workingTitle)}</div>` : '';
+  const moodChips = (song.moods||[]).map(m => `<span style="background:rgba(200,160,255,0.12);color:var(--purple);border:1px solid rgba(200,160,255,0.25);border-radius:20px;padding:3px 10px;font-size:11px;">${esc(m)}</span>`).join('');
+
+  // Build chord/structure display
+  let structureHtml = '';
+  const sectionOrder = song.sectionOrder || Object.keys(song.structure || {});
+  const chords = song.chords || {};
+  for (const sec of sectionOrder) {
+    const secData = (song.structure||{})[sec];
+    if (!secData) continue;
+    const secChords = chords[sec] || {};
+    const chordList = Object.values(secChords).filter(Boolean);
+    structureHtml += `
+      <div style="margin-bottom:18px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.15em;color:var(--gold);margin-bottom:8px;">${esc(sec)}</div>
+        ${chordList.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;">${chordList.map(c=>`<span style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:6px;padding:4px 12px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text);">${esc(c)}</span>`).join('')}</div>` : `<div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);">No chords recorded</div>`}
+      </div>`;
+  }
+
+  const notesHtml = (song.notes||'').trim()
+    ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);white-space:pre-wrap;line-height:1.6;">${esc(song.notes)}</div>`
+    : `<div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);">No notes</div>`;
+
+  const genNotes = (song.generalNotes||'').trim()
+    ? `<div style="margin-top:10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);white-space:pre-wrap;line-height:1.6;">${esc(song.generalNotes)}</div>` : '';
+
+  pv.innerHTML = `
+    <div style="max-width:680px;margin:0 auto;padding:40px 24px 80px;">
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:var(--purple);letter-spacing:0.04em;">Draft<span style="color:var(--gold);">haus</span></div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:0.12em;">View Only</div>
+      </div>
+
+      <!-- Song title -->
+      <div style="margin-bottom:24px;">
+        <div style="font-size:22px;font-weight:600;color:var(--text);letter-spacing:0.01em;">${title}</div>
+        ${workTitle}
+      </div>
+
+      <!-- Meta row -->
+      <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--border);">
+        ${song.key ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:11px;"><span style="color:var(--faint);">Key </span><span style="color:var(--text);">${esc(song.key)}</span></div>` : ''}
+        ${song.bpm ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:11px;"><span style="color:var(--faint);">BPM </span><span style="color:var(--text);">${esc(String(song.bpm))}</span></div>` : ''}
+        ${song.tuning ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:11px;"><span style="color:var(--faint);">Tuning </span><span style="color:var(--text);">${esc(song.tuning)}</span></div>` : ''}
+        ${song.status ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:11px;"><span style="color:var(--faint);">Status </span><span style="color:var(--text);">${esc(song.status)}</span></div>` : ''}
+      </div>
+
+      <!-- Moods -->
+      ${moodChips ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:24px;">${moodChips}</div>` : ''}
+
+      <!-- Structure + Chords -->
+      ${sectionOrder.length ? `
+        <div style="margin-bottom:28px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.15em;color:var(--faint);margin-bottom:16px;">Song Structure & Chords</div>
+          ${structureHtml}
+        </div>` : ''}
+
+      <!-- Notes -->
+      <div style="margin-bottom:24px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.15em;color:var(--faint);margin-bottom:10px;">Notes</div>
+        ${notesHtml}${genNotes}
+      </div>
+
+      <!-- Footer -->
+      <div style="border-top:1px solid var(--border);padding-top:20px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);">Shared via Drafthaus</div>
+        <a href="${window.location.pathname}" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--purple);text-decoration:none;">Open Drafthaus →</a>
+      </div>
+    </div>`;
 }
 
 // ── Storage Modal ─────────────────────────────────────────────────
@@ -21157,20 +21463,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
+<!-- ── Public View Overlay (no auth required) ─────────────────── -->
+<div id="publicViewOverlay" class="hidden" style="position:fixed;inset:0;z-index:10005;background:var(--bg);overflow-y:auto;padding:0;"></div>
+
 <!-- ── Share Song Modal ───────────────── -->
 <div class="modal-overlay" id="shareModal">
-  <div class="modal-box" style="max-width:380px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+  <div class="modal-box" style="max-width:420px;max-height:88vh;overflow-y:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
       <div class="modal-title" style="margin-bottom:0;">Share Draft</div>
       <button class="btn btn-ghost btn-sm" onclick="closeShareModal()">✕</button>
     </div>
-    <div id="shareModalSongName" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--gold);margin-bottom:16px;letter-spacing:0.1em;"></div>
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);margin-bottom:8px;">Enter the email address of the person to share with:</div>
+    <div id="shareModalSongName" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--gold);margin-bottom:14px;letter-spacing:0.1em;"></div>
+
+    <!-- Public shareable link section -->
+    <div style="background:rgba(200,160,255,0.07);border:1px solid rgba(200,160,255,0.2);border-radius:8px;padding:12px 14px;margin-bottom:16px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--purple);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px;">🔗 Public Shareable Link</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);margin-bottom:10px;line-height:1.5;">Anyone with the link can view this song — no login required. Great for sharing with a band or producer.</div>
+      <div id="shareLinkSection"></div>
+    </div>
+
+    <!-- Divider -->
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:10px;">Share with Drafthaus Users</div>
+
+    <!-- Role toggle -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);">Role:</span>
+      <select id="shareRoleSelect" class="field-input" style="font-size:11px;padding:4px 8px;width:auto;flex:1;">
+        <option value="edit">✏️ Can Edit</option>
+        <option value="view">👁 View Only</option>
+      </select>
+    </div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);margin-bottom:8px;">Email address:</div>
     <input type="email" id="shareEmailInput" class="field-input"
       placeholder="Email…"
       onkeydown="if(event.key==='Enter')submitShare()"
       style="font-size:15px;margin-bottom:10px;">
-    <div id="shareError" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--red);min-height:16px;margin-bottom:10px;"></div>
+    <div id="shareError" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--red);min-height:16px;margin-bottom:6px;"></div>
     <div id="shareSuccess" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--teal);min-height:16px;margin-bottom:10px;"></div>
     <div id="sharedWithList" style="margin-bottom:14px;"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;">
