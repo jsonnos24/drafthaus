@@ -6200,6 +6200,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 .storage-check.takes-check { accent-color: var(--teal); }
 .storage-check.trash-check { accent-color: var(--red); }
 .storage-check.loops-check { accent-color: #00ccff; }
+.storage-check.song-check { accent-color: var(--purple); width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
 .storage-song-name {
   font-family: 'Playfair Display', serif; font-size: 14px;
   color: var(--text); font-style: italic;
@@ -15307,7 +15308,10 @@ function renderStorageList() {
          </label>`
       : '<span style="color:var(--border2);">—</span>';
     return `<tr id="storage-row-${song.id}">
-      <td>${nameHtml}${!isOwner ? ' <span style="font-size:9px;color:var(--faint);font-family:\'IBM Plex Mono\',monospace;">(shared)</span>' : ''}</td>
+      <td style="display:flex;align-items:center;gap:8px;">
+        ${isOwner ? `<input type="checkbox" class="storage-check song-check" data-song="${song.id}" onchange="storageUpdateSel()" title="Select for sharing">` : '<span style="width:14px;display:inline-block;"></span>'}
+        ${nameHtml}${!isOwner ? ' <span style="font-size:9px;color:var(--faint);font-family:\'IBM Plex Mono\',monospace;">(shared)</span>' : ''}
+      </td>
       <td class="storage-audio-cell${takes?.count ? '' : ' empty'}">${takesInner}</td>
       <td class="storage-audio-cell${trash?.count ? ' trash-type' : ' empty'}">${trashInner}</td>
       <td class="storage-audio-cell${loops?.count ? ' loops-type' : ' empty'}">${loopsInner}</td>
@@ -15431,11 +15435,10 @@ async function storageShareSend() {
   const targetUid = usersSnap.docs[0].id;
   const myUid = auth.currentUser?.uid;
 
-  // Collect all unique song IDs from checked rows (takes OR trash)
-  const songIds = new Set([
-    ...[...document.querySelectorAll('#storageTableBody .takes-check:checked')].map(cb => cb.dataset.song),
-    ...[...document.querySelectorAll('#storageTableBody .trash-check:checked')].map(cb => cb.dataset.song)
-  ]);
+  // Collect song IDs from purple song-select checkboxes
+  const songIds = new Set(
+    [...document.querySelectorAll('#storageTableBody .song-check:checked')].map(cb => cb.dataset.song)
+  );
 
   let shared = 0;
   for (const songId of songIds) {
