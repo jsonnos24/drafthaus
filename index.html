@@ -15252,6 +15252,266 @@ function encodeWAV(audioBuffer) {
 }
 
 
+// ── MIDI + ZIP Export ─────────────────────────────────────────────
+
+let _jszip = null;
+async function _loadJSZip() {
+  if (_jszip) return _jszip;
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload = () => { _jszip = window.JSZip; resolve(_jszip); };
+    s.onerror = () => reject(new Error('Failed to load JSZip'));
+    document.head.appendChild(s);
+  });
+}
+
+// Variable-length MIDI quantity
+function _midiVarLen(n) {
+  if (n === 0) return [0];
+  const bytes = [];
+  while (n > 0) { bytes.unshift(n & 0x7F); n >>>= 7; }
+  for (let i = 0; i < bytes.length - 1; i++) bytes[i] |= 0x80;
+  return bytes;
+}
+function _midiU32(n) {
+  return [(n >>> 24) & 0xFF, (n >>> 16) & 0xFF, (n >>> 8) & 0xFF, n & 0xFF];
+}
+function _midiU16(n) { return [(n >>> 8) & 0xFF, n & 0xFF]; }
+
+function _midiChunkBytes(type, data) {
+  return [...type.split('').map(c => c.charCodeAt(0)), ..._midiU32(data.length), ...data];
+}
+
+// Convert sorted event list [{tick, bytes}] → delta-encoded track bytes + end-of-track
+function _midiEventsToTrack(events) {
+  events.sort((a, b) => a.tick - b.tick);
+  let prev = 0;
+  const out = [];
+  for (const ev of events) {
+    const delta = Math.max(0, ev.tick - prev);
+    out.push(..._midiVarLen(delta), ...ev.bytes);
+    prev = ev.tick;
+  }
+  out.push(..._midiVarLen(0), 0xFF, 0x2F, 0x00); // End of Track
+  return out;
+}
+
+// Assemble full MIDI file from track byte arrays
+function _midiAssemble(tracks, tpb) {
+  const hdr = _midiChunkBytes('MThd', [
+    ..._midiU16(tracks.length > 1 ? 1 : 0),
+    ..._midiU16(tracks.length),
+    ..._midiU16(tpb)
+  ]);
+  const body = tracks.flatMap(t => _midiChunkBytes('MTrk', t));
+  return new Uint8Array([...hdr, ...body]);
+}
+
+// Tempo + time-signature track (track 0)
+function _midiTempoTrack(bpm, timeSig) {
+  const us = Math.round(60000000 / bpm);
+  // For 6/8 use denominator 8 (power 3); for 3/4, 4/4, 5/4 use 4 (power 2)
+  const denomPow = timeSig === 6 ? 3 : 2;
+  const events = [
+    { tick: 0, bytes: [0xFF, 0x51, 0x03, (us >>> 16) & 0xFF, (us >>> 8) & 0xFF, us & 0xFF] },
+    { tick: 0, bytes: [0xFF, 0x58, 0x04, timeSig, denomPow, 24, 8] },
+  ];
+  return _midiEventsToTrack(events);
+}
+
+// Parse chord name → array of MIDI note numbers (octave 3 root)
+function _chordToMidi(name) {
+  if (!name) return [];
+  const s = name.replace('_viii', '');
+  let root, qual;
+  if (s.length >= 2 && s[1] === '#') { root = s.slice(0, 2); qual = s.slice(2); }
+  else { root = s[0]; qual = s.slice(1); }
+  const ri = SEQ_NOTES.indexOf(root);
+  if (ri < 0) return [];
+  const rootMidi = 48 + ri; // C3 = 48
+  const ivs = qual === 'dim' ? [0,3,6] : qual === 'm' ? [0,3,7] : [0,4,7];
+  return ivs.map(i => rootMidi + i);
+}
+
+// Chord progression MIDI track (channel 0)
+function _midiChordTrack(chordSlots, grid) {
+  const TPB = 480;
+  const stepTicks = Math.round(TPB / grid);
+  const events = [{ tick: 0, bytes: [0xC0, 0] }]; // Grand Piano
+
+  const filled = chordSlots
+    .map((name, i) => ({ name: (name || '').replace('_viii', ''), i }))
+    .filter(s => s.name);
+
+  for (let fi = 0; fi < filled.length; fi++) {
+    const { name, i } = filled[fi];
+    const notes = _chordToMidi(name);
+    const t0 = i * stepTicks;
+    const nextI = fi + 1 < filled.length ? filled[fi + 1].i : chordSlots.length;
+    const t1 = Math.max(t0 + stepTicks, nextI * stepTicks) - 1;
+    for (const n of notes) {
+      events.push({ tick: t0, bytes: [0x90, n, 80] });
+      events.push({ tick: t1, bytes: [0x80, n, 0]  });
+    }
+  }
+  return _midiEventsToTrack(events);
+}
+
+// Drum machine MIDI track (channel 9 = GM percussion)
+function _midiDrumTrack(kick, snare, hat, clap, grid) {
+  const TPB = 480;
+  const st = Math.round(TPB / grid);
+  const NON = 0x99, NOF = 0x89; // note on/off ch 9
+  const GM = { kick: 36, snare: 38, hat: 42, clap: 39 };
+  const events = [];
+  const addLane = (lane, note) => (lane || []).forEach((on, i) => {
+    if (!on) return;
+    events.push({ tick: i * st,          bytes: [NON, note, 100] });
+    events.push({ tick: i * st + st - 1, bytes: [NOF, note, 0]   });
+  });
+  addLane(kick,  GM.kick);
+  addLane(snare, GM.snare);
+  addLane(hat,   GM.hat);
+  addLane(clap,  GM.clap);
+  return _midiEventsToTrack(events);
+}
+
+// Keyboard melody MIDI track (channel 1)
+function _midiMelodyTrack(notes, bpm) {
+  const TPB = 480;
+  const msPerBeat = 60000 / bpm;
+  const events = [{ tick: 0, bytes: [0xC1, 0] }]; // Grand Piano ch 1
+  for (const n of notes) {
+    const midi = _noteToMidi(n.note, n.octave);
+    const t0 = Math.round(n.startMs / msPerBeat * TPB);
+    const dur = Math.max(1, Math.round((n.durMs || 200) / msPerBeat * TPB));
+    events.push({ tick: t0,       bytes: [0x91, midi, 90] });
+    events.push({ tick: t0 + dur, bytes: [0x81, midi, 0]  });
+  }
+  return _midiEventsToTrack(events);
+}
+
+function _noteToMidi(noteName, octave) {
+  const idx = SEQ_NOTES.indexOf(noteName);
+  return idx < 0 ? 60 : (octave + 1) * 12 + idx;
+}
+
+// ── Main ZIP export ────────────────────────────────────────────────
+async function exportMidiZip() {
+  const song = getCurrentSong();
+  if (!song) return showToast('No song open', 'error', 3000);
+
+  const btn   = document.getElementById('midiZipBtn');
+  const prog  = document.getElementById('midiZipProgress');
+  const label = document.getElementById('midiZipLabel');
+  const setS  = msg => { if (label) label.textContent = msg; };
+
+  if (btn)  { btn.disabled = true; btn.textContent = 'Packing…'; }
+  if (prog) prog.style.display = 'block';
+
+  try {
+    setS('Loading JSZip…');
+    const JSZip = await _loadJSZip();
+    const zip   = new JSZip();
+
+    const sd      = song.sequencer || {};
+    const bpm     = parseFloat(sd.bpm || song.bpm || 100);
+    const grid    = parseInt(sd.grid  || 1);
+    const timeSig = parseInt(sd.time  || 4);
+    const TPB     = 480;
+
+    const safe = (song.title || song.workingTitle || 'draft')
+      .replace(/[^a-z0-9]/gi, '_').toLowerCase();
+
+    let fileCount = 0;
+
+    // ── Chords MIDI ──────────────────────────────────────────────
+    const chordSlots = sd.chordSlots || [];
+    if (chordSlots.some(Boolean)) {
+      setS('Building chords.mid…');
+      await new Promise(r => setTimeout(r, 10));
+      const midi = _midiAssemble([_midiTempoTrack(bpm, timeSig), _midiChordTrack(chordSlots, grid)], TPB);
+      zip.file('chords.mid', midi);
+      fileCount++;
+    }
+
+    // ── Drums MIDI ───────────────────────────────────────────────
+    const kick  = sd.kick  || [], snare = sd.snare || [];
+    const hat   = sd.hat   || [], clap  = sd.clap  || [];
+    if ([kick, snare, hat, clap].some(a => a.some(Boolean))) {
+      setS('Building drums.mid…');
+      await new Promise(r => setTimeout(r, 10));
+      const midi = _midiAssemble([_midiTempoTrack(bpm, timeSig), _midiDrumTrack(kick, snare, hat, clap, grid)], TPB);
+      zip.file('drums.mid', midi);
+      fileCount++;
+    }
+
+    // ── Melody MIDI ──────────────────────────────────────────────
+    if (typeof melodyNotes !== 'undefined' && melodyNotes.length > 0) {
+      setS('Building melody.mid…');
+      await new Promise(r => setTimeout(r, 10));
+      const midi = _midiAssemble([_midiTempoTrack(bpm, timeSig), _midiMelodyTrack(melodyNotes, bpm)], TPB);
+      zip.file('melody.mid', midi);
+      fileCount++;
+    }
+
+    // ── 4-Track WAVs ─────────────────────────────────────────────
+    if (typeof _mtTracks !== 'undefined') {
+      for (let i = 0; i < _mtTracks.length; i++) {
+        const t = _mtTracks[i];
+        if (!t || !t.buffer) continue;
+        const label2 = (t.name || ('T' + (i + 1))).toLowerCase();
+        setS(`Encoding 4track-${label2}.wav…`);
+        await new Promise(r => setTimeout(r, 10));
+        zip.file(`4track-${label2}.wav`, encodeWAV(t.buffer));
+        fileCount++;
+      }
+    }
+
+    // ── Looper WAVs ───────────────────────────────────────────────
+    if (typeof loopTracks !== 'undefined') {
+      let li = 1;
+      for (let i = 0; i < loopTracks.length; i++) {
+        const t = loopTracks[i];
+        if (!t || !t.buffer) continue;
+        setS(`Encoding looper-${li}.wav…`);
+        await new Promise(r => setTimeout(r, 10));
+        zip.file(`looper-${li}.wav`, encodeWAV(t.buffer));
+        li++; fileCount++;
+      }
+    }
+
+    if (fileCount === 0) {
+      showToast('Nothing to export yet — add some sequencer or audio data first', 'info', 4000);
+      if (btn)  { btn.disabled = false; btn.textContent = '⬇ Download MIDI + WAV Pack'; }
+      if (prog) prog.style.display = 'none';
+      return;
+    }
+
+    // ── ZIP ────────────────────────────────────────────────────────
+    setS(`Zipping ${fileCount} file${fileCount !== 1 ? 's' : ''}…`);
+    await new Promise(r => setTimeout(r, 20));
+    const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE', compressionOptions:{level:6} });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = safe + '_export.zip'; a.click();
+    URL.revokeObjectURL(url);
+
+    setS(`✓ ${fileCount} file${fileCount !== 1 ? 's' : ''} exported`);
+    setTimeout(() => {
+      if (btn)  { btn.disabled = false; btn.textContent = '⬇ Download MIDI + WAV Pack'; }
+      if (prog) prog.style.display = 'none';
+    }, 2000);
+
+  } catch(e) {
+    console.error('MIDI/ZIP export:', e);
+    if (btn)  { btn.disabled = false; btn.textContent = '⬇ Download MIDI + WAV Pack'; }
+    if (prog) prog.style.display = 'none';
+    showToast('Export failed: ' + e.message, 'error', 6000);
+  }
+}
+
 // ── Mobile touch drag for chord pills ────────────────────────────
 (function() {
   let dragChord  = null;
@@ -19513,8 +19773,8 @@ function _mtStartPlayback(offsetSec) {
     t.sourceNode.start(0, Math.min(offset, t.buffer.duration));
     t.sourceNode.onended = () => { if (!_vrRecording) _mtCheckAllEnded(); };
   });
-  _el('mtStopBtn').disabled = false;
-  _el('mtPlayBtn').disabled = false;
+  const _sb = _el('mtStopBtn'); if (_sb) _sb.disabled = false;
+  const _pb = _el('mtPlayBtn'); if (_pb) _pb.disabled = false;
   _mtUpdateMonPill('playing');
   _setStatus('▶ Playing…');
   _mtAnimatePlayhead(offset);
@@ -19548,8 +19808,8 @@ function _mtStopAll() {
   });
   const fill = _el('mtProgressFill'); if(fill) fill.style.width='0%';
   const td = _el('mtTimeDisplay');   if(td)   td.textContent='0:00';
-  _el('mtStopBtn').disabled = true;
-  _el('mtPlayBtn').disabled = !_mtTracks.some(t=>t&&t.buffer);
+  const _sb2 = _el('mtStopBtn'); if (_sb2) _sb2.disabled = true;
+  const _pb2 = _el('mtPlayBtn'); if (_pb2) _pb2.disabled = !_mtTracks.some(t=>t&&t.buffer);
   _mtUpdateMonPill('');
   if (!_vrRecording) _setStatus(_mtArmedTrack >= 0 ? 'Track '+MT_NAMES[_mtArmedTrack]+' armed — press ⏺ to record' : 'Arm a track to record');
 }
@@ -20879,6 +21139,15 @@ document.addEventListener('DOMContentLoaded', () => {
         <div id="wavProgress" style="margin-top:10px;display:none;">
           <div class="loader-bar"><div class="loader-fill"></div></div>
           <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);margin-top:6px;text-align:center;" id="wavProgressLabel">Rendering…</div>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;color:var(--text);margin-bottom:6px;">📦 MIDI + WAV Pack</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);margin-bottom:14px;line-height:1.6;">Exports chords, drums &amp; melody as individual MIDI files, plus all 4-track and looper recordings as WAV — bundled into a single ZIP.</div>
+        <button class="btn btn-primary" style="width:100%;background:#7b4fc7;color:#fff;" id="midiZipBtn" onclick="exportMidiZip()">⬇ Download MIDI + WAV Pack</button>
+        <div id="midiZipProgress" style="margin-top:10px;display:none;">
+          <div class="loader-bar"><div class="loader-fill"></div></div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);margin-top:6px;text-align:center;" id="midiZipLabel">Packing…</div>
         </div>
       </div>
     </div>
