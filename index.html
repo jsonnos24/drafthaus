@@ -28,6 +28,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
@@ -6331,6 +6332,27 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 </head>
 <body>
 
+<!-- ── Upgrade Modal ─────────────────── -->
+<div id="upgradeModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;">
+  <div style="background:#1a1a1a;border:1px solid #333;border-radius:12px;padding:32px;max-width:480px;width:90%;font-family:'IBM Plex Mono',monospace;">
+    <div style="font-size:18px;font-weight:700;color:#f5c842;margin-bottom:8px;">Upgrade Drafthaus</div>
+    <div id="upgradeModalReason" style="font-size:12px;color:#aaa;margin-bottom:24px;line-height:1.6;"></div>
+    <div style="display:flex;gap:12px;flex-direction:column;">
+      <div style="border:1px solid #333;border-radius:8px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px;">Songwriter <span style="color:#f5c842;">$19</span> <span style="font-size:10px;color:#888;font-weight:400;">one-time</span></div>
+        <div style="font-size:11px;color:#888;margin-bottom:12px;line-height:1.6;">Unlimited songs · 1.5 hrs recording · 4 loops · All 4 tracks · Collaboration</div>
+        <button onclick="startCheckout('songwriter')" style="width:100%;background:#f5c842;color:#000;border:none;border-radius:6px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;">Upgrade to Songwriter</button>
+      </div>
+      <div style="border:1px solid #f5c842;border-radius:8px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px;">Studio <span style="color:#f5c842;">$29</span> <span style="font-size:10px;color:#888;font-weight:400;">one-time</span></div>
+        <div style="font-size:11px;color:#888;margin-bottom:12px;line-height:1.6;">Unlimited songs · 3 hrs recording · 4 loops · All 4 tracks · Collaboration</div>
+        <button onclick="startCheckout('studio')" style="width:100%;background:#f5c842;color:#000;border:none;border-radius:6px;padding:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;">Upgrade to Studio</button>
+      </div>
+    </div>
+    <button onclick="closeUpgradeModal()" style="margin-top:16px;width:100%;background:none;border:1px solid #444;border-radius:6px;padding:8px;color:#888;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;">Maybe later</button>
+  </div>
+</div>
+
 <!-- ── Landing Sign-In Overlay ─────────────────── -->
 <div id="landingOverlay">
   <div class="landing-box">
@@ -6746,6 +6768,41 @@ let songs = []; // always load fresh from Firestore; localStorage is write-only 
 let currentId = null;
 let saveTimer = null;
 let userProjects = []; // user-defined folder names, persisted in users/{uid}.projects
+let userTier = 'free'; // 'free' | 'songwriter' | 'studio' — loaded from Firestore on login
+
+// ── Tier helpers ───────────────────────────────────────────────────
+const TIER_LIMITS = {
+  free:       { songs: 2, recordingMinutes: 20, loops: 1, tracks: 2, exports: 1, collab: false },
+  songwriter: { songs: Infinity, recordingMinutes: 90, loops: 4, tracks: 4, exports: Infinity, collab: true },
+  studio:     { songs: Infinity, recordingMinutes: 180, loops: 4, tracks: 4, exports: Infinity, collab: true },
+};
+function getTierLimits() { return TIER_LIMITS[userTier] || TIER_LIMITS.free; }
+
+function showUpgradeModal(reason) {
+  const modal = document.getElementById('upgradeModal');
+  const reasonEl = document.getElementById('upgradeModalReason');
+  if (reasonEl) reasonEl.textContent = reason || 'Upgrade to unlock more features.';
+  if (modal) { modal.style.display = 'flex'; }
+}
+function closeUpgradeModal() {
+  const modal = document.getElementById('upgradeModal');
+  if (modal) modal.style.display = 'none';
+}
+
+const PRICE_IDS = {
+  songwriter: 'price_1TJZ5nQlYjKA9g03OXVwS8h8',
+  studio:     'price_1TJZtMQlYjKA9g03CUTKAWWN',
+};
+async function startCheckout(tier) {
+  try {
+    const createCheckoutSession = firebase.functions().httpsCallable('createCheckoutSession');
+    const result = await createCheckoutSession({ priceId: PRICE_IDS[tier] });
+    window.location.href = result.data.url;
+  } catch(e) {
+    console.error('Checkout error:', e);
+    alert('Something went wrong. Please try again.');
+  }
+}
 
 async function loadUserProjects() {
   const uid = auth.currentUser?.uid;
@@ -7241,6 +7298,13 @@ function cancelNewProject() {
 
 // ── Song CRUD ─────────────────────────────────────────────────────
 function newSong() {
+  const limits = getTierLimits();
+  const uid = auth.currentUser?.uid;
+  const myCount = songs.filter(s => !s.ownerId || s.ownerId === uid || s.sharedWith?.includes(uid)).length;
+  if (myCount >= limits.songs) {
+    showUpgradeModal(`You've reached your ${limits.songs}-song limit on the free plan. Upgrade to create unlimited songs.`);
+    return;
+  }
   const song = {
     id: genId(), workingTitle:'', title:'', bpm:'', key:'', tuning:'',
     project:'', status:'idea', structure:{'verse-1':{checked:true},'chorus-1':{checked:true}}, sectionOrder:['verse-1','chorus-1'], chords:{}, instruments:{}, sequencer:{}, notes:'', moods:[],
@@ -7281,6 +7345,13 @@ function _drawerQuickLoad(id, afterLoad) {
 
 // Create a new song silently without navigating away from any open drawer.
 function _drawerQuickNewSong(afterLoad) {
+  const limits = getTierLimits();
+  const uid = auth.currentUser?.uid;
+  const myCount = songs.filter(s => !s.ownerId || s.ownerId === uid || s.sharedWith?.includes(uid)).length;
+  if (myCount >= limits.songs) {
+    showUpgradeModal(`You've reached your ${limits.songs}-song limit on the free plan. Upgrade to create unlimited songs.`);
+    return;
+  }
   const song = {
     id: genId(), workingTitle:'', title:'', bpm:'', key:'', tuning:'',
     project:'', status:'idea', structure:{'verse-1':{checked:true},'chorus-1':{checked:true}},
@@ -12620,6 +12691,11 @@ auth.onAuthStateChanged(user => {
       displayName: user.displayName || '',
     }, { merge: true });
 
+    // Load user tier (free | songwriter | studio)
+    db.collection('users').doc(user.uid).get().then(doc => {
+      userTier = doc.data()?.tier || 'free';
+    });
+
     document.getElementById('landingOverlay').classList.add('hidden');
     const emailEl = document.getElementById('headerUserEmail');
     if (emailEl) emailEl.textContent = user.email || '';
@@ -14651,6 +14727,10 @@ async function loadSongFromSheet(id, btnIdx) {
 // ── Share ─────────────────────────────────────────────────────────
 
 function openShareModal() {
+  if (!getTierLimits().collab) {
+    showUpgradeModal('Collaboration is available on Songwriter and Studio plans. Upgrade to share your drafts.');
+    return;
+  }
   const song = getCurrentSong();
   if (!song) return;
   if (song._viewOnly) {
@@ -15310,11 +15390,30 @@ async function storageShareSend() {
 
 // ── Export ────────────────────────────────────────────────────────
 
-function openExportPanel() {
+async function openExportPanel() {
+  if (getTierLimits().exports !== Infinity) {
+    // Check export count from Firestore
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      const doc = await db.collection('users').doc(uid).get();
+      const exportCount = doc.data()?.exportCount || 0;
+      if (exportCount >= getTierLimits().exports) {
+        showUpgradeModal(`Free plan includes ${getTierLimits().exports} export. Upgrade for unlimited exports.`);
+        return;
+      }
+    }
+  }
   document.getElementById('exportModal').classList.add('open');
 }
 function closeExportPanel() {
   document.getElementById('exportModal').classList.remove('open');
+}
+
+// ── Export counter ────────────────────────────────────────────────
+function _incrementExportCount() {
+  const uid = auth.currentUser?.uid;
+  if (!uid || getTierLimits().exports === Infinity) return;
+  db.collection('users').doc(uid).set({ exportCount: firebase.firestore.FieldValue.increment(1) }, { merge: true });
 }
 
 // ── PDF Export ────────────────────────────────────────────────────
@@ -15430,6 +15529,7 @@ function exportPDF() {
   win.document.write(html);
   win.document.close();
   setTimeout(() => { win.print(); }, 500);
+  _incrementExportCount();
 }
 
 // ── WAV Bounce ────────────────────────────────────────────────────
@@ -15577,6 +15677,7 @@ async function exportWAV() {
     a.href = url; a.download = safeTitle + '_bounce.wav';
     a.click();
     URL.revokeObjectURL(url);
+    _incrementExportCount();
 
     btn.disabled = false; btn.textContent = 'Bounce to WAV';
     prog.style.display = 'none';
@@ -17662,6 +17763,12 @@ async function loopHandleTrackClick(i){
   else if(t.state==='muted')loopUnmuteTrack(i);
 }
 async function loopStartRecording(i){
+  // Gate loop count for free tier
+  const activeTracks = loopTracks.filter(t => t.buffer || t.state === 'recording').length;
+  if (activeTracks >= getTierLimits().loops) {
+    showUpgradeModal(`Free plan includes ${getTierLimits().loops} loop. Upgrade to record up to 4 loops.`);
+    return;
+  }
   const t=loopTracks[i];const stream=await loopEnsureMicStream();if(!stream)return;
   // One-time hint: explain monitor muting on first ever recording
   if (!localStorage.getItem('loop_rec_hint_shown')) {
@@ -19463,6 +19570,10 @@ function _rowSeqBoot(song) {
 
 // ── Row-level quick share ─────────────────────────────────────────
 function rowShareSong(id) {
+  if (!getTierLimits().collab) {
+    showUpgradeModal('Collaboration is available on Songwriter and Studio plans. Upgrade to share your drafts.');
+    return;
+  }
   // If song isn't already open, open it silently then show share modal
   if (currentId !== id) {
     const song = songs.find(s => s.id === id);
@@ -20129,6 +20240,11 @@ function mtBuildUI() {
 // ── Arm ────────────────────────────────────────────────────────
 window.mtArmTrack = function(i) {
   if (_mtIsPlaying || _vrRecording) return;
+  // Gate tracks 3 & 4 for free tier
+  if (i >= getTierLimits().tracks) {
+    showUpgradeModal('Tracks 3 & 4 are available on Songwriter and Studio plans. Upgrade to unlock all 4 tracks.');
+    return;
+  }
   const wasArmed = (_mtArmedTrack === i);
   _mtArmedTrack = wasArmed ? -1 : i;
   _mtTracks.forEach((t, idx) => {
