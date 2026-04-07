@@ -12684,15 +12684,14 @@ auth.onAuthStateChanged(user => {
     currentId = null;
     stopSyncPolling();
 
-    // Register/update user profile so others can share with us by email
+    // Register/update user profile, then load tier, then init app
     db.collection('users').doc(user.uid).set({
       uid:         user.uid,
       email:       user.email,
       displayName: user.displayName || '',
-    }, { merge: true });
-
-    // Load user tier (free | songwriter | studio) before initializing app
-    db.collection('users').doc(user.uid).get().then(doc => {
+    }, { merge: true }).then(() => {
+      return db.collection('users').doc(user.uid).get();
+    }).then(doc => {
       userTier = doc.data()?.tier || 'free';
       document.getElementById('landingOverlay').classList.add('hidden');
       const emailEl = document.getElementById('headerUserEmail');
