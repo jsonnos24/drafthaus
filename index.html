@@ -5869,6 +5869,35 @@ body.il-perf-active #ilScrollFloat { display: flex; }
   transition: border-color 0.15s, color 0.15s;
 }
 .mt-takes-btn:hover { border-color: #4a4e60; color: #8a8e9e; }
+/* pan knob — small horizontal slider with center-line indicator */
+.mt-pan-wrap {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  width: 100%; position: relative;
+}
+.mt-pan-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 7px;
+  color: #4a4e60; letter-spacing: 0.05em; text-transform: uppercase;
+  user-select: none; line-height: 1;
+}
+.mt-pan-center {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 1px; height: 5px; background: #2a2d38; pointer-events: none;
+}
+.mt-pan-slider {
+  -webkit-appearance: none; appearance: none;
+  width: 36px; height: 3px; border-radius: 2px;
+  background: #1e2130;
+  outline: none; cursor: pointer; margin: 0;
+}
+.mt-pan-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 8px; height: 8px;
+  border-radius: 50%; background: #6a6e7e; cursor: pointer;
+  border: 1px solid #2a2d38;
+}
+.mt-pan-slider::-moz-range-thumb {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #6a6e7e; cursor: pointer; border: 1px solid #2a2d38;
+}
 
 /* takes panel — fixed dropdown, floats above track without pushing layout */
 .mt-takes-panel {
@@ -19629,17 +19658,59 @@ function _mtMaxDuration() {
   return _mtTracks.reduce((mx,t)=>Math.max(mx, t&&t.duration?t.duration:0), 0);
 }
 
+// ── Saved vol/pan helpers ──────────────────────────────────────
+function _mtSavedVol(i) {
+  const v = localStorage.getItem('drafthaus-mt-vol-' + i);
+  return v !== null ? Math.max(0, Math.min(100, parseInt(v, 10))) : 85;
+}
+function _mtSavedPan(i) {
+  const v = localStorage.getItem('drafthaus-mt-pan-' + i);
+  return v !== null ? Math.max(-100, Math.min(100, parseInt(v, 10))) : 0;
+}
+
+// ── DOM-free track object builder (safe to call before overlay opens) ──
+function _mtEnsureTrackObjects() {
+  if (_mtTracks.length) return;
+  for (let i = 0; i < 4; i++) {
+    _mtTracks.push({
+      id: i, color: MT_COLORS[i], name: MT_NAMES[i],
+      buffer: null, gainNode: null, panNode: null, sourceNode: null,
+      volume: _mtSavedVol(i), pan: _mtSavedPan(i),
+      takes: [], activeTakeIdx: -1, duration: 0,
+      mediaRecorder: null, chunks: [],
+      waveCanvas: null, waveCtx: null
+    });
+  }
+}
+
 // ── Build track UI ─────────────────────────────────────────────
 function mtBuildUI() {
   const container = _el('mtTracksContainer');
   if (!container) return;
+
+  // Preserve state from any background-preloaded tracks
+  const prev = _mtTracks.map(t => t ? {
+    buffer: t.buffer, gainNode: t.gainNode, panNode: t.panNode,
+    takes: t.takes, activeTakeIdx: t.activeTakeIdx, duration: t.duration,
+    volume: t.volume, pan: t.pan
+  } : null);
+
   _mtTracks = [];
   container.innerHTML = '';
   for (let i = 0; i < 4; i++) {
+    const p   = prev[i];
+    const vol = p ? p.volume : _mtSavedVol(i);
+    const pan = p ? p.pan    : _mtSavedPan(i);
     const t = {
       id: i, color: MT_COLORS[i], name: MT_NAMES[i],
-      buffer: null, gainNode: null, sourceNode: null,
-      volume: 85, takes: [], activeTakeIdx: -1, duration: 0,
+      buffer:       p ? p.buffer       : null,
+      gainNode:     p ? p.gainNode     : null,
+      panNode:      p ? p.panNode      : null,
+      sourceNode:   null,
+      volume: vol, pan: pan,
+      takes:        p ? p.takes        : [],
+      activeTakeIdx: p ? p.activeTakeIdx : -1,
+      duration:     p ? p.duration     : 0,
       mediaRecorder: null, chunks: [],
       waveCanvas: null, waveCtx: null
     };
@@ -19658,11 +19729,21 @@ function mtBuildUI() {
         <div class="mt-playhead" id="mt-playhead-${i}" style="display:none"></div>
       </div>
       <div class="mt-track-foot">
-        <input type="range" class="mt-vol-slider" min="0" max="100" value="85"
-          style="--vol:85%" id="mt-vol-${i}"
+        <input type="range" class="mt-vol-slider" min="0" max="100" value="${vol}"
+          style="--vol:${vol}%" id="mt-vol-${i}"
           oninput="mtSetVolume(${i},this.value)"
           ondblclick="mtResetVolume(${i})"
           title="Volume (dbl-click to reset)">
+        <div class="mt-pan-wrap" title="Pan — dbl-click to center">
+          <span class="mt-pan-label">PAN</span>
+          <div style="position:relative;display:flex;align-items:center;">
+            <div class="mt-pan-center"></div>
+            <input type="range" class="mt-pan-slider" min="-100" max="100" value="${pan}"
+              id="mt-pan-${i}"
+              oninput="mtSetPan(${i},this.value)"
+              ondblclick="mtResetPan(${i})">
+          </div>
+        </div>
         <button class="mt-takes-btn" id="mt-takes-btn-${i}" onclick="mtToggleTakes(${i})">T(0) ▾</button>
       </div>
       <div class="mt-takes-panel" id="mt-takes-panel-${i}">
@@ -19671,6 +19752,13 @@ function mtBuildUI() {
     container.appendChild(lane);
     t.waveCanvas = _el('mt-wave-'+i);
     t.waveCtx    = t.waveCanvas ? t.waveCanvas.getContext('2d') : null;
+
+    // Restore waveform + takes UI if buffer was preloaded before overlay opened
+    if (t.buffer) {
+      _mtDrawTrackWaveform(i, t.buffer, t.color);
+      _mtRenderTakesPanel(i);
+      _mtUpdateTakesBtn(i);
+    }
   }
 }
 
@@ -19697,10 +19785,23 @@ window.mtSetVolume = function(i, val) {
   if (t.gainNode) t.gainNode.gain.value = t.volume / 100;
   const sl = _el('mt-vol-'+i);
   if (sl) sl.style.setProperty('--vol', t.volume+'%');
+  try { localStorage.setItem('drafthaus-mt-vol-' + i, t.volume); } catch(e) {}
 };
 window.mtResetVolume = function(i) {
   const sl = _el('mt-vol-'+i); if (!sl) return;
   sl.value = 85; mtSetVolume(i, 85);
+};
+
+// ── Pan ────────────────────────────────────────────────────────
+window.mtSetPan = function(i, val) {
+  const t = _mtTracks[i]; if (!t) return;
+  t.pan = parseInt(val, 10);
+  if (t.panNode) t.panNode.pan.value = t.pan / 100;
+  try { localStorage.setItem('drafthaus-mt-pan-' + i, t.pan); } catch(e) {}
+};
+window.mtResetPan = function(i) {
+  const sl = _el('mt-pan-'+i); if (!sl) return;
+  sl.value = 0; mtSetPan(i, 0);
 };
 
 // ── Progress bar seek ──────────────────────────────────────────
@@ -19765,7 +19866,19 @@ function _mtStartPlayback(offsetSec) {
     if (!t.gainNode) {
       t.gainNode = _mtAudioCtx.createGain();
       t.gainNode.gain.value = t.volume / 100;
-      t.gainNode.connect(_mtMasterGain);
+    }
+    // Wire gain → pan → master (once; panNode persists between plays)
+    if (!t.panNode) {
+      if (_mtAudioCtx.createStereoPanner) {
+        t.panNode = _mtAudioCtx.createStereoPanner();
+        t.panNode.pan.value = (t.pan || 0) / 100;
+        try { t.gainNode.disconnect(); } catch(e) {}
+        t.gainNode.connect(t.panNode);
+        t.panNode.connect(_mtMasterGain);
+      } else {
+        try { t.gainNode.disconnect(); } catch(e) {}
+        t.gainNode.connect(_mtMasterGain);
+      }
     }
     t.sourceNode = _mtAudioCtx.createBufferSource();
     t.sourceNode.buffer = t.buffer;
@@ -20356,7 +20469,8 @@ async function mtPreloadForSong(songId) {
   // Skip if we already have buffers for this exact song
   if (_mtPreloadedSongId === songId && _mtTracks.some(t => t && t.buffer)) return;
   // Build track objects if the 4-track overlay was never opened
-  if (!_mtTracks.length) mtBuildUI();
+  // Use DOM-free builder so this works even before the overlay is first opened
+  if (!_mtTracks.length) _mtEnsureTrackObjects();
   // Clear stale buffers from a previously-loaded song (only if not playing)
   if (_mtPreloadedSongId !== songId && !_mtIsPlaying && !_vrRecording) {
     _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
