@@ -7229,6 +7229,9 @@ function _drawerQuickLoad(id, afterLoad) {
     });
   }
   // Pre-load 4-track takes and saved loops in the background so Launch works immediately
+  _mtEnsureTrackObjects();
+  _mtCreateCtxSync();
+  if (_mtAudioCtx && _mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(() => {});
   setTimeout(() => { mtPreloadForSong(id); loopPreloadForSong(id); }, 0);
 }
 
@@ -7321,7 +7324,12 @@ function openSong(id) {
     });
   }
 
-  // Pre-load 4-track takes and saved loops in the background so Launch works immediately
+  // Pre-load 4-track takes and saved loops in the background so Launch works immediately.
+  // _mtEnsureTrackObjects + _mtCreateCtxSync run synchronously here (we may still be
+  // inside a click handler), then the actual fetch happens in the next tick.
+  _mtEnsureTrackObjects();
+  _mtCreateCtxSync();
+  if (_mtAudioCtx && _mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(() => {});
   setTimeout(() => { mtPreloadForSong(id); loopPreloadForSong(id); }, 0);
 }
 
@@ -19061,22 +19069,32 @@ function rowSeqToggle(id) {
   }
   const song = songs.find(s => s.id === id);
   if (!song) return;
-  // Switch to this song
+
   currentId = id;
   populateSongFields(song);
-  // Launch sequencer / looper / keyboard immediately — no waiting for audio files
-  ensembleLaunch();
-  renderGrid();
-  // Load 4-track takes in parallel (they may not be preloaded if this song wasn't open).
-  // As soon as the buffers are ready, start 4-track playback if the ensemble is still running.
+
+  // ── Synchronous setup within the user gesture ──────────────────
+  // AudioContext must be created+resumed HERE (inside the click handler)
+  // so iOS Safari permits it. Any later async resume will be blocked.
+  _mtEnsureTrackObjects();
+  _mtCreateCtxSync();
+  if (_mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(() => {});
+
   const prefs = _ensembleGetPrefs();
+
   if (prefs['4track']) {
+    // Preload takes first; fire ensemble launch the moment buffers are ready.
+    // Sequencer/looper/kbd start immediately — 4-track joins as soon as it loads.
+    ensembleLaunch();   // starts seq + looper + kbd now; 4-track skipped (no buffers yet)
+    renderGrid();
     mtPreloadForSong(id).then(() => {
-      if (currentId !== id) return;          // user switched away
-      if (!seqIsPlaying && !_mtIsPlaying) return; // ensemble was stopped
-      if (_mtIsPlaying) return;              // 4-track already started (was preloaded)
+      if (currentId !== id) return;  // user switched away
+      if (_mtIsPlaying) return;      // already playing (was preloaded before launch)
       if (_mtTracks.some(t => t && t.buffer)) mtPlay();
     }).catch(() => {});
+  } else {
+    ensembleLaunch();
+    renderGrid();
   }
 }
 
