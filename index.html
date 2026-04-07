@@ -7229,9 +7229,13 @@ function _drawerQuickLoad(id, afterLoad) {
     });
   }
   // Pre-load 4-track takes and saved loops in the background so Launch works immediately
-  _mtEnsureTrackObjects();
-  _mtCreateCtxSync();
-  if (_mtAudioCtx && _mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(() => {});
+  if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+  if (typeof _mtCreateCtxSync === 'function') {
+    _mtCreateCtxSync();
+    if (typeof _mtAudioCtx !== 'undefined' && _mtAudioCtx && _mtAudioCtx.state === 'suspended') {
+      _mtAudioCtx.resume().catch(() => {});
+    }
+  }
   setTimeout(() => { mtPreloadForSong(id); loopPreloadForSong(id); }, 0);
 }
 
@@ -7325,11 +7329,15 @@ function openSong(id) {
   }
 
   // Pre-load 4-track takes and saved loops in the background so Launch works immediately.
-  // _mtEnsureTrackObjects + _mtCreateCtxSync run synchronously here (we may still be
-  // inside a click handler), then the actual fetch happens in the next tick.
-  _mtEnsureTrackObjects();
-  _mtCreateCtxSync();
-  if (_mtAudioCtx && _mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(() => {});
+  // Guard with typeof — openSong can be called during early initApp before the 4-track
+  // script block has executed, so the functions may not be defined yet at that point.
+  if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+  if (typeof _mtCreateCtxSync === 'function') {
+    _mtCreateCtxSync();
+    if (typeof _mtAudioCtx !== 'undefined' && _mtAudioCtx && _mtAudioCtx.state === 'suspended') {
+      _mtAudioCtx.resume().catch(() => {});
+    }
+  }
   setTimeout(() => { mtPreloadForSong(id); loopPreloadForSong(id); }, 0);
 }
 
