@@ -6795,10 +6795,17 @@ const PRICE_IDS = {
 };
 async function startCheckout(tier) {
   try {
-    const functions = firebase.app().functions('us-central1');
-    const createCheckoutSession = functions.httpsCallable('createCheckoutSession');
-    const result = await createCheckoutSession({ priceId: PRICE_IDS[tier] });
-    window.location.href = result.data.url;
+    const user = firebase.auth().currentUser;
+    if (!user) throw new Error('Not logged in');
+    const token = await user.getIdToken();
+    const resp = await fetch('https://us-central1-drafthaus-ca18c.cloudfunctions.net/createCheckoutSession', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ priceId: PRICE_IDS[tier] }),
+    });
+    const data = await resp.json();
+    if (data.url) window.location.href = data.url;
+    else throw new Error(data.error || 'No URL returned');
   } catch(e) {
     console.error('Checkout error:', e);
     alert('Something went wrong. Please try again.');
