@@ -360,6 +360,30 @@ html.song-open::after {
   background-repeat: no-repeat; background-position: right 10px center;
 }
 
+.midi-bar-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--faint); flex-shrink: 0;
+}
+.midi-bar-select {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  background: var(--card2); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); padding: 3px 22px 3px 8px;
+  cursor: pointer; outline: none; appearance: none; max-width: 140px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23505068'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 7px center;
+}
+.midi-bar-select:hover { border-color: var(--border2); }
+.midi-bar-connect-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--faint); padding: 3px 9px; cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s; white-space: nowrap;
+}
+.midi-bar-connect-btn:hover { color: var(--teal); border-color: var(--teal); background: rgba(100,220,180,0.06); }
+.midi-bar-connect-btn.connected { color: var(--teal); border-color: rgba(100,220,180,0.4); }
+
 /* Section label */
 .section-label {
   font-family: 'IBM Plex Mono', monospace;
@@ -1407,7 +1431,7 @@ button, select, input, textarea { touch-action: manipulation; }
     cursor: pointer; transition: all 0.1s; position: relative;
     overflow: hidden;
   }
-  .seq-slot.bar-start { border-left: 2px solid var(--border2); }
+  .seq-slot.bar-start { border-left: 2px solid rgba(255, 232, 77, 0.75); margin-left: 2px; }
   /* ── Per-row active slot colours ── */
   /* Chord slots: purple shade matching the pill (falls back to generic gold if no degree) */
   [data-row="chord"] .seq-slot.filled[data-chord-degree="0"] { background: #1a0833; border-color: #3a1060; color: #c084fc; }
@@ -4585,6 +4609,13 @@ body.il-perf-active.split-active #splitRightContent {
 }
 
 /* 4-Track in split panel — strip modal backdrop, fill the panel */
+#splitRightContent > #songViewRunthrough {
+  position: relative !important; inset: auto !important;
+  width: 100% !important; max-width: 100% !important;
+  height: 100% !important; overflow-y: auto !important;
+  padding: 20px 20px 80px !important; box-sizing: border-box !important;
+  display: block !important;
+}
 #splitRightContent > #vrOverlay {
   position: relative !important;
   inset: auto !important;
@@ -4635,6 +4666,19 @@ body.il-perf-active.split-active #splitRightContent {
   font-size: 11px; color: var(--faint);
   text-align: center; margin-top: 40px;
 }
+.split-lyrics-ta {
+  width: 100%; box-sizing: border-box;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px 12px;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 14px; line-height: 1.85; color: var(--text);
+  resize: none; overflow: hidden; min-height: 60px;
+  transition: border-color 0.15s;
+}
+.split-lyrics-ta:focus {
+  outline: none; border-color: var(--gold);
+  background: var(--card2);
+}
 
 /* Split button in header (desktop only) */
 .split-btn {
@@ -4668,6 +4712,16 @@ body.split-active #splitDivider { display: block; }
 #splitDivider:hover::after { background: var(--gold); }
 body.split-dragging #splitDivider::after { background: var(--gold); }
 body.split-dragging { cursor: col-resize !important; user-select: none; }
+#splitSwapBtn {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--card2); border: 1px solid var(--border2);
+  color: var(--muted); font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; z-index: 1; transition: all 0.15s; line-height: 1;
+}
+#splitSwapBtn:hover { background: var(--gold); color: #000; border-color: var(--gold); }
 
 /* Mobile hamburger menu */
 .mobile-menu-wrap { position: relative; display: none; }
@@ -7120,8 +7174,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
       <div id="headerMidiDot" style="width:6px;height:6px;border-radius:50%;background:#00d26e;flex-shrink:0;"></div>
       <span id="headerMidiLabel"></span>
     </div>
-    <button class="split-btn" id="splitBtn" onclick="_splitActive ? closeSplitMode() : openSplitMode('keyboard')" title="Open split workspace">⊕ Split</button>
-    <button class="ks-btn" onclick="openAbout()" title="About Drafthaus">About</button>
+    <button class="split-btn" onclick="openAbout()" title="About Drafthaus">About</button>
     <div class="ks-wrap" id="ksWrap">
       <button class="ks-btn" onclick="toggleKsPanel()" title="Keyboard shortcuts">Keyboard Shortcuts</button>
       <div class="ks-panel" id="ksPanel">
@@ -7268,6 +7321,25 @@ body.il-perf-active #ilScrollFloat { display: flex; }
               <option value="drafting">✏️ Drafting</option>
               <option value="finished">✅ Finished</option>
             </select>
+            <!-- MIDI bar -->
+            <div id="midiControlsBar" style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+              <div id="midiBarDot" style="width:7px;height:7px;border-radius:50%;background:var(--faint);flex-shrink:0;transition:background 0.3s;" title="MIDI status"></div>
+              <div id="midiBarDevices" style="display:none;align-items:center;gap:8px;">
+                <div style="display:flex;align-items:center;gap:5px;">
+                  <span class="midi-bar-label">In</span>
+                  <select id="midiInputSelect" class="midi-bar-select" onchange="midiSelectInput(this.value)">
+                    <option value="">— none —</option>
+                  </select>
+                </div>
+                <div style="display:flex;align-items:center;gap:5px;">
+                  <span class="midi-bar-label">Out</span>
+                  <select id="midiOutputSelect" class="midi-bar-select" onchange="midiSelectOutput(this.value)">
+                    <option value="">— none —</option>
+                  </select>
+                </div>
+              </div>
+              <button id="midiBarConnectBtn" class="midi-bar-connect-btn" onclick="initMidi()" title="Connect MIDI devices">MIDI</button>
+            </div>
             <div style="display:flex;gap:6px;">
               <button class="btn btn-sm" onclick="openShareModal()" title="Share draft" style="font-size:11px;background:rgba(200,160,255,0.12);color:var(--purple);border:1px solid rgba(200,160,255,0.35);">⬡ Share</button>
               <button class="btn btn-ghost btn-sm" onclick="openExportPanel()" title="Export PDF + WAV">↓ Export</button>
@@ -8441,7 +8513,7 @@ function addSectionToSong(partId) {
       bpm: cur.bpm || '100', time: cur.time || '4',
       bars: cur.bars || '16', grid: cur.grid || '1',
       swing: cur.swing || '0', vel: cur.vel || '0.8',
-      wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano+synth',
+      wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
       chordSlots: [], chordDegrees: [],
       kick: [], snare: [], hat: [], clap: [], melody: [],
       melodyQuantize: true, mixer: {},
@@ -9650,10 +9722,10 @@ var seqMasterGain  = null; // master fader for all sequencer output
 var _pianoBuffers     = {};     // MIDI number → AudioBuffer
 var _pianoLoaded      = false;
 var _pianoLoading     = false;
-var _activeInstrument = 'piano+synth'; // 'synth' | 'piano' | 'guitar' | combos with '+'
+var _activeInstrument = 'piano'; // 'synth' | 'piano' | 'guitar' | combos with '+'
 function _instrHas(part) { return _activeInstrument.split('+').includes(part); }
 
-var _kbdMelodyInstrument = 'piano+synth'; // separate instrument for keyboard/melody (unlinked from chord instrument)
+var _kbdMelodyInstrument = 'piano'; // separate instrument for keyboard/melody (unlinked from chord instrument)
 function _melodyInstrHas(part) { return _kbdMelodyInstrument.split('+').includes(part); }
 var kbdMelodySeqIdx = 0; // which sequence's melody we're editing in the keyboard drawer
 
@@ -9779,8 +9851,10 @@ function _pianoUpdateUI() {
 }
 
 // ── MIDI ──────────────────────────────────────────────────────────
-var _midiAccess  = null;
-var _midiEnabled = false;
+var _midiAccess      = null;
+var _midiEnabled     = false;
+var _midiInputId     = null; // selected input device id
+var _midiOutputId    = null; // selected output device id
 
 async function initMidi() {
   if (!navigator.requestMIDIAccess) {
@@ -9790,11 +9864,23 @@ async function initMidi() {
   try {
     _midiAccess  = await navigator.requestMIDIAccess({ sysex: false });
     _midiEnabled = true;
-    _midiAccess.inputs.forEach(inp => { inp.onmidimessage = _midiHandleMessage; });
+    // Default: first input device receives messages
+    const _allInputs = [..._midiAccess.inputs.values()];
+    if (!_midiInputId && _allInputs[0]) _midiInputId = _allInputs[0].id;
+    _midiAccess.inputs.forEach(inp => {
+      inp.onmidimessage = (!_midiInputId || inp.id === _midiInputId) ? _midiHandleMessage : null;
+    });
     _midiAccess.onstatechange = e => {
       if (e.port.type === 'input') {
-        if (e.port.state === 'connected')    e.port.onmidimessage = _midiHandleMessage;
-        if (e.port.state === 'disconnected') e.port.onmidimessage = null;
+        if (e.port.state === 'connected') {
+          // Auto-select first device if none chosen yet
+          if (!_midiInputId) _midiInputId = e.port.id;
+          e.port.onmidimessage = (e.port.id === _midiInputId) ? _midiHandleMessage : null;
+        }
+        if (e.port.state === 'disconnected') {
+          e.port.onmidimessage = null;
+          if (_midiInputId === e.port.id) _midiInputId = null;
+        }
       }
       _midiUpdateUI();
     };
@@ -9806,6 +9892,20 @@ async function initMidi() {
     _midiEnabled = false;
     _midiUpdateUI();
   }
+}
+
+function midiSelectInput(id) {
+  _midiInputId = id;
+  if (!_midiAccess) return;
+  // Route messages only from the selected input (or all if none selected)
+  _midiAccess.inputs.forEach(inp => {
+    inp.onmidimessage = (!id || inp.id === id) ? _midiHandleMessage : null;
+  });
+}
+
+function midiSelectOutput(id) {
+  _midiOutputId = id;
+  // Output device stored for future use (e.g. sending clock, notes to external synth)
 }
 
 function _midiHandleMessage(msg) {
@@ -9826,7 +9926,7 @@ function _midiNoteOn(midiNote, velocity) {
     playGuitarNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
     samplerPlayed = true;
   }
-  if (_instrHas('synth') || !samplerPlayed) {
+  if (_instrHas('synth') || (!samplerPlayed && !_instrHas('piano') && !_instrHas('guitar'))) {
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
     const ctx = getSeqAudioCtx();
     const o = ctx.createOscillator(), g = ctx.createGain();
@@ -9865,37 +9965,68 @@ function _midiHighlightKey(midiNote, on) {
 }
 
 function _midiUpdateUI() {
-  const dot   = document.getElementById('midiStatusDot');
-  const lbl   = document.getElementById('midiStatusLabel');
-  const btn   = document.getElementById('midiConnectBtn');
   const hChip = document.getElementById('headerMidiChip');
   const hLbl  = document.getElementById('headerMidiLabel');
-  const inputs = _midiAccess ? [..._midiAccess.inputs.values()] : [];
-  const count  = inputs.length;
-  const deviceName = count === 1
+  const inputs  = _midiAccess ? [..._midiAccess.inputs.values()]  : [];
+  const outputs = _midiAccess ? [..._midiAccess.outputs.values()] : [];
+  const inCount = inputs.length;
+  const deviceName = inCount === 1
     ? (inputs[0].name || '1 device')
-    : count + ' devices';
-  if (dot) {
-    if (_midiEnabled && count > 0) {
-      dot.style.background = '#00d26e';
-      if (lbl) lbl.textContent = deviceName;
-    } else if (_midiEnabled) {
-      dot.style.background = '#f5a623';
-      if (lbl) lbl.textContent = 'no device';
-    } else {
-      dot.style.background = 'var(--faint)';
-      if (lbl) lbl.textContent = 'MIDI';
-    }
-    if (btn) btn.style.display = _midiEnabled ? 'none' : '';
-  }
-  // Header chip — only visible when a device is actually connected
+    : inCount + ' devices';
+
+  // Update ALL instances of status dots/labels (duplicate IDs in seq + kbd panels)
+  document.querySelectorAll('#midiStatusDot').forEach(dot => {
+    if (_midiEnabled && inCount > 0)  dot.style.background = '#00d26e';
+    else if (_midiEnabled)            dot.style.background = '#f5a623';
+    else                              dot.style.background = 'var(--faint)';
+  });
+  document.querySelectorAll('#midiStatusLabel').forEach(lbl => {
+    if (_midiEnabled && inCount > 0)  lbl.textContent = deviceName;
+    else if (_midiEnabled)            lbl.textContent = 'no device';
+    else                              lbl.textContent = 'MIDI';
+  });
+  document.querySelectorAll('#midiConnectBtn').forEach(btn => {
+    btn.style.display = _midiEnabled ? 'none' : '';
+  });
+
+  // Header chip
   if (hChip) {
-    if (_midiEnabled && count > 0) {
+    if (_midiEnabled && inCount > 0) {
       if (hLbl) hLbl.textContent = deviceName;
       hChip.style.display = 'flex';
     } else {
       hChip.style.display = 'none';
     }
+  }
+
+  // ── Panel MIDI bar ──────────────────────────────────────────────
+  const barDot       = document.getElementById('midiBarDot');
+  const barDevices   = document.getElementById('midiBarDevices');
+  const barConnBtn   = document.getElementById('midiBarConnectBtn');
+  const inSel        = document.getElementById('midiInputSelect');
+  const outSel       = document.getElementById('midiOutputSelect');
+
+  if (barDot) {
+    if (_midiEnabled && inCount > 0)  barDot.style.background = '#00d26e';
+    else if (_midiEnabled)            barDot.style.background = '#f5a623';
+    else                              barDot.style.background = 'var(--faint)';
+  }
+  if (barConnBtn) {
+    barConnBtn.textContent = _midiEnabled ? '✓ MIDI' : 'MIDI';
+    barConnBtn.classList.toggle('connected', _midiEnabled && inCount > 0);
+  }
+  if (barDevices) {
+    barDevices.style.display = (_midiEnabled && (inCount > 0 || outputs.length > 0)) ? 'flex' : 'none';
+  }
+  if (inSel && _midiEnabled) {
+    const prev = inSel.value;
+    inSel.innerHTML = '<option value="">— none —</option>' +
+      inputs.map(d => `<option value="${d.id}"${d.id === (_midiInputId || (inputs[0]?.id)) ? ' selected' : ''}>${d.name}</option>`).join('');
+    if (!_midiInputId && inputs[0]) _midiInputId = inputs[0].id;
+  }
+  if (outSel && _midiEnabled) {
+    outSel.innerHTML = '<option value="">— none —</option>' +
+      outputs.map(d => `<option value="${d.id}"${d.id === _midiOutputId ? ' selected' : ''}>${d.name}</option>`).join('');
   }
 }
 
@@ -10222,8 +10353,8 @@ function renderSequencerHtml(song) {
 
       <!-- Play / Stop / Metro -->
       <div class="seq-ctrl-group" style="margin-left:auto;">
-        <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:13px;padding:8px 20px;font-weight:700;">▶ Play</button>
-        <button class="seq-btn seq-btn-play" onclick="seqPlaySong()" style="margin-left:4px;font-size:13px;padding:8px 20px;font-weight:700;" title="Play all parts in order">▶▶ All</button>
+        <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:13px;padding:8px 20px;font-weight:700;">▶ Play Section</button>
+        <button class="seq-btn seq-btn-play" onclick="seqPlaySong()" style="margin-left:4px;font-size:13px;padding:8px 20px;font-weight:700;" title="Play full sequence (all parts in order)">▶▶ Full Sequence</button>
         <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="margin-left:4px;font-size:13px;padding:8px 20px;font-weight:700;">■ Stop</button>
         <button class="seq-btn seq-btn-met" id="seqMetBtn" onclick="seqToggleMet()" style="margin-left:4px;">Metro</button>
       </div>
@@ -10234,11 +10365,11 @@ function renderSequencerHtml(song) {
       <span class="seq-label">Instrument</span>
       <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()">
         <option value="synth">Synth</option>
-        <option value="piano">Piano</option>
+        <option value="piano" selected>Piano</option>
         <option value="guitar">Guitar</option>
         <option value="guitar+piano">Guitar + Piano</option>
         <option value="guitar+synth">Guitar + Synth</option>
-        <option value="piano+synth" selected>Piano + Synth</option>
+        <option value="piano+synth">Piano + Synth</option>
         <option value="guitar+piano+synth">Guitar + Piano + Synth</option>
       </select>
       <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
@@ -10369,7 +10500,7 @@ function initSequencer(song) {
   apply('seqSwing', sd.swing !== undefined ? sd.swing : 0);
   apply('seqVel',   sd.vel   !== undefined ? sd.vel   : 0.8);
   apply('seqWave',  sd.wave  || 'triangle');
-  const savedInst = sd.instrument || 'piano+synth';
+  const savedInst = sd.instrument || 'piano';
   _activeInstrument = savedInst;
   const instEl = document.getElementById('seqInstrumentSelect');
   if (instEl) instEl.value = savedInst;
@@ -10967,7 +11098,7 @@ function seqMoveSequence(idx, direction) {
 }
 
 function seqInstrumentChanged() {
-  const val = document.getElementById('seqInstrumentSelect')?.value || 'piano+synth';
+  const val = document.getElementById('seqInstrumentSelect')?.value || 'piano';
   _activeInstrument = val;
   // Cut off any sustaining notes from the previous instrument
   if (seqChordsGain && seqAudioCtx) {
@@ -11004,7 +11135,7 @@ function seqSaveSettings() {
   song.sequencer.swing = document.getElementById('seqSwing')?.value || '0';
   song.sequencer.vel   = document.getElementById('seqVel')?.value || '0.8';
   song.sequencer.wave       = document.getElementById('seqWave')?.value || 'triangle';
-  song.sequencer.instrument = _activeInstrument || 'piano+synth';
+  song.sequencer.instrument = _activeInstrument || 'piano';
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
@@ -11284,7 +11415,7 @@ function seqPlayChordByName(name) {
   let samplerPlayed = false;
   if (_instrHas('piano') && _pianoLoaded && midiNotes) { seqPlayChordPiano(midiNotes, t, 0.8); samplerPlayed = true; }
   if (_instrHas('guitar') && _guitarLoaded && midiNotes) { seqPlayChordGuitar(midiNotes, t, 0.8); samplerPlayed = true; }
-  if (_instrHas('synth') || !samplerPlayed) {
+  if (_instrHas('synth') || (!samplerPlayed && !_instrHas('piano') && !_instrHas('guitar'))) {
     const chords = seqGenChords(key, mode);
     if (chords[name]) seqPlayChord(chords[name], t, 0.8);
   }
@@ -11462,7 +11593,7 @@ function seqPlaySong() {
       hat:         seq.hat    || [],
       clap:        seq.clap   || [],
       melody:          seq.melody          || [],
-      melodyInstrument: seq.melodyInstrument || 'piano+synth',
+      melodyInstrument: seq.melodyInstrument || 'piano',
       totalSteps, stepDur, bpm, grid, time, bars,
       swing: parseFloat(seq.swing || 0),
       vel:   parseFloat(seq.vel   || 0.8),
@@ -11646,7 +11777,7 @@ function seqScheduleNotes() {
       let samplerPlayed = false;
       if (_hasPiano  && _pianoLoaded  && midiNotes) { seqPlayChordPiano(midiNotes, chordTime, velocity);  samplerPlayed = true; }
       if (_hasGuitar && _guitarLoaded && midiNotes) { seqPlayChordGuitar(midiNotes, chordTime, velocity); samplerPlayed = true; }
-      if (_hasSynth || !samplerPlayed) seqPlayChord(loopChords[slot.textContent], chordTime, velocity);
+      if (_hasSynth || (!samplerPlayed && !_hasPiano && !_hasGuitar)) seqPlayChord(loopChords[slot.textContent], chordTime, velocity);
     }
     // Drums — each instrument gets its own jitter for a natural, imprecise feel
     if (kickSlots[i]?.classList.contains('drum-on'))  seqPlayKick( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
@@ -11950,7 +12081,7 @@ function kbdPlayNote(note, octave) {
       samplerPlayed = true;
     }
   }
-  if (_melodyInstrHas('synth') || !samplerPlayed) {
+  if (_melodyInstrHas('synth') || (!samplerPlayed && !_melodyInstrHas('piano') && !_melodyInstrHas('guitar'))) {
     const baseFreq = seqFreq(note);
     const f = baseFreq * Math.pow(2, octave - 4);
     const wave = document.getElementById('seqWave')?.value || 'triangle';
@@ -12125,7 +12256,7 @@ function melodyInstrumentChanged() {
   const song = getCurrentSong();
   if (!song) return;
   if (!song.sequencer) song.sequencer = {};
-  const val = document.getElementById('melodyInstrumentSelect')?.value || 'piano+synth';
+  const val = document.getElementById('melodyInstrumentSelect')?.value || 'piano';
   _kbdMelodyInstrument = val;
   song.sequencer.melodyInstrument = val;
   // Trigger sample loading if needed
@@ -12254,7 +12385,7 @@ function kbdSwitchMelodyTab(idx) {
   const newSeq = seqs[idx];
   // Load new sequence's melody + instrument
   melodyNotes = (newSeq.melody || []).slice();
-  const newInst = newSeq.melodyInstrument || 'piano+synth';
+  const newInst = newSeq.melodyInstrument || 'piano';
   _kbdMelodyInstrument = newInst;
   const instSel = document.getElementById('melodyInstrumentSelect');
   if (instSel) instSel.value = newInst;
@@ -17038,7 +17169,7 @@ function openSplitMode(tool) {
   tool = tool || 'keyboard';
   _splitActive = true;
   document.body.classList.add('split-active');
-  document.getElementById('splitBtn').classList.add('active');
+  document.getElementById('splitBtn')?.classList.add('active');
   // Load the requested tool into the right panel
   setSplitRightTool(tool);
   // Sync dropdown
@@ -17060,18 +17191,21 @@ function closeSplitMode() {
 function setSplitRightTool(tool) {
   var content = document.getElementById('splitRightContent');
   if (!content) return;
-  // If switching away from lyrics panel, clear it
-  if (_splitCurrentTool === 'lyrics' && tool !== 'lyrics') {
-    content.innerHTML = '';
-  }
-  // If switching away from a drawer tool, return it
-  if (_splitCurrentTool && _splitCurrentTool !== 'lyrics' && _splitCurrentTool !== tool) {
+  // If switching away from any tool, return it first
+  if (_splitCurrentTool && _splitCurrentTool !== tool) {
     _splitReturnDrawer();
   }
   _splitCurrentTool = tool;
 
   if (tool === 'lyrics') {
-    _splitRenderLyricsPanel();
+    var rtEl = document.getElementById('songViewRunthrough');
+    if (!rtEl) return;
+    if (!_splitOrigParents['lyrics']) _splitOrigParents['lyrics'] = rtEl.parentNode;
+    content.appendChild(rtEl);
+    if (typeof setSongViewMode === 'function') setSongViewMode('runthrough');
+    if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
+    var song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
+    if (song && typeof ilInitAndRender === 'function') ilInitAndRender(song);
   } else if (tool === '4track') {
     var overlay = document.getElementById('vrOverlay');
     if (!overlay) return;
@@ -17100,41 +17234,17 @@ function setSplitRightTool(tool) {
   if (sel) sel.value = tool;
 }
 
-function _splitRenderLyricsPanel() {
-  var content = document.getElementById('splitRightContent');
-  if (!content) return;
-  var song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
-  // Build a read-only lyrics display from the song sections
-  var html = '<div class="split-lyrics-panel">';
-  if (!song) {
-    html += '<div class="split-lyrics-empty">No song selected</div>';
-  } else {
-    var title = (song.title || song.workingTitle || 'Untitled').trim();
-    html += '<div class="split-lyrics-title">' + title.replace(/</g,'&lt;') + '</div>';
-    var order = song.sectionOrder || Object.keys(song.structure || {});
-    var hasSections = false;
-    order.forEach(function(partId) {
-      var sData = (song.structure || {})[partId];
-      if (!sData || !sData.checked) return;
-      var label = sData.label || partId;
-      var lyrics = (sData.lyrics || '').trim();
-      if (!lyrics) return;
-      hasSections = true;
-      html += '<div class="split-lyrics-section">';
-      html += '<div class="split-lyrics-section-label">' + label.replace(/</g,'&lt;') + '</div>';
-      html += '<div class="split-lyrics-text">' + lyrics.replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</div>';
-      html += '</div>';
-    });
-    if (!hasSections) {
-      html += '<div class="split-lyrics-empty">No lyrics yet</div>';
-    }
-  }
-  html += '</div>';
-  content.innerHTML = html;
-}
+// (lyrics panel now uses the live #songViewRunthrough element — no separate render needed)
 
 function _splitReturnDrawer() {
-  if (!_splitCurrentTool || _splitCurrentTool === 'lyrics') return;
+  if (!_splitCurrentTool) return;
+  if (_splitCurrentTool === 'lyrics') {
+    var rtEl = document.getElementById('songViewRunthrough');
+    var origParent = _splitOrigParents['lyrics'];
+    if (rtEl && origParent) origParent.appendChild(rtEl);
+    delete _splitOrigParents['lyrics'];
+    return;
+  }
   if (_splitCurrentTool === '4track') {
     var vrOv = document.getElementById('vrOverlay');
     var origParent = _splitOrigParents['4track'];
@@ -17198,16 +17308,23 @@ function setSplitLeftView(view) {
   // Call setSongViewMode / showList DIRECTLY — never go through stickyGoBackend/stickyGoEditor
   // because those call closeAllDrawers() which triggers closeSplitMode() and breaks the panel.
   switch (view) {
-    case 'song':
+    case 'rehearse':
+      if (typeof _ensureDetailView === 'function') _ensureDetailView();
+      if (typeof setSongViewMode === 'function') setSongViewMode('runthrough');
+      if (typeof ilSetPerfMode === 'function') ilSetPerfMode(true);
+      break;
     case 'lyrics':
       if (typeof _ensureDetailView === 'function') _ensureDetailView();
       if (typeof setSongViewMode === 'function') setSongViewMode('runthrough');
+      if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
       break;
     case 'backend':
       if (typeof _ensureDetailView === 'function') _ensureDetailView();
       if (typeof setSongViewMode === 'function') setSongViewMode('backend');
+      if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
       break;
     case 'list':
+      if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
       // showList calls closeSeqDrawer etc — guard so it doesn't break split
       if (typeof showList === 'function') showList();
       break;
@@ -17335,7 +17452,7 @@ function _loopShowPicker(show) {
 
 function renderKeyboardDrawerHtml(song) {
   const sd = song?.sequencer || {};
-  const melodyInstrument = sd.melodyInstrument || 'piano+synth';
+  const melodyInstrument = sd.melodyInstrument || 'piano';
   const melodyQuantize = sd.melodyQuantize !== false;
   const mixer = sd.mixer || {};
   // Sync global melody instrument variable
@@ -17417,8 +17534,8 @@ function renderKeyboardDrawerHtml(song) {
       </div>
       <!-- Play / Stop / Metro / Rec -->
       <div class="seq-ctrl-group" style="margin-left:auto;gap:4px;">
-        <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:11px;padding:6px 12px;">▶ Play</button>
-        <button class="seq-btn seq-btn-play" onclick="seqPlaySong()" style="font-size:11px;padding:6px 12px;" title="Play all parts in order">▶▶ All</button>
+        <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:11px;padding:6px 12px;">▶ Play Section</button>
+        <button class="seq-btn seq-btn-play" onclick="seqPlaySong()" style="font-size:11px;padding:6px 12px;" title="Play full sequence (all parts in order)">▶▶ Full Sequence</button>
         <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="font-size:11px;padding:6px 12px;">■ Stop</button>
         <button class="seq-btn seq-btn-met" id="kbdMetBtn" onclick="seqToggleMet()" style="font-size:11px;padding:6px 10px;">Metro</button>
         <button class="melody-rec-btn" id="melodyRecBtn" onclick="melodyToggleRecord()">⏺ Rec</button>
@@ -17473,7 +17590,7 @@ function _kbdInitMelodyForSong(song) {
   const seqs = getSongSequences(song);
   const activeSeq = seqs[kbdMelodySeqIdx] || {};
   melodyNotes = (activeSeq.melody || []).slice();
-  _kbdMelodyInstrument = activeSeq.melodyInstrument || 'piano+synth';
+  _kbdMelodyInstrument = activeSeq.melodyInstrument || 'piano';
 }
 
 window._kbdDspLoad = function(id) {
@@ -17601,7 +17718,7 @@ function openKeyboardDrawer() {
     const activeSeq = seqs[kbdMelodySeqIdx] || {};
     // Load saved melody notes into memory
     melodyNotes = (activeSeq.melody || []).slice();
-    _kbdMelodyInstrument = activeSeq.melodyInstrument || 'piano+synth';
+    _kbdMelodyInstrument = activeSeq.melodyInstrument || 'piano';
   }
 
   const body = document.getElementById('keyboardDrawerBody');
@@ -20508,7 +20625,7 @@ function ilAddSection(sel) {
         bpm: cur.bpm || '100', time: cur.time || '4',
         bars: cur.bars || '16', grid: cur.grid || '1',
         swing: cur.swing || '0', vel: cur.vel || '0.8',
-        wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano+synth',
+        wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
         chordSlots: [], chordDegrees: [],
         kick: [], snare: [], hat: [], clap: [], melody: [],
         melodyQuantize: true, mixer: {},
@@ -23772,7 +23889,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <!-- ── Chrome-style split workspace ──────────────────────────────── -->
 <div id="splitLeftHeader">
   <select id="splitLeftSelect" onchange="setSplitLeftView(this.value)" title="Choose left panel content">
-    <option value="song">🎵 Song</option>
+    <option value="rehearse">▶ Rehearse</option>
     <option value="lyrics">✏️ Lyrics</option>
     <option value="backend">▦ Backend</option>
     <option value="list">📋 Song List</option>
@@ -23792,7 +23909,7 @@ document.addEventListener('DOMContentLoaded', () => {
   </div>
   <div id="splitRightContent"></div>
 </div>
-<div id="splitDivider"></div>
+<div id="splitDivider"><button id="splitSwapBtn" onclick="switchSplitSides()" title="Swap panels" onmousedown="event.stopPropagation()">⇄</button></div>
 
 <!-- ── Onboarding / Help overlay ──────────────────────────────────── -->
 <div id="onboardingOverlay" onclick="if(event.target===this)obClose()">
