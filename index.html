@@ -6722,6 +6722,14 @@ body.il-perf-active #ilScrollFloat { display: flex; }
   font-size: 10px; color: #a07830; letter-spacing: 0.08em;
   min-height: 14px;
 }
+/* ── VU Meter ──────────────────────────────────────────────────── */
+.mt-vu-wrap { display:flex; gap:3px; align-items:flex-end; flex-shrink:0; margin:0 4px; }
+.mt-vu-canvas { border-radius:1px; display:block; }
+@keyframes vuClipFlash { 0%,100%{opacity:1} 50%{opacity:0.35} }
+.mt-vu-canvas.clipping,
+.loop-vu-canvas.clipping { animation: vuClipFlash 0.18s ease-in-out infinite; }
+.loop-vu-row { display:flex; gap:2px; align-self:flex-end; margin:2px 2px 0; }
+.loop-vu-canvas { border-radius:1px; display:block; }
 .vr-time-limit {
   text-align: center; font-family: 'IBM Plex Mono', monospace;
   font-size: 9px; color: #a07830; letter-spacing: 0.04em;
@@ -12145,7 +12153,7 @@ function kbdPlayNote(note, octave) {
       samplerPlayed = true;
     }
   }
-  if (_melodyInstrHas('synth') || (!samplerPlayed && !_melodyInstrHas('piano') && !_melodyInstrHas('guitar'))) {
+  if (_melodyInstrHas('synth') || (!samplerPlayed && (!_melodyInstrHas('piano') || !_pianoLoaded) && (!_melodyInstrHas('guitar') || !_guitarLoaded))) {
     const baseFreq = seqFreq(note);
     const f = baseFreq * Math.pow(2, octave - 4);
     const wave = document.getElementById('seqWave')?.value || 'triangle';
@@ -17837,6 +17845,9 @@ function openKeyboardDrawer() {
     // Load saved melody notes into memory
     melodyNotes = (activeSeq.melody || []).slice();
     _kbdMelodyInstrument = activeSeq.melodyInstrument || 'piano';
+    // Kick off sample loading so keys play immediately on first open
+    if (_melodyInstrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  loadPianoSamples();
+    if (_melodyInstrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   }
 
   const body = document.getElementById('keyboardDrawerBody');
@@ -19016,11 +19027,13 @@ function openLooperDrawer() {
   loopOnSongChange(song);
   loopCheckFeedbackWarning();
   loopUpdateMonitorPill();
+  setTimeout(_vuStart, 80); // start VU meter after drawer is visible
 }
 function closeLooperDrawer() {
   if (_splitActive && _splitCurrentTool === 'looper') { closeSplitMode(); return; }
   document.getElementById('looperDrawer').classList.remove('open');
   document.getElementById('looperOverlay').classList.remove('open');
+  _vuMaybeStop();
 }
 
 function loopOnSongChange(song) {
@@ -19112,6 +19125,10 @@ function loopBuildUI() {
         <div class="preroll-dot" id="lpdot-${i}-3"></div>
       </div>
       <div class="bar-counter" id="lbar-counter-${i}">— / —</div>
+      <div class="loop-vu-row" id="lvu-wrap-${i}" title="Mic input level">
+        <canvas class="loop-vu-canvas" id="lvu-l-${i}" width="6" height="36"></canvas>
+        <canvas class="loop-vu-canvas" id="lvu-r-${i}" width="6" height="36"></canvas>
+      </div>
       <div class="track-controls">
         <div class="track-vol-wrap">
           <input type="range" class="track-vol" min="0" max="100" value="85"
@@ -22182,6 +22199,134 @@ window.mtWaveformSeek = function(trackIdx, e) {
 };
 var _mtScrubOffset = 0; // seek position set while paused
 
+// ── VU Meter (shared live mic input monitor) ─────────────────────
+var _vuCtx      = null;
+var _vuAnalyser = null;
+var _vuStream   = null;
+var _vuSource   = null;
+var _vuRafId    = null;
+var _vuActive   = false;
+var _vuLevel    = 0;     // smoothed RMS (0–1)
+var _vuClipEnd  = 0;     // timestamp until clip highlight ends
+var _vuBuf      = null;
+
+async function _vuStart() {
+  if (_vuActive) return;
+  _vuActive = true;
+  try {
+    // Reuse looper's shared stream if already live (avoids extra getUserMedia)
+    var src = (typeof loopSharedStream !== 'undefined' && loopSharedStream && loopSharedStream.active)
+              ? loopSharedStream : null;
+    if (!src) {
+      if (!_vuStream || !_vuStream.active) {
+        _vuStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      }
+      src = _vuStream;
+    }
+    if (!_vuCtx || _vuCtx.state === 'closed') {
+      _vuCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (_vuCtx.state === 'suspended') await _vuCtx.resume();
+    if (_vuSource) { try { _vuSource.disconnect(); } catch(e) {} }
+    _vuAnalyser = _vuCtx.createAnalyser();
+    _vuAnalyser.fftSize = 1024;
+    _vuAnalyser.smoothingTimeConstant = 0.0;
+    _vuSource = _vuCtx.createMediaStreamSource(src);
+    _vuSource.connect(_vuAnalyser);
+    if (_vuRafId) cancelAnimationFrame(_vuRafId);
+    _vuLevel = 0;
+    _vuDraw();
+  } catch(e) {
+    _vuActive = false;
+    console.warn('VU meter mic:', e);
+  }
+}
+
+function _vuMaybeStop() {
+  var vr4Open   = !!document.getElementById('vrOverlay')?.classList.contains('vr-open');
+  var loopOpen  = !!document.getElementById('looperDrawer')?.classList.contains('open');
+  if (!vr4Open && !loopOpen) _vuStop();
+}
+
+function _vuStop() {
+  _vuActive = false;
+  if (_vuRafId) { cancelAnimationFrame(_vuRafId); _vuRafId = null; }
+  // Paint all canvases dark/empty
+  var ids = ['mtVuL','mtVuR'];
+  for (var ti = 0; ti < 4; ti++) { ids.push('lvu-l-'+ti); ids.push('lvu-r-'+ti); }
+  ids.forEach(function(id) {
+    var c = document.getElementById(id); if (!c) return;
+    c.classList.remove('clipping');
+    var cx = c.getContext('2d');
+    cx.fillStyle = '#12141a'; cx.fillRect(0, 0, c.width, c.height);
+  });
+}
+
+function _vuDraw() {
+  if (!_vuActive || !_vuAnalyser) return;
+  if (!_vuBuf || _vuBuf.length !== _vuAnalyser.fftSize) {
+    _vuBuf = new Float32Array(_vuAnalyser.fftSize);
+  }
+  _vuAnalyser.getFloatTimeDomainData(_vuBuf);
+
+  // RMS + true peak
+  var sumSq = 0, peak = 0;
+  for (var i = 0; i < _vuBuf.length; i++) {
+    var s = _vuBuf[i]; sumSq += s * s;
+    var a = s < 0 ? -s : s; if (a > peak) peak = a;
+  }
+  var rms = Math.sqrt(sumSq / _vuBuf.length);
+
+  // Fast attack, slow decay ballistics
+  if (rms > _vuLevel) { _vuLevel = rms; }
+  else { _vuLevel = _vuLevel * 0.88 + rms * 0.12; }
+
+  // Clipping: hold red for 600 ms after peak hits full scale
+  var now = performance.now();
+  if (peak >= 0.99) _vuClipEnd = now + 600;
+  var clipping = now < _vuClipEnd;
+
+  var ids = ['mtVuL','mtVuR'];
+  for (var ti = 0; ti < 4; ti++) { ids.push('lvu-l-'+ti); ids.push('lvu-r-'+ti); }
+  ids.forEach(function(id) { _vuDrawBar(id, _vuLevel, clipping); });
+
+  _vuRafId = requestAnimationFrame(_vuDraw);
+}
+
+function _vuDrawBar(id, level, clipping) {
+  var canvas = document.getElementById(id); if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width, H = canvas.height;
+
+  // Background
+  ctx.fillStyle = '#12141a';
+  ctx.fillRect(0, 0, W, H);
+
+  if (clipping) {
+    ctx.fillStyle = '#ff2200';
+    ctx.fillRect(0, 0, W, H);
+    canvas.classList.add('clipping');
+    return;
+  }
+  canvas.classList.remove('clipping');
+
+  // dB level → fill fraction
+  var db   = level > 0.00001 ? 20 * Math.log10(level) : -60;
+  var frac = Math.max(0, Math.min(1, (db + 60) / 60));
+  var filledH = Math.round(frac * H);
+  if (filledH <= 0) return;
+
+  // Colour zones (measured from bottom):
+  //  0–70%  → green  (#00e060)
+  //  70–88% → amber  (#ffaa00)
+  //  88–100% → red   (#ff3300)
+  for (var py = 0; py < filledH; py++) {
+    var fromBot = (py + 1) / H;
+    ctx.fillStyle = fromBot > 0.88 ? '#ff3300' : fromBot > 0.70 ? '#ffaa00' : '#00e060';
+    ctx.fillRect(0, H - py - 1, W, 1);
+  }
+}
+
 // ── Open / Close ───────────────────────────────────────────────
 window.vrOpen = function(autoRecord) {
   _vrSongId = currentId || null;
@@ -22202,12 +22347,14 @@ window.vrOpen = function(autoRecord) {
   _vrEnumerateDevices();
   vrLoadTakes();
   ensembleInitUI();
+  setTimeout(_vuStart, 80); // start VU meter after overlay is visible
 };
 
 window.vrClose = function() {
   if (_vrRecording) { showToast('Stop recording before closing.', 'warn'); return; }
   _mtStopAll();
   _el('vrOverlay').classList.remove('vr-open', 'vr-rt-compact');
+  _vuMaybeStop();
 };
 
 window.vrOverlayClick = function(e) {
@@ -24254,6 +24401,10 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       </div>
       <div class="mt-transport-btns">
+        <div class="mt-vu-wrap" id="mtVuWrap" title="Mic input level">
+          <canvas class="mt-vu-canvas" id="mtVuL" width="8" height="44"></canvas>
+          <canvas class="mt-vu-canvas" id="mtVuR" width="8" height="44"></canvas>
+        </div>
         <button class="mt-transport-btn mt-stop-btn" id="mtStopBtn" onclick="vrStop()" disabled title="Stop (Space)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
         </button>
