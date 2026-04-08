@@ -5322,6 +5322,13 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
   body.il-split-active #songViewRunthrough.il-perf-mode #ilSplitPreview {
     display: none !important;
   }
+  /* Exception: perf-split — rehearse rendering on left, editor on right */
+  body.il-split-active.il-perf-split #songViewRunthrough {
+    display: flex !important;
+  }
+  body.il-split-active.il-perf-split #ilSplitPreview {
+    display: block !important;
+  }
 }
 
 /* Split toggle button — hidden on mobile, shown on wide screens */
@@ -19787,11 +19794,13 @@ function stickyGoEditor() {
   _ensureDetailView();
   closeAllDrawers();
   const _fromPerf = window._ilPerfMode;
-  setSongViewMode('runthrough');
-  ilSetPerfMode(false);
-  // Coming from rehearse/perf mode → auto-open split so chords stay visible in right pane
-  if (_fromPerf && !window._ilSplitMode) {
-    ilToggleSplitMode();
+  setSongViewMode('runthrough'); // internally calls ilSetPerfMode(false)
+  if (_fromPerf) {
+    // Keep perf rendering on the left panel while editor opens on the right
+    const rtEl = document.getElementById('songViewRunthrough');
+    if (rtEl) rtEl.classList.add('il-perf-mode');
+    document.body.classList.add('il-perf-split');
+    if (!window._ilSplitMode) ilToggleSplitMode();
   }
 }
 
@@ -19971,6 +19980,8 @@ function _triggerMetroScrollHint() {
 
 function ilSetPerfMode(on) {
   window._ilPerfMode = on;
+  // Always clear perf-split hybrid state when perf mode is explicitly set
+  document.body.classList.remove('il-perf-split');
   // Entering perf mode: deactivate split so they don't conflict
   if (on && window._ilSplitMode) ilToggleSplitMode();
   const rtEl = document.getElementById('songViewRunthrough');
