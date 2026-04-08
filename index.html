@@ -19786,8 +19786,13 @@ function stickyGoEditor() {
   if (!getCurrentSong()) { showNoSongModal(stickyGoEditor); return; }
   _ensureDetailView();
   closeAllDrawers();
+  const _fromPerf = window._ilPerfMode;
   setSongViewMode('runthrough');
   ilSetPerfMode(false);
+  // Coming from rehearse/perf mode → auto-open split so chords stay visible in right pane
+  if (_fromPerf && !window._ilSplitMode) {
+    ilToggleSplitMode();
+  }
 }
 
 // Go to backend view (closes any open drawer first)
@@ -19966,6 +19971,8 @@ function _triggerMetroScrollHint() {
 
 function ilSetPerfMode(on) {
   window._ilPerfMode = on;
+  // Entering perf mode: deactivate split so they don't conflict
+  if (on && window._ilSplitMode) ilToggleSplitMode();
   const rtEl = document.getElementById('songViewRunthrough');
   if (rtEl) rtEl.classList.toggle('il-perf-mode', on);
   // Sync all nav buttons (header + bottom nav group)
@@ -20284,7 +20291,6 @@ function ilRenderBody(song) {
       <button class="il-tips-toggle" onclick="ilToggleTips()" title="How to use Lyrics view">
         ${ilTipsOpen ? '▾' : '▸'} How to use
       </button>
-      <button class="ilsp-toggle-btn${window._ilSplitMode ? ' active' : ''}" id="ilSplitToggleBtn" onclick="ilToggleSplitMode()" title="Split: see run-through preview alongside editor">⊞ Split</button>
     </div>
     <div class="il-tips-panel" id="ilTipsPanel" style="display:${ilTipsOpen ? 'block' : 'none'}">
       <ol class="il-tips-list">
@@ -24173,7 +24179,6 @@ document.addEventListener('DOMContentLoaded', () => {
 <!-- ── Chrome-style split workspace ──────────────────────────────── -->
 <div id="splitLeftHeader">
   <select id="splitLeftSelect" onchange="setSplitLeftView(this.value)" title="Choose left panel content">
-    <option value="rehearse">▶ Rehearse</option>
     <option value="lyrics">✏️ Lyrics</option>
     <option value="backend">▦ Backend</option>
     <option value="list">📋 Song List</option>
