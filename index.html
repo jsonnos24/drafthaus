@@ -1445,6 +1445,7 @@ button, select, input, textarea { touch-action: manipulation; }
   [data-row="kick"]  .seq-slot.drum-on { background: rgba(195,20,50,0.80);  border-color: #ff4466; }
   [data-row="snare"] .seq-slot.drum-on { background: rgba(100,190,230,0.80); border-color: #aaddff; }
   [data-row="hat"]   .seq-slot.drum-on { background: rgba(245,166,35,0.85); border-color: #ffd080; }
+  [data-row="crash"] .seq-slot.drum-on { background: rgba(180,110,255,0.80); border-color: #cc88ff; }
   [data-row="clap"]  .seq-slot.drum-on { background: rgba(0,210,110,0.80);  border-color: #80ffba; }
   .seq-slot.playing { background: var(--teal) !important; border-color: #80efd0 !important; }
   .seq-slot:hover { border-color: rgba(255,255,255,0.25); }
@@ -1453,6 +1454,7 @@ button, select, input, textarea { touch-action: manipulation; }
   [data-row="kick"]  .seq-row-label { color: #e8304a; }
   [data-row="snare"] .seq-row-label { color: #87ceeb; }
   [data-row="hat"]   .seq-row-label { color: #f5a623; }
+  [data-row="crash"] .seq-row-label { color: #cc88ff; }
   [data-row="clap"]  .seq-row-label { color: #00d26e; }
 
   .seq-bar-sep { width: 6px; flex-shrink: 0; }
@@ -1851,6 +1853,21 @@ button, select, input, textarea { touch-action: manipulation; }
     border-color: rgba(0, 220, 130, 0.5); color: #00dc82;
     text-shadow: 0 0 6px rgba(0,220,130,0.3);
   }
+  .seq-drum-mode-btn {
+    font-size: 9px; padding: 4px 9px;
+    background: var(--card2); border: 1px solid var(--border2);
+    color: var(--faint); border-radius: 4px; cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.05em;
+    transition: all 0.15s; white-space: nowrap; flex-shrink: 0;
+  }
+  .seq-drum-mode-btn.acoustic {
+    background: rgba(180,110,255,0.12); border-color: rgba(180,110,255,0.5);
+    color: #cc88ff; text-shadow: 0 0 6px rgba(180,110,255,0.25);
+  }
+  .seq-drum-mode-btn.loading {
+    opacity: 0.55; cursor: default; animation: drumModeFlicker 1s infinite alternate;
+  }
+  @keyframes drumModeFlicker { from { opacity: 0.4; } to { opacity: 0.7; } }
   /* ── Chord mode toggle (Compose / Preview) ── */
   .seq-chord-mode-btn {
     font-size: 9px; padding: 4px 9px;
@@ -3967,7 +3984,7 @@ button, select, input, textarea { touch-action: manipulation; }
 
 
   /* Drum rows compact */
-  #seqKick, #seqSnare, #seqHat, #seqClap {
+  #seqKick, #seqSnare, #seqHat, #seqCrash, #seqClap {
     flex-wrap: nowrap;
   }
   .seq-row-label {
@@ -8551,7 +8568,7 @@ function addSectionToSong(partId) {
       swing: cur.swing || '0', vel: cur.vel || '0.8',
       wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
       chordSlots: [], chordDegrees: [],
-      kick: [], snare: [], hat: [], clap: [], melody: [],
+      kick: [], snare: [], hat: [], crash: [], clap: [], melody: [],
       melodyQuantize: true, mixer: {},
     });
     if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
@@ -8991,6 +9008,7 @@ function switchInstrument(instId) {
                        (sd.kick || []).some(Boolean) ||
                        (sd.snare || []).some(Boolean) ||
                        (sd.hat || []).some(Boolean) ||
+                       (sd.crash || []).some(Boolean) ||
                        (sd.clap || []).some(Boolean) ||
                        sd.bpm || sd.time;
 
@@ -9609,6 +9627,16 @@ function instRemoveChord(instId, partId, idx) {
 // ── Sequencer ─────────────────────────────────────────────────────
 var seqAudioCtx = null;
 var seqIsPlaying = false;
+// ── Acoustic drum samples ─────────────────────────────────────────
+var seqDrumMode = 'acoustic'; // 'acoustic' | 'synth'
+var _acousticRawBytes  = {};  // { kick, snare, hat } as Uint8Array (safe to copy)
+var _acousticMainBufs  = {};  // decoded AudioBuffers for live playback ctx
+var _acousticLoadState = 'idle'; // 'idle' | 'loading' | 'ready' | 'failed'
+const _ACOUSTIC_URLS = {
+  kick:  'https://tonejs.github.io/audio/drum-samples/acoustic-kit/kick.mp3',
+  snare: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/snare.mp3',
+  hat:   'https://tonejs.github.io/audio/drum-samples/acoustic-kit/hihat.mp3',
+};
 var seqMetOn = false;
 var _seqTimer = null;
 var _seqNextNoteTime = 0;
@@ -10144,6 +10172,76 @@ function seqGetChordsOut() { getSeqAudioCtx(); return seqChordsGain || seqAudioC
 function seqGetDrumsOut()  { getSeqAudioCtx(); return seqDrumsGain  || seqAudioCtx.destination; }
 function seqGetMelodyOut() { getSeqAudioCtx(); return seqMelodyGain || seqAudioCtx.destination; }
 
+// ── Acoustic drum sample loader ────────────────────────────────────
+async function loadAcousticSamples() {
+  if (_acousticLoadState === 'loading' || _acousticLoadState === 'ready') return;
+  _acousticLoadState = 'loading';
+  _updateDrumModeBtn();
+
+  try {
+    // Fetch all samples in parallel (raw bytes — safe to copy for multiple decodes)
+    const fetched = await Promise.allSettled(
+      Object.entries(_ACOUSTIC_URLS).map(async ([name, url]) => {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${name}`);
+        const ab = await resp.arrayBuffer();
+        _acousticRawBytes[name] = new Uint8Array(ab); // store as Uint8Array to avoid detachment
+        return name;
+      })
+    );
+
+    const ok = fetched.filter(r => r.status === 'fulfilled').map(r => r.value);
+    if (ok.length === 0) throw new Error('All acoustic samples failed to fetch');
+
+    // Decode for main audio context (requires user-gesture ctx to exist)
+    const ctx = getSeqAudioCtx();
+    await Promise.allSettled(ok.map(async name => {
+      _acousticMainBufs[name] = await ctx.decodeAudioData(_acousticRawBytes[name].buffer.slice(0));
+    }));
+
+    _acousticLoadState = 'ready';
+  } catch (e) {
+    console.warn('[Drafthaus] Acoustic samples could not load, falling back to synth:', e);
+    _acousticLoadState = 'failed';
+    seqDrumMode = 'synth';
+  }
+  _updateDrumModeBtn();
+}
+
+function _updateDrumModeBtn() {
+  const btn = document.getElementById('seqDrumModeBtn');
+  if (!btn) return;
+  btn.classList.remove('acoustic', 'loading');
+  if (_acousticLoadState === 'loading') {
+    btn.textContent = '⟳ Loading…';
+    btn.classList.add('loading');
+  } else if (seqDrumMode === 'acoustic' && _acousticLoadState === 'ready') {
+    btn.textContent = '🥁 Acoustic';
+    btn.classList.add('acoustic');
+  } else if (seqDrumMode === 'acoustic' && _acousticLoadState === 'failed') {
+    btn.textContent = '🥁 Acoustic*'; // asterisk = synth fallback
+    btn.title = 'Samples failed to load — using synth fallback';
+  } else {
+    btn.textContent = '◈ Synth';
+  }
+}
+
+function seqToggleDrumMode() {
+  if (_acousticLoadState === 'loading') return; // debounce during load
+  if (seqDrumMode === 'synth') {
+    seqDrumMode = 'acoustic';
+    if (_acousticLoadState === 'idle' || _acousticLoadState === 'failed') {
+      _acousticLoadState = 'idle';
+      loadAcousticSamples();
+    } else {
+      _updateDrumModeBtn();
+    }
+  } else {
+    seqDrumMode = 'synth';
+    _updateDrumModeBtn();
+  }
+}
+
 function seqApplyMixer() {
   if (!seqAudioCtx) return;
   const song = getCurrentSong();
@@ -10478,7 +10576,7 @@ function renderSequencerHtml(song) {
         <div class="seq-grid" id="seqChordGrid"></div>
       </div>
       <div class="seq-pattern-divider"></div>
-      ${[['Kick','seqKick','kick'],['Snare','seqSnare','snare'],['Hi-Hat','seqHat','hat'],['Clap','seqClap','clap']].map(([label,id,row])=>`
+      ${[['Kick','seqKick','kick'],['Snare','seqSnare','snare'],['Hi-Hat','seqHat','hat'],['Crash','seqCrash','crash'],['Clap','seqClap','clap']].map(([label,id,row])=>`
       <div class="seq-grid-row" data-row="${row}">
         <div class="seq-row-label">${label}</div>
         <div class="seq-grid" id="${id}"></div>
@@ -10525,7 +10623,7 @@ function renderSequencerHtml(song) {
             <option value="rnb">R&amp;B</option>
             <option value="edm">EDM</option>
             <option value="blues">Blues</option>
-            <option value="classical">Classical</option>
+            <option value="classical">Ballad</option>
             <option disabled>── 6/8 ──</option>
             <option value="six8">6/8 Groove</option>
             <option value="six8_rock">6/8 Rock</option>
@@ -10538,6 +10636,7 @@ function renderSequencerHtml(song) {
             <option value="random">🎲 Random</option>
           </select>
           <button class="seq-humanize-btn" id="seqHumanizeDrumsBtn" onclick="seqToggleHumanize('drums')" title="Humanize drums — each hit gets slight random timing so it feels like a real drummer">〜 Humanize</button>
+          <button class="seq-drum-mode-btn acoustic" id="seqDrumModeBtn" onclick="seqToggleDrumMode()" title="Switch between acoustic samples and synthesized drums">🥁 Acoustic</button>
           <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="applyDrumPattern('clear')">Clear</button>
         </div>
         <div id="drumNotationWrap" style="display:none;margin-top:14px;overflow-x:auto;-webkit-overflow-scrolling:touch;">
@@ -10563,6 +10662,12 @@ function renderSequencerHtml(song) {
 function initSequencer(song) {
   seqSongId = song.id;
   seqActiveIdx = 0;  // reset to first sequence on each open
+
+  // Kick off acoustic sample loading in the background (no-op if already loading/ready)
+  if (seqDrumMode === 'acoustic' && _acousticLoadState === 'idle') {
+    loadAcousticSamples();
+  }
+  _updateDrumModeBtn();
 
   // Always get freshest copy from songs array
   const fresh = songs.find(s => s.id === song.id) || song;
@@ -10630,8 +10735,8 @@ function seqVerifyData(song) {
     seqBuildGrids(song);
   }
   // Check drum lanes
-  ['kick','snare','hat','clap'].forEach((lane, li) => {
-    const elId = ['seqKick','seqSnare','seqHat','seqClap'][li];
+  ['kick','snare','hat','crash','clap'].forEach((lane, li) => {
+    const elId = ['seqKick','seqSnare','seqHat','seqCrash','seqClap'][li];
     const savedLane = sd[lane] || [];
     const expectedOn = savedLane.filter(v => v).length;
     const actualOn = document.querySelectorAll(`#${elId} .seq-slot.drum-on`).length;
@@ -10878,8 +10983,8 @@ function seqSaveAllToCurrent(song) {
     sd.chordDegrees = slots.map(s => s.dataset.chordDegree ?? '');
   }
   // Save drum lanes
-  ['kick','snare','hat','clap'].forEach((lane, li) => {
-    const elId = ['seqKick','seqSnare','seqHat','seqClap'][li];
+  ['kick','snare','hat','crash','clap'].forEach((lane, li) => {
+    const elId = ['seqKick','seqSnare','seqHat','seqCrash','seqClap'][li];
     const el = document.getElementById(elId);
     if (el) sd[lane] = [...el.querySelectorAll('.seq-slot')].map(s => s.classList.contains('drum-on') ? 1 : 0);
   });
@@ -10922,7 +11027,7 @@ function seqAddSequence(partId) {
     wave:   cur.wave  || 'triangle',
     instrument: cur.instrument || 'piano+synth',
     chordSlots: [], chordDegrees: [],
-    kick: [], snare: [], hat: [], clap: [], melody: [],
+    kick: [], snare: [], hat: [], crash: [], clap: [], melody: [],
     melodyQuantize: true, mixer: {},
   };
   seqs.push(newSeq);
@@ -11349,7 +11454,7 @@ function seqBuildGrids(song) {
   }
 
   // Drum grids
-  [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqClap','clap']].forEach(([elId, lane]) => {
+  [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqCrash','crash'],['seqClap','clap']].forEach(([elId, lane]) => {
     const el = document.getElementById(elId);
     if (!el) return;
     const savedLane = sd[lane] || [];
@@ -11524,17 +11629,35 @@ function seqClick(time, accent) {
 
 function seqPlayKick(time, vel) {
   const ctx = getSeqAudioCtx();
+  const out = seqGetDrumsOut();
+  // ── Acoustic: use loaded sample ──
+  if (seqDrumMode === 'acoustic' && _acousticMainBufs.kick) {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = _acousticMainBufs.kick;
+    g.gain.setValueAtTime(vel, time);
+    src.connect(g); g.connect(out); src.start(time); return;
+  }
+  // ── Synth ──
   const o = ctx.createOscillator(), g = ctx.createGain();
   o.frequency.setValueAtTime(150, time);
   o.frequency.exponentialRampToValueAtTime(50, time + 0.1);
   g.gain.setValueAtTime(0.8 * vel, time);
   g.gain.exponentialRampToValueAtTime(0.001, time + 0.25);
-  o.connect(g); g.connect(seqGetDrumsOut());
+  o.connect(g); g.connect(out);
   o.start(time); o.stop(time + 0.3);
 }
 
 function seqPlaySnare(time, vel) {
   const ctx = getSeqAudioCtx();
+  const out = seqGetDrumsOut();
+  // ── Acoustic: use loaded sample ──
+  if (seqDrumMode === 'acoustic' && _acousticMainBufs.snare) {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = _acousticMainBufs.snare;
+    g.gain.setValueAtTime(vel * 0.85, time);
+    src.connect(g); g.connect(out); src.start(time); return;
+  }
+  // ── Synth ──
   const buf = ctx.createBuffer(1, ctx.sampleRate * 0.2, ctx.sampleRate);
   const data = buf.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
@@ -11542,33 +11665,76 @@ function seqPlaySnare(time, vel) {
   src.buffer = buf;
   g.gain.setValueAtTime(0.5 * vel, time);
   g.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
-  src.connect(g); g.connect(seqGetDrumsOut());
-  src.start(time);
+  src.connect(g); g.connect(out); src.start(time);
 }
 
 function seqPlayHat(time, vel) {
   const ctx = getSeqAudioCtx();
+  const out = seqGetDrumsOut();
+  // ── Acoustic: use loaded sample ──
+  if (seqDrumMode === 'acoustic' && _acousticMainBufs.hat) {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = _acousticMainBufs.hat;
+    g.gain.setValueAtTime(vel * 0.6, time);
+    src.connect(g); g.connect(out); src.start(time); return;
+  }
+  // ── Synth ──
   const o = ctx.createOscillator(), g = ctx.createGain();
   o.type = 'square'; o.frequency.value = 8000;
   g.gain.setValueAtTime(0.25 * vel, time);
   g.gain.exponentialRampToValueAtTime(0.001, time + 0.06);
-  o.connect(g); g.connect(seqGetDrumsOut());
+  o.connect(g); g.connect(out);
   o.start(time); o.stop(time + 0.08);
 }
 
 function seqPlayClap(time, vel) {
   const ctx = getSeqAudioCtx();
-  [0, 0.01, 0.02].forEach(delay => {
-    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
+  const out = seqGetDrumsOut();
+  const bursts = seqDrumMode === 'acoustic'
+    ? [0, 0.008, 0.018, 0.028, 0.040] // acoustic: more layered slap
+    : [0, 0.01, 0.02];
+  const dur    = seqDrumMode === 'acoustic' ? 0.25 : 0.1;
+  const gainV  = seqDrumMode === 'acoustic' ? 0.22 : 0.3;
+  bursts.forEach(delay => {
+    const buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
     const data = buf.getChannelData(0);
     for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
     const src = ctx.createBufferSource(), g = ctx.createGain();
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 2000; bp.Q.value = 0.8;
     src.buffer = buf;
-    g.gain.setValueAtTime(0.3 * vel, time + delay);
-    g.gain.exponentialRampToValueAtTime(0.001, time + delay + 0.1);
-    src.connect(g); g.connect(seqGetDrumsOut());
-    src.start(time + delay);
+    g.gain.setValueAtTime(gainV * vel, time + delay);
+    g.gain.exponentialRampToValueAtTime(0.001, time + delay + dur);
+    src.connect(bp); bp.connect(g); g.connect(out); src.start(time + delay);
   });
+}
+
+function seqPlayCrash(time, vel) {
+  const ctx = getSeqAudioCtx();
+  const out = seqGetDrumsOut();
+  const decay = seqDrumMode === 'acoustic' ? 1.4 : 0.9;
+  const master = ctx.createGain();
+  master.gain.setValueAtTime(seqDrumMode === 'acoustic' ? 0.42 * vel : 0.38 * vel, time);
+  master.gain.exponentialRampToValueAtTime(0.001, time + decay);
+  master.connect(out);
+  // Low-mid body layer
+  const b1 = ctx.createBuffer(1, ctx.sampleRate * decay, ctx.sampleRate);
+  const d1 = b1.getChannelData(0);
+  for (let i = 0; i < d1.length; i++) d1[i] = Math.random() * 2 - 1;
+  const s1 = ctx.createBufferSource();
+  const f1 = ctx.createBiquadFilter();
+  f1.type = 'bandpass'; f1.frequency.value = 3500; f1.Q.value = 0.4;
+  s1.buffer = b1; s1.connect(f1); f1.connect(master); s1.start(time);
+  // High shimmer layer
+  if (seqDrumMode === 'acoustic') {
+    const b2 = ctx.createBuffer(1, ctx.sampleRate * decay, ctx.sampleRate);
+    const d2 = b2.getChannelData(0);
+    for (let i = 0; i < d2.length; i++) d2[i] = Math.random() * 2 - 1;
+    const s2 = ctx.createBufferSource();
+    const f2 = ctx.createBiquadFilter();
+    f2.type = 'highpass'; f2.frequency.value = 8000;
+    s2.buffer = b2; s2.connect(f2); f2.connect(master); s2.start(time);
+  }
 }
 
 function seqToggleMet() {
@@ -11682,6 +11848,7 @@ function seqPlaySong() {
       kick:        seq.kick   || [],
       snare:       seq.snare  || [],
       hat:         seq.hat    || [],
+      crash:       seq.crash  || [],
       clap:        seq.clap   || [],
       melody:          seq.melody          || [],
       melodyInstrument: seq.melodyInstrument || 'piano',
@@ -11764,6 +11931,7 @@ function seqScheduleNotes() {
       if (sec.kick[i])  seqPlayKick( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
       if (sec.snare[i]) seqPlaySnare(seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, velocity * 0.8);
       if (sec.hat[i])   seqPlayHat(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, velocity * 0.6);
+      if (sec.crash[i]) seqPlayCrash(seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, velocity * 0.9);
       if (sec.clap[i])  seqPlayClap( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, velocity * 0.7);
       if (seqMetOn) seqClick(noteTime, _seqIsAccentBeat(i % beatsPerBar, beatsPerBar, sec.time));
 
@@ -11847,6 +12015,7 @@ function seqScheduleNotes() {
   const kickSlots  = [...document.querySelectorAll('#seqKick .seq-slot')];
   const snareSlots = [...document.querySelectorAll('#seqSnare .seq-slot')];
   const hatSlots   = [...document.querySelectorAll('#seqHat .seq-slot')];
+  const crashSlots = [...document.querySelectorAll('#seqCrash .seq-slot')];
   const clapSlots  = [...document.querySelectorAll('#seqClap .seq-slot')];
   const totalSteps = chordSlots.length;
   if (!totalSteps) return;
@@ -11874,6 +12043,7 @@ function seqScheduleNotes() {
     if (kickSlots[i]?.classList.contains('drum-on'))  seqPlayKick( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
     if (snareSlots[i]?.classList.contains('drum-on')) seqPlaySnare(seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, velocity * 0.8);
     if (hatSlots[i]?.classList.contains('drum-on'))   seqPlayHat(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, velocity * 0.6);
+    if (crashSlots[i]?.classList.contains('drum-on')) seqPlayCrash(seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, velocity * 0.9);
     if (clapSlots[i]?.classList.contains('drum-on'))  seqPlayClap( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, velocity * 0.7);
     if (seqMetOn) seqClick(noteTime, _seqIsAccentBeat(i % beatsPerBar, beatsPerBar, time_sig));
 
@@ -13064,7 +13234,7 @@ function renderTabBeatBuilderHtml(inst, partId) {
       <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.15em;color:var(--faint);margin-bottom:6px;">Quick Patterns — appends one bar</div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;">
         ${['rock1','rock2','waltz','hiphop','pop','country','jazz','shoegaze','motown','hardrock','punk','altrock','rnb','edm','blues','classical','random'].map(k => {
-          const labels = {rock1:'Rock 1',rock2:'Rock 2',waltz:'Waltz',hiphop:'Hip Hop',pop:'Pop',country:'Country',jazz:'Jazz',shoegaze:'Shoegaze',motown:'Motown',hardrock:'Hard Rock',punk:'Punk',altrock:'Alt Rock',rnb:'R&B',edm:'EDM',blues:'Blues',classical:'Classical',random:'🎲'};
+          const labels = {rock1:'Rock 1',rock2:'Rock 2',waltz:'Waltz',hiphop:'Hip Hop',pop:'Pop',country:'Country',jazz:'Jazz',shoegaze:'Shoegaze',motown:'Motown',hardrock:'Hard Rock',punk:'Punk',altrock:'Alt Rock',rnb:'R&B',edm:'EDM',blues:'Blues',classical:'Ballad',random:'🎲'};
           return `<button class="tab-back-btn" onclick="tabDrumPattern('${inst.id}','${partId}','${k}')">${labels[k]}</button>`;
         }).join('')}
       </div>
@@ -14158,9 +14328,10 @@ function generateInspoSong() {
   const kick  = (dp?.kick  || []).slice(0, 16);
   const snare = (dp?.snare || []).slice(0, 16);
   const hat   = (dp?.hat   || []).slice(0, 16);
+  const crash = (dp?.crash || []).slice(0, 16);
   const clap  = (dp?.clap  || []).slice(0, 16);
 
-  return { key, bpm, timeSig, pattern, title, chordSlots, kick, snare, hat, clap, root };
+  return { key, bpm, timeSig, pattern, title, chordSlots, kick, snare, hat, crash, clap, root };
 }
 
 const INSPO_SUCCESS_LINES = [
@@ -14251,6 +14422,7 @@ function launchInspoSong() {
       kick:       d.kick,
       snare:      d.snare,
       hat:        d.hat,
+      crash:      d.crash,
       clap:       d.clap,
     }
   };
@@ -16530,6 +16702,7 @@ async function exportWAV() {
   const kickLane   = sd.kick  || [];
   const snareLane  = sd.snare || [];
   const hatLane    = sd.hat   || [];
+  const crashLane  = sd.crash || [];
   const clapLane   = sd.clap  || [];
 
   const currentChords = seqGenChords(key, mode);
@@ -16548,8 +16721,26 @@ async function exportWAV() {
   try {
     const offCtx = new OfflineAudioContext(2, Math.ceil(SR * totalDur), SR);
 
+    // Decode acoustic samples into offline context (if mode is acoustic and raw bytes exist)
+    const offAcousticBufs = {};
+    if (seqDrumMode === 'acoustic' && Object.keys(_acousticRawBytes).length > 0) {
+      progLabel.textContent = 'Decoding acoustic samples…';
+      await new Promise(r => setTimeout(r, 20));
+      await Promise.allSettled(
+        Object.entries(_acousticRawBytes).map(async ([name, bytes]) => {
+          try { offAcousticBufs[name] = await offCtx.decodeAudioData(bytes.buffer.slice(0)); }
+          catch(e) { /* fall through to synth */ }
+        })
+      );
+    }
+
     // Helper: schedule a note on offCtx
     function schedKick(t, vel) {
+      if (seqDrumMode === 'acoustic' && offAcousticBufs.kick) {
+        const src = offCtx.createBufferSource(), g = offCtx.createGain();
+        src.buffer = offAcousticBufs.kick; g.gain.setValueAtTime(vel, t);
+        src.connect(g); g.connect(offCtx.destination); src.start(t); return;
+      }
       const o = offCtx.createOscillator(), g = offCtx.createGain();
       o.frequency.setValueAtTime(150, t);
       o.frequency.exponentialRampToValueAtTime(50, t + 0.1);
@@ -16559,6 +16750,11 @@ async function exportWAV() {
       o.start(t); o.stop(t + 0.3);
     }
     function schedSnare(t, vel) {
+      if (seqDrumMode === 'acoustic' && offAcousticBufs.snare) {
+        const src = offCtx.createBufferSource(), g = offCtx.createGain();
+        src.buffer = offAcousticBufs.snare; g.gain.setValueAtTime(vel * 0.85, t);
+        src.connect(g); g.connect(offCtx.destination); src.start(t); return;
+      }
       const buf = offCtx.createBuffer(1, SR * 0.2, SR);
       const data = buf.getChannelData(0);
       for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
@@ -16570,6 +16766,11 @@ async function exportWAV() {
       src.start(t);
     }
     function schedHat(t, vel) {
+      if (seqDrumMode === 'acoustic' && offAcousticBufs.hat) {
+        const src = offCtx.createBufferSource(), g = offCtx.createGain();
+        src.buffer = offAcousticBufs.hat; g.gain.setValueAtTime(vel * 0.6, t);
+        src.connect(g); g.connect(offCtx.destination); src.start(t); return;
+      }
       const o = offCtx.createOscillator(), g = offCtx.createGain();
       o.type = 'square'; o.frequency.value = 8000;
       g.gain.setValueAtTime(0.2 * vel, t);
@@ -16578,17 +16779,44 @@ async function exportWAV() {
       o.start(t); o.stop(t + 0.08);
     }
     function schedClap(t, vel) {
-      [0, 0.01, 0.02].forEach(d => {
-        const buf = offCtx.createBuffer(1, SR * 0.1, SR);
+      const bursts = seqDrumMode === 'acoustic' ? [0, 0.008, 0.018, 0.028, 0.040] : [0, 0.01, 0.02];
+      const dur   = seqDrumMode === 'acoustic' ? 0.25 : 0.1;
+      const gainV = seqDrumMode === 'acoustic' ? 0.22 : 0.28;
+      bursts.forEach(d => {
+        const buf = offCtx.createBuffer(1, SR * dur, SR);
         const data = buf.getChannelData(0);
         for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
         const src = offCtx.createBufferSource(), g = offCtx.createGain();
+        const bp = offCtx.createBiquadFilter();
+        bp.type = 'bandpass'; bp.frequency.value = 2000; bp.Q.value = 0.8;
         src.buffer = buf;
-        g.gain.setValueAtTime(0.28 * vel, t + d);
-        g.gain.exponentialRampToValueAtTime(0.001, t + d + 0.1);
-        src.connect(g); g.connect(offCtx.destination);
-        src.start(t + d);
+        g.gain.setValueAtTime(gainV * vel, t + d);
+        g.gain.exponentialRampToValueAtTime(0.001, t + d + dur);
+        src.connect(bp); bp.connect(g); g.connect(offCtx.destination); src.start(t + d);
       });
+    }
+    function schedCrash(t, vel) {
+      const decay = seqDrumMode === 'acoustic' ? 1.4 : 0.9;
+      const master = offCtx.createGain();
+      master.gain.setValueAtTime(seqDrumMode === 'acoustic' ? 0.42 * vel : 0.35 * vel, t);
+      master.gain.exponentialRampToValueAtTime(0.001, t + decay);
+      master.connect(offCtx.destination);
+      const b1 = offCtx.createBuffer(1, SR * decay, SR);
+      const d1 = b1.getChannelData(0);
+      for (let i = 0; i < d1.length; i++) d1[i] = Math.random() * 2 - 1;
+      const s1 = offCtx.createBufferSource();
+      const f1 = offCtx.createBiquadFilter();
+      f1.type = 'bandpass'; f1.frequency.value = 3500; f1.Q.value = 0.4;
+      s1.buffer = b1; s1.connect(f1); f1.connect(master); s1.start(t);
+      if (seqDrumMode === 'acoustic') {
+        const b2 = offCtx.createBuffer(1, SR * decay, SR);
+        const d2 = b2.getChannelData(0);
+        for (let i = 0; i < d2.length; i++) d2[i] = Math.random() * 2 - 1;
+        const s2 = offCtx.createBufferSource();
+        const f2 = offCtx.createBiquadFilter();
+        f2.type = 'highpass'; f2.frequency.value = 8000;
+        s2.buffer = b2; s2.connect(f2); f2.connect(master); s2.start(t);
+      }
     }
     function schedChord(freqs, t, vel, waveType) {
       const amps   = [0.26, 0.15, 0.10];
@@ -16627,6 +16855,7 @@ async function exportWAV() {
         if (kickLane[i])  schedKick(t, vel);
         if (snareLane[i]) schedSnare(t, vel * 0.85);
         if (hatLane[i])   schedHat(t, vel * 0.65);
+        if (crashLane[i]) schedCrash(t, vel * 0.9);
         if (clapLane[i])  schedClap(t, vel * 0.75);
       }
     }
@@ -16814,11 +17043,11 @@ function _midiChordTrack(chordSlots, grid) {
 }
 
 // Drum machine MIDI track (channel 9 = GM percussion)
-function _midiDrumTrack(kick, snare, hat, clap, grid) {
+function _midiDrumTrack(kick, snare, hat, crash, clap, grid) {
   const TPB = 480;
   const st = Math.round(TPB / grid);
   const NON = 0x99, NOF = 0x89; // note on/off ch 9
-  const GM = { kick: 36, snare: 38, hat: 42, clap: 39 };
+  const GM = { kick: 36, snare: 38, hat: 42, crash: 49, clap: 39 };
   const events = [];
   const addLane = (lane, note) => (lane || []).forEach((on, i) => {
     if (!on) return;
@@ -16828,6 +17057,7 @@ function _midiDrumTrack(kick, snare, hat, clap, grid) {
   addLane(kick,  GM.kick);
   addLane(snare, GM.snare);
   addLane(hat,   GM.hat);
+  addLane(crash, GM.crash);
   addLane(clap,  GM.clap);
   return _midiEventsToTrack(events);
 }
@@ -16893,11 +17123,11 @@ async function exportMidiZip() {
 
     // ── Drums MIDI ───────────────────────────────────────────────
     const kick  = sd.kick  || [], snare = sd.snare || [];
-    const hat   = sd.hat   || [], clap  = sd.clap  || [];
-    if ([kick, snare, hat, clap].some(a => a.some(Boolean))) {
+    const hat   = sd.hat   || [], crash = sd.crash || [], clap  = sd.clap  || [];
+    if ([kick, snare, hat, crash, clap].some(a => a.some(Boolean))) {
       setS('Building drums.mid…');
       await new Promise(r => setTimeout(r, 10));
-      const midi = _midiAssemble([_midiTempoTrack(bpm, timeSig), _midiDrumTrack(kick, snare, hat, clap, grid)], TPB);
+      const midi = _midiAssemble([_midiTempoTrack(bpm, timeSig), _midiDrumTrack(kick, snare, hat, crash, clap, grid)], TPB);
       zip.file('drums.mid', midi);
       fileCount++;
     }
@@ -17917,6 +18147,7 @@ function openSeqDrawer() {
                   (sd.kick||[]).some(Boolean) ||
                   (sd.snare||[]).some(Boolean) ||
                   (sd.hat||[]).some(Boolean) ||
+                  (sd.crash||[]).some(Boolean) ||
                   (sd.clap||[]).some(Boolean) ||
                   sd.bpm || sd.time;
 
@@ -18147,30 +18378,34 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
   },
   rock2: {
     name: 'Rock 2',
-    // Driving rock: kick 1, 2&, 3, snare 2&4, open hats on offbeats
-    kick:  [1,0,0,0, 1,0,1,0, 1,0,0,0, 0,0,1,0],
+    // Driving rock: syncopated kick on 1, 2+, 3, 4+ (no clash on backbeats), 16th hats
+    kick:  [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,1,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0],
   },
   waltz: {
     name: 'Waltz',
-    // 3/4: kick on 1, snare on 2&3, hat on all three beats
-    kick:  [1,0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0],
-    snare: [0,0,0,0,0,0, 1,0,0,0,0,0, 1,0,0,0],
-    hat:   [1,0,1,0,1,0, 1,0,1,0,1,0, 1,0,1,0],
-    clap:  [0,0,0,0,0,0, 1,0,0,0,0,0, 0,0,0,0],
+    // 3/4: 12-step grid (3 beats × 4 16ths). Kick beat 1, snare beats 2 & 3, 8th-note hats
+    kick:  [1,0,0,0, 0,0,0,0, 0,0,0,0],
+    snare: [0,0,0,0, 1,0,0,0, 1,0,0,0],
+    hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0],
+    clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0],
   },
   hiphop: {
     name: 'Hip Hop',
-    // Boom bap: kick on 1 and e of 2, snare on 2&4, syncopated hats
+    // Boom bap: kick on 1, 2+, and 3, snare on 2&4, syncopated hats
     kick:  [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,1, 0,1,1,0, 1,0,1,1, 0,1,0,1],
+    crash: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
   },
   pop: {
@@ -18178,20 +18413,24 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
   },
   country: {
     name: 'Country',
+    // Classic country: kick 1, 3, 4+; snare 2&4; 8th hats; clap on 2&4 only
     kick:  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,1,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
-    clap:  [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
   },
   jazz: {
     name: 'Jazz',
     kick:  [1,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
     snare: [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,1,0,0],
     hat:   [1,0,1,0, 1,1,1,0, 1,0,1,0, 1,1,0,0],
+    crash: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
   },
   shoegaze: {
@@ -18199,6 +18438,7 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
+    crash: [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
   },
   motown: {
@@ -18206,6 +18446,7 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,1,0, 1,0,0,0],
   },
   hardrock: {
@@ -18213,20 +18454,25 @@ const DRUM_PATTERNS = {
     kick:  [1,0,1,0, 1,0,0,0, 1,0,1,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,1, 0,0,0,0, 1,0,0,1],
     hat:   [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
   },
   punk: {
     name: 'Punk',
+    // Punk: relentless 8th-note kick, snare 2&4, 8th-note hats (not 16ths — keeps room to breathe)
     kick:  [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
-    hat:   [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
+    hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
   },
   altrock: {
     name: 'Alt Rock',
-    kick:  [1,0,0,0, 0,0,1,0, 0,0,0,0, 1,0,0,0],
+    // Alt Rock: kick 1, 2+, 3a — avoids landing on beat 4 with snare
+    kick:  [1,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,0,1],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,0, 0,0,1,0, 1,0,0,0, 1,0,1,0],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
   },
   rnb: {
@@ -18234,6 +18480,7 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,1,0,1, 1,0,1,1, 0,1,1,0, 1,1,0,1],
+    crash: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,1,0, 1,0,0,0],
   },
   edm: {
@@ -18241,6 +18488,7 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,1],
   },
   blues: {
@@ -18248,14 +18496,17 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,1,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,0,1, 0,0,1,0, 1,0,0,1, 0,0,1,0],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,1,0,0, 0,0,0,0, 0,1,0,0],
   },
   classical: {
-    name: 'Classical',
+    name: 'Ballad',
+    // Sparse ballad feel: kick on 1, soft snare/brush on 3, gentle quarter-note hats, no clap
     kick:  [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
-    hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
-    clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    hat:   [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
   },
   // ── 6/8 patterns (12 steps = one bar of 6 eighth notes, groups of 3+3) ──
   six8: {
@@ -18264,6 +18515,7 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0, 0,0,0, 1,0,0, 0,0,0],
     snare: [0,0,0, 0,0,0, 0,0,0, 1,0,0],
     hat:   [1,1,1, 1,1,1, 1,1,1, 1,1,1],
+    crash: [1,0,0, 0,0,0, 0,0,0, 0,0,0],
     clap:  [0,0,0, 0,0,0, 1,0,0, 0,0,0],
   },
   six8_rock: {
@@ -18272,6 +18524,7 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0, 1,0,0, 1,0,0, 0,0,0],
     snare: [0,0,0, 0,0,0, 0,0,0, 1,0,0],
     hat:   [1,1,1, 1,1,1, 1,1,1, 1,1,1],
+    crash: [1,0,0, 0,0,0, 0,0,0, 0,0,0],
     clap:  [0,0,0, 0,0,0, 0,0,0, 1,0,0],
   },
   six8_folk: {
@@ -18280,6 +18533,7 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0, 0,0,0, 0,0,0, 0,0,0],
     snare: [0,0,0, 0,0,0, 1,0,0, 0,0,0],
     hat:   [1,0,1, 0,1,0, 1,0,1, 0,1,0],
+    crash: [0,0,0, 0,0,0, 0,0,0, 0,0,0],
     clap:  [0,0,0, 0,0,0, 1,0,0, 0,0,0],
   },
   six8_ballad: {
@@ -18288,6 +18542,7 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0, 0,0,0, 0,0,0, 0,0,0],
     snare: [0,0,0, 0,0,0, 0,0,0, 1,0,0],
     hat:   [1,0,0, 1,0,0, 1,0,0, 1,0,0],
+    crash: [0,0,0, 0,0,0, 0,0,0, 0,0,0],
     clap:  [0,0,0, 0,0,0, 0,0,0, 0,0,0],
   },
   // ── 5/4 patterns (20 steps = one bar of 5 quarter notes at 16th-note resolution) ──
@@ -18297,6 +18552,7 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0],
   },
   five4_jazz: {
@@ -18305,6 +18561,7 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,1,0],
     hat:   [1,0,1,0, 1,1,0,0, 1,0,1,0, 1,0,0,0, 1,0,0,0],
+    crash: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
   },
   five4_rock: {
@@ -18313,6 +18570,7 @@ const DRUM_PATTERNS = {
     kick:  [1,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,1,0, 0,0,0,0],
     snare: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
+    crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
   },
   random: {
@@ -18320,6 +18578,7 @@ const DRUM_PATTERNS = {
     kick:  null,
     snare: null,
     hat:   null,
+    crash: null,
     clap:  null,
   },
   clear: {
@@ -18327,6 +18586,7 @@ const DRUM_PATTERNS = {
     kick:  [],
     snare: [],
     hat:   [],
+    crash: [],
     clap:  [],
   },
 };
@@ -18341,17 +18601,20 @@ function applyDrumPattern(patternKey) {
 
   // Generate random pattern
   if (patternKey === 'random') {
-    const prob = { kick: 0.35, snare: 0.25, hat: 0.6, clap: 0.15 };
+    const prob = { kick: 0.35, snare: 0.25, hat: 0.6, crash: 0.08, clap: 0.15 };
     const steps = seqGetStepCount(song.sequencer);
     // Kick: always on beat 1, random elsewhere
     const kick = Array.from({length: steps}, (_, i) => i === 0 ? 1 : Math.random() < prob.kick ? 1 : 0);
     // Snare: always on beat 2 & 4 (steps 4 and 12 in 16-step), random elsewhere
     const snare = Array.from({length: steps}, (_, i) => (i === Math.floor(steps/4) || i === Math.floor(3*steps/4)) ? 1 : Math.random() < prob.snare ? 1 : 0);
     const hat   = Array.from({length: steps}, () => Math.random() < prob.hat ? 1 : 0);
+    // Crash: sparse, only on beat 1 or random with low probability
+    const crash = Array.from({length: steps}, (_, i) => i === 0 ? (Math.random() < 0.5 ? 1 : 0) : Math.random() < prob.crash ? 1 : 0);
     const clap  = Array.from({length: steps}, (_, i) => Math.random() < prob.clap ? 1 : 0);
     song.sequencer.kick  = kick;
     song.sequencer.snare = snare;
     song.sequencer.hat   = hat;
+    song.sequencer.crash = crash;
     song.sequencer.clap  = clap;
     save();
     scheduleSyncToSheet(song);
@@ -18378,6 +18641,7 @@ function applyDrumPattern(patternKey) {
   song.sequencer.kick  = fitPattern(pattern.kick,  totalSteps);
   song.sequencer.snare = fitPattern(pattern.snare, totalSteps);
   song.sequencer.hat   = fitPattern(pattern.hat,   totalSteps);
+  song.sequencer.crash = fitPattern(pattern.crash, totalSteps);
   song.sequencer.clap  = fitPattern(pattern.clap,  totalSteps);
 
   save();
@@ -18389,7 +18653,7 @@ applyDrumPattern._redrawGrids = function(song) {
   const totalSteps = seqGetStepCount(song.sequencer);
   const beatsPerBar = parseInt(document.getElementById('seqTime')?.value || song.sequencer.time || '4') *
                       parseInt(document.getElementById('seqGrid')?.value || song.sequencer.grid || '1');
-  [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqClap','clap']].forEach(([elId, lane]) => {
+  [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqCrash','crash'],['seqClap','clap']].forEach(([elId, lane]) => {
     const el = document.getElementById(elId);
     if (!el) return;
     const savedLane = song.sequencer[lane] || [];
@@ -18499,6 +18763,7 @@ function renderDrumNotation() {
   const kick  = [...document.querySelectorAll('#seqKick  .seq-slot')].map(s => s.classList.contains('drum-on') ? 1 : 0);
   const snare = [...document.querySelectorAll('#seqSnare .seq-slot')].map(s => s.classList.contains('drum-on') ? 1 : 0);
   const hat   = [...document.querySelectorAll('#seqHat   .seq-slot')].map(s => s.classList.contains('drum-on') ? 1 : 0);
+  const crash = [...document.querySelectorAll('#seqCrash .seq-slot')].map(s => s.classList.contains('drum-on') ? 1 : 0);
   const clap  = [...document.querySelectorAll('#seqClap  .seq-slot')].map(s => s.classList.contains('drum-on') ? 1 : 0);
 
   // Layout constants
@@ -18576,6 +18841,7 @@ function renderDrumNotation() {
   // Kick = below staff (ledger line below)
   // Clap = space 1 (2nd space)
   const drumY = {
+    crash: staffY - LINE_GAP * 2,      // above hat, higher on staff
     hat:   staffY - LINE_GAP,          // above staff, x-head
     clap:  staffY + LINE_GAP * 0.5,    // 1st space
     snare: staffY + LINE_GAP * 2,      // 3rd line (middle)
@@ -18589,6 +18855,21 @@ function renderDrumNotation() {
     const bar  = Math.floor(i / stepsPerBar);
     const beat = i % stepsPerBar;
     const x    = PAD_L + bar * BARW + (beat + 0.5) * stepW;
+
+    // Crash - circled X notehead (above hat)
+    if (crash[i]) {
+      ctx.strokeStyle = '#cc88ff';
+      ctx.lineWidth = 1.5;
+      const cry = drumY.crash;
+      const r = LINE_GAP * 0.45;
+      // Circle
+      ctx.beginPath(); ctx.arc(x, cry, r, 0, Math.PI * 2); ctx.stroke();
+      // X inside circle
+      ctx.beginPath(); ctx.moveTo(x - r * 0.65, cry - r * 0.65); ctx.lineTo(x + r * 0.65, cry + r * 0.65); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + r * 0.65, cry - r * 0.65); ctx.lineTo(x - r * 0.65, cry + r * 0.65); ctx.stroke();
+      // Stem down
+      ctx.beginPath(); ctx.moveTo(x, cry + r); ctx.lineTo(x, cry + LINE_GAP * 4.5); ctx.stroke();
+    }
 
     // Hat - X notehead (cross)
     if (hat[i]) {
@@ -20791,7 +21072,7 @@ function ilAddSection(sel) {
         swing: cur.swing || '0', vel: cur.vel || '0.8',
         wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
         chordSlots: [], chordDegrees: [],
-        kick: [], snare: [], hat: [], clap: [], melody: [],
+        kick: [], snare: [], hat: [], crash: [], clap: [], melody: [],
         melodyQuantize: true, mixer: {},
       });
       if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
@@ -23675,7 +23956,7 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;color:var(--text);margin-bottom:6px;">🎧 WAV Bounce</div>
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);margin-bottom:14px;line-height:1.6;">Renders the sequencer loop × 4 — chords, kick, snare, hat and clap — as a downloadable WAV file.</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);margin-bottom:14px;line-height:1.6;">Renders the sequencer loop × 4 — chords, kick, snare, hat, crash and clap — as a downloadable WAV file.</div>
         <button class="btn btn-primary" style="width:100%;background:var(--teal);color:#0a0a0c;" id="wavBounceBtn" onclick="exportWAV()">Bounce to WAV</button>
         <div id="wavProgress" style="margin-top:10px;display:none;">
           <div class="loader-bar"><div class="loader-fill"></div></div>
