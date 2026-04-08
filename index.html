@@ -4532,6 +4532,27 @@ body.split-active #keyboardDrawerOverlay,
 body.split-active #seqDrawerOverlay,
 body.split-active #looperOverlay { display: none !important; }
 
+/* ── Split panel adjustments in rehearse/perf mode ───────────────── */
+/* In perf mode the site header is hidden — split panels start from top: 0 */
+body.il-perf-active.split-active #splitRightPanel {
+  top: 0 !important;
+}
+body.il-perf-active.split-active #splitDivider {
+  top: 0 !important;
+}
+/* Hide the left panel tab header in perf mode — rehearse view has its own chrome */
+body.il-perf-active.split-active #splitLeftHeader {
+  display: none !important;
+}
+/* Constrain the fixed metro bar to the left panel so it doesn't cover the right panel */
+body.il-perf-active.split-active .rt-metro.il-perf-metro {
+  right: calc(100% - var(--split-left)) !important;
+}
+/* Pad the right panel bottom so content clears the metro bar area */
+body.il-perf-active.split-active #splitRightContent {
+  padding-bottom: 80px;
+}
+
 /* 4-Track in split panel — strip modal backdrop, fill the panel */
 #splitRightContent > #vrOverlay {
   position: relative !important;
@@ -22030,6 +22051,32 @@ window.vrToggleArmSeq = function() {
   if (btn) btn.classList.toggle('armed', _vrSeqArmed);
 };
 
+// ── Open 4-Track from rehearse/perf metro bar ──────────────────
+window.vrMicFromPerf = function() {
+  if (window.innerWidth >= 900) {
+    // Toggle off if already open in split
+    if (_splitActive && _splitCurrentTool === '4track') {
+      closeSplitMode();
+      return;
+    }
+    // Open at 50/50 split so 4-Track has room
+    document.documentElement.style.setProperty('--split-left', '50%');
+    var div = document.getElementById('splitDivider');
+    var rp  = document.getElementById('splitRightPanel');
+    if (div) div.style.left = 'calc(50% - 3px)';
+    if (rp)  rp.style.left  = '50%';
+    if (_splitActive) {
+      setSplitRightTool('4track');
+    } else {
+      openSplitMode('4track');
+    }
+    return;
+  }
+  // Mobile: modal as before
+  if (document.getElementById('vrOverlay')?.classList.contains('vr-open')) { vrClose(); return; }
+  vrOpen();
+};
+
 // ── Open from song list / perf mode ───────────────────────────
 window.vrMicFromList = function() {
   // On desktop outside of perf mode: open in split panel for full-width view
@@ -23498,7 +23545,7 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
 
       <!-- 1. Microphone / Voice Recorder -->
-      <button class="rt-mbtn rt-perf-only vr-metro-btn" onclick="vrOpen()" title="4-Track Recorder" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 14px;height:auto;">
+      <button class="rt-mbtn rt-perf-only vr-metro-btn" onclick="vrMicFromPerf()" title="4-Track Recorder" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 14px;height:auto;">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ffb8d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="9" y="2" width="6" height="12" rx="3"/>
           <path d="M5 10a7 7 0 0 0 14 0"/>
