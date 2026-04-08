@@ -4416,6 +4416,7 @@ button, select, input, textarea { touch-action: manipulation; }
   body.split-active #viewDetail {
     max-width: var(--split-left) !important;
     width: var(--split-left) !important;
+    overflow-x: hidden;
     transition: width 0.05s, max-width 0.05s;
   }
   body.split-active #stickySongBar {
@@ -4530,6 +4531,30 @@ body.split-active #splitRightPanel { display: flex; }
 body.split-active #keyboardDrawerOverlay,
 body.split-active #seqDrawerOverlay,
 body.split-active #looperOverlay { display: none !important; }
+
+/* 4-Track in split panel — strip modal backdrop, fill the panel */
+#splitRightContent > #vrOverlay {
+  position: relative !important;
+  inset: auto !important;
+  background: none !important;
+  display: flex !important;
+  padding: 0 !important;
+  z-index: auto !important;
+  width: 100%; height: 100%;
+  align-items: stretch; justify-content: stretch;
+}
+#splitRightContent > #vrOverlay > #vrDeck {
+  max-width: 100% !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  border-radius: 0 !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  box-shadow: none !important;
+  overflow-y: auto;
+}
 
 /* Lyrics panel inside split right content */
 .split-lyrics-panel {
@@ -7507,7 +7532,8 @@ function _updateDraftingHeader() {
 function showList() {
   if (typeof _slHoverLeave === 'function') _slHoverLeave();
   ilSetPerfMode(false); // exit perf mode — metro bar should never show on the song list
-  closeSeqDrawer();     // seq drawer is song-specific — close it when returning to list
+  // Only close seq drawer if NOT in split mode (closing it would kill the split panel)
+  if (!_splitActive) closeSeqDrawer();
   document.getElementById('viewList').classList.add('active');
   document.getElementById('viewDetail').classList.remove('active');
   updateStickyBar(null);
@@ -16951,7 +16977,8 @@ var _splitOrigParents = {}; // stores original parent refs for moved drawers
 var _splitDrawerMap = {
   keyboard:  { drawerId: 'keyboardDrawer',  overlayId: 'keyboardDrawerOverlay', openFn: openKeyboardDrawer,  closeFn: null },
   sequencer: { drawerId: 'seqDrawer',       overlayId: 'seqDrawerOverlay',      openFn: openSeqDrawer,      closeFn: null },
-  looper:    { drawerId: 'looperDrawer',    overlayId: 'looperOverlay',         openFn: openLooperDrawer,   closeFn: null }
+  looper:    { drawerId: 'looperDrawer',    overlayId: 'looperOverlay',         openFn: openLooperDrawer,   closeFn: null },
+  '4track':  { drawerId: 'vrOverlay',       overlayId: null,                    openFn: null,               closeFn: null, is4track: true }
 };
 
 function openSplitMode(tool) {
@@ -16991,14 +17018,21 @@ function setSplitRightTool(tool) {
   _splitCurrentTool = tool;
 
   if (tool === 'lyrics') {
-    // Render inline lyrics panel
     _splitRenderLyricsPanel();
+  } else if (tool === '4track') {
+    var overlay = document.getElementById('vrOverlay');
+    if (!overlay) return;
+    if (!_splitOrigParents['4track']) {
+      _splitOrigParents['4track'] = overlay.parentNode;
+    }
+    content.appendChild(overlay);
+    // Initialize the 4-Track with the current song
+    try { vrOpen(); } catch(e) {}
   } else {
     var cfg = _splitDrawerMap[tool];
     if (!cfg) return;
     var drawer = document.getElementById(cfg.drawerId);
     if (!drawer) return;
-    // Store original parent if not already stored
     if (!_splitOrigParents[tool]) {
       _splitOrigParents[tool] = drawer.parentNode;
     }
@@ -17048,6 +17082,15 @@ function _splitRenderLyricsPanel() {
 
 function _splitReturnDrawer() {
   if (!_splitCurrentTool || _splitCurrentTool === 'lyrics') return;
+  if (_splitCurrentTool === '4track') {
+    var vrOv = document.getElementById('vrOverlay');
+    var origParent = _splitOrigParents['4track'];
+    if (vrOv && origParent) {
+      origParent.appendChild(vrOv);
+      try { vrClose(); } catch(e) {}
+    }
+    return;
+  }
   var cfg = _splitDrawerMap[_splitCurrentTool];
   if (!cfg) return;
   var drawer = document.getElementById(cfg.drawerId);
@@ -17055,13 +17098,13 @@ function _splitReturnDrawer() {
   if (drawer && origParent) {
     origParent.appendChild(drawer);
     drawer.classList.remove('open');
-    var overlay = document.getElementById(cfg.overlayId);
-    if (overlay) overlay.classList.remove('open');
+    var overlayEl = document.getElementById(cfg.overlayId);
+    if (overlayEl) overlayEl.classList.remove('open');
   }
 }
 
 function swapSplitPanels() {
-  var tools = ['keyboard', 'sequencer', 'looper', 'lyrics'];
+  var tools = ['keyboard', 'sequencer', 'looper', '4track', 'lyrics'];
   var idx = tools.indexOf(_splitCurrentTool);
   var nextTool = tools[(idx + 1) % tools.length];
   setSplitRightTool(nextTool);
@@ -17069,18 +17112,20 @@ function swapSplitPanels() {
 
 /* ── Left panel view switcher ─────────────────────────────────────── */
 function setSplitLeftView(view) {
-  if (!getCurrentSong && view !== 'list') return;
+  // Call setSongViewMode / showList DIRECTLY — never go through stickyGoBackend/stickyGoEditor
+  // because those call closeAllDrawers() which triggers closeSplitMode() and breaks the panel.
   switch (view) {
     case 'song':
-      if (typeof stickyGoEditor === 'function') stickyGoEditor();
-      break;
     case 'lyrics':
-      if (typeof stickyGoEditor === 'function') stickyGoEditor();
+      if (typeof _ensureDetailView === 'function') _ensureDetailView();
+      if (typeof setSongViewMode === 'function') setSongViewMode('runthrough');
       break;
     case 'backend':
-      if (typeof stickyGoBackend === 'function') stickyGoBackend();
+      if (typeof _ensureDetailView === 'function') _ensureDetailView();
+      if (typeof setSongViewMode === 'function') setSongViewMode('backend');
       break;
     case 'list':
+      // showList calls closeSeqDrawer etc — guard so it doesn't break split
       if (typeof showList === 'function') showList();
       break;
   }
@@ -21987,6 +22032,26 @@ window.vrToggleArmSeq = function() {
 
 // ── Open from song list / perf mode ───────────────────────────
 window.vrMicFromList = function() {
+  // On desktop outside of perf mode: open in split panel for full-width view
+  if (window.innerWidth >= 900 && !window._ilPerfMode) {
+    if (_splitActive && _splitCurrentTool === '4track') {
+      closeSplitMode(); // toggle off if already showing
+      return;
+    }
+    // Set a wider default split (50/50) so 4-Track has room
+    document.documentElement.style.setProperty('--split-left', '50%');
+    var div = document.getElementById('splitDivider');
+    var rp  = document.getElementById('splitRightPanel');
+    if (div) div.style.left = 'calc(50% - 3px)';
+    if (rp)  rp.style.left  = '50%';
+    if (_splitActive) {
+      setSplitRightTool('4track');
+    } else {
+      openSplitMode('4track');
+    }
+    return;
+  }
+  // Mobile or perf mode: use modal as before
   if (_el('vrOverlay')?.classList.contains('vr-open')) { vrClose(); return; }
   vrOpen();
 };
@@ -23641,6 +23706,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <option value="keyboard">🎹 Keyboard</option>
       <option value="sequencer">🎛 Sequencer</option>
       <option value="looper">⏺ Looper</option>
+      <option value="4track">🎙 4-Track</option>
       <option value="lyrics">✏️ Lyrics</option>
     </select>
     <button class="split-hdr-btn" onclick="swapSplitPanels()" title="Swap panels">⇄</button>
