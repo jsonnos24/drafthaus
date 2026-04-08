@@ -4424,6 +4424,36 @@ button, select, input, textarea { touch-action: manipulation; }
   }
 }
 
+/* Left panel header (split mode only) */
+#splitLeftHeader {
+  display: none;
+  position: fixed;
+  top: 60px; left: 0;
+  width: var(--split-left);
+  height: 44px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  z-index: 201;
+  align-items: center;
+  padding: 0 14px;
+  gap: 8px;
+}
+body.split-active #splitLeftHeader { display: flex; }
+/* Push left-side content below the left header when split is active */
+@media (min-width: 900px) {
+  body.split-active #viewList .container,
+  body.split-active #viewDetail .container { padding-top: 52px; }
+}
+#splitLeftSelect {
+  flex: 1;
+  background: transparent; color: var(--text);
+  border: none;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 4px 0; cursor: pointer; outline: none;
+}
+
 /* Right panel */
 #splitRightPanel {
   display: none;
@@ -4500,6 +4530,34 @@ body.split-active #splitRightPanel { display: flex; }
 body.split-active #keyboardDrawerOverlay,
 body.split-active #seqDrawerOverlay,
 body.split-active #looperOverlay { display: none !important; }
+
+/* Lyrics panel inside split right content */
+.split-lyrics-panel {
+  padding: 20px 18px 40px;
+  overflow-y: auto; height: 100%;
+}
+.split-lyrics-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 22px; font-style: italic; color: var(--text);
+  margin-bottom: 20px; padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.split-lyrics-section { margin-bottom: 22px; }
+.split-lyrics-section-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--gold);
+  margin-bottom: 8px;
+}
+.split-lyrics-text {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 14px; line-height: 1.85; color: var(--text);
+}
+.split-lyrics-empty {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; color: var(--faint);
+  text-align: center; margin-top: 40px;
+}
 
 /* Split button in header (desktop only) */
 .split-btn {
@@ -6888,7 +6946,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
       <div style="border:1px solid #f5c842;border-radius:12px;padding:18px 14px;background:#100f04;position:relative;box-shadow:0 0 24px rgba(245,200,66,0.1);">
         <div style="font-size:9px;color:#a08830;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:10px;">Studio</div>
         <div style="font-size:11px;font-weight:700;color:#f5c842;margin-bottom:2px;">One-time</div>
-        <div style="font-size:24px;font-weight:700;color:#f5c842;margin-bottom:18px;">$29</div>
+        <div style="font-size:24px;font-weight:700;color:#f5c842;margin-bottom:18px;">$24</div>
         <div style="display:flex;flex-direction:column;gap:9px;font-size:11px;line-height:1.3;">
           <div style="color:#d4bb6a;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>Unlimited drafts</div>
           <div style="color:#f5c842;font-weight:600;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>3 hrs recording</div>
@@ -6902,7 +6960,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
     <!-- Buttons -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
       <button onclick="startCheckout('songwriter')" style="background:#1a1630;color:#c4baf5;border:1px solid #6b4fd8;border-radius:10px;padding:13px 8px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;">Get Songwriter — $19</button>
-      <button onclick="startCheckout('studio')" style="background:#f5c842;color:#000;border:none;border-radius:10px;padding:13px 8px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;">Get Studio — $29 ★</button>
+      <button onclick="startCheckout('studio')" style="background:#f5c842;color:#000;border:none;border-radius:10px;padding:13px 8px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;">Get Studio — $24 ★</button>
     </div>
     <button onclick="closeUpgradeModal()" style="width:100%;background:none;border:none;color:#3a3e50;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;padding:6px;">Maybe later</button>
   </div>
@@ -7986,6 +8044,10 @@ function openSong(id) {
   setSongViewMode('runthrough');
   ilInitAndRender(song);
   showDetail();
+  // Refresh split panel right tool with the new song
+  if (_splitActive && _splitCurrentTool && _splitDrawerMap[_splitCurrentTool]) {
+    try { _splitDrawerMap[_splitCurrentTool].openFn(); } catch(e) {}
+  }
 
   // If stub, fetch full data silently in background — no spinner, no overlay
   if (song._fromSheet) {
@@ -16916,42 +16978,82 @@ function closeSplitMode() {
 }
 
 function setSplitRightTool(tool) {
-  var cfg = _splitDrawerMap[tool];
-  if (!cfg) return;
-  // If there's already a tool in the panel, return it first
-  if (_splitCurrentTool && _splitCurrentTool !== tool) {
+  var content = document.getElementById('splitRightContent');
+  if (!content) return;
+  // If switching away from lyrics panel, clear it
+  if (_splitCurrentTool === 'lyrics' && tool !== 'lyrics') {
+    content.innerHTML = '';
+  }
+  // If switching away from a drawer tool, return it
+  if (_splitCurrentTool && _splitCurrentTool !== 'lyrics' && _splitCurrentTool !== tool) {
     _splitReturnDrawer();
   }
   _splitCurrentTool = tool;
-  // Move the drawer element into #splitRightContent
-  var drawer = document.getElementById(cfg.drawerId);
-  var content = document.getElementById('splitRightContent');
-  if (!drawer || !content) return;
-  // Store original parent if not already stored
-  if (!_splitOrigParents[tool]) {
-    _splitOrigParents[tool] = drawer.parentNode;
-  }
-  content.appendChild(drawer);
-  // Make sure drawer is open (visible)
-  drawer.classList.add('open');
-  // Call openFn to initialize the tool if needed (keyboard needs init)
-  if (typeof cfg.openFn === 'function') {
-    try { cfg.openFn(); } catch(e) {}
+
+  if (tool === 'lyrics') {
+    // Render inline lyrics panel
+    _splitRenderLyricsPanel();
+  } else {
+    var cfg = _splitDrawerMap[tool];
+    if (!cfg) return;
+    var drawer = document.getElementById(cfg.drawerId);
+    if (!drawer) return;
+    // Store original parent if not already stored
+    if (!_splitOrigParents[tool]) {
+      _splitOrigParents[tool] = drawer.parentNode;
+    }
+    content.appendChild(drawer);
+    drawer.classList.add('open');
+    if (typeof cfg.openFn === 'function') {
+      try { cfg.openFn(); } catch(e) {}
+    }
   }
   // Sync dropdown
   var sel = document.getElementById('splitRightSelect');
   if (sel) sel.value = tool;
 }
 
+function _splitRenderLyricsPanel() {
+  var content = document.getElementById('splitRightContent');
+  if (!content) return;
+  var song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
+  // Build a read-only lyrics display from the song sections
+  var html = '<div class="split-lyrics-panel">';
+  if (!song) {
+    html += '<div class="split-lyrics-empty">No song selected</div>';
+  } else {
+    var title = (song.title || song.workingTitle || 'Untitled').trim();
+    html += '<div class="split-lyrics-title">' + title.replace(/</g,'&lt;') + '</div>';
+    var order = song.sectionOrder || Object.keys(song.structure || {});
+    var hasSections = false;
+    order.forEach(function(partId) {
+      var sData = (song.structure || {})[partId];
+      if (!sData || !sData.checked) return;
+      var label = sData.label || partId;
+      var lyrics = (sData.lyrics || '').trim();
+      if (!lyrics) return;
+      hasSections = true;
+      html += '<div class="split-lyrics-section">';
+      html += '<div class="split-lyrics-section-label">' + label.replace(/</g,'&lt;') + '</div>';
+      html += '<div class="split-lyrics-text">' + lyrics.replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</div>';
+      html += '</div>';
+    });
+    if (!hasSections) {
+      html += '<div class="split-lyrics-empty">No lyrics yet</div>';
+    }
+  }
+  html += '</div>';
+  content.innerHTML = html;
+}
+
 function _splitReturnDrawer() {
-  if (!_splitCurrentTool) return;
+  if (!_splitCurrentTool || _splitCurrentTool === 'lyrics') return;
   var cfg = _splitDrawerMap[_splitCurrentTool];
   if (!cfg) return;
   var drawer = document.getElementById(cfg.drawerId);
   var origParent = _splitOrigParents[_splitCurrentTool];
   if (drawer && origParent) {
     origParent.appendChild(drawer);
-    // Close the drawer now that it's back in place
     drawer.classList.remove('open');
     var overlay = document.getElementById(cfg.overlayId);
     if (overlay) overlay.classList.remove('open');
@@ -16959,11 +17061,31 @@ function _splitReturnDrawer() {
 }
 
 function swapSplitPanels() {
-  // Cycle to next tool
-  var tools = Object.keys(_splitDrawerMap);
+  var tools = ['keyboard', 'sequencer', 'looper', 'lyrics'];
   var idx = tools.indexOf(_splitCurrentTool);
   var nextTool = tools[(idx + 1) % tools.length];
   setSplitRightTool(nextTool);
+}
+
+/* ── Left panel view switcher ─────────────────────────────────────── */
+function setSplitLeftView(view) {
+  if (!getCurrentSong && view !== 'list') return;
+  switch (view) {
+    case 'song':
+      if (typeof stickyGoEditor === 'function') stickyGoEditor();
+      break;
+    case 'lyrics':
+      if (typeof stickyGoEditor === 'function') stickyGoEditor();
+      break;
+    case 'backend':
+      if (typeof stickyGoBackend === 'function') stickyGoBackend();
+      break;
+    case 'list':
+      if (typeof showList === 'function') showList();
+      break;
+  }
+  var sel = document.getElementById('splitLeftSelect');
+  if (sel) sel.value = view;
 }
 
 /* ── Draggable divider ────────────────────────────────────────────── */
@@ -23311,13 +23433,14 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
 
       <!-- 1. Microphone / Voice Recorder -->
-      <button class="rt-mbtn rt-perf-only vr-metro-btn" onclick="vrOpen()" title="4-Track Recorder">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <button class="rt-mbtn rt-perf-only vr-metro-btn" onclick="vrOpen()" title="4-Track Recorder" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 14px;height:auto;">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ffb8d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="9" y="2" width="6" height="12" rx="3"/>
           <path d="M5 10a7 7 0 0 0 14 0"/>
           <line x1="12" y1="19" x2="12" y2="22"/>
           <line x1="8" y1="22" x2="16" y2="22"/>
         </svg>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.1em;color:#ffb8d8;text-transform:uppercase;">4-Track</span>
       </button>
 
       <!-- 2. Metronome play button -->
@@ -23351,6 +23474,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="rt-msep rt-perf-only"></div>
       <button class="rt-mbtn rt-perf-only" id="rtSeqPlayBtn" onclick="rtSeqTogglePlay()" title="Seq Play/Stop">▶ Seq</button>
       <button class="rt-mbtn rt-perf-only" id="rtArmSeqBtn" onclick="vrToggleArmSeq()" title="Arm Sequencer — sequencer auto-plays when recording starts">Arm Seq</button>
+      <span class="rt-perf-only" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.04em;margin-left:2px;white-space:nowrap;">then hit record in 4-Track</span>
 
     </div><!-- /.rt-metro-scrollable -->
   </div>
@@ -23503,12 +23627,21 @@ document.addEventListener('DOMContentLoaded', () => {
 </div>
 
 <!-- ── Chrome-style split workspace ──────────────────────────────── -->
+<div id="splitLeftHeader">
+  <select id="splitLeftSelect" onchange="setSplitLeftView(this.value)" title="Choose left panel content">
+    <option value="song">🎵 Song</option>
+    <option value="lyrics">✏️ Lyrics</option>
+    <option value="backend">▦ Backend</option>
+    <option value="list">📋 Song List</option>
+  </select>
+</div>
 <div id="splitRightPanel">
   <div id="splitRightHeader">
     <select id="splitRightSelect" onchange="setSplitRightTool(this.value)" title="Choose panel content">
       <option value="keyboard">🎹 Keyboard</option>
       <option value="sequencer">🎛 Sequencer</option>
       <option value="looper">⏺ Looper</option>
+      <option value="lyrics">✏️ Lyrics</option>
     </select>
     <button class="split-hdr-btn" onclick="swapSplitPanels()" title="Swap panels">⇄</button>
     <button class="split-hdr-btn close-btn" onclick="closeSplitMode()" title="Close split view">✕</button>
