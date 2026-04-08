@@ -4557,6 +4557,36 @@ body.split-active #splitRightPanel { display: flex; }
 .split-hdr-btn:hover { color: var(--gold); background: rgba(245,166,35,0.08); }
 .split-hdr-btn.close-btn:hover { color: var(--red); background: rgba(255,80,80,0.08); }
 
+/* Expand button — yellow, in both pane headers */
+.split-expand-btn {
+  background: none; border: none;
+  color: var(--gold); font-size: 15px;
+  cursor: pointer; padding: 4px 6px;
+  border-radius: 4px; line-height: 1;
+  opacity: 0.7; transition: opacity 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.split-expand-btn:hover { opacity: 1; background: rgba(245,166,35,0.12); }
+
+/* Left pane fully expanded */
+body.split-expanded-left #splitLeftHeader { width: 100% !important; }
+body.split-expanded-left #viewList,
+body.split-expanded-left #viewDetail {
+  max-width: 100% !important; width: 100% !important;
+}
+body.split-expanded-left #splitRightPanel,
+body.split-expanded-left #splitDivider { display: none !important; }
+
+/* Right pane fully expanded */
+body.split-expanded-right #splitRightPanel {
+  left: 0 !important; right: 0 !important;
+}
+body.split-expanded-right #splitLeftHeader,
+body.split-expanded-right #splitDivider,
+body.split-expanded-right #stickySongBar { display: none !important; }
+body.split-expanded-right #viewList,
+body.split-expanded-right #viewDetail { opacity: 0; pointer-events: none; }
+
 /* Content area that hosts the moved drawer */
 #splitRightContent {
   flex: 1; overflow: hidden;
@@ -17224,11 +17254,36 @@ function openSplitMode(tool) {
   }
 }
 
+var _splitExpandedSide = null;
+
+function splitExpandPane(side) {
+  if (_splitExpandedSide === side) {
+    // Already expanded — restore split
+    _splitExpandedSide = null;
+    document.body.classList.remove('split-expanded-left', 'split-expanded-right');
+  } else {
+    _splitExpandedSide = side;
+    document.body.classList.remove('split-expanded-left', 'split-expanded-right');
+    document.body.classList.add('split-expanded-' + side);
+  }
+  _syncExpandBtns();
+}
+
+function _syncExpandBtns() {
+  var lb = document.getElementById('splitLeftExpandBtn');
+  var rb = document.getElementById('splitRightExpandBtn');
+  var isExpandedLeft  = _splitExpandedSide === 'left';
+  var isExpandedRight = _splitExpandedSide === 'right';
+  if (lb) { lb.textContent = isExpandedLeft  ? '⤡' : '⤢'; lb.title = isExpandedLeft  ? 'Restore split' : 'Expand left pane'; }
+  if (rb) { rb.textContent = isExpandedRight ? '⤡' : '⤢'; rb.title = isExpandedRight ? 'Restore split' : 'Expand right pane'; }
+}
+
 function closeSplitMode() {
   if (!_splitActive) return;
   _splitActive = false;
   _splitReturnDrawer();
-  document.body.classList.remove('split-active', 'split-tool-left');
+  document.body.classList.remove('split-active', 'split-tool-left', 'split-expanded-left', 'split-expanded-right');
+  _splitExpandedSide = null;
   _splitToolSide = 'right';
   var btn = document.getElementById('splitBtn');
   if (btn) btn.classList.remove('active');
@@ -23958,6 +24013,7 @@ document.addEventListener('DOMContentLoaded', () => {
     <option value="backend">▦ Backend</option>
     <option value="list">📋 Song List</option>
   </select>
+  <button id="splitLeftExpandBtn" class="split-expand-btn" onclick="splitExpandPane('left')" title="Expand left pane">⤢</button>
 </div>
 <div id="splitRightPanel">
   <div id="splitRightHeader">
@@ -23968,6 +24024,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <option value="4track">🎙 4-Track</option>
       <option value="lyrics">✏️ Lyrics</option>
     </select>
+    <button id="splitRightExpandBtn" class="split-expand-btn" onclick="splitExpandPane('right')" title="Expand right pane">⤢</button>
     <button class="split-hdr-btn" onclick="swapSplitPanels()" title="Swap panels">⇄</button>
     <button class="split-hdr-btn close-btn" onclick="closeSplitMode()" title="Close split view">✕</button>
   </div>
