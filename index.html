@@ -6521,6 +6521,11 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 
   <!-- Right: shortcuts + theme toggle -->
   <div class="header-right" style="gap:8px;">
+    <!-- MIDI indicator — hidden until connected -->
+    <div id="headerMidiChip" style="display:none;align-items:center;gap:5px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);padding:3px 8px;border:1px solid var(--border);border-radius:6px;cursor:default;user-select:none;" title="MIDI connected">
+      <div id="headerMidiDot" style="width:6px;height:6px;border-radius:50%;background:#00d26e;flex-shrink:0;"></div>
+      <span id="headerMidiLabel"></span>
+    </div>
     <div class="ks-wrap" id="ksWrap">
       <button class="ks-btn" onclick="toggleKsPanel()" title="Keyboard shortcuts">Keyboard Shortcuts</button>
       <div class="ks-panel" id="ksPanel">
@@ -9239,25 +9244,38 @@ function _midiHighlightKey(midiNote, on) {
 }
 
 function _midiUpdateUI() {
-  const dot = document.getElementById('midiStatusDot');
-  const lbl = document.getElementById('midiStatusLabel');
-  const btn = document.getElementById('midiConnectBtn');
-  if (!dot) return;
+  const dot   = document.getElementById('midiStatusDot');
+  const lbl   = document.getElementById('midiStatusLabel');
+  const btn   = document.getElementById('midiConnectBtn');
+  const hChip = document.getElementById('headerMidiChip');
+  const hLbl  = document.getElementById('headerMidiLabel');
   const inputs = _midiAccess ? [..._midiAccess.inputs.values()] : [];
-  const count = inputs.length;
-  if (_midiEnabled && count > 0) {
-    dot.style.background = '#00d26e';
-    if (lbl) lbl.textContent = count === 1
-      ? (inputs[0].name || '1 device')
-      : count + ' devices';
-  } else if (_midiEnabled) {
-    dot.style.background = '#f5a623';
-    if (lbl) lbl.textContent = 'no device';
-  } else {
-    dot.style.background = 'var(--faint)';
-    if (lbl) lbl.textContent = 'MIDI';
+  const count  = inputs.length;
+  const deviceName = count === 1
+    ? (inputs[0].name || '1 device')
+    : count + ' devices';
+  if (dot) {
+    if (_midiEnabled && count > 0) {
+      dot.style.background = '#00d26e';
+      if (lbl) lbl.textContent = deviceName;
+    } else if (_midiEnabled) {
+      dot.style.background = '#f5a623';
+      if (lbl) lbl.textContent = 'no device';
+    } else {
+      dot.style.background = 'var(--faint)';
+      if (lbl) lbl.textContent = 'MIDI';
+    }
+    if (btn) btn.style.display = _midiEnabled ? 'none' : '';
   }
-  if (btn) btn.style.display = _midiEnabled ? 'none' : '';
+  // Header chip — only visible when a device is actually connected
+  if (hChip) {
+    if (_midiEnabled && count > 0) {
+      if (hLbl) hLbl.textContent = deviceName;
+      hChip.style.display = 'flex';
+    } else {
+      hChip.style.display = 'none';
+    }
+  }
 }
 
 
@@ -16323,6 +16341,7 @@ function renderKeyboardDrawerHtml(song) {
       <div class="seq-ctrl-group">
         <span class="seq-label">BPM</span>
         <input class="seq-input" type="number" id="kbdBpm" value="${bpm}" min="40" max="240" style="width:56px;" onchange="kbdBpmChanged()">
+        <button class="seq-btn" id="kbdTapBtn" onclick="kbdTapTempo()" title="Tap to the beat to set BPM" style="font-size:10px;padding:4px 9px;letter-spacing:0.04em;transition:background 0.1s;">Tap</button>
       </div>
       <!-- Time Sig -->
       <div class="seq-ctrl-group">
@@ -16462,6 +16481,27 @@ function kbdBpmChanged() {
   // Sync into sequencer DOM if open
   const seqBpmEl = document.getElementById('seqBpm');
   if (seqBpmEl) seqBpmEl.value = val;
+}
+
+function kbdTapTempo() {
+  // Reuse the same tap times array as the sequencer so both stay in sync
+  const now = Date.now();
+  clearTimeout(_tapTempoResetTimer);
+  _tapTempoResetTimer = setTimeout(function() { _tapTempoTimes = []; }, 2500);
+  _tapTempoTimes.push(now);
+  if (_tapTempoTimes.length > 8) _tapTempoTimes.shift();
+  const btn = document.getElementById('kbdTapBtn');
+  if (btn) { btn.style.background = 'rgba(245,166,35,0.3)'; setTimeout(() => { btn.style.background = ''; }, 120); }
+  if (_tapTempoTimes.length < 2) return;
+  const intervals = [];
+  for (let i = 1; i < _tapTempoTimes.length; i++) intervals.push(_tapTempoTimes[i] - _tapTempoTimes[i-1]);
+  const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+  const bpm = Math.min(240, Math.max(40, Math.round(60000 / avg)));
+  const kbdEl = document.getElementById('kbdBpm');
+  if (kbdEl) { kbdEl.value = bpm; kbdBpmChanged(); }
+  // Also keep sequencer tap button in sync
+  const seqBtn = document.getElementById('seqTapBtn');
+  if (seqBtn) { seqBtn.style.background = 'rgba(245,166,35,0.3)'; setTimeout(() => { seqBtn.style.background = ''; }, 120); }
 }
 
 function kbdPartChanged() {
@@ -18021,6 +18061,24 @@ function _stopTuningFork() {
 }
 
 function loopChangeBpm(delta){loopBpm=Math.max(40,Math.min(240,loopBpm+delta));const song=getCurrentSong();if(song){song.bpm=String(loopBpm);if(!song.sequencer)song.sequencer={};song.sequencer.bpm=String(loopBpm);save();scheduleSyncToSheet(song);}syncBpmUI(loopBpm);}
+function loopTapTempo() {
+  const now = Date.now();
+  clearTimeout(_tapTempoResetTimer);
+  _tapTempoResetTimer = setTimeout(function() { _tapTempoTimes = []; }, 2500);
+  _tapTempoTimes.push(now);
+  if (_tapTempoTimes.length > 8) _tapTempoTimes.shift();
+  const btn = document.getElementById('loopTapBtn');
+  if (btn) { btn.style.background = 'rgba(255,153,0,0.35)'; setTimeout(() => { btn.style.background = ''; }, 120); }
+  if (_tapTempoTimes.length < 2) return;
+  const intervals = [];
+  for (let i = 1; i < _tapTempoTimes.length; i++) intervals.push(_tapTempoTimes[i] - _tapTempoTimes[i-1]);
+  const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+  const bpm = Math.min(240, Math.max(40, Math.round(60000 / avg)));
+  loopBpm = bpm;
+  const song = getCurrentSong();
+  if (song) { song.bpm = String(bpm); if (!song.sequencer) song.sequencer = {}; song.sequencer.bpm = String(bpm); save(); scheduleSyncToSheet(song); }
+  syncBpmUI(bpm);
+}
 function loopSetBars(n){loopBars=n;document.querySelectorAll('#loopBarsRow .bar-btn').forEach(b=>b.classList.toggle('active',parseInt(b.textContent)===n));}
 function loopSetTrackVolume(i,val){
   const t=loopTracks[i];t.volume=parseInt(val);
@@ -20135,8 +20193,11 @@ document.addEventListener('keydown', function(e) {
     }
     case '/': {
       e.preventDefault();
+      showList();
+      const searchWrapEl = document.getElementById('searchWrap');
+      if (searchWrapEl) searchWrapEl.style.display = '';
       const searchEl = document.getElementById('songSearchInput');
-      if (searchEl) { showList(); searchEl.focus(); searchEl.select(); }
+      if (searchEl) { setTimeout(() => { searchEl.focus(); searchEl.select(); }, 50); }
       break;
     }
   }
@@ -22057,6 +22118,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <button class="bpm-btn" onclick="loopChangeBpm(-1)">−</button>
             <span class="ctrl-value accent" id="loopBpmDisplay">120</span>
             <button class="bpm-btn" onclick="loopChangeBpm(1)">+</button>
+            <button class="bpm-btn" id="loopTapBtn" onclick="loopTapTempo()" title="Tap to the beat to set BPM" style="font-size:9px;width:auto;padding:0 7px;letter-spacing:0.04em;font-family:'IBM Plex Mono',monospace;transition:background 0.1s;">Tap</button>
           </div>
         </div>
         <div class="ctrl-divider"></div>
