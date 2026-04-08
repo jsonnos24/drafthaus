@@ -2259,6 +2259,8 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .proj-group:first-child .proj-group-header { border-top: none; margin-top: 0; padding-top: 6px; }
   .proj-group-header:hover { opacity: 0.65; }
+  .proj-group-header.drag-over { opacity: 1; background: rgba(245,166,35,0.10); border-radius: 6px; outline: 1px dashed rgba(245,166,35,0.4); }
+  .song-list-row.sl-dragging { opacity: 0.35; }
   .proj-group-name {
     font-family: 'IBM Plex Mono', monospace; font-size: 10px;
     text-transform: uppercase; letter-spacing: 0.18em; color: var(--gold); font-weight: 600;
@@ -4687,6 +4689,81 @@ button, select, input, textarea { touch-action: manipulation; }
 .il-lyrics-raw:focus { border-color: rgba(245,166,35,0.5); background: rgba(255,255,255,0.06); }
 
 /* ── Performance mode (Run Through view) ────────────────────────── */
+/* ── Split view ──────────────────────────────────────────────────── */
+#ilSplitPreview { display: none; }
+
+@media (min-width: 1100px) {
+  body.il-split-active #songViewRunthrough {
+    display: flex !important;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 0;
+    max-width: 100%;
+    padding: 0;
+  }
+  body.il-split-active #ilSplitPreview {
+    display: block;
+    width: 42%;
+    max-width: 520px;
+    min-width: 260px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 60px;
+    height: calc(100vh - 60px);
+    overflow-y: auto;
+    padding: 40px 32px 120px;
+    border-right: 1px solid var(--border2);
+    background: var(--bg);
+    scroll-behavior: smooth;
+  }
+  body.il-split-active #rtBodyInlineInner {
+    flex: 1;
+    min-width: 0;
+    padding: 40px 32px 120px;
+  }
+  /* Collapse split in perf mode — full-screen rehearsal */
+  body.il-split-active.il-perf-active #songViewRunthrough,
+  body.il-split-active #songViewRunthrough.il-perf-mode {
+    display: block !important;
+  }
+  body.il-split-active.il-perf-active #ilSplitPreview,
+  body.il-split-active #songViewRunthrough.il-perf-mode #ilSplitPreview {
+    display: none !important;
+  }
+  .ilsp-toggle-btn { display: inline-flex; }
+}
+
+/* Only show the split button on wide screens */
+.ilsp-toggle-btn {
+  display: none;
+  align-items: center; gap: 5px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  background: transparent; border: 1px solid var(--border2);
+  color: var(--muted); border-radius: 5px; padding: 3px 8px;
+  cursor: pointer; transition: border-color 0.15s, color 0.15s;
+}
+.ilsp-toggle-btn:hover { border-color: var(--gold); color: var(--gold); }
+.ilsp-toggle-btn.active { border-color: var(--gold); color: var(--gold); background: rgba(245,166,35,0.08); }
+
+/* Preview panel section styles */
+.ilsp-section { margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid var(--border); }
+.ilsp-section:last-child { border-bottom: none; }
+.ilsp-section-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.ilsp-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.ilsp-section-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.ilsp-chart { }
+.ilsp-line { display: flex; flex-wrap: wrap; gap: 0 2px; margin-bottom: 4px; align-items: flex-end; }
+.ilsp-blank-line { min-height: 26px; }
+.ilsp-word { display: flex; gap: 0; margin-right: 10px; }
+.ilsp-col { display: flex; flex-direction: column; align-items: flex-start; }
+.ilsp-chord { font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700; color: var(--gold); min-height: 17px; line-height: 1; padding-bottom: 1px; letter-spacing: 0.02em; }
+.ilsp-chord:empty { visibility: hidden; }
+.ilsp-syl { font-family: 'Playfair Display', serif; font-size: 16px; line-height: 1.4; color: var(--text); }
+.ilsp-no-lyrics { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--faint); font-style: italic; }
+.ilsp-preview-title { font-family: 'Playfair Display', serif; font-size: 26px; font-style: italic; color: var(--text); margin-bottom: 6px; }
+.ilsp-preview-meta { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); margin-bottom: 32px; letter-spacing: 0.03em; }
+
 /* Applied via .il-perf-mode on #songViewRunthrough */
 
 /* Hide add-section and empty-lyrics placeholder in all run-through views */
@@ -6637,6 +6714,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 
       <!-- ── Inline Run-Through view (default) ── -->
       <div id="songViewRunthrough">
+        <div id="ilSplitPreview"></div>
         <div id="rtBodyInlineInner"></div>
       </div>
 
@@ -7184,8 +7262,9 @@ function renderGrid() {
     const sharingCount = (song.sharedWith?.length||0) + (song.sharedReadOnly?.length||0);
     const sharingIndicator = isOwnerSharing ? `<span class="sharing-indicator" title="Shared with ${sharingCount} person${sharingCount===1?'':'s'}"></span>` : '';
     const titleHtml = esc(song.title||song.workingTitle) || '<span style="color:var(--faint);font-style:italic;">Untitled</span>';
+    const draggable = (!isShared && !isViewOnly) ? `draggable="true" ondragstart="_slDragStart('${song.id}',event)" ondragend="_slDragEnd('${song.id}')"` : '';
     return `<div class="song-list-row${isActive?' active-row':''}${(isShared||isViewOnly)?' shared-row':''}" id="row-${song.id}"
-      style="cursor:pointer;" onclick="rowLoadSong('${song.id}')"
+      style="cursor:pointer;" ${draggable} onclick="rowLoadSong('${song.id}')"
       onmouseenter="_slHoverEnter('${song.id}',this)" onmouseleave="_slHoverLeave()">
       <div class="song-list-title">${titleHtml}${sharedBadge}${viewOnlyBadge}${sharingIndicator}</div>
       ${statusCell}${actionsHtml}
@@ -7203,7 +7282,11 @@ function renderGrid() {
     const emptyHint = isEmpty ? `<div style="padding:14px 16px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);font-style:italic;">No drafts yet — <button onclick="event.stopPropagation();newSong()" style="background:none;border:none;color:var(--gold);font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;">+ create one</button></div>` : '';
     const isCollapsed = !isEmpty && !_expandedProjs.has(proj); // empty folders start expanded
     return `<div class="proj-group${isCollapsed?' collapsed':''}" id="pg-${proj}">
-      <div class="proj-group-header" onclick="toggleProjGroup('${proj}')">
+      <div class="proj-group-header" data-proj="${esc(proj)}"
+        onclick="toggleProjGroup('${proj}')"
+        ondragover="if(window._slDraggingSongId){event.preventDefault();event.stopPropagation();this.classList.add('drag-over')}"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="_slProjDrop(this,event)">
         <span class="proj-group-name">${esc(heading)}</span>
         <span class="proj-group-count">${isEmpty ? 'Empty' : (()=>{
           const counts = { idea:0, drafting:0, finished:0 };
@@ -18518,6 +18601,83 @@ function toggleSongViewMode() {
 
 // ── Editor ↔ Run Through (performance) mode ───────────────────────
 window._ilPerfMode = false;
+window._ilSplitMode = false;
+
+function ilToggleSplitMode() {
+  window._ilSplitMode = !window._ilSplitMode;
+  document.body.classList.toggle('il-split-active', window._ilSplitMode);
+  document.getElementById('ilSplitToggleBtn')?.classList.toggle('active', window._ilSplitMode);
+  if (window._ilSplitMode) {
+    ilRenderSplitPreview(getCurrentSong());
+  } else {
+    const el = document.getElementById('ilSplitPreview');
+    if (el) el.innerHTML = '';
+  }
+}
+
+// Read-only chord/lyric render for the split preview panel
+function ilRenderSplitSectionHtml(partId) {
+  const positions = rtChordPositions[partId] || [];
+  const lyricText = rtLyricEdits[partId] || '';
+  const lines     = lyricText ? lyricText.split('\n') : [];
+  if (!lines.length || !lines.some(l => l.trim())) {
+    return '<div class="ilsp-no-lyrics">No lyrics yet</div>';
+  }
+  const posMap = {};
+  positions.forEach(p => { posMap[`${p.line},${p.word},${p.syl ?? 0}`] = p.chord; });
+  let html = '';
+  lines.forEach((line, lineIdx) => {
+    const words = line.match(/\S+/g) || [];
+    if (!words.length) {
+      html += '<div class="ilsp-line ilsp-blank-line"></div>';
+    } else {
+      html += '<div class="ilsp-line">';
+      words.forEach((word, wordIdx) => {
+        const syllables = (typeof ilSyllabify === 'function') ? ilSyllabify(word) : [word];
+        html += '<div class="ilsp-word">';
+        syllables.forEach((syl, sylIdx) => {
+          const chord = posMap[`${lineIdx},${wordIdx},${sylIdx}`] || '';
+          html += `<div class="ilsp-col"><div class="ilsp-chord">${chord ? esc(chord) : ''}</div><div class="ilsp-syl">${esc(syl)}</div></div>`;
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+  });
+  return '<div class="ilsp-chart">' + html + '</div>';
+}
+
+function ilRenderSplitPreview(song) {
+  const el = document.getElementById('ilSplitPreview');
+  if (!el) return;
+  if (!window._ilSplitMode || !song) { el.innerHTML = ''; return; }
+  const title = esc(song.title || song.workingTitle || 'Untitled');
+  const metaParts = [song.key ? esc(song.key) : '', song.bpm ? esc(String(song.bpm)) + ' bpm' : ''].filter(Boolean);
+  let html = `<div class="ilsp-preview-title">${title}</div>`;
+  if (metaParts.length) html += `<div class="ilsp-preview-meta">${metaParts.join('  ·  ')}</div>`;
+  if (!rtActiveParts || !rtActiveParts.length) {
+    html += '<div class="ilsp-no-lyrics">No sections yet</div>';
+  } else {
+    html += rtActiveParts.map(part =>
+      `<div class="ilsp-section" id="ilsp-${part.id}">
+        <div class="ilsp-section-header">
+          <span class="ilsp-dot" style="background:${part.color}"></span>
+          <span class="ilsp-section-label">${esc(part.label)}</span>
+        </div>
+        ${ilRenderSplitSectionHtml(part.id)}
+      </div>`
+    ).join('');
+  }
+  el.innerHTML = html;
+}
+
+function ilSplitScrollTo(partId) {
+  if (!window._ilSplitMode) return;
+  const target = document.getElementById('ilsp-' + partId);
+  const panel  = document.getElementById('ilSplitPreview');
+  if (!target || !panel) return;
+  panel.scrollTo({ top: target.offsetTop - 40, behavior: 'smooth' });
+}
 
 // Sync active state on all nav buttons (metro bar overlay + bottom nav group)
 function _syncStickyNavBtns() {
@@ -18889,6 +19049,7 @@ function ilRenderBody(song) {
       <button class="il-tips-toggle" onclick="ilToggleTips()" title="How to use Lyrics view">
         ${ilTipsOpen ? '▾' : '▸'} How to use
       </button>
+      <button class="ilsp-toggle-btn${window._ilSplitMode ? ' active' : ''}" id="ilSplitToggleBtn" onclick="ilToggleSplitMode()" title="Split: see run-through preview alongside editor">⊞ Split</button>
     </div>
     <div class="il-tips-panel" id="ilTipsPanel" style="display:${ilTipsOpen ? 'block' : 'none'}">
       <ol class="il-tips-list">
@@ -18909,6 +19070,8 @@ function ilRenderBody(song) {
     const sel = document.getElementById('ilAddSel');
     addWrap.style.display = (sel && sel.options.length <= 1) ? 'none' : '';
   }
+  // Keep split preview in sync
+  ilRenderSplitPreview(song);
 }
 
 function ilRelabelPart(partId) {
@@ -19244,6 +19407,8 @@ function ilToggleLyricsEdit(partId) {
   ta.style.display = isOpen ? 'none' : '';
   if (btn) btn.textContent = isOpen ? '✏ Edit lyrics' : '✕ Close editor';
   if (!isOpen) { ta.value = rtLyricEdits[partId] || ''; ta.focus(); }
+  // Scroll the split preview to this section
+  ilSplitScrollTo(partId);
 }
 
 function ilLyricsRawEdit(partId, ta) {
@@ -19256,6 +19421,9 @@ function ilLyricsRawEdit(partId, ta) {
   }
   const chartWrap = document.getElementById('ilccwrap-' + partId);
   if (chartWrap) chartWrap.innerHTML = ilRenderChordChartHtml(partId);
+  // Update split preview section (debounced)
+  clearTimeout(window._ilSplitPreviewTimer);
+  window._ilSplitPreviewTimer = setTimeout(() => ilRenderSplitPreview(getCurrentSong()), 400);
   ilScheduleSave();
 }
 
@@ -20318,6 +20486,48 @@ function _slHoverShow(songId, rowEl) {
 
 // ── Tap tempo ──────────────────────────────────────────────────────
 var _dismissedShares = new Set();
+
+// ── Song list drag-to-reproject ───────────────────────────────────
+var _slDraggingSongId = null;
+
+function _slDragStart(songId, e) {
+  _slDraggingSongId = songId;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', songId);
+  // Delay fade so the drag ghost renders at full opacity first
+  setTimeout(function() {
+    const row = document.getElementById('row-' + songId);
+    if (row) row.classList.add('sl-dragging');
+  }, 0);
+}
+
+function _slDragEnd(songId) {
+  _slDraggingSongId = null;
+  const row = document.getElementById('row-' + songId);
+  if (row) row.classList.remove('sl-dragging');
+  document.querySelectorAll('.proj-group-header.drag-over').forEach(el => el.classList.remove('drag-over'));
+}
+
+function _slProjDrop(headerEl, e) {
+  e.preventDefault();
+  e.stopPropagation();
+  headerEl.classList.remove('drag-over');
+  const songId = (e.dataTransfer.getData('text/plain') || '').trim() || _slDraggingSongId;
+  _slDraggingSongId = null;
+  if (!songId) return;
+  const song = songs.find(s => s.id === songId);
+  if (!song) return;
+  const rawProj = headerEl.dataset.proj || '';
+  const newProj = rawProj === '__none__' ? '' : rawProj;
+  if ((song.project || '') === newProj) return; // already in this project
+  song.project = newProj;
+  song.updatedAt = Date.now();
+  // Auto-expand the target group so the moved song is visible
+  _expandedProjs.add(rawProj || '__none__');
+  save();
+  scheduleSyncToSheet(song);
+  renderGrid();
+}
 
 var _tapTempoTimes = [];
 var _tapTempoResetTimer = null;
