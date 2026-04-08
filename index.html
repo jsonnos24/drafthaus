@@ -9926,11 +9926,23 @@ async function initMidi() {
 // ── Header audio device selectors ────────────────────────────────
 async function _headerEnumerateAudio() {
   try {
-    // Request mic permission so labels are populated (stop stream immediately)
+    // Only call getUserMedia if the user has already granted mic permission —
+    // we never want to trigger a browser prompt on page load before login.
+    let alreadyGranted = false;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(t => t.stop());
-    } catch(e) {} // Permission denied is fine — labels may be absent
+      const perm = await navigator.permissions.query({ name: 'microphone' });
+      alreadyGranted = perm.state === 'granted';
+    } catch(e) {
+      // Permissions API not supported — fall back to checking device labels
+      const probe = await navigator.mediaDevices.enumerateDevices();
+      alreadyGranted = probe.some(d => d.label !== '');
+    }
+    if (alreadyGranted) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(t => t.stop());
+      } catch(e) {} // Denied mid-session — labels may be absent, that's fine
+    }
     const all = await navigator.mediaDevices.enumerateDevices();
     const audioIns  = all.filter(d => d.kind === 'audioinput');
     const audioOuts = all.filter(d => d.kind === 'audiooutput');
