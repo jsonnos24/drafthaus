@@ -7173,46 +7173,16 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 
   <!-- Right: shortcuts + theme toggle -->
   <div class="header-right" style="gap:8px;">
-    <!-- Device bar — always visible in header -->
-    <div id="headerDeviceBar" style="display:flex;align-items:center;gap:12px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);">
-      <!-- Audio -->
-      <div id="headerAudioDevices" style="display:flex;align-items:center;gap:8px;">
-        <div style="display:flex;align-items:center;gap:5px;">
-          <span class="midi-bar-label">🎤</span>
-          <select id="headerAudioInSelect" class="midi-bar-select" onchange="headerSelectAudioIn(this.value)" title="Audio input device">
-            <option value="">— none —</option>
-          </select>
-        </div>
-        <div style="display:flex;align-items:center;gap:5px;">
-          <span class="midi-bar-label">🔊</span>
-          <select id="headerAudioOutSelect" class="midi-bar-select" onchange="headerSelectAudioOut(this.value)" title="Audio output device">
-            <option value="">— none —</option>
-          </select>
-        </div>
-      </div>
-      <!-- Divider -->
-      <div style="width:1px;height:14px;background:var(--border);flex-shrink:0;"></div>
-      <!-- MIDI -->
-      <div style="display:flex;align-items:center;gap:8px;">
-        <div id="headerMidiDot" style="width:7px;height:7px;border-radius:50%;background:var(--faint);flex-shrink:0;transition:background 0.3s;" title="MIDI status"></div>
-        <div id="midiBarDevices" style="display:none;align-items:center;gap:8px;">
-          <div style="display:flex;align-items:center;gap:5px;">
-            <span class="midi-bar-label">In</span>
-            <select id="midiInputSelect" class="midi-bar-select" onchange="midiSelectInput(this.value)">
-              <option value="">— none —</option>
-            </select>
-          </div>
-          <div style="display:flex;align-items:center;gap:5px;">
-            <span class="midi-bar-label">Out</span>
-            <select id="midiOutputSelect" class="midi-bar-select" onchange="midiSelectOutput(this.value)">
-              <option value="">— none —</option>
-            </select>
-          </div>
-        </div>
-        <button id="midiBarConnectBtn" class="midi-bar-connect-btn" onclick="initMidi()" title="Connect MIDI devices">MIDI</button>
-      </div>
-    </div>
-    <!-- keep id for any legacy refs -->
+    <!-- Hidden stubs keep legacy JS refs alive -->
+    <div id="headerDeviceBar" style="display:none;"></div>
+    <div id="headerAudioDevices" style="display:none;"></div>
+    <select id="headerAudioInSelect" style="display:none;"></select>
+    <select id="headerAudioOutSelect" style="display:none;"></select>
+    <div id="headerMidiDot" style="display:none;"></div>
+    <div id="midiBarDevices" style="display:none;"></div>
+    <select id="midiInputSelect" style="display:none;"></select>
+    <select id="midiOutputSelect" style="display:none;"></select>
+    <button id="midiBarConnectBtn" style="display:none;" onclick="initMidi()"></button>
     <div id="headerMidiChip" style="display:none;"></div>
     <button class="split-btn" onclick="openAbout()" title="About Drafthaus">About</button>
     <div class="ks-wrap" id="ksWrap">
@@ -17391,9 +17361,19 @@ function setSplitLeftView(view) {
       if (typeof ilSetPerfMode === 'function') ilSetPerfMode(true);
       break;
     case 'lyrics':
+      // If right pane currently owns #songViewRunthrough, return it first
+      if (_splitCurrentTool === 'lyrics') {
+        _splitReturnDrawer();
+        _splitCurrentTool = null;
+        var rSel = document.getElementById('splitRightSelect');
+        if (rSel) rSel.value = '';
+      }
       if (typeof _ensureDetailView === 'function') _ensureDetailView();
       if (typeof setSongViewMode === 'function') setSongViewMode('runthrough');
       if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
+      // Always force-render the IL editor for the current song
+      var _lyrSong = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
+      if (_lyrSong && typeof ilInitAndRender === 'function') ilInitAndRender(_lyrSong);
       break;
     case 'backend':
       if (typeof _ensureDetailView === 'function') _ensureDetailView();
