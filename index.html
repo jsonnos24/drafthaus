@@ -4407,39 +4407,102 @@ button, select, input, textarea { touch-action: manipulation; }
 .ob-btn-primary:hover { background: #ffd97a; border-color: #ffd97a; }
 .ob-skip { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--faint); background: none; border: none; cursor: pointer; padding: 4px; }
 .ob-skip:hover { color: var(--muted); }
-/* ── Split panel (desktop pinned drawer) ─────────────────────────── */
-@media (min-width: 1024px) {
-  /* Main views slide left to make room */
-  body.split-panel-active #viewList,
-  body.split-panel-active #viewDetail { margin-right: 390px; transition: margin-right 0.28s cubic-bezier(.4,0,.2,1); }
+/* ── Chrome-style split workspace ────────────────────────────────── */
+:root { --split-left: 55%; }
 
-  /* Pinned drawer: override fixed overlay → fixed right column */
-  body.split-panel-active .keyboard-drawer.split-pinned,
-  body.split-panel-active .seq-drawer.split-pinned,
-  body.split-panel-active .looper-drawer.split-pinned {
-    position: fixed !important;
-    right: 0 !important; top: 60px !important; bottom: 0 !important;
-    width: 390px !important;
-    transform: none !important;
-    border-left: 1px solid var(--border2);
-    border-radius: 0 !important;
-    z-index: 200;
-    box-shadow: -6px 0 24px rgba(0,0,0,0.35);
+/* Constrain main content to left panel when split is active */
+@media (min-width: 900px) {
+  body.split-active #viewList,
+  body.split-active #viewDetail {
+    max-width: var(--split-left) !important;
+    width: var(--split-left) !important;
+    transition: width 0.05s, max-width 0.05s;
   }
-  /* Squish header in the pinned drawer */
-  body.split-panel-active .seq-drawer.split-pinned .seq-drawer-header,
-  body.split-panel-active .keyboard-drawer.split-pinned .keyboard-drawer-header,
-  body.split-panel-active .looper-drawer.split-pinned .looper-drawer-header {
-    border-radius: 0 !important;
+  body.split-active #stickySongBar {
+    right: calc(100% - var(--split-left)) !important;
+    transition: right 0.05s;
   }
-  /* Hide the dim overlay in split mode */
-  body.split-panel-active #keyboardDrawerOverlay,
-  body.split-panel-active #seqDrawerOverlay,
-  body.split-panel-active #looperOverlay { display: none !important; }
 }
 
-/* + button */
-.split-add-btn {
+/* Right panel */
+#splitRightPanel {
+  display: none;
+  position: fixed;
+  top: 60px; left: var(--split-left); right: 0; bottom: 0;
+  background: var(--bg);
+  border-left: 1px solid var(--border2);
+  z-index: 202;
+  flex-direction: column;
+  overflow: hidden;
+  animation: splitPanelIn 0.22s cubic-bezier(.4,0,.2,1);
+}
+@keyframes splitPanelIn {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+body.split-active #splitRightPanel { display: flex; }
+
+/* Right panel header bar */
+#splitRightHeader {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 14px; height: 44px; flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+#splitRightSelect {
+  flex: 1;
+  background: transparent; color: var(--text);
+  border: none; border-radius: 0;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 4px 0; cursor: pointer; outline: none;
+}
+#splitRightSelect:focus { outline: none; }
+.split-hdr-btn {
+  background: none; border: none; color: var(--faint);
+  font-size: 16px; cursor: pointer; padding: 4px 6px;
+  border-radius: 4px; transition: color 0.15s, background 0.15s;
+  font-family: 'IBM Plex Mono', monospace; line-height: 1;
+}
+.split-hdr-btn:hover { color: var(--gold); background: rgba(245,166,35,0.08); }
+.split-hdr-btn.close-btn:hover { color: var(--red); background: rgba(255,80,80,0.08); }
+
+/* Content area that hosts the moved drawer */
+#splitRightContent {
+  flex: 1; overflow: hidden;
+  display: flex; flex-direction: column;
+  position: relative;
+}
+/* Strip overlay/drawer behavior from any drawer moved into split panel */
+#splitRightContent > .keyboard-drawer,
+#splitRightContent > .seq-drawer,
+#splitRightContent > .looper-drawer {
+  position: relative !important;
+  transform: none !important;
+  width: 100% !important; max-width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border: none !important;
+  border-top: none !important;
+  display: flex !important;
+  flex-direction: column;
+  overflow-y: auto;
+  top: auto !important; left: auto !important; right: auto !important; bottom: auto !important;
+}
+/* Remove rounded header corners in split panel */
+#splitRightContent > .seq-drawer .seq-drawer-header,
+#splitRightContent > .keyboard-drawer .keyboard-drawer-header,
+#splitRightContent > .looper-drawer .looper-drawer-header {
+  border-radius: 0 !important;
+}
+/* Dim overlays hidden in split mode */
+body.split-active #keyboardDrawerOverlay,
+body.split-active #seqDrawerOverlay,
+body.split-active #looperOverlay { display: none !important; }
+
+/* Split button in header (desktop only) */
+.split-btn {
   display: none;
   align-items: center; gap: 5px;
   background: none; border: 1px solid var(--border);
@@ -4449,40 +4512,27 @@ button, select, input, textarea { touch-action: manipulation; }
   padding: 4px 10px; cursor: pointer; white-space: nowrap;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
-@media (min-width: 1024px) { .split-add-btn { display: inline-flex; } }
-.split-add-btn:hover { color: var(--gold); border-color: rgba(245,166,35,0.6); background: rgba(245,166,35,0.06); }
-.split-add-btn.active { color: var(--gold); border-color: var(--gold); background: rgba(245,166,35,0.08); }
-.split-add-wrap { position: relative; }
-.split-add-panel {
-  display: none; position: absolute; top: calc(100% + 8px); right: 0;
-  background: var(--card); border: 1px solid var(--border2);
-  border-radius: 10px; min-width: 180px; z-index: 9200;
-  overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+@media (min-width: 900px) { .split-btn { display: inline-flex; } }
+.split-btn:hover { color: var(--gold); border-color: rgba(245,166,35,0.6); background: rgba(245,166,35,0.06); }
+.split-btn.active { color: var(--gold); border-color: var(--gold); background: rgba(245,166,35,0.08); }
+
+/* Draggable divider */
+#splitDivider {
+  display: none;
+  position: fixed; top: 60px; bottom: 0;
+  left: calc(var(--split-left) - 3px);
+  width: 6px; cursor: col-resize; z-index: 300;
+  touch-action: none;
 }
-.split-add-panel.open { display: block; }
-.split-panel-item {
-  display: block; width: 100%; text-align: left;
-  background: none; border: none; cursor: pointer;
-  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
-  font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--text); padding: 12px 16px;
-  transition: background 0.15s, color 0.15s;
+body.split-active #splitDivider { display: block; }
+#splitDivider::after {
+  content: ''; position: absolute;
+  left: 2px; top: 0; bottom: 0; width: 2px;
+  background: var(--border2); transition: background 0.15s;
 }
-.split-panel-item:hover { background: rgba(245,166,35,0.08); color: var(--gold); }
-.split-panel-item + .split-panel-item { border-top: 1px solid var(--border); }
-.split-panel-item.active-tool { color: var(--gold); }
-.split-panel-close-row {
-  border-top: 1px solid var(--border); padding: 10px 14px;
-  display: flex; justify-content: flex-end;
-}
-.split-panel-close-btn {
-  background: none; border: 1px solid var(--border); border-radius: 5px;
-  color: var(--faint); font-family: 'IBM Plex Mono', monospace;
-  font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
-  text-transform: uppercase; padding: 5px 10px; cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-}
-.split-panel-close-btn:hover { color: var(--red); border-color: var(--red); }
+#splitDivider:hover::after { background: var(--gold); }
+body.split-dragging #splitDivider::after { background: var(--gold); }
+body.split-dragging { cursor: col-resize !important; user-select: none; }
 
 /* Mobile hamburger menu */
 .mobile-menu-wrap { position: relative; display: none; }
@@ -6935,17 +6985,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
       <div id="headerMidiDot" style="width:6px;height:6px;border-radius:50%;background:#00d26e;flex-shrink:0;"></div>
       <span id="headerMidiLabel"></span>
     </div>
-    <div class="split-add-wrap" id="splitAddWrap">
-      <button class="split-add-btn" id="splitAddBtn" onclick="toggleSplitMenu()" title="Open a second panel side by side">⊕ Split</button>
-      <div class="split-add-panel" id="splitAddPanel">
-        <button class="split-panel-item" id="splitItemKeyboard"  onclick="selectSplitPanel('keyboard')">🎹 Keyboard</button>
-        <button class="split-panel-item" id="splitItemSequencer" onclick="selectSplitPanel('sequencer')">🎛 Sequencer</button>
-        <button class="split-panel-item" id="splitItemLooper"    onclick="selectSplitPanel('looper')">⏺ Looper</button>
-        <div class="split-panel-close-row" id="splitCloseRow" style="display:none;">
-          <button class="split-panel-close-btn" onclick="closeSplitPanel();closeSplitMenu()">✕ Close Panel</button>
-        </div>
-      </div>
-    </div>
+    <button class="split-btn" id="splitBtn" onclick="_splitActive ? closeSplitMode() : openSplitMode('keyboard')" title="Open split workspace">⊕ Split</button>
     <button class="ks-btn" onclick="openAbout()" title="About Drafthaus">About</button>
     <div class="ks-wrap" id="ksWrap">
       <button class="ks-btn" onclick="toggleKsPanel()" title="Keyboard shortcuts">Keyboard Shortcuts</button>
@@ -16841,79 +16881,130 @@ function closeDrawerHelp() {
   document.getElementById('drawerHelpOverlay').classList.remove('open');
 }
 
-/* ── Split panel ─────────────────────────────────────────────────── */
-var _splitPanelTool = null;
+/* ── Chrome-style split workspace ────────────────────────────────── */
+var _splitActive = false;
+var _splitCurrentTool = null;
+var _splitOrigParents = {}; // stores original parent refs for moved drawers
 
-var _splitPanelMap = {
-  keyboard:  { drawerId: 'keyboardDrawer',  openFn: function(){ openKeyboardDrawer(); },  closeFn: function(){ _splitCloseDrawer('keyboard'); } },
-  sequencer: { drawerId: 'seqDrawer',       openFn: function(){ openSeqDrawer(); },       closeFn: function(){ _splitCloseDrawer('sequencer'); } },
-  looper:    { drawerId: 'looperDrawer',    openFn: function(){ openLooperDrawer(); },    closeFn: function(){ _splitCloseDrawer('looper'); } }
+var _splitDrawerMap = {
+  keyboard:  { drawerId: 'keyboardDrawer',  overlayId: 'keyboardDrawerOverlay', openFn: openKeyboardDrawer,  closeFn: null },
+  sequencer: { drawerId: 'seqDrawer',       overlayId: 'seqDrawerOverlay',      openFn: openSeqDrawer,      closeFn: null },
+  looper:    { drawerId: 'looperDrawer',    overlayId: 'looperOverlay',         openFn: openLooperDrawer,   closeFn: null }
 };
 
-function _splitCloseDrawer(tool) {
-  var cfg = _splitPanelMap[tool];
-  if (!cfg) return;
-  var drawer = document.getElementById(cfg.drawerId);
-  if (drawer) { drawer.classList.remove('open'); drawer.classList.remove('split-pinned'); }
-  // Re-show overlay for non-split mode
-  var overlayMap = { keyboard: 'keyboardDrawerOverlay', sequencer: 'seqDrawerOverlay', looper: 'looperOverlay' };
-  var ov = document.getElementById(overlayMap[tool]);
-  if (ov) ov.classList.remove('open');
+function openSplitMode(tool) {
+  tool = tool || 'keyboard';
+  _splitActive = true;
+  document.body.classList.add('split-active');
+  document.getElementById('splitBtn').classList.add('active');
+  // Load the requested tool into the right panel
+  setSplitRightTool(tool);
+  // Sync dropdown
+  var sel = document.getElementById('splitRightSelect');
+  if (sel) sel.value = tool;
 }
 
-function openSplitPanel(tool) {
-  if (_splitPanelTool && _splitPanelTool !== tool) closeSplitPanel();
-  var cfg = _splitPanelMap[tool];
-  if (!cfg) return;
-  _splitPanelTool = tool;
-  document.body.classList.add('split-panel-active');
-  var drawer = document.getElementById(cfg.drawerId);
-  if (drawer) drawer.classList.add('split-pinned');
-  cfg.openFn();
-  _splitUpdateUI();
+function closeSplitMode() {
+  if (!_splitActive) return;
+  _splitActive = false;
+  // Return any moved drawer to its original position
+  _splitReturnDrawer();
+  document.body.classList.remove('split-active');
+  var btn = document.getElementById('splitBtn');
+  if (btn) btn.classList.remove('active');
+  _splitCurrentTool = null;
 }
 
-function closeSplitPanel() {
-  if (!_splitPanelTool) return;
-  var cfg = _splitPanelMap[_splitPanelTool];
-  if (cfg) {
-    var drawer = document.getElementById(cfg.drawerId);
-    if (drawer) { drawer.classList.remove('open'); drawer.classList.remove('split-pinned'); }
+function setSplitRightTool(tool) {
+  var cfg = _splitDrawerMap[tool];
+  if (!cfg) return;
+  // If there's already a tool in the panel, return it first
+  if (_splitCurrentTool && _splitCurrentTool !== tool) {
+    _splitReturnDrawer();
   }
-  document.body.classList.remove('split-panel-active');
-  _splitPanelTool = null;
-  _splitUpdateUI();
+  _splitCurrentTool = tool;
+  // Move the drawer element into #splitRightContent
+  var drawer = document.getElementById(cfg.drawerId);
+  var content = document.getElementById('splitRightContent');
+  if (!drawer || !content) return;
+  // Store original parent if not already stored
+  if (!_splitOrigParents[tool]) {
+    _splitOrigParents[tool] = drawer.parentNode;
+  }
+  content.appendChild(drawer);
+  // Make sure drawer is open (visible)
+  drawer.classList.add('open');
+  // Call openFn to initialize the tool if needed (keyboard needs init)
+  if (typeof cfg.openFn === 'function') {
+    try { cfg.openFn(); } catch(e) {}
+  }
+  // Sync dropdown
+  var sel = document.getElementById('splitRightSelect');
+  if (sel) sel.value = tool;
 }
 
-function selectSplitPanel(tool) {
-  // Toggle: clicking the active tool closes it
-  if (_splitPanelTool === tool) { closeSplitPanel(); }
-  else { openSplitPanel(tool); }
-  closeSplitMenu();
+function _splitReturnDrawer() {
+  if (!_splitCurrentTool) return;
+  var cfg = _splitDrawerMap[_splitCurrentTool];
+  if (!cfg) return;
+  var drawer = document.getElementById(cfg.drawerId);
+  var origParent = _splitOrigParents[_splitCurrentTool];
+  if (drawer && origParent) {
+    origParent.appendChild(drawer);
+    // Close the drawer now that it's back in place
+    drawer.classList.remove('open');
+    var overlay = document.getElementById(cfg.overlayId);
+    if (overlay) overlay.classList.remove('open');
+  }
 }
 
-function _splitUpdateUI() {
-  var btn = document.getElementById('splitAddBtn');
-  var closeRow = document.getElementById('splitCloseRow');
-  var tools = ['keyboard', 'sequencer', 'looper'];
-  tools.forEach(function(t) {
-    var el = document.getElementById('splitItem' + t.charAt(0).toUpperCase() + t.slice(1));
-    if (el) el.classList.toggle('active-tool', t === _splitPanelTool);
+function swapSplitPanels() {
+  // Cycle to next tool
+  var tools = Object.keys(_splitDrawerMap);
+  var idx = tools.indexOf(_splitCurrentTool);
+  var nextTool = tools[(idx + 1) % tools.length];
+  setSplitRightTool(nextTool);
+}
+
+/* ── Draggable divider ────────────────────────────────────────────── */
+(function() {
+  var dragging = false;
+  var divider = null;
+  function onDividerDown(e) {
+    dragging = true;
+    divider = document.getElementById('splitDivider');
+    document.body.classList.add('split-dragging');
+    e.preventDefault();
+  }
+  function onMove(e) {
+    if (!dragging) return;
+    var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    var pct = (clientX / window.innerWidth) * 100;
+    pct = Math.max(25, Math.min(75, pct));
+    document.documentElement.style.setProperty('--split-left', pct + '%');
+    // Update divider position immediately
+    var div = document.getElementById('splitDivider');
+    if (div) div.style.left = 'calc(' + pct + '% - 3px)';
+    var rp = document.getElementById('splitRightPanel');
+    if (rp) rp.style.left = pct + '%';
+  }
+  function onUp() {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove('split-dragging');
+  }
+  document.addEventListener('DOMContentLoaded', function() {
+    var d = document.getElementById('splitDivider');
+    if (d) {
+      d.addEventListener('mousedown', onDividerDown);
+      d.addEventListener('touchstart', onDividerDown, { passive: false });
+    }
   });
-  if (btn) btn.classList.toggle('active', !!_splitPanelTool);
-  if (closeRow) closeRow.style.display = _splitPanelTool ? 'flex' : 'none';
-}
-
-function toggleSplitMenu() {
-  document.getElementById('splitAddPanel').classList.toggle('open');
-}
-function closeSplitMenu() {
-  document.getElementById('splitAddPanel').classList.remove('open');
-}
-document.addEventListener('click', function(e) {
-  var wrap = document.getElementById('splitAddWrap');
-  if (wrap && !wrap.contains(e.target)) closeSplitMenu();
-});
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('touchmove', onMove, { passive: false });
+  document.addEventListener('mouseup', onUp);
+  document.addEventListener('touchend', onUp);
+})();
 
 /* ── Mobile hamburger menu ───────────────────────────────────────── */
 function toggleMobileMenu() {
@@ -17277,7 +17368,7 @@ function openKeyboardDrawer() {
 }
 
 function closeKeyboardDrawer() {
-  if (_splitPanelTool === 'keyboard') { closeSplitPanel(); return; }
+  if (_splitActive && _splitCurrentTool === 'keyboard') { closeSplitMode(); return; }
   document.getElementById('keyboardDrawer').classList.remove('open');
   document.getElementById('keyboardDrawerOverlay').classList.remove('open');
   if (window.innerWidth < 900) document.getElementById('keyboardDrawerTab').style.display = '';
@@ -17337,7 +17428,7 @@ function openSeqDrawer() {
 }
 
 function closeSeqDrawer() {
-  if (_splitPanelTool === 'sequencer') { closeSplitPanel(); return; }
+  if (_splitActive && _splitCurrentTool === 'sequencer') { closeSplitMode(); return; }
   document.getElementById('seqDrawer').classList.remove('open');
   document.getElementById('seqDrawerOverlay').classList.remove('open');
   if (window.innerWidth < 900) document.getElementById('seqDrawerTab').style.display = '';
@@ -18435,7 +18526,7 @@ function openLooperDrawer() {
   loopUpdateMonitorPill();
 }
 function closeLooperDrawer() {
-  if (_splitPanelTool === 'looper') { closeSplitPanel(); return; }
+  if (_splitActive && _splitCurrentTool === 'looper') { closeSplitMode(); return; }
   document.getElementById('looperDrawer').classList.remove('open');
   document.getElementById('looperOverlay').classList.remove('open');
 }
@@ -23410,6 +23501,21 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
   </div>
 </div>
+
+<!-- ── Chrome-style split workspace ──────────────────────────────── -->
+<div id="splitRightPanel">
+  <div id="splitRightHeader">
+    <select id="splitRightSelect" onchange="setSplitRightTool(this.value)" title="Choose panel content">
+      <option value="keyboard">🎹 Keyboard</option>
+      <option value="sequencer">🎛 Sequencer</option>
+      <option value="looper">⏺ Looper</option>
+    </select>
+    <button class="split-hdr-btn" onclick="swapSplitPanels()" title="Swap panels">⇄</button>
+    <button class="split-hdr-btn close-btn" onclick="closeSplitMode()" title="Close split view">✕</button>
+  </div>
+  <div id="splitRightContent"></div>
+</div>
+<div id="splitDivider"></div>
 
 <!-- ── Onboarding / Help overlay ──────────────────────────────────── -->
 <div id="onboardingOverlay" onclick="if(event.target===this)obClose()">
