@@ -2319,6 +2319,36 @@ button, select, input, textarea { touch-action: manipulation; }
     background: rgba(200,160,255,0.06);
   }
   .song-list-row:hover { background: var(--card2); }
+  /* ── Song list hover preview popover ── */
+  .sl-hover-preview {
+    position: fixed; z-index: 4500;
+    width: 224px;
+    background: var(--card);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    padding: 12px 14px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+    pointer-events: none;
+  }
+  .slp-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 14px; font-weight: 700; color: var(--text);
+    margin-bottom: 6px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .slp-meta { font-size: 10px; color: var(--gold); margin-bottom: 7px; letter-spacing: 0.03em; }
+  .slp-sections { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 7px; }
+  .slp-tag {
+    font-size: 9px; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 1px 5px; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .slp-snippet {
+    font-size: 10px; color: var(--muted); line-height: 1.5; margin-bottom: 7px;
+    font-style: italic; font-family: 'IBM Plex Sans', sans-serif;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .slp-date { font-size: 9px; color: var(--faint); letter-spacing: 0.04em; }
   .song-list-row.active-row { background: rgba(245,166,35,0.06); border-left: 3px solid var(--gold); padding-left: 13px; }
   .song-list-title {
     min-width: 0;
@@ -6512,6 +6542,8 @@ body.il-perf-active #ilScrollFloat { display: flex; }
         <div class="ks-row"><kbd>Space</kbd><span>Play / Stop (metro, sequencer, keyboard, 4-track)</span></div>
         <div class="ks-row"><kbd>Esc</kbd><span>Close open drawer</span></div>
         <div class="ks-row"><kbd>1</kbd>–<kbd>8</kbd><span>Play scale notes (Sequencer open)</span></div>
+        <div class="ks-row"><kbd>N</kbd><span>New draft</span></div>
+        <div class="ks-row"><kbd>/</kbd><span>Focus search</span></div>
       </div>
     </div>
     <button id="themeToggleBtn" onclick="toggleSlateMode()" title="Toggle bright-room mode" style="background:none;border:none;cursor:pointer;color:var(--faint);font-size:15px;padding:6px 8px;border-radius:6px;transition:color 0.2s,background 0.2s;line-height:1;" onmouseenter="this.style.color='var(--gold)';this.style.background='rgba(245,166,35,0.08)'" onmouseleave="this.style.color='var(--faint)';this.style.background='none'">◑</button>
@@ -7140,7 +7172,8 @@ function renderGrid() {
       <input type="checkbox" ${hasSharing?'checked':''} title="${cbTitle}" onclick="event.preventDefault();event.stopPropagation();rowShareSong('${song.id}')">
     </div>`;
     return `<div class="song-list-row${isActive?' active-row':''}${(isShared||isViewOnly)?' shared-row':''}" id="row-${song.id}"
-      style="cursor:pointer;" onclick="rowLoadSong('${song.id}')">
+      style="cursor:pointer;" onclick="rowLoadSong('${song.id}')"
+      onmouseenter="_slHoverEnter('${song.id}',this)" onmouseleave="_slHoverLeave()">
       ${shareCb}
       <div class="song-list-title">${titleHtml}${sharedBadge}${viewOnlyBadge}${sharingIndicator}</div>
       ${statusCell}${actionsHtml}
@@ -9210,10 +9243,13 @@ function _midiUpdateUI() {
   const lbl = document.getElementById('midiStatusLabel');
   const btn = document.getElementById('midiConnectBtn');
   if (!dot) return;
-  const count = _midiAccess ? [..._midiAccess.inputs.values()].length : 0;
+  const inputs = _midiAccess ? [..._midiAccess.inputs.values()] : [];
+  const count = inputs.length;
   if (_midiEnabled && count > 0) {
     dot.style.background = '#00d26e';
-    if (lbl) lbl.textContent = count + (count > 1 ? ' devices' : ' device');
+    if (lbl) lbl.textContent = count === 1
+      ? (inputs[0].name || '1 device')
+      : count + ' devices';
   } else if (_midiEnabled) {
     dot.style.background = '#f5a623';
     if (lbl) lbl.textContent = 'no device';
@@ -9511,6 +9547,7 @@ function renderSequencerHtml(song) {
       <div class="seq-ctrl-group">
         <span class="seq-label">BPM</span>
         <input class="seq-input" type="number" id="seqBpm" value="${bpm}" min="40" max="240" style="width:60px" onchange="seqSaveSettings()">
+        <button class="seq-btn" id="seqTapBtn" onclick="seqTapTempo()" title="Tap to the beat to set BPM" style="font-size:10px;padding:4px 9px;letter-spacing:0.04em;transition:background 0.1s;">Tap</button>
       </div>
 
       <!-- Time Signature -->
@@ -20091,8 +20128,101 @@ document.addEventListener('keydown', function(e) {
       if (typeof showList === 'function') showList();
       break;
     }
+    case 'n': {
+      e.preventDefault();
+      if (typeof newSong === 'function') newSong();
+      break;
+    }
+    case '/': {
+      e.preventDefault();
+      const searchEl = document.getElementById('songSearchInput');
+      if (searchEl) { showList(); searchEl.focus(); searchEl.select(); }
+      break;
+    }
   }
 });
+
+// ── Song list hover preview ────────────────────────────────────────
+var _slHoverTimer = null;
+var _slHoverEl = null;
+
+function _slHoverEnter(songId, rowEl) {
+  _slHoverLeave();
+  _slHoverTimer = setTimeout(function() { _slHoverShow(songId, rowEl); }, 500);
+}
+
+function _slHoverLeave() {
+  clearTimeout(_slHoverTimer);
+  _slHoverTimer = null;
+  if (_slHoverEl) _slHoverEl.style.display = 'none';
+}
+
+function _slHoverShow(songId, rowEl) {
+  if (window.innerWidth < 900) return; // skip on narrow screens
+  const song = songs.find(s => s.id === songId);
+  if (!song) return;
+  if (!_slHoverEl) {
+    _slHoverEl = document.createElement('div');
+    _slHoverEl.className = 'sl-hover-preview';
+    document.body.appendChild(_slHoverEl);
+  }
+  const title = song.title || song.workingTitle || 'Untitled';
+  const metaParts = [
+    song.key  ? '🎵 ' + esc(song.key) : '',
+    song.bpm  ? '♩ '  + esc(String(song.bpm)) + ' BPM' : '',
+  ].filter(Boolean);
+  const dateStr = song.updatedAt
+    ? new Date(song.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : '';
+  const notesRaw  = (song.notes || '').trim();
+  const lyricsRaw = song.lyrics ? Object.values(song.lyrics).filter(Boolean).join(' ').trim() : '';
+  const rawSnippet = (notesRaw || lyricsRaw).replace(/\n/g, ' ').trim();
+  const snippet = rawSnippet.slice(0, 110);
+  const activeParts = typeof getActiveParts === 'function' ? getActiveParts(song) : [];
+  const sections = activeParts.slice(0, 6).map(p => `<span class="slp-tag">${esc(p.label)}</span>`).join('');
+  _slHoverEl.innerHTML =
+    `<div class="slp-title">${esc(title)}</div>` +
+    (metaParts.length ? `<div class="slp-meta">${metaParts.join('  ·  ')}</div>` : '') +
+    (sections        ? `<div class="slp-sections">${sections}</div>` : '') +
+    (snippet         ? `<div class="slp-snippet">"${esc(snippet)}${rawSnippet.length > 110 ? '…' : ''}"</div>` : '') +
+    (dateStr         ? `<div class="slp-date">Edited ${dateStr}</div>` : '');
+  _slHoverEl.style.display = 'block';
+  const rect = rowEl.getBoundingClientRect();
+  const pw = 224;
+  let left = rect.right + 10;
+  if (left + pw > window.innerWidth - 8) left = rect.left - pw - 10;
+  let top = rect.top;
+  const ph = _slHoverEl.offsetHeight;
+  if (top + ph > window.innerHeight - 8) top = Math.max(8, window.innerHeight - ph - 8);
+  _slHoverEl.style.left = Math.max(8, left) + 'px';
+  _slHoverEl.style.top  = top + 'px';
+}
+
+// ── Tap tempo ──────────────────────────────────────────────────────
+var _tapTempoTimes = [];
+var _tapTempoResetTimer = null;
+
+function seqTapTempo() {
+  const now = Date.now();
+  clearTimeout(_tapTempoResetTimer);
+  _tapTempoResetTimer = setTimeout(function() { _tapTempoTimes = []; }, 2500);
+  _tapTempoTimes.push(now);
+  if (_tapTempoTimes.length > 8) _tapTempoTimes.shift();
+  if (_tapTempoTimes.length < 2) {
+    // Flash the button to acknowledge the first tap
+    const btn = document.getElementById('seqTapBtn');
+    if (btn) { btn.style.background = 'rgba(245,166,35,0.25)'; setTimeout(() => { btn.style.background = ''; }, 120); }
+    return;
+  }
+  const intervals = [];
+  for (let i = 1; i < _tapTempoTimes.length; i++) intervals.push(_tapTempoTimes[i] - _tapTempoTimes[i-1]);
+  const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+  const bpm = Math.min(240, Math.max(40, Math.round(60000 / avg)));
+  const bpmEl = document.getElementById('seqBpm');
+  if (bpmEl) { bpmEl.value = bpm; seqSaveSettings(); }
+  const btn = document.getElementById('seqTapBtn');
+  if (btn) { btn.style.background = 'rgba(245,166,35,0.3)'; setTimeout(() => { btn.style.background = ''; }, 120); }
+}
 
 // ── Global Cmd/Ctrl+Z undo ─────────────────────────────────────────
 document.addEventListener('keydown', function(e) {
