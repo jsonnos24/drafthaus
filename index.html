@@ -4425,6 +4425,37 @@ button, select, input, textarea { touch-action: manipulation; }
   }
 }
 
+/* ── Tool-on-left mode (switch sides) ────────────────────────────── */
+@media (min-width: 900px) {
+  /* Flip the tool panel to the left */
+  body.split-active.split-tool-left #splitRightPanel {
+    left: 0 !important;
+    right: calc(100% - var(--split-left)) !important;
+    border-left: none !important;
+    border-right: 1px solid var(--border2) !important;
+    animation: splitPanelInLeft 0.22s cubic-bezier(.4,0,.2,1);
+  }
+  @keyframes splitPanelInLeft {
+    from { opacity: 0; transform: translateX(-24px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  /* Move content area to the right */
+  body.split-active.split-tool-left #viewList,
+  body.split-active.split-tool-left #viewDetail {
+    margin-left: var(--split-left) !important;
+    width: calc(100% - var(--split-left)) !important;
+    max-width: calc(100% - var(--split-left)) !important;
+  }
+  body.split-active.split-tool-left #stickySongBar {
+    left: var(--split-left) !important;
+    right: 0 !important;
+  }
+  body.split-active.split-tool-left #splitLeftHeader {
+    display: none !important;
+  }
+  /* Divider stays at the same visual position regardless of side */
+}
+
 /* Left panel header (split mode only) */
 #splitLeftHeader {
   display: none;
@@ -16993,6 +17024,7 @@ function closeDrawerHelp() {
 /* ── Chrome-style split workspace ────────────────────────────────── */
 var _splitActive = false;
 var _splitCurrentTool = null;
+var _splitToolSide = 'right'; // 'right' (default) or 'left' (switched)
 var _splitOrigParents = {}; // stores original parent refs for moved drawers
 
 var _splitDrawerMap = {
@@ -17017,9 +17049,9 @@ function openSplitMode(tool) {
 function closeSplitMode() {
   if (!_splitActive) return;
   _splitActive = false;
-  // Return any moved drawer to its original position
   _splitReturnDrawer();
-  document.body.classList.remove('split-active');
+  document.body.classList.remove('split-active', 'split-tool-left');
+  _splitToolSide = 'right';
   var btn = document.getElementById('splitBtn');
   if (btn) btn.classList.remove('active');
   _splitCurrentTool = null;
@@ -17129,6 +17161,36 @@ function swapSplitPanels() {
   var idx = tools.indexOf(_splitCurrentTool);
   var nextTool = tools[(idx + 1) % tools.length];
   setSplitRightTool(nextTool);
+}
+
+function switchSplitSides() {
+  _splitToolSide = _splitToolSide === 'right' ? 'left' : 'right';
+  document.body.classList.toggle('split-tool-left', _splitToolSide === 'left');
+}
+
+/* Central router for all desktop tool clicks */
+function _desktopOpenTool(toolKey) {
+  if (window.innerWidth < 900) return false; // let caller handle mobile
+  // Same tool clicked again — switch sides
+  if (_splitActive && _splitCurrentTool === toolKey) {
+    switchSplitSides();
+    return true;
+  }
+  // Set split ratio (4-track gets more room at 50/50)
+  if (!_splitActive) {
+    var ratio = (toolKey === '4track') ? '50%' : '55%';
+    document.documentElement.style.setProperty('--split-left', ratio);
+    var div = document.getElementById('splitDivider');
+    var rp  = document.getElementById('splitRightPanel');
+    if (div) div.style.left = 'calc(' + ratio + ' - 3px)';
+    if (rp)  rp.style.left = ratio;
+  }
+  if (_splitActive) {
+    setSplitRightTool(toolKey);
+  } else {
+    openSplitMode(toolKey);
+  }
+  return true;
 }
 
 /* ── Left panel view switcher ─────────────────────────────────────── */
@@ -18617,13 +18679,20 @@ function enableBankDropOnPills(instId, partId) {
 
 function handleTabClick(tabId, openFn, closeFn) {
   if (window.innerWidth >= 900) {
-    // Desktop: tab acts as a toggle — click again to close
+    // Route tool tabs through the split panel on desktop
+    var splitToolMap = {
+      'keyboardDrawerTab': 'keyboard',
+      'seqDrawerTab':      'sequencer',
+      'looperTab':         'looper'
+    };
+    if (splitToolMap[tabId]) {
+      _desktopOpenTool(splitToolMap[tabId]);
+      return;
+    }
+    // Non-tool tabs (inspo, practice): keep original toggle behavior
     var drawerMap = {
-      'keyboardDrawerTab': 'keyboardDrawer',
-      'seqDrawerTab':      'seqDrawer',
-      'looperTab':         'looperDrawer',
-      'inspoTab':          'inspoDrawer',
-      'practiceTab':       'practiceDrawer'
+      'inspoTab':    'inspoDrawer',
+      'practiceTab': 'practiceDrawer'
     };
     var drawerId = drawerMap[tabId];
     var drawer = drawerId ? document.getElementById(drawerId) : null;
@@ -22053,52 +22122,14 @@ window.vrToggleArmSeq = function() {
 
 // ── Open 4-Track from rehearse/perf metro bar ──────────────────
 window.vrMicFromPerf = function() {
-  if (window.innerWidth >= 900) {
-    // Toggle off if already open in split
-    if (_splitActive && _splitCurrentTool === '4track') {
-      closeSplitMode();
-      return;
-    }
-    // Open at 50/50 split so 4-Track has room
-    document.documentElement.style.setProperty('--split-left', '50%');
-    var div = document.getElementById('splitDivider');
-    var rp  = document.getElementById('splitRightPanel');
-    if (div) div.style.left = 'calc(50% - 3px)';
-    if (rp)  rp.style.left  = '50%';
-    if (_splitActive) {
-      setSplitRightTool('4track');
-    } else {
-      openSplitMode('4track');
-    }
-    return;
-  }
-  // Mobile: modal as before
+  if (_desktopOpenTool('4track')) return;
   if (document.getElementById('vrOverlay')?.classList.contains('vr-open')) { vrClose(); return; }
   vrOpen();
 };
 
 // ── Open from song list / perf mode ───────────────────────────
 window.vrMicFromList = function() {
-  // On desktop outside of perf mode: open in split panel for full-width view
-  if (window.innerWidth >= 900 && !window._ilPerfMode) {
-    if (_splitActive && _splitCurrentTool === '4track') {
-      closeSplitMode(); // toggle off if already showing
-      return;
-    }
-    // Set a wider default split (50/50) so 4-Track has room
-    document.documentElement.style.setProperty('--split-left', '50%');
-    var div = document.getElementById('splitDivider');
-    var rp  = document.getElementById('splitRightPanel');
-    if (div) div.style.left = 'calc(50% - 3px)';
-    if (rp)  rp.style.left  = '50%';
-    if (_splitActive) {
-      setSplitRightTool('4track');
-    } else {
-      openSplitMode('4track');
-    }
-    return;
-  }
-  // Mobile or perf mode: use modal as before
+  if (_desktopOpenTool('4track')) return;
   if (_el('vrOverlay')?.classList.contains('vr-open')) { vrClose(); return; }
   vrOpen();
 };
@@ -23664,15 +23695,15 @@ document.addEventListener('DOMContentLoaded', () => {
     </span>
     <span class="bottom-nav-label">4-Track</span>
   </button>
-  <button class="bottom-nav-item nav-keyboard" onclick="toggleDrawer('keyboardDrawer', openKeyboardDrawer, closeKeyboardDrawer)">
+  <button class="bottom-nav-item nav-keyboard" onclick="if(!_desktopOpenTool('keyboard'))toggleDrawer('keyboardDrawer',openKeyboardDrawer,closeKeyboardDrawer)">
     <span class="bottom-nav-icon">🎹</span>
     <span class="bottom-nav-label">Keyboard</span>
   </button>
-  <button class="bottom-nav-item nav-sequencer" onclick="toggleDrawer('seqDrawer', openSeqDrawer, closeSeqDrawer)">
+  <button class="bottom-nav-item nav-sequencer" onclick="if(!_desktopOpenTool('sequencer'))toggleDrawer('seqDrawer',openSeqDrawer,closeSeqDrawer)">
     <span class="bottom-nav-icon">⊞</span>
     <span class="bottom-nav-label">Sequencer</span>
   </button>
-  <button class="bottom-nav-item nav-looper" onclick="toggleDrawer('looperDrawer', openLooperDrawer, closeLooperDrawer)">
+  <button class="bottom-nav-item nav-looper" onclick="if(!_desktopOpenTool('looper'))toggleDrawer('looperDrawer',openLooperDrawer,closeLooperDrawer)">
     <span class="bottom-nav-icon" style="font-size:20px;line-height:1;">⍜</span>
     <span class="bottom-nav-label">Looper</span>
   </button>
