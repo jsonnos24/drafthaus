@@ -3563,6 +3563,17 @@ button, select, input, textarea { touch-action: manipulation; }
   @media (max-width: 520px) {
     .looper-drawer-body .tracks-grid { grid-template-columns: 1fr 1fr; }
     .looper-drawer-body .ring-wrap { width: 68px; height: 68px; }
+    .looper-drawer-body { padding: 12px 10px 100px 10px; }
+    .looper-drawer-body .global-bar { padding: 10px 10px; gap: 8px; flex-wrap: wrap; }
+    .looper-drawer-body .ctrl-row { gap: 6px; }
+    .looper-drawer-body .ctrl-value { font-size: 16px; }
+    .looper-drawer-body .master-stop { padding: 8px 12px; font-size: 10px; }
+    .looper-drawer-body .bpm-wrap { gap: 4px; }
+    .looper-drawer-body .bpm-btn { font-size: 11px; width: 26px; height: 26px; }
+    #loopTapBtn { padding: 0 5px !important; font-size: 8px !important; height: 26px; }
+    #loopBpmDisplay { font-size: 14px; min-width: 38px; }
+    .looper-drawer-body .ctrl-label { font-size: 8px; letter-spacing: 0.5px; }
+    .looper-drawer-body .track-card { padding: 8px 6px 8px; }
   }
   @media (min-width: 521px) {
     .looper-drawer-body .ring-wrap { width: 208px; height: 208px; }
@@ -7154,32 +7165,26 @@ function renderGrid() {
       <span class="sl-status-badge" style="color:${st.color};border-color:${st.border};background:${st.bg||'transparent'};">${st.label}</span>
     </div>`;
     // ── Actions dropdown ──
-    const assignItem = `<button class="sl-actions-item" onclick="event.stopPropagation();rowAssignProject('${song.id}')">📁 Assign to Project</button>`;
-    const shareItem  = !isShared ? `<button class="sl-actions-item share" onclick="event.stopPropagation();rowShareSong('${song.id}')">⬡ Share</button>` : '';
-    const deleteItem = !isShared ? `<button class="sl-actions-item danger" onclick="event.stopPropagation();deleteLocalSong('${song.id}')">✕ Delete</button>` : '';
+    const isViewOnly = !!song._viewOnly;
+    const assignItem  = `<button class="sl-actions-item" onclick="event.stopPropagation();rowAssignProject('${song.id}')">📁 Assign to Project</button>`;
+    const shareItem   = !isShared ? `<button class="sl-actions-item share" onclick="event.stopPropagation();rowShareSong('${song.id}')">⬡ Share</button>` : '';
+    const deleteItem  = !isShared ? `<button class="sl-actions-item danger" onclick="event.stopPropagation();deleteLocalSong('${song.id}')">✕ Delete</button>` : '';
+    const dismissItem = (isShared || isViewOnly) ? `<button class="sl-actions-item danger" onclick="event.stopPropagation();rowDismissSharedSong('${song.id}')">✕ Remove from my list</button>` : '';
     const actionsHtml = `<div class="sl-actions-wrap" onclick="event.stopPropagation()">
       <button class="sl-actions-btn" onclick="toggleRowActions('${song.id}',event)">⋯</button>
       <div class="sl-actions-menu" id="slm-${song.id}">
-        ${assignItem}${shareItem}${deleteItem}
+        ${assignItem}${shareItem}${deleteItem}${dismissItem}
       </div>
     </div>`;
-    const isViewOnly = !!song._viewOnly;
     const sharedBadge = (isShared && !isViewOnly) ? '<span class="shared-badge" title="Shared with you (can edit)">⬡</span>' : '';
     const viewOnlyBadge = isViewOnly ? '<span class="shared-badge" style="background:rgba(0,200,160,0.15);border-color:rgba(0,200,160,0.4);color:var(--teal);font-size:8px;width:auto;padding:0 5px;border-radius:4px;" title="View only">👁 view</span>' : '';
     const isOwnerSharing = !isShared && !isViewOnly && (song.sharedWith?.length || song.sharedReadOnly?.length);
     const sharingCount = (song.sharedWith?.length||0) + (song.sharedReadOnly?.length||0);
     const sharingIndicator = isOwnerSharing ? `<span class="sharing-indicator" title="Shared with ${sharingCount} person${sharingCount===1?'':'s'}"></span>` : '';
     const titleHtml = esc(song.title||song.workingTitle) || '<span style="color:var(--faint);font-style:italic;">Untitled</span>';
-    // Share checkbox — checked/purple if song has any active sharing
-    const hasSharing = !!(song.publicToken || song.sharedWith?.length || song.sharedReadOnly?.length || isViewOnly);
-    const cbTitle = isViewOnly ? 'View only' : (hasSharing ? `Shared with ${sharingCount} person${sharingCount===1?'':'s'}${song.publicToken?' + public link':''}` : 'Share this song');
-    const shareCb = `<div class="sl-share-cb" onclick="event.stopPropagation();rowShareSong('${song.id}')">
-      <input type="checkbox" ${hasSharing?'checked':''} title="${cbTitle}" onclick="event.preventDefault();event.stopPropagation();rowShareSong('${song.id}')">
-    </div>`;
     return `<div class="song-list-row${isActive?' active-row':''}${(isShared||isViewOnly)?' shared-row':''}" id="row-${song.id}"
       style="cursor:pointer;" onclick="rowLoadSong('${song.id}')"
       onmouseenter="_slHoverEnter('${song.id}',this)" onmouseleave="_slHoverLeave()">
-      ${shareCb}
       <div class="song-list-title">${titleHtml}${sharedBadge}${viewOnlyBadge}${sharingIndicator}</div>
       ${statusCell}${actionsHtml}
     </div>`;
@@ -7198,7 +7203,15 @@ function renderGrid() {
     return `<div class="proj-group${isCollapsed?' collapsed':''}" id="pg-${proj}">
       <div class="proj-group-header" onclick="toggleProjGroup('${proj}')">
         <span class="proj-group-name">${esc(heading)}</span>
-        <span class="proj-group-count">${isEmpty ? 'Empty' : list.length + ' draft' + (list.length===1?'':'s')}</span>
+        <span class="proj-group-count">${isEmpty ? 'Empty' : (()=>{
+          const counts = { idea:0, drafting:0, finished:0 };
+          list.forEach(s => { const k = s.status==='song'?'finished':(s.status||'idea'); if(counts[k]!==undefined) counts[k]++; else counts.idea++; });
+          const parts = [];
+          if (counts.idea)     parts.push(counts.idea     + (counts.idea===1?' idea':' ideas'));
+          if (counts.drafting) parts.push(counts.drafting + (counts.drafting===1?' draft':' drafts'));
+          if (counts.finished) parts.push(counts.finished + (counts.finished===1?' finished':' finished'));
+          return parts.length ? parts.join(', ') : list.length + ' song' + (list.length===1?'':'s');
+        })()}</span>
         <span class="proj-group-chevron">▼</span>
       </div>
       <div class="proj-group-songs">${colsHeader}${rows}${emptyHint}</div>
@@ -12796,6 +12809,7 @@ auth.onAuthStateChanged(user => {
       return db.collection('users').doc(user.uid).get();
     }).then(doc => {
       userTier = doc.data()?.tier || 'free';
+      _dismissedShares = new Set(doc.data()?.dismissedShares || []);
       document.getElementById('landingOverlay').classList.add('hidden');
       const emailEl = document.getElementById('headerUserEmail');
       if (emailEl) emailEl.textContent = user.email || '';
@@ -12811,6 +12825,7 @@ auth.onAuthStateChanged(user => {
     // Logged out — clear everything
     songs = [];
     currentId = null;
+    _dismissedShares = new Set();
     stopSyncPolling();
     renderGrid();
     const emailEl = document.getElementById('headerUserEmail');
@@ -14381,6 +14396,8 @@ function startSyncPolling() {
     snapshot.docChanges().forEach(change => {
       const s = normalizeLoadedSong({ ...change.doc.data(), _fromSheet: false });
       if (change.type === 'added' || change.type === 'modified') {
+        // Skip dismissed shared songs (owned songs are never dismissed)
+        if (_dismissedShares.has(s.id) && s.ownerId !== auth.currentUser?.uid) return;
         const remoteTs = s.updatedAt || 0;
         const idx = songs.findIndex(x => x.id === s.id);
         if (idx >= 0) {
@@ -14414,6 +14431,7 @@ function startSyncPolling() {
     snapshot.docChanges().forEach(change => {
       const s = normalizeLoadedSong({ ...change.doc.data(), _fromSheet: false, _viewOnly: true });
       if (change.type === 'added' || change.type === 'modified') {
+        if (_dismissedShares.has(s.id)) return; // skip dismissed
         const remoteTs = s.updatedAt || 0;
         const idx = songs.findIndex(x => x.id === s.id);
         if (idx >= 0) {
@@ -14486,6 +14504,8 @@ async function loadSongsFromSheet() {
     const fsIds = new Set();
     allDocs.forEach(doc => {
       const s = normalizeLoadedSong({ ...doc.data(), _fromSheet: false });
+      // Skip dismissed shared songs (don't skip owned songs)
+      if (_dismissedShares.has(s.id) && s.ownerId !== uid) return;
       fsIds.add(s.id);
       const idx = songs.findIndex(x => x.id === s.id);
       if (idx >= 0) songs[idx] = s;
@@ -14493,6 +14513,7 @@ async function loadSongsFromSheet() {
     });
     readOnlySnap.docs.forEach(doc => {
       const s = normalizeLoadedSong({ ...doc.data(), _fromSheet: false, _viewOnly: true });
+      if (_dismissedShares.has(s.id)) return; // skip dismissed view-only
       fsIds.add(s.id);
       const idx = songs.findIndex(x => x.id === s.id);
       if (idx >= 0) songs[idx] = { ...songs[idx], _viewOnly: true };
@@ -15383,12 +15404,8 @@ function storageUpdateSel() {
   document.getElementById('storageDeleteBtn').disabled = total === 0;
 
   const songCheckIds = [...document.querySelectorAll('#storageTableBody .song-check:checked')];
-  const songIds = new Set([
-    ...songCheckIds.map(cb => cb.dataset.song),
-    ...takesChecked.map(cb => cb.dataset.song),
-    ...trashChecked.map(cb => cb.dataset.song)
-  ]);
-  document.getElementById('storageShareBtn').disabled = songIds.size === 0;
+  // Share is only meaningful for whole songs, not for individual takes/loops
+  document.getElementById('storageShareBtn').disabled = songCheckIds.length === 0;
 }
 
 async function storageDeleteSelected() {
@@ -19739,6 +19756,25 @@ function rowShareSong(id) {
   }
 }
 
+// ── Dismiss shared song from list ────────────────────────────────
+function rowDismissSharedSong(id) {
+  // Remove from local songs array
+  songs = songs.filter(s => s.id !== id);
+  // Track in-memory so Firestore snapshots don't re-add it
+  _dismissedShares.add(id);
+  // Persist to Firestore user doc
+  const uid = auth.currentUser?.uid;
+  if (uid) {
+    db.collection('users').doc(uid).set(
+      { dismissedShares: firebase.firestore.FieldValue.arrayUnion(id) },
+      { merge: true }
+    ).catch(e => console.warn('dismissSharedSong error:', e));
+  }
+  // If this was the open song, go back to list
+  if (currentId === id) { currentId = null; showList(); }
+  else { renderGrid(); }
+}
+
 // ── Header status dropdown ────────────────────────────────────────
 function toggleHeaderDropdown() {
   const wrap = document.getElementById('headerStatusWrap');
@@ -20260,6 +20296,8 @@ function _slHoverShow(songId, rowEl) {
 }
 
 // ── Tap tempo ──────────────────────────────────────────────────────
+var _dismissedShares = new Set();
+
 var _tapTempoTimes = [];
 var _tapTempoResetTimer = null;
 
