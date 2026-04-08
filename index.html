@@ -3827,6 +3827,10 @@ button, select, input, textarea { touch-action: manipulation; }
     .bottom-nav-icon {
       font-size: 22px;
       line-height: 1;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .bottom-nav-icon svg { width: 24px; height: 24px; }
     .bottom-nav-label {
@@ -6501,7 +6505,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 .mt-track {
   display: flex; align-items: stretch; gap: 0;
   background: #0e1018; border: 1px solid #1e2130; border-radius: 8px;
-  overflow: hidden; min-height: 56px;
+  overflow: hidden; min-height: 90px;
   transition: border-color 0.15s;
 }
 .mt-track.mt-armed  { border-color: #803030; background: #120e0e; }
@@ -6540,10 +6544,10 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 .mt-waveform-wrap {
   flex: 1; position: relative; overflow: hidden;
   background: #080a10; cursor: pointer;
-  min-height: 56px;
+  min-height: 90px;
 }
 .mt-waveform-canvas {
-  display: block; width: 100%; height: 56px; image-rendering: pixelated;
+  display: block; width: 100%; height: 90px; image-rendering: pixelated;
 }
 .mt-playhead {
   position: absolute; top: 0; bottom: 0; width: 1px;
@@ -7170,11 +7174,47 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 
   <!-- Right: shortcuts + theme toggle -->
   <div class="header-right" style="gap:8px;">
-    <!-- MIDI indicator — hidden until connected -->
-    <div id="headerMidiChip" style="display:none;align-items:center;gap:5px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);padding:3px 8px;border:1px solid var(--border);border-radius:6px;cursor:default;user-select:none;" title="MIDI connected">
-      <div id="headerMidiDot" style="width:6px;height:6px;border-radius:50%;background:#00d26e;flex-shrink:0;"></div>
-      <span id="headerMidiLabel"></span>
+    <!-- Device bar — always visible in header -->
+    <div id="headerDeviceBar" style="display:flex;align-items:center;gap:12px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);">
+      <!-- Audio -->
+      <div id="headerAudioDevices" style="display:flex;align-items:center;gap:8px;">
+        <div style="display:flex;align-items:center;gap:5px;">
+          <span class="midi-bar-label">🎤</span>
+          <select id="headerAudioInSelect" class="midi-bar-select" onchange="headerSelectAudioIn(this.value)" title="Audio input device">
+            <option value="">— none —</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;">
+          <span class="midi-bar-label">🔊</span>
+          <select id="headerAudioOutSelect" class="midi-bar-select" onchange="headerSelectAudioOut(this.value)" title="Audio output device">
+            <option value="">— none —</option>
+          </select>
+        </div>
+      </div>
+      <!-- Divider -->
+      <div style="width:1px;height:14px;background:var(--border);flex-shrink:0;"></div>
+      <!-- MIDI -->
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div id="headerMidiDot" style="width:7px;height:7px;border-radius:50%;background:var(--faint);flex-shrink:0;transition:background 0.3s;" title="MIDI status"></div>
+        <div id="midiBarDevices" style="display:none;align-items:center;gap:8px;">
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span class="midi-bar-label">In</span>
+            <select id="midiInputSelect" class="midi-bar-select" onchange="midiSelectInput(this.value)">
+              <option value="">— none —</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span class="midi-bar-label">Out</span>
+            <select id="midiOutputSelect" class="midi-bar-select" onchange="midiSelectOutput(this.value)">
+              <option value="">— none —</option>
+            </select>
+          </div>
+        </div>
+        <button id="midiBarConnectBtn" class="midi-bar-connect-btn" onclick="initMidi()" title="Connect MIDI devices">MIDI</button>
+      </div>
     </div>
+    <!-- keep id for any legacy refs -->
+    <div id="headerMidiChip" style="display:none;"></div>
     <button class="split-btn" onclick="openAbout()" title="About Drafthaus">About</button>
     <div class="ks-wrap" id="ksWrap">
       <button class="ks-btn" onclick="toggleKsPanel()" title="Keyboard shortcuts">Keyboard Shortcuts</button>
@@ -7322,25 +7362,6 @@ body.il-perf-active #ilScrollFloat { display: flex; }
               <option value="drafting">✏️ Drafting</option>
               <option value="finished">✅ Finished</option>
             </select>
-            <!-- MIDI bar -->
-            <div id="midiControlsBar" style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-              <div id="midiBarDot" style="width:7px;height:7px;border-radius:50%;background:var(--faint);flex-shrink:0;transition:background 0.3s;" title="MIDI status"></div>
-              <div id="midiBarDevices" style="display:none;align-items:center;gap:8px;">
-                <div style="display:flex;align-items:center;gap:5px;">
-                  <span class="midi-bar-label">In</span>
-                  <select id="midiInputSelect" class="midi-bar-select" onchange="midiSelectInput(this.value)">
-                    <option value="">— none —</option>
-                  </select>
-                </div>
-                <div style="display:flex;align-items:center;gap:5px;">
-                  <span class="midi-bar-label">Out</span>
-                  <select id="midiOutputSelect" class="midi-bar-select" onchange="midiSelectOutput(this.value)">
-                    <option value="">— none —</option>
-                  </select>
-                </div>
-              </div>
-              <button id="midiBarConnectBtn" class="midi-bar-connect-btn" onclick="initMidi()" title="Connect MIDI devices">MIDI</button>
-            </div>
             <div style="display:flex;gap:6px;">
               <button class="btn btn-sm" onclick="openShareModal()" title="Share draft" style="font-size:11px;background:rgba(200,160,255,0.12);color:var(--purple);border:1px solid rgba(200,160,255,0.35);">⬡ Share</button>
               <button class="btn btn-ghost btn-sm" onclick="openExportPanel()" title="Export PDF + WAV">↓ Export</button>
@@ -9895,6 +9916,54 @@ async function initMidi() {
   }
 }
 
+// ── Header audio device selectors ────────────────────────────────
+async function _headerEnumerateAudio() {
+  try {
+    // Request mic permission once so labels are populated
+    const all = await navigator.mediaDevices.enumerateDevices();
+    const audioIns  = all.filter(d => d.kind === 'audioinput');
+    const audioOuts = all.filter(d => d.kind === 'audiooutput');
+    // Sync into shared _vrDevices so 4-Track stays in sync
+    _vrDevices.inputs  = audioIns;
+    _vrDevices.outputs = audioOuts;
+    _headerUpdateAudioSelects(audioIns, audioOuts);
+    if (typeof _vrUpdateDeviceLabels === 'function') _vrUpdateDeviceLabels();
+  } catch(e) { console.warn('Audio enumerate failed:', e); }
+}
+
+function _headerUpdateAudioSelects(audioIns, audioOuts) {
+  const inSel  = document.getElementById('headerAudioInSelect');
+  const outSel = document.getElementById('headerAudioOutSelect');
+  if (inSel) {
+    const curIn = _vrInputDeviceId || '';
+    inSel.innerHTML = audioIns.map(d => {
+      const label = (d.label || 'Microphone').split('(')[0].trim();
+      return `<option value="${d.deviceId}"${d.deviceId === curIn ? ' selected' : ''}>${label}</option>`;
+    }).join('') || '<option value="">— none —</option>';
+  }
+  if (outSel) {
+    const curOut = _vrOutputDeviceId || '';
+    outSel.innerHTML = audioOuts.map(d => {
+      const label = (d.label || 'Speaker').split('(')[0].trim();
+      return `<option value="${d.deviceId}"${d.deviceId === curOut ? ' selected' : ''}>${label}</option>`;
+    }).join('') || '<option value="">— none —</option>';
+  }
+}
+
+function headerSelectAudioIn(deviceId) {
+  _vrInputDeviceId = deviceId;
+  localStorage.setItem('vr_input_device', deviceId);
+  if (typeof _vrUpdateDeviceLabels === 'function') _vrUpdateDeviceLabels();
+  if (typeof _vrCheckFeedbackWarning === 'function') _vrCheckFeedbackWarning();
+}
+
+function headerSelectAudioOut(deviceId) {
+  _vrOutputDeviceId = deviceId;
+  localStorage.setItem('vr_output_device', deviceId);
+  if (typeof _vrUpdateDeviceLabels === 'function') _vrUpdateDeviceLabels();
+  if (typeof _vrCheckFeedbackWarning === 'function') _vrCheckFeedbackWarning();
+}
+
 function midiSelectInput(id) {
   _midiInputId = id;
   if (!_midiAccess) return;
@@ -9966,8 +10035,6 @@ function _midiHighlightKey(midiNote, on) {
 }
 
 function _midiUpdateUI() {
-  const hChip = document.getElementById('headerMidiChip');
-  const hLbl  = document.getElementById('headerMidiLabel');
   const inputs  = _midiAccess ? [..._midiAccess.inputs.values()]  : [];
   const outputs = _midiAccess ? [..._midiAccess.outputs.values()] : [];
   const inCount = inputs.length;
@@ -9990,22 +10057,12 @@ function _midiUpdateUI() {
     btn.style.display = _midiEnabled ? 'none' : '';
   });
 
-  // Header chip
-  if (hChip) {
-    if (_midiEnabled && inCount > 0) {
-      if (hLbl) hLbl.textContent = deviceName;
-      hChip.style.display = 'flex';
-    } else {
-      hChip.style.display = 'none';
-    }
-  }
-
-  // ── Panel MIDI bar ──────────────────────────────────────────────
-  const barDot       = document.getElementById('midiBarDot');
-  const barDevices   = document.getElementById('midiBarDevices');
-  const barConnBtn   = document.getElementById('midiBarConnectBtn');
-  const inSel        = document.getElementById('midiInputSelect');
-  const outSel       = document.getElementById('midiOutputSelect');
+  // ── Header MIDI bar ─────────────────────────────────────────────
+  const barDot     = document.getElementById('headerMidiDot');
+  const barDevices = document.getElementById('midiBarDevices');
+  const barConnBtn = document.getElementById('midiBarConnectBtn');
+  const inSel      = document.getElementById('midiInputSelect');
+  const outSel     = document.getElementById('midiOutputSelect');
 
   if (barDot) {
     if (_midiEnabled && inCount > 0)  barDot.style.background = '#00d26e';
@@ -10020,9 +10077,8 @@ function _midiUpdateUI() {
     barDevices.style.display = (_midiEnabled && (inCount > 0 || outputs.length > 0)) ? 'flex' : 'none';
   }
   if (inSel && _midiEnabled) {
-    const prev = inSel.value;
     inSel.innerHTML = '<option value="">— none —</option>' +
-      inputs.map(d => `<option value="${d.id}"${d.id === (_midiInputId || (inputs[0]?.id)) ? ' selected' : ''}>${d.name}</option>`).join('');
+      inputs.map(d => `<option value="${d.id}"${d.id === (_midiInputId || inputs[0]?.id) ? ' selected' : ''}>${d.name}</option>`).join('');
     if (!_midiInputId && inputs[0]) _midiInputId = inputs[0].id;
   }
   if (outSel && _midiEnabled) {
@@ -13523,6 +13579,11 @@ document.addEventListener('DOMContentLoaded', function() {
   localStorage.removeItem('track_songs'); // purge stale cache — Firestore is source of truth
   renderGrid();
   updateSeqDrawerTab();
+  // Populate header audio device dropdowns on load
+  if (navigator.mediaDevices?.enumerateDevices) {
+    _headerEnumerateAudio().catch(() => {});
+    navigator.mediaDevices.addEventListener('devicechange', () => _headerEnumerateAudio().catch(() => {}));
+  }
 
   // Check for public view URL params (?view=SONGID&token=TOKEN) — no auth needed
   // Fire-and-forget; if it finds a valid public link it will intercept the UI
@@ -17173,9 +17234,17 @@ function openSplitMode(tool) {
   document.getElementById('splitBtn')?.classList.add('active');
   // Load the requested tool into the right panel
   setSplitRightTool(tool);
-  // Sync dropdown
+  // Sync right dropdown
   var sel = document.getElementById('splitRightSelect');
   if (sel) sel.value = tool;
+  // Sync left dropdown to reflect actual current view
+  var leftSel = document.getElementById('splitLeftSelect');
+  if (leftSel) {
+    var currentLeftView = window._ilPerfMode ? 'rehearse'
+      : (window._songViewMode === 'backend' ? 'backend'
+      : (window._songViewMode === 'runthrough' ? 'lyrics' : 'list'));
+    leftSel.value = currentLeftView;
+  }
 }
 
 function closeSplitMode() {
@@ -22638,7 +22707,7 @@ function _mtDrawTrackWaveform(trackIdx, buffer, color) {
   const canvas = _el('mt-wave-'+trackIdx); if (!canvas) return;
   const wrap   = _el('mt-wave-wrap-'+trackIdx);
   const W = wrap ? wrap.offsetWidth || 300 : 300;
-  const H = 56;
+  const H = wrap ? (wrap.offsetHeight || 90) : 90;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
@@ -22988,6 +23057,10 @@ async function _vrEnumerateDevices() {
     _vrDevices.outputs = all.filter(d=>d.kind==='audiooutput');
     _vrUpdateDeviceLabels();
     _vrCheckFeedbackWarning();
+    // Keep header dropdowns in sync
+    if (typeof _headerUpdateAudioSelects === 'function') {
+      _headerUpdateAudioSelects(_vrDevices.inputs, _vrDevices.outputs);
+    }
   } catch(e) {}
 }
 function _vrUpdateDeviceLabels() {
@@ -23822,7 +23895,7 @@ document.addEventListener('DOMContentLoaded', () => {
     <span class="bottom-nav-label">Sequencer</span>
   </button>
   <button class="bottom-nav-item nav-looper" onclick="if(!_desktopOpenTool('looper'))toggleDrawer('looperDrawer',openLooperDrawer,closeLooperDrawer)">
-    <span class="bottom-nav-icon" style="font-size:20px;line-height:1;">⍜</span>
+    <span class="bottom-nav-icon">⍜</span>
     <span class="bottom-nav-label">Looper</span>
   </button>
   <button class="bottom-nav-item nav-mix" onclick="mixToggle()">
