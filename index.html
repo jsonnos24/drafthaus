@@ -4408,6 +4408,71 @@ button, select, input, textarea { touch-action: manipulation; }
 }
 .ob-help-btn:hover { border-color: var(--gold); color: var(--gold); }
 
+/* ── Drawer help button ──────────────────────────────────────────── */
+.drawer-help-btn {
+  background: none; border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.35); border-radius: 50%;
+  width: 24px; height: 24px; font-size: 12px; font-weight: 700;
+  cursor: pointer; font-family: 'IBM Plex Mono', monospace;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: border-color 0.15s, color 0.15s;
+  margin-right: 6px; line-height: 1;
+}
+.drawer-help-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+/* ── Drawer tutorial modal ───────────────────────────────────────── */
+#drawerHelpOverlay {
+  display: none; position: fixed; inset: 0; z-index: 10200;
+  background: rgba(0,0,0,0.82); backdrop-filter: blur(6px);
+  align-items: center; justify-content: center; padding: 24px;
+}
+#drawerHelpOverlay.open { display: flex; }
+#drawerHelpCard {
+  background: var(--card); border: 1px solid var(--border2);
+  border-radius: 16px; width: min(92vw, 500px);
+  max-height: 85vh; overflow-y: auto;
+  padding: 32px 32px 26px; position: relative; box-sizing: border-box;
+}
+@media (max-width: 520px) { #drawerHelpCard { padding: 26px 20px 20px; } }
+.dh-close-btn {
+  position: absolute; top: 14px; right: 14px;
+  background: none; border: none; color: var(--faint); cursor: pointer;
+  font-size: 18px; line-height: 1; padding: 4px 8px; border-radius: 6px;
+  transition: color 0.15s;
+}
+.dh-close-btn:hover { color: var(--text); }
+.dh-eyebrow {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.28em; color: var(--gold);
+  margin-bottom: 8px;
+}
+.dh-title {
+  font-family: 'IBM Plex Mono', monospace; font-size: 19px;
+  font-weight: 700; color: var(--text); margin-bottom: 20px; line-height: 1.2;
+}
+.dh-section { margin-bottom: 18px; }
+.dh-section:last-child { margin-bottom: 0; }
+.dh-section-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--faint); margin-bottom: 6px;
+}
+.dh-section-body {
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  color: var(--muted); line-height: 1.7;
+}
+.dh-tip {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 12px; background: rgba(245,166,35,0.06);
+  border-left: 2px solid var(--gold); border-radius: 0 6px 6px 0;
+  margin-top: 14px;
+}
+.dh-tip-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+.dh-tip-text {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  color: var(--muted); line-height: 1.6;
+}
+
 /* ── About modal ─────────────────────────────────────────────────── */
 #aboutOverlay {
   display: none; position: fixed; inset: 0; z-index: 10050;
@@ -6736,6 +6801,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
         <button class="header-dropdown-item danger" onclick="vrEmptyAllTrashesConfirm();closeHeaderDropdown()">🗑 Empty All Trashes</button>
         <div class="header-dropdown-sep"></div>
         <div style="padding:6px 12px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:0.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="headerUserEmail"></div>
+        <button class="header-dropdown-item" onclick="openAbout();closeHeaderDropdown()">ℹ About Drafthaus</button>
         <button class="header-dropdown-item danger" onclick="auth.signOut()">Sign Out</button>
       </div>
     </div>
@@ -6748,7 +6814,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
       <div id="headerMidiDot" style="width:6px;height:6px;border-radius:50%;background:#00d26e;flex-shrink:0;"></div>
       <span id="headerMidiLabel"></span>
     </div>
-    <button class="ks-btn" onclick="openAbout()" title="About Drafthaus" style="margin-right:4px;">About</button>
+    <button class="ks-btn" onclick="openAbout()" title="About Drafthaus">About</button>
     <div class="ks-wrap" id="ksWrap">
       <button class="ks-btn" onclick="toggleKsPanel()" title="Keyboard shortcuts">Keyboard Shortcuts</button>
       <div class="ks-panel" id="ksPanel">
@@ -16528,6 +16594,116 @@ function closeNoSongModal() {
   _noSongModalCallback = null;
 }
 
+/* ── Drawer tutorial modal ───────────────────────────────────────── */
+var _drawerHelpContent = {
+  '4track': {
+    title: '▬▬ 4-Track Recorder',
+    sections: [
+      {
+        label: 'What it does',
+        body: 'Record up to 4 layered audio tracks per song section — like a cassette 4-track, but in your browser. Each track is tied to the current draft so your takes stay with your song.'
+      },
+      {
+        label: 'Getting started',
+        body: '1. Open a draft first — the 4-Track needs a song to record to.\n2. Select the section you want to record (Verse, Chorus, etc.).\n3. Tap the ● button on a track to arm it, then press Play to start recording.\n4. Hit Stop when done. Your take is saved automatically.'
+      },
+      {
+        label: 'Overdubbing',
+        body: 'Each track can hold multiple takes. Use the takes dropdown under a track to switch between them, or stack new overdubs on top.'
+      },
+      {
+        tip: '💡 When you\'re ready to move to a DAW, use Export to download your takes as WAV files — already labelled by section and track.'
+      }
+    ]
+  },
+  'keyboard': {
+    title: '🎹 Keyboard & Melody',
+    sections: [
+      {
+        label: 'What it does',
+        body: 'Play and record melodies tied to your song\'s BPM. Works with a MIDI device, your computer keyboard, or the on-screen keys.'
+      },
+      {
+        label: 'Playing',
+        body: 'On-screen: tap the keys directly.\nComputer keyboard: press keys 1–8 once a note is assigned to each key for that song.\nMIDI: connect a MIDI device and it\'s detected automatically.'
+      },
+      {
+        label: 'Recording a melody',
+        body: '1. Open a draft and set your BPM.\n2. Select an instrument from the dropdown (piano, synth, etc.).\n3. Hit Record, play your notes, then Stop. The melody is saved to the current sequence.'
+      },
+      {
+        label: 'Sequences',
+        body: 'Each draft can hold multiple sequences — one per section if you like. Switch between them using the sequence selector at the top of the drawer.'
+      },
+      {
+        tip: '💡 Melodies export as MIDI so you can drop them straight into Logic, Ableton, or any DAW.'
+      }
+    ]
+  },
+  'sequencer': {
+    title: '🎛 Sequencer',
+    sections: [
+      {
+        label: 'What it does',
+        body: 'Program drum patterns and chord progressions that loop in sync with your song\'s BPM. Great for sketching out rhythmic and harmonic ideas before moving to a DAW.'
+      },
+      {
+        label: 'Drum patterns',
+        body: 'Toggle steps on the grid to build a beat. Each row is a different drum hit. Adjust the number of steps and BPM to change the feel.'
+      },
+      {
+        label: 'Chord patterns',
+        body: 'Switch to the Chords tab to program a chord sequence. Pick the chord for each step — the sequencer plays them in order as a loop.'
+      },
+      {
+        label: 'Per-section patterns',
+        body: 'Patterns are saved per song section, so your verse and chorus can each have their own groove.'
+      },
+      {
+        tip: '💡 Exported patterns can be loaded into Logic\'s Drummer or a drum machine plugin as a starting point.'
+      }
+    ]
+  },
+  'looper': {
+    title: '⏺ Looper',
+    sections: [
+      {
+        label: 'What it does',
+        body: 'Layer live audio loops in real time over your song. Capture a riff, a vocal idea, or a beat and keep building on top of it — without leaving the draft.'
+      },
+      {
+        label: 'Creating a loop',
+        body: '1. Set your loop length (bars) and make sure BPM is set on the draft.\n2. Hit Record on the first loop slot. Play your part.\n3. The loop captures exactly the length you set, then plays back automatically.\n4. Tap Record on the next slot to add another layer.'
+      },
+      {
+        label: 'Controls',
+        body: 'Master Stop clears playback. Individual slots can be muted or deleted. The global BPM keeps all loops in sync with your song.'
+      },
+      {
+        tip: '💡 Use the Looper for rough arrangement sketches — stack a chord loop, a bass riff, and a rhythmic idea to hear how sections fit together before recording properly.'
+      }
+    ]
+  }
+};
+
+function openDrawerHelp(tool) {
+  var content = _drawerHelpContent[tool];
+  if (!content) return;
+  document.getElementById('dhTitle').textContent = content.title;
+  var bodyEl = document.getElementById('dhBody');
+  bodyEl.innerHTML = content.sections.map(function(s) {
+    if (s.tip) {
+      return '<div class="dh-tip"><span class="dh-tip-icon">💡</span><span class="dh-tip-text">' + s.tip.replace('💡 ','') + '</span></div>';
+    }
+    return '<div class="dh-section"><div class="dh-section-label">' + s.label + '</div><div class="dh-section-body">' + s.body.replace(/\n/g,'<br>') + '</div></div>';
+  }).join('');
+  document.getElementById('drawerHelpOverlay').classList.add('open');
+}
+
+function closeDrawerHelp() {
+  document.getElementById('drawerHelpOverlay').classList.remove('open');
+}
+
 /* ── About modal ─────────────────────────────────────────────────── */
 function openAbout() {
   document.getElementById('aboutOverlay').classList.add('open');
@@ -20526,6 +20702,7 @@ document.addEventListener('keydown', function(e) {
 
   // Layer 1 — modals (topmost)
   if (document.getElementById('onboardingOverlay')?.classList.contains('open')) { obClose(); return; }
+  if (document.getElementById('drawerHelpOverlay')?.classList.contains('open')) { closeDrawerHelp(); return; }
   if (document.getElementById('aboutOverlay')?.classList.contains('open'))      { closeAbout(); return; }
   if (document.getElementById('upgradeModal')?.style.display === 'flex')       { closeUpgradeModal(); return; }
   if (document.getElementById('shareModal')?.classList.contains('open'))       { closeShareModal(); return; }
@@ -22564,7 +22741,10 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="looper-drawer-title">⏺ Looper</div>
       <div id="looperDrawerSongName" class="seq-drawer-song"></div>
     </div>
-    <button class="looper-drawer-close" onclick="closeLooperDrawer()">✕</button>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button class="drawer-help-btn" onclick="openDrawerHelp('looper')" title="How to use Looper">?</button>
+      <button class="looper-drawer-close" onclick="closeLooperDrawer()">✕</button>
+    </div>
   </div>
   <!-- Monitor status strip — always visible below header -->
   <div id="loopMonPill" title="Monitor is auto-muted while recording to prevent feedback, and live during playback"><span class="mon-icon">🎧</span><span id="loopMonLabel">Monitor: Auto</span></div>
@@ -22662,7 +22842,10 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="keyboard-drawer-title">🎹 Keyboard & Melody</div>
       <div class="keyboard-drawer-song" id="keyboardDrawerSongName">Open a draft to record melody</div>
     </div>
-    <button class="keyboard-drawer-close" onclick="closeKeyboardDrawer()">✕</button>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button class="drawer-help-btn" onclick="openDrawerHelp('keyboard')" title="How to use Keyboard">?</button>
+      <button class="keyboard-drawer-close" onclick="closeKeyboardDrawer()">✕</button>
+    </div>
   </div>
   <div class="keyboard-drawer-body" id="keyboardDrawerBody">
     <!-- Content rendered by openKeyboardDrawer() -->
@@ -22683,7 +22866,10 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="seq-drawer-title">Sequencer</div>
       <div class="seq-drawer-song" id="seqDrawerSongName"></div>
     </div>
-    <button class="seq-drawer-close" onclick="closeSeqDrawer()">✕</button>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button class="drawer-help-btn" onclick="openDrawerHelp('sequencer')" title="How to use Sequencer">?</button>
+      <button class="seq-drawer-close" onclick="closeSeqDrawer()">✕</button>
+    </div>
   </div>
   <div class="seq-drawer-body" id="seqDrawerBody">
     <div style="padding:40px;text-align:center;color:var(--faint);font-family:'IBM Plex Mono',monospace;font-size:11px;">
@@ -22927,6 +23113,16 @@ document.addEventListener('DOMContentLoaded', () => {
 </nav>
 
 <!-- ── No-song modal prompt ── -->
+<!-- ── Drawer tutorial modal ─────────────────────────────────────── -->
+<div id="drawerHelpOverlay" onclick="if(event.target===this)closeDrawerHelp()">
+  <div id="drawerHelpCard">
+    <button class="dh-close-btn" onclick="closeDrawerHelp()">✕</button>
+    <div class="dh-eyebrow" id="dhEyebrow">How to use</div>
+    <div class="dh-title" id="dhTitle"></div>
+    <div id="dhBody"></div>
+  </div>
+</div>
+
 <!-- ── About modal ───────────────────────────────────────────────── -->
 <div id="aboutOverlay" onclick="if(event.target===this)closeAbout()">
   <div id="aboutCard">
@@ -23125,9 +23321,12 @@ document.addEventListener('DOMContentLoaded', () => {
         <span class="vr-deck-title">▬▬ 4-TRACK</span>
         <div class="vr-deck-song" id="vrDeckSongName"></div>
       </div>
-      <button class="vr-close-btn" onclick="vrClose()" title="Close (Esc)">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button class="drawer-help-btn" onclick="openDrawerHelp('4track')" title="How to use 4-Track">?</button>
+        <button class="vr-close-btn" onclick="vrClose()" title="Close (Esc)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
     </div>
 
     <!-- Device / settings bar -->
