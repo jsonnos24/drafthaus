@@ -7143,13 +7143,9 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 
 <!-- ── Header ───────────────────── -->
 <header class="site-header" id="siteHeader">
-  <!-- Left: logo -->
-  <div class="header-left">
+  <!-- Left: logo + sync status -->
+  <div class="header-left" style="gap:10px;">
     <span class="header-logo" onclick="showList()" style="cursor:pointer;" title="Back to drafts">Drafthaus<span class="header-beta">Beta</span></span>
-  </div>
-
-  <!-- Centre: sync status -->
-  <div class="header-center">
     <div class="header-status-wrap" id="headerStatusWrap">
       <button class="header-status-btn" id="headerStatusBtn" onclick="toggleHeaderDropdown()">
         <div class="sync-dot" id="syncDot"></div>
@@ -7171,6 +7167,9 @@ body.il-perf-active #ilScrollFloat { display: flex; }
       </div>
     </div>
   </div>
+
+  <!-- Centre: empty -->
+  <div class="header-center"></div>
 
   <!-- Right: shortcuts + theme toggle -->
   <div class="header-right" style="gap:8px;">
@@ -9919,7 +9918,11 @@ async function initMidi() {
 // ── Header audio device selectors ────────────────────────────────
 async function _headerEnumerateAudio() {
   try {
-    // Request mic permission once so labels are populated
+    // Request mic permission so labels are populated (stop stream immediately)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(t => t.stop());
+    } catch(e) {} // Permission denied is fine — labels may be absent
     const all = await navigator.mediaDevices.enumerateDevices();
     const audioIns  = all.filter(d => d.kind === 'audioinput');
     const audioOuts = all.filter(d => d.kind === 'audiooutput');
@@ -9936,17 +9939,21 @@ function _headerUpdateAudioSelects(audioIns, audioOuts) {
   const outSel = document.getElementById('headerAudioOutSelect');
   if (inSel) {
     const curIn = _vrInputDeviceId || '';
-    inSel.innerHTML = audioIns.map(d => {
+    const defaultOpt = `<option value=""${!curIn ? ' selected' : ''}>System Default</option>`;
+    inSel.innerHTML = defaultOpt + audioIns.map(d => {
       const label = (d.label || 'Microphone').split('(')[0].trim();
       return `<option value="${d.deviceId}"${d.deviceId === curIn ? ' selected' : ''}>${label}</option>`;
-    }).join('') || '<option value="">— none —</option>';
+    }).join('');
+    if (curIn) inSel.value = curIn; // force-set in case selected attr didn't take
   }
   if (outSel) {
     const curOut = _vrOutputDeviceId || '';
-    outSel.innerHTML = audioOuts.map(d => {
+    const defaultOpt = `<option value=""${!curOut ? ' selected' : ''}>System Default</option>`;
+    outSel.innerHTML = defaultOpt + audioOuts.map(d => {
       const label = (d.label || 'Speaker').split('(')[0].trim();
       return `<option value="${d.deviceId}"${d.deviceId === curOut ? ' selected' : ''}>${label}</option>`;
-    }).join('') || '<option value="">— none —</option>';
+    }).join('');
+    if (curOut) outSel.value = curOut;
   }
 }
 
@@ -23104,6 +23111,9 @@ window.vrSelectDevice = function(type, deviceId) {
   else { _vrOutputDeviceId=deviceId; localStorage.setItem('vr_output_device',deviceId); }
   _el('vrDeviceDrop').style.display='none';
   _vrUpdateDeviceLabels(); _vrCheckFeedbackWarning();
+  // Keep header selects in sync
+  const sel = document.getElementById(type==='input' ? 'headerAudioInSelect' : 'headerAudioOutSelect');
+  if (sel) sel.value = deviceId;
 };
 
 document.addEventListener('click', function(e) {
