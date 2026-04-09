@@ -2335,6 +2335,69 @@ button, select, input, textarea { touch-action: manipulation; }
   .proj-group.collapsed .proj-group-chevron { transform: rotate(-90deg); }
   .proj-group-songs { display: block; }
   .proj-group.collapsed .proj-group-songs { display: none; }
+
+  /* ── Project sub-folders (nested) ── */
+  .proj-subgroup { margin-left: 16px; border-left: 1px solid rgba(255,255,255,0.05); }
+  .proj-subgroup > .proj-group-header { border-top: none; padding: 8px 16px 4px 14px; margin-top: 0; }
+  .proj-subgroup > .proj-group-header:first-child { border-top: none; }
+  .proj-subgroup .proj-group-name { font-size: 9.5px; opacity: 0.75; }
+  .proj-folder-group { margin-bottom: 0; }
+  .proj-folder-group > .proj-group-songs { padding-left: 0; }
+
+  /* ── Project header inline actions (rename / delete) ── */
+  .proj-group-header-actions {
+    display: inline-flex; gap: 2px; margin-left: 4px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.12s; flex-shrink: 0;
+  }
+  .proj-group-header:hover .proj-group-header-actions { opacity: 1; pointer-events: auto; }
+  .proj-group-header-actions:focus-within { opacity: 1; pointer-events: auto; }
+  .proj-action-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--faint); font-size: 9px; line-height: 1;
+    padding: 2px 6px; border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    transition: color 0.12s, background 0.12s;
+  }
+  .proj-action-btn:hover { color: var(--gold); background: rgba(245,166,35,0.10); }
+  .proj-action-btn.danger:hover { color: crimson; background: rgba(220,20,60,0.08); }
+
+  /* ── Inline project rename input ── */
+  .proj-rename-input {
+    background: var(--card); border: 1px solid var(--gold);
+    color: var(--text); font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 1px 6px; border-radius: 4px; outline: none;
+    width: 150px; max-width: 50vw;
+  }
+
+  /* ── New Project button at bottom of list ── */
+  .new-proj-list-btn {
+    display: flex; align-items: center; gap: 7px;
+    width: 100%; background: none;
+    border: 1px dashed rgba(255,255,255,0.09); border-radius: 6px;
+    color: var(--faint); cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    padding: 9px 14px; margin-top: 14px;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    text-align: left; letter-spacing: 0.04em;
+  }
+  .new-proj-list-btn:hover { border-color: rgba(245,166,35,0.4); color: var(--gold); background: rgba(245,166,35,0.04); }
+  /* new project inline input row */
+  .new-proj-inline-row {
+    display: none; align-items: center; gap: 8px;
+    padding: 10px 14px; margin-top: 10px;
+    border: 1px solid var(--gold); border-radius: 6px;
+    background: rgba(245,166,35,0.04);
+  }
+  .new-proj-inline-row.visible { display: flex; }
+  .new-proj-inline-row input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--text); font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  }
+  .new-proj-inline-row input::placeholder { color: var(--faint); }
+  .new-proj-inline-row .btn-sm { font-size: 10px; padding: 4px 10px; }
   /* Song list column grid: cb | title | status | actions */
   .song-list-cols-header {
     display: grid;
@@ -7515,34 +7578,36 @@ body.il-perf-active #ilScrollFloat { display: none; }
     <div style="display:flex;flex-direction:column;gap:1px;cursor:pointer;" onclick="showList()" title="Back to drafts">
       <span class="header-logo">Drafthaus<span class="header-beta">Beta</span></span>
       <span style="font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:0.75;">Build v.0.95.1</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start;">
+      <div class="header-status-wrap" id="headerStatusWrap">
+        <button class="header-status-btn" id="headerStatusBtn" onclick="toggleHeaderDropdown()">
+          <div class="sync-dot" id="syncDot"></div>
+          <span id="syncLabel">—</span>
+          <span class="chevron">▾</span>
+        </button>
+        <div class="header-dropdown" id="headerDropdown">
+          <div class="header-dropdown-status">
+            <div class="sync-dot" id="syncDot2" style="width:6px;height:6px;"></div>
+            <span id="syncLabel2" style="font-size:10px;">—</span>
+            <span class="header-dropdown-autosave">Auto-Save On</span>
+          </div>
+          <button class="header-dropdown-item" onclick="resyncAllSongs();closeHeaderDropdown()">↑ Re-sync All</button>
+          <button class="header-dropdown-item danger" onclick="vrEmptyAllTrashesConfirm();closeHeaderDropdown()">🗑 Empty All Trashes</button>
+          <div class="header-dropdown-sep"></div>
+          <!-- Storage: mobile only (hidden on desktop via CSS) -->
+          <button class="header-dropdown-item hla-storage-mobile" onclick="openStorageModal();closeHeaderDropdown()">🗄 Storage</button>
+          <div class="header-dropdown-sep hla-storage-mobile"></div>
+          <div style="padding:6px 12px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:0.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="headerUserEmail"></div>
+          <button class="header-dropdown-item" onclick="showUpgradeModal('');closeHeaderDropdown()">$ Pricing</button>
+          <button class="header-dropdown-item" onclick="openAbout();closeHeaderDropdown()">ℹ About Drafthaus</button>
+          <button class="header-dropdown-item danger" onclick="auth.signOut()">Sign Out</button>
+        </div>
+      </div>
       <a class="header-report-bug" href="mailto:hellojasoncraig@gmail.com?subject=Drafthaus%20Bug%20Report">Report a Bug</a>
     </div>
-    <div class="header-status-wrap" id="headerStatusWrap">
-      <button class="header-status-btn" id="headerStatusBtn" onclick="toggleHeaderDropdown()">
-        <div class="sync-dot" id="syncDot"></div>
-        <span id="syncLabel">—</span>
-        <span class="chevron">▾</span>
-      </button>
-      <div class="header-dropdown" id="headerDropdown">
-        <div class="header-dropdown-status">
-          <div class="sync-dot" id="syncDot2" style="width:6px;height:6px;"></div>
-          <span id="syncLabel2" style="font-size:10px;">—</span>
-          <span class="header-dropdown-autosave">Auto-Save On</span>
-        </div>
-        <button class="header-dropdown-item" onclick="resyncAllSongs();closeHeaderDropdown()">↑ Re-sync All</button>
-        <button class="header-dropdown-item danger" onclick="vrEmptyAllTrashesConfirm();closeHeaderDropdown()">🗑 Empty All Trashes</button>
-        <div class="header-dropdown-sep"></div>
-        <!-- Storage: mobile only (hidden on desktop via CSS) -->
-        <button class="header-dropdown-item hla-storage-mobile" onclick="openStorageModal();closeHeaderDropdown()">🗄 Storage</button>
-        <div class="header-dropdown-sep hla-storage-mobile"></div>
-        <div style="padding:6px 12px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:0.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="headerUserEmail"></div>
-        <button class="header-dropdown-item" onclick="showUpgradeModal('');closeHeaderDropdown()">$ Pricing</button>
-        <button class="header-dropdown-item" onclick="openAbout();closeHeaderDropdown()">ℹ About Drafthaus</button>
-        <button class="header-dropdown-item danger" onclick="auth.signOut()">Sign Out</button>
-      </div>
-    </div>
-    <!-- Mobile-only: New Draft + Roll for Inspiration after status pill -->
-    <div class="hla-mobile-pills" style="display:none;align-items:center;gap:6px;">
+    <!-- Mobile-only: New Draft + Roll for Inspiration -->
+    <div class="hla-mobile-pills" style="display:none;flex-direction:column;align-items:center;gap:5px;">
       <button class="btn btn-primary btn-sm" onclick="newSong()" style="font-size:10px;padding:5px 10px;">+ New Draft</button>
       <button onclick="toggleDrawer('inspoDrawer', openInspoDrawer, closeInspoDrawer)"
         style="display:flex;align-items:center;gap:4px;background:rgba(200,160,255,0.08);border:1px solid rgba(200,160,255,0.3);color:var(--purple);border-radius:8px;padding:5px 9px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;letter-spacing:0.06em;">
@@ -7664,6 +7729,13 @@ body.il-perf-active #ilScrollFloat { display: none; }
       <button class="search-clear" id="searchClear" onclick="clearSearch()" title="Clear search">×</button>
     </div>
     <div id="songsGrid"></div>
+    <!-- New Project inline input row (shown/hidden by JS) -->
+    <div class="new-proj-inline-row" id="newProjInlineRow">
+      <input id="newProjInlineInput" placeholder="Project name… (use / for folders: Band A/Album A)"
+        onkeydown="if(event.key==='Enter')commitNewProjectInline();if(event.key==='Escape')cancelNewProjectInline()">
+      <button class="btn btn-primary btn-sm" onclick="commitNewProjectInline()">Create</button>
+      <button class="btn btn-ghost btn-sm" onclick="cancelNewProjectInline()">Cancel</button>
+    </div>
   </div>
 </div>
 
@@ -8008,6 +8080,211 @@ function saveUserProjects() {
   db.collection('users').doc(uid).set({ projects: userProjects }, { merge: true }).catch(() => {});
 }
 
+// ── Project tree builder ────────────────────────────────────────────
+// Converts flat path list ['Band A/Album A', 'Band A/Album B', 'Ideas']
+// into a nested tree { 'Band A': { fullPath:null, children:{ 'Album A':{fullPath:'Band A/Album A',children:{}}, ... }}, ... }
+function _buildProjTree(paths) {
+  const tree = {};
+  paths.forEach(path => {
+    const parts = path.split('/').map(s => s.trim()).filter(Boolean);
+    if (!parts.length) return;
+    let node = tree;
+    parts.forEach((part, i) => {
+      if (!node[part]) node[part] = { fullPath: null, children: {} };
+      if (i === parts.length - 1) node[part].fullPath = path;
+      node = node[part].children;
+    });
+  });
+  return tree;
+}
+
+// ── Folder group toggle ─────────────────────────────────────────────
+function toggleFolderGroup(folderName) {
+  const expandKey = '__folder__' + folderName;
+  const el = document.getElementById('pgfolder-' + folderName);
+  if (!el) return;
+  el.classList.toggle('collapsed');
+  if (el.classList.contains('collapsed')) _expandedProjs.delete(expandKey);
+  else _expandedProjs.add(expandKey);
+}
+
+// Drop a dragged song onto a folder header (assigns it to no specific leaf — stays unassigned within the folder)
+function _slFolderDrop(headerEl, e, folderName) {
+  e.preventDefault(); e.stopPropagation();
+  headerEl.classList.remove('drag-over');
+  const songId = (e.dataTransfer.getData('text/plain') || '').trim() || window._slDraggingSongId;
+  window._slDraggingSongId = null;
+  if (!songId) return;
+  const song = songs.find(s => s.id === songId);
+  if (!song) return;
+  // Dragging to a folder header assigns to that exact folder path (not a sub-path)
+  const newProj = folderName || '';
+  if ((song.project || '') === newProj) return;
+  song.project = newProj;
+  song.updatedAt = Date.now();
+  _expandedProjs.add('__folder__' + folderName);
+  save();
+  scheduleSyncToSheet(song);
+  renderGrid();
+}
+
+// ── New Project inline input ────────────────────────────────────────
+function openNewProjectInline() {
+  const row = document.getElementById('newProjInlineRow');
+  const input = document.getElementById('newProjInlineInput');
+  if (!row || !input) return;
+  row.classList.add('visible');
+  input.value = '';
+  setTimeout(() => input.focus(), 50);
+}
+
+function cancelNewProjectInline() {
+  const row = document.getElementById('newProjInlineRow');
+  if (row) row.classList.remove('visible');
+}
+
+function commitNewProjectInline() {
+  const input = document.getElementById('newProjInlineInput');
+  if (!input) return;
+  const name = input.value.trim();
+  cancelNewProjectInline();
+  if (!name) return;
+  createProject(name);
+}
+
+function createProject(name) {
+  if (!name || userProjects.includes(name)) { renderGrid(); return; }
+  userProjects.push(name);
+  saveUserProjects();
+  // Auto-expand the newly created project / its parent folder
+  const parts = name.split('/').map(s => s.trim()).filter(Boolean);
+  if (parts.length > 1) _expandedProjs.add('__folder__' + parts[0]);
+  _expandedProjs.add(name); // start expanded (empty)
+  renderGrid();
+}
+
+// ── Rename a leaf project (full path) ──────────────────────────────
+function startRenameProject(fullPath, triggerBtn) {
+  // Find the name span inside the same header as the button
+  const header = triggerBtn.closest('.proj-group-header');
+  if (!header) return;
+  const nameSpan = header.querySelector('.proj-group-name');
+  if (!nameSpan) return;
+  const lastSegment = fullPath.split('/').pop().trim();
+  const input = document.createElement('input');
+  input.className = 'proj-rename-input';
+  input.value = lastSegment;
+  nameSpan.replaceWith(input);
+  input.focus();
+  input.select();
+  const commit = () => {
+    const newSegment = input.value.trim();
+    if (newSegment && newSegment !== lastSegment) {
+      // Build the new full path: replace the last segment
+      const parts = fullPath.split('/').map(s => s.trim()).filter(Boolean);
+      parts[parts.length - 1] = newSegment;
+      const newPath = parts.join('/');
+      finishRenameProject(fullPath, newPath);
+    } else {
+      renderGrid(); // restore
+    }
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.removeEventListener('blur', commit); renderGrid(); }
+  });
+}
+
+function finishRenameProject(oldPath, newPath) {
+  if (!newPath || newPath === oldPath) { renderGrid(); return; }
+  // Update userProjects list
+  const idx = userProjects.indexOf(oldPath);
+  if (idx !== -1) userProjects[idx] = newPath;
+  else userProjects.push(newPath);
+  // Update all songs using this exact project path
+  let changed = false;
+  songs.forEach(s => {
+    if ((s.project || '').trim() === oldPath) {
+      s.project = newPath;
+      s.updatedAt = Date.now();
+      changed = true;
+    }
+  });
+  if (changed) save();
+  saveUserProjects();
+  renderGrid();
+}
+
+// ── Rename a folder prefix (renames all child paths) ───────────────
+function startRenameProjFolder(folderName, triggerBtn) {
+  const header = triggerBtn.closest('.proj-group-header');
+  if (!header) return;
+  const nameSpan = header.querySelector('.proj-group-name');
+  if (!nameSpan) return;
+  const input = document.createElement('input');
+  input.className = 'proj-rename-input';
+  input.value = folderName;
+  nameSpan.replaceWith(input);
+  input.focus();
+  input.select();
+  const commit = () => {
+    const newName = input.value.trim();
+    if (newName && newName !== folderName) {
+      finishRenameProjFolder(folderName, newName);
+    } else {
+      renderGrid();
+    }
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.removeEventListener('blur', commit); renderGrid(); }
+  });
+}
+
+function finishRenameProjFolder(oldFolder, newFolder) {
+  if (!newFolder || newFolder === oldFolder) { renderGrid(); return; }
+  const prefix = oldFolder + '/';
+  // Update userProjects: replace top-level and any children
+  userProjects = userProjects.map(p => {
+    if (p === oldFolder) return newFolder;
+    if (p.startsWith(prefix)) return newFolder + '/' + p.slice(prefix.length);
+    return p;
+  });
+  // Update all matching songs
+  let changed = false;
+  songs.forEach(s => {
+    const proj = (s.project || '').trim();
+    if (proj === oldFolder) { s.project = newFolder; s.updatedAt = Date.now(); changed = true; }
+    else if (proj.startsWith(prefix)) { s.project = newFolder + '/' + proj.slice(prefix.length); s.updatedAt = Date.now(); changed = true; }
+  });
+  if (changed) save();
+  saveUserProjects();
+  renderGrid();
+}
+
+// ── Delete project ──────────────────────────────────────────────────
+function promptDeleteProject(fullPath) {
+  const affectedSongs = songs.filter(s => (s.project||'').trim() === fullPath);
+  const msg = affectedSongs.length
+    ? `Delete project "${fullPath}"? The ${affectedSongs.length} draft${affectedSongs.length===1?'':'s'} inside will be moved to Unassigned.`
+    : `Delete empty project "${fullPath}"?`;
+  if (!confirm(msg)) return;
+  deleteProjectFolder(fullPath);
+}
+
+function deleteProjectFolder(fullPath) {
+  userProjects = userProjects.filter(p => p !== fullPath);
+  // Unassign songs that were in this project
+  songs.forEach(s => {
+    if ((s.project||'').trim() === fullPath) { s.project = ''; s.updatedAt = Date.now(); }
+  });
+  save();
+  saveUserProjects();
+  renderGrid();
+}
+
 function save() {
   localStorage.setItem('track_songs', JSON.stringify(songs));
 }
@@ -8252,9 +8529,12 @@ function renderGrid() {
     </div>`;
   }
 
-  function buildProjGroup(proj, list, recentProjs, totalGroups) {
-    const heading = proj==='__none__' ? 'Unassigned' : proj;
+  function buildProjGroup(proj, list, recentProjs, totalGroups, depth) {
+    depth = depth || 0;
     const isUnassigned = proj === '__none__';
+    // Display name: when nested use only the last segment of the path
+    const fullLabel = isUnassigned ? 'Unassigned' : proj;
+    const heading = (depth > 0 && !isUnassigned) ? fullLabel.split('/').pop().trim() : fullLabel;
     const isEmpty = list.length === 0;
     const rows = list.map(song => buildSongRow(song, true, false)).join('');
     const colsHeader = isEmpty ? '' : `<div class="song-list-cols-header">
@@ -8262,13 +8542,20 @@ function renderGrid() {
     </div>`;
     const emptyHint = isEmpty ? `<div style="padding:14px 16px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);font-style:italic;">No drafts yet — <button onclick="event.stopPropagation();newSong()" style="background:none;border:none;color:var(--gold);font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;">+ create one</button></div>` : '';
     const isCollapsed = !isEmpty && !_expandedProjs.has(proj); // empty folders start expanded
-    return `<div class="proj-group${isCollapsed?' collapsed':''}" id="pg-${proj}">
+    // Rename/delete action buttons (not shown for Unassigned)
+    const safeProj = isUnassigned ? '' : proj;
+    const headerActions = isUnassigned ? '' : `<span class="proj-group-header-actions" onclick="event.stopPropagation()">
+        <button class="proj-action-btn" onclick="startRenameProject('${safeProj.replace(/'/g,"\\'")}',this)">rename</button>
+        <button class="proj-action-btn danger" onclick="promptDeleteProject('${safeProj.replace(/'/g,"\\'")}')">delete</button>
+      </span>`;
+    const subClass = depth > 0 ? ' proj-subgroup' : '';
+    return `<div class="proj-group${subClass}${isCollapsed?' collapsed':''}" id="pg-${esc(proj)}">
       <div class="proj-group-header" data-proj="${esc(proj)}"
-        onclick="toggleProjGroup('${proj}')"
+        onclick="toggleProjGroup('${proj.replace(/'/g,"\\'")}')"
         ondragover="if(window._slDraggingSongId){event.preventDefault();event.stopPropagation();this.classList.add('drag-over')}"
         ondragleave="this.classList.remove('drag-over')"
         ondrop="_slProjDrop(this,event)">
-        <span class="proj-group-name">${esc(heading)}</span>
+        <span class="proj-group-name" id="pgn-${esc(proj)}">${esc(heading)}</span>
         <span class="proj-group-count">${isEmpty ? 'Empty' : (()=>{
           const counts = { idea:0, drafting:0, finished:0 };
           list.forEach(s => { const k = s.status==='song'?'finished':(s.status||'idea'); if(counts[k]!==undefined) counts[k]++; else counts.idea++; });
@@ -8278,9 +8565,35 @@ function renderGrid() {
           if (counts.finished) parts.push(counts.finished + (counts.finished===1?' finished':' finished'));
           return parts.length ? parts.join(', ') : list.length + ' song' + (list.length===1?'':'s');
         })()}</span>
+        ${headerActions}
         <span class="proj-group-chevron">▼</span>
       </div>
       <div class="proj-group-songs">${colsHeader}${rows}${emptyHint}</div>
+    </div>`;
+  }
+
+  // ── Folder group (non-leaf parent node) ──
+  function buildFolderGroup(folderName, childHtml, depth) {
+    depth = depth || 0;
+    const fid = 'pgfolder-' + folderName;
+    const expandKey = '__folder__' + folderName;
+    const isCollapsed = !_expandedProjs.has(expandKey);
+    const safeName = folderName.replace(/'/g,"\\'");
+    const subClass = depth > 0 ? ' proj-subgroup' : '';
+    return `<div class="proj-group proj-folder-group${subClass}${isCollapsed?' collapsed':''}" id="${fid}">
+      <div class="proj-group-header"
+        onclick="toggleFolderGroup('${safeName}')"
+        ondragover="if(window._slDraggingSongId){event.preventDefault();event.stopPropagation();this.classList.add('drag-over')}"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="_slFolderDrop(this,event,'${safeName}')">
+        <span style="font-size:9px;opacity:0.5;margin-right:2px;">▸</span>
+        <span class="proj-group-name">${esc(folderName)}</span>
+        <span class="proj-group-header-actions" onclick="event.stopPropagation()">
+          <button class="proj-action-btn" onclick="startRenameProjFolder('${safeName}',this)">rename</button>
+        </span>
+        <span class="proj-group-chevron">▼</span>
+      </div>
+      <div class="proj-group-songs">${childHtml}</div>
     </div>`;
   }
 
@@ -8293,29 +8606,35 @@ function renderGrid() {
     myGroups[proj].push(s);
   });
   // Add empty groups for user-defined projects not yet represented by songs
-  // (only when not searching, so empty folders don't clutter search results)
   if (!q) {
     userProjects.forEach(p => { if (!myGroups[p]) myGroups[p] = []; });
   }
-  // Find the 2 most recently updated projects (do this before sorting keys)
-  const projLastUpdated = {};
-  displayMy.forEach(s => {
-    const p = (s.project||'').trim() || '__none__';
-    if (!projLastUpdated[p] || (s.updatedAt||0) > projLastUpdated[p]) projLastUpdated[p] = s.updatedAt||0;
-  });
-  const recentProjs = Object.keys(projLastUpdated)
-    .sort((a,b) => projLastUpdated[b] - projLastUpdated[a])
-    .slice(0, 2);
-  // Sort: alphabetical A-Z, Unassigned always last
-  const myProjKeys = Object.keys(myGroups).sort((a,b) => {
-    if (a==='__none__') return 1; if (b==='__none__') return -1;
-    return a.toLowerCase().localeCompare(b.toLowerCase());
-  });
-  myProjKeys.forEach(k => myGroups[k].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)));
-  const mostRecentProj = recentProjs[0] || null;
-  const myHtml = myProjKeys.map(proj =>
-    buildProjGroup(proj, myGroups[proj], recentProjs, myProjKeys.length)
-  ).join('');
+  Object.keys(myGroups).forEach(k => myGroups[k].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)));
+
+  // ── Build nested tree from all leaf project paths ──
+  const allLeafPaths = Object.keys(myGroups).filter(k => k !== '__none__');
+  const projTree = _buildProjTree(allLeafPaths);
+
+  function _renderMyTree(subtree, depth) {
+    depth = depth || 0;
+    return Object.keys(subtree).sort((a,b) => a.toLowerCase().localeCompare(b.toLowerCase())).map(name => {
+      const node = subtree[name];
+      const hasKids = Object.keys(node.children).length > 0;
+      if (hasKids) {
+        const childHtml = _renderMyTree(node.children, depth + 1);
+        return buildFolderGroup(name, childHtml, depth);
+      } else {
+        const fullPath = node.fullPath || name;
+        return buildProjGroup(fullPath, myGroups[fullPath] || [], null, allLeafPaths.length, depth);
+      }
+    }).join('');
+  }
+
+  const unassignedHtml = myGroups['__none__']
+    ? buildProjGroup('__none__', myGroups['__none__'], null, allLeafPaths.length + 1, 0)
+    : '';
+  const newProjBtn = !q ? `<button class="new-proj-list-btn" onclick="openNewProjectInline()">＋ New Project</button>` : '';
+  const myHtml = _renderMyTree(projTree, 0) + unassignedHtml + newProjBtn;
 
   // ── Shared with me ──
   const displayShared = q ? filteredShared : sharedSongs;
