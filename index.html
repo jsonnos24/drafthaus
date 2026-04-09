@@ -10292,7 +10292,7 @@ function _headerUpdateAudioSelects(audioIns, audioOuts) {
   const inSel  = document.getElementById('headerAudioInSelect');
   const outSel = document.getElementById('headerAudioOutSelect');
   if (inSel) {
-    const curIn = _vrInputDeviceId || '';
+    const curIn = (typeof _vrInputDeviceId !== 'undefined' ? _vrInputDeviceId : '') || '';
     const defaultOpt = `<option value=""${!curIn ? ' selected' : ''}>System Default</option>`;
     inSel.innerHTML = defaultOpt + audioIns.map(d => {
       const label = (d.label || 'Microphone').split('(')[0].trim();
@@ -10301,7 +10301,7 @@ function _headerUpdateAudioSelects(audioIns, audioOuts) {
     if (curIn) inSel.value = curIn; // force-set in case selected attr didn't take
   }
   if (outSel) {
-    const curOut = _vrOutputDeviceId || '';
+    const curOut = (typeof _vrOutputDeviceId !== 'undefined' ? _vrOutputDeviceId : '') || '';
     const defaultOpt = `<option value=""${!curOut ? ' selected' : ''}>System Default</option>`;
     outSel.innerHTML = defaultOpt + audioOuts.map(d => {
       const label = (d.label || 'Speaker').split('(')[0].trim();
@@ -14111,6 +14111,17 @@ auth.onAuthStateChanged(user => {
           const emailEl = document.getElementById('headerUserEmail');
           if (emailEl) emailEl.textContent = user.email || '';
           initApp();
+          // Re-apply 4-track lock classes now that the real tier is known
+          // (mtBuildUI runs at DOMContentLoaded before the tier loads, so locks may be stale)
+          setTimeout(() => {
+            const limit = getTierLimits().tracks;
+            for (let i = 0; i < 4; i++) {
+              const lane = document.getElementById('mt-track-' + i);
+              if (!lane) continue;
+              if (i >= limit) lane.classList.add('mt-tier-locked');
+              else lane.classList.remove('mt-tier-locked');
+            }
+          }, 300);
           setTimeout(() => { if (typeof _initSplitAlwaysOn === 'function') _initSplitAlwaysOn(); }, 150);
           appInited = true;
         } else if (newTier !== userTier) {
@@ -22298,6 +22309,8 @@ function toggleKsPanel() {
   const panel = document.getElementById('ksPanel');
   const btn   = document.querySelector('.ks-btn');
   if (!panel || !btn) return;
+  // Move to body so it escapes the header's stacking context
+  if (panel.parentElement !== document.body) document.body.appendChild(panel);
   const isOpen = panel.classList.contains('open');
   if (!isOpen) {
     const rect = btn.getBoundingClientRect();
