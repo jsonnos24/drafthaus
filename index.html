@@ -4603,6 +4603,59 @@ body.split-expanded-left #viewDetail {
 body.split-expanded-left #splitRightPanel,
 body.split-expanded-left #splitDivider { display: none !important; }
 
+/* ── Split right pane default / placeholder ───────────────────────── */
+#splitRightDefault {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 32px 24px;
+  text-align: center;
+  box-sizing: border-box;
+  overflow-y: auto;
+  color: var(--muted);
+}
+#splitRightDefault.srd-hidden { display: none; }
+.split-right-cta {
+  max-width: 300px;
+  width: 100%;
+}
+.split-right-cta-icon { font-size: 36px; margin-bottom: 14px; }
+.split-right-cta-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px; font-weight: 700;
+  color: var(--gold); letter-spacing: 0.05em;
+  margin-bottom: 10px;
+}
+.split-right-cta-body {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; color: var(--muted);
+  margin-bottom: 20px; line-height: 1.7;
+}
+.split-right-cta-btn {
+  padding: 10px 24px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
+  background: rgba(245,166,35,0.1);
+  border: 1px solid rgba(245,166,35,0.35);
+  color: var(--gold); border-radius: 8px; cursor: pointer;
+  transition: all 0.15s;
+}
+.split-right-cta-btn:hover {
+  background: rgba(245,166,35,0.2);
+  border-color: rgba(245,166,35,0.6);
+}
+.split-right-cta-hint {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; color: var(--faint);
+  margin-top: 16px;
+}
+.split-right-paid-hint {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; color: var(--faint);
+}
+
 /* Right pane fully expanded */
 body.split-expanded-right #splitRightPanel {
   left: 0 !important; right: 0 !important;
@@ -4663,9 +4716,9 @@ body.il-perf-active.split-active #splitLeftHeader {
 body.il-perf-active.split-active .rt-metro.il-perf-metro {
   right: calc(100% - var(--split-left)) !important;
 }
-/* Pad the right panel bottom so content clears the metro bar area */
+/* Pad the right panel bottom so content clears the bottom nav */
 body.il-perf-active.split-active #splitRightContent {
-  padding-bottom: 80px;
+  padding-bottom: 60px;
 }
 
 /* 4-Track in split panel — strip modal backdrop, fill the panel */
@@ -5559,7 +5612,8 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
 .rt-mso-row { display: flex; align-items: center; gap: 10px; }
 
 /* ── Perf mode: hide bottom nav, top header + sticky song bar ───── */
-body.il-perf-active #bottomNav { display: none; }
+/* Bottom nav stays visible in perf/rehearse mode — metro bar is hidden instead */
+body.il-perf-active .rt-metro { display: none !important; }
 body.il-perf-active #siteHeader { display: none; }
 body.il-perf-active #stickySongBar { display: none !important; }
 /* In perf mode, Run Through button is redundant — hide it in both nav areas */
@@ -13837,12 +13891,15 @@ auth.onAuthStateChanged(user => {
       const emailEl = document.getElementById('headerUserEmail');
       if (emailEl) emailEl.textContent = user.email || '';
       initApp();
+      // Boot always-on split after tier is known
+      setTimeout(() => { if (typeof _initSplitAlwaysOn === 'function') _initSplitAlwaysOn(); }, 150);
     }).catch(() => {
       // Fallback: init app even if tier load fails
       document.getElementById('landingOverlay').classList.add('hidden');
       const emailEl = document.getElementById('headerUserEmail');
       if (emailEl) emailEl.textContent = user.email || '';
       initApp();
+      setTimeout(() => { if (typeof _initSplitAlwaysOn === 'function') _initSplitAlwaysOn(); }, 150);
     });
   } else {
     // Logged out — clear everything
@@ -17560,6 +17617,22 @@ function _syncExpandBtns() {
 }
 
 function closeSplitMode() {
+  // On desktop, split is always-on — treat as "collapse right pane / go home"
+  if (window.innerWidth >= 900) {
+    if (_splitCurrentTool) {
+      _splitReturnDrawer();
+      _splitCurrentTool = null;
+    }
+    document.body.classList.remove('split-tool-left', 'split-expanded-left', 'split-expanded-right');
+    _splitExpandedSide = null;
+    _splitToolSide = 'right';
+    _syncExpandBtns();
+    var rSel = document.getElementById('splitRightSelect');
+    if (rSel) rSel.value = '';
+    _showSplitRightDefault();
+    return;
+  }
+  // Mobile: actually close the split
   if (!_splitActive) return;
   _splitActive = false;
   _splitReturnDrawer();
@@ -17571,9 +17644,61 @@ function closeSplitMode() {
   _splitCurrentTool = null;
 }
 
+/* ── Split right pane default panel ─────────────────────────────── */
+function _showSplitRightDefault() {
+  var el = document.getElementById('splitRightDefault');
+  if (!el) return;
+  el.classList.remove('srd-hidden');
+  if (typeof userTier !== 'undefined' && userTier !== 'free') {
+    el.innerHTML = '<div class="split-right-paid-hint">Select a tool above ↑</div>';
+  } else {
+    el.innerHTML =
+      '<div class="split-right-cta">' +
+        '<div class="split-right-cta-icon">🎸</div>' +
+        '<div class="split-right-cta-title">Upgrade Drafthaus</div>' +
+        '<div class="split-right-cta-body">Unlock 4-Track recording, Looper, Sequencer, and Keyboard. Your workspace layout is also saved between sessions on paid plans.</div>' +
+        '<button class="split-right-cta-btn" onclick="showUpgradeModal(\'\')">View Plans →</button>' +
+        '<div class="split-right-cta-hint">Or select a tool from the dropdown above ↑</div>' +
+      '</div>';
+  }
+}
+
+function _hideSplitRightDefault() {
+  var el = document.getElementById('splitRightDefault');
+  if (el) el.classList.add('srd-hidden');
+}
+
+/* ── Go to home (list left, default right) ──────────────────────── */
+function goSplitHome() {
+  // Clear right pane tool
+  if (_splitCurrentTool) _splitReturnDrawer();
+  _splitCurrentTool = null;
+  document.body.classList.remove('split-expanded-left', 'split-expanded-right');
+  _splitExpandedSide = null;
+  _syncExpandBtns();
+  var rSel = document.getElementById('splitRightSelect');
+  if (rSel) rSel.value = '';
+  _showSplitRightDefault();
+  // Go to list on left
+  ilSetPerfMode(false);
+  if (typeof showList === 'function') showList();
+  var lSel = document.getElementById('splitLeftSelect');
+  if (lSel) lSel.value = 'list';
+}
+
 function setSplitRightTool(tool) {
   var content = document.getElementById('splitRightContent');
   if (!content) return;
+  // Empty tool = show default placeholder
+  if (!tool) {
+    if (_splitCurrentTool) _splitReturnDrawer();
+    _splitCurrentTool = null;
+    var rSel = document.getElementById('splitRightSelect');
+    if (rSel) rSel.value = '';
+    _showSplitRightDefault();
+    return;
+  }
+  _hideSplitRightDefault();
   // If switching away from any tool, return it first
   if (_splitCurrentTool && _splitCurrentTool !== tool) {
     _splitReturnDrawer();
@@ -17637,6 +17762,10 @@ function setSplitRightTool(tool) {
   // Sync dropdown
   var sel = document.getElementById('splitRightSelect');
   if (sel) sel.value = tool;
+  // State persistence for paid users
+  if (typeof userTier !== 'undefined' && userTier !== 'free') {
+    try { localStorage.setItem('dh_split_right', tool); } catch(e) {}
+  }
 }
 
 // (lyrics panel now uses the live #songViewRunthrough element — no separate render needed)
@@ -17679,10 +17808,8 @@ function _splitReturnDrawer() {
 }
 
 function swapSplitPanels() {
-  var tools = ['keyboard', 'sequencer', 'looper', '4track', 'lyrics'];
-  var idx = tools.indexOf(_splitCurrentTool);
-  var nextTool = tools[(idx + 1) % tools.length];
-  setSplitRightTool(nextTool);
+  // Swap the tool between left and right sides
+  switchSplitSides();
 }
 
 function switchSplitSides() {
@@ -17693,20 +17820,24 @@ function switchSplitSides() {
 /* Central router for all desktop tool clicks */
 function _desktopOpenTool(toolKey) {
   if (window.innerWidth < 900) return false; // let caller handle mobile
-  // Same tool clicked again — switch sides
-  if (_splitActive && _splitCurrentTool === toolKey) {
-    switchSplitSides();
+  // Same tool clicked while visible in right pane → collapse/toggle
+  if (_splitActive && _splitCurrentTool === toolKey && _splitExpandedSide !== 'left') {
+    splitExpandPane('left'); // collapses right pane; pressing again restores it
     return true;
   }
-  // Set split ratio (4-track gets more room at 50/50)
-  if (!_splitActive) {
-    var ratio = (toolKey === '4track') ? '50%' : '55%';
-    document.documentElement.style.setProperty('--split-left', ratio);
-    var div = document.getElementById('splitDivider');
-    var rp  = document.getElementById('splitRightPanel');
-    if (div) div.style.left = 'calc(' + ratio + ' - 3px)';
-    if (rp)  rp.style.left = ratio;
+  // If right pane was collapsed (left expanded), restore split first
+  if (_splitExpandedSide === 'left') {
+    _splitExpandedSide = null;
+    document.body.classList.remove('split-expanded-left');
+    _syncExpandBtns();
   }
+  // Set split ratio (4-track gets more room at 50/50)
+  var ratio = (toolKey === '4track') ? '50%' : '55%';
+  document.documentElement.style.setProperty('--split-left', ratio);
+  var div = document.getElementById('splitDivider');
+  var rp  = document.getElementById('splitRightPanel');
+  if (div) div.style.left = 'calc(' + ratio + ' - 3px)';
+  if (rp)  rp.style.left = ratio;
   if (_splitActive) {
     setSplitRightTool(toolKey);
   } else {
@@ -17719,6 +17850,14 @@ function _desktopOpenTool(toolKey) {
 function setSplitLeftView(view) {
   // Call setSongViewMode / showList DIRECTLY — never go through stickyGoBackend/stickyGoEditor
   // because those call closeAllDrawers() which triggers closeSplitMode() and breaks the panel.
+
+  // Toggle: clicking the active view sends you back to The List
+  var leftSel = document.getElementById('splitLeftSelect');
+  var currentLeft = leftSel ? leftSel.value : '';
+  if (view !== 'list' && view === currentLeft) {
+    view = 'list'; // toggle back to list
+  }
+
   switch (view) {
     case 'rehearse':
       if (typeof _ensureDetailView === 'function') _ensureDetailView();
@@ -17753,7 +17892,62 @@ function setSplitLeftView(view) {
   }
   var sel = document.getElementById('splitLeftSelect');
   if (sel) sel.value = view;
+  // State persistence for paid users
+  if (typeof userTier !== 'undefined' && userTier !== 'free') {
+    try { localStorage.setItem('dh_split_left', view); } catch(e) {}
+  }
 }
+
+/* ── Always-on split init (desktop only) ─────────────────────────── */
+function _initSplitAlwaysOn() {
+  if (window.innerWidth < 900) return; // mobile stays non-split
+  _splitActive = true;
+  document.body.classList.add('split-active');
+  document.getElementById('splitBtn')?.classList.add('active');
+
+  // Restore saved state for paid users; default for free
+  var savedLeft  = 'list';
+  var savedRight = null;
+  if (typeof userTier !== 'undefined' && userTier !== 'free') {
+    try {
+      savedLeft  = localStorage.getItem('dh_split_left')  || 'list';
+      savedRight = localStorage.getItem('dh_split_right') || null;
+    } catch(e) {}
+  }
+
+  // Sync left dropdown (don't trigger a full view switch — page starts at list)
+  var lSel = document.getElementById('splitLeftSelect');
+  if (lSel) lSel.value = savedLeft;
+
+  // Apply left view only if not default (list)
+  if (savedLeft && savedLeft !== 'list') {
+    setSplitLeftView(savedLeft);
+  }
+
+  // Apply right tool or show default
+  if (savedRight) {
+    setSplitRightTool(savedRight);
+  } else {
+    _showSplitRightDefault();
+  }
+}
+
+// Toggle split on desktop resize
+window.addEventListener('resize', function() {
+  if (window.innerWidth >= 900 && !_splitActive) {
+    _splitActive = true;
+    document.body.classList.add('split-active');
+    document.getElementById('splitBtn')?.classList.add('active');
+    if (!_splitCurrentTool) _showSplitRightDefault();
+  } else if (window.innerWidth < 900 && _splitActive) {
+    // Return any active tool before collapsing
+    if (_splitCurrentTool) _splitReturnDrawer();
+    _splitActive = false;
+    _splitCurrentTool = null;
+    document.body.classList.remove('split-active', 'split-expanded-left', 'split-expanded-right');
+    _splitExpandedSide = null;
+  }
+});
 
 /* ── Draggable divider ────────────────────────────────────────────── */
 (function() {
@@ -18160,7 +18354,7 @@ function openKeyboardDrawer() {
 }
 
 function closeKeyboardDrawer() {
-  if (_splitActive && _splitCurrentTool === 'keyboard') { closeSplitMode(); return; }
+  if (_splitActive && _splitCurrentTool === 'keyboard') { splitExpandPane('left'); return; }
   document.getElementById('keyboardDrawer').classList.remove('open');
   document.getElementById('keyboardDrawerOverlay').classList.remove('open');
   if (window.innerWidth < 900) document.getElementById('keyboardDrawerTab').style.display = '';
@@ -18221,7 +18415,7 @@ function openSeqDrawer() {
 }
 
 function closeSeqDrawer() {
-  if (_splitActive && _splitCurrentTool === 'sequencer') { closeSplitMode(); return; }
+  if (_splitActive && _splitCurrentTool === 'sequencer') { splitExpandPane('left'); return; }
   document.getElementById('seqDrawer').classList.remove('open');
   document.getElementById('seqDrawerOverlay').classList.remove('open');
   if (window.innerWidth < 900) document.getElementById('seqDrawerTab').style.display = '';
@@ -19377,7 +19571,7 @@ function openLooperDrawer() {
   setTimeout(_vuStart, 80); // start VU meter after drawer is visible
 }
 function closeLooperDrawer() {
-  if (_splitActive && _splitCurrentTool === 'looper') { closeSplitMode(); return; }
+  if (_splitActive && _splitCurrentTool === 'looper') { splitExpandPane('left'); return; }
   document.getElementById('looperDrawer').classList.remove('open');
   document.getElementById('looperOverlay').classList.remove('open');
   _vuMaybeStop();
@@ -20125,32 +20319,32 @@ function _cleanupIlSplitMode() {
   if (rtEl) rtEl.classList.remove('il-perf-mode');
 }
 
-// Go to editor (run-through) view and exit perf mode
+// Go to editor (run-through) view — on desktop routes through left pane
 function stickyGoEditor() {
   if (!getCurrentSong()) { showNoSongModal(stickyGoEditor); return; }
-  _ensureDetailView();
-  _cleanupIlSplitMode();
-  if (window._ilPerfMode && window.innerWidth >= 900) {
-    // In perf mode on desktop: open/toggle the draggable split with lyrics on the right.
-    // Don't call closeAllDrawers() here — that would teardown any existing split.
-    _desktopOpenTool('lyrics');
+  if (window.innerWidth >= 900) {
+    // Desktop: show/toggle lyrics in left pane
+    setSplitLeftView('lyrics');
     return;
   }
+  // Mobile: legacy behavior
+  _ensureDetailView();
+  _cleanupIlSplitMode();
   closeAllDrawers();
   setSongViewMode('runthrough');
 }
 
-// Go to backend view (closes any open drawer first)
+// Go to backend view — on desktop routes through left pane
 function stickyGoBackend() {
   if (!getCurrentSong()) { showNoSongModal(stickyGoBackend); return; }
-  _ensureDetailView();
-  _cleanupIlSplitMode();
-  if (window._ilPerfMode && window.innerWidth >= 900) {
-    // In perf mode on desktop: open/toggle the draggable split with backend on the right.
-    // Don't call closeAllDrawers() here — that would teardown any existing split.
-    _desktopOpenTool('backend');
+  if (window.innerWidth >= 900) {
+    // Desktop: show/toggle backend in left pane
+    setSplitLeftView('backend');
     return;
   }
+  // Mobile: legacy behavior
+  _ensureDetailView();
+  _cleanupIlSplitMode();
   closeAllDrawers();
   setSongViewMode('backend');
 }
@@ -22006,7 +22200,8 @@ document.addEventListener('keydown', function(e) {
     }
     case 'h': {
       e.preventDefault();
-      if (typeof showList === 'function') showList();
+      if (window.innerWidth >= 900 && typeof goSplitHome === 'function') goSplitHome();
+      else if (typeof showList === 'function') showList();
       break;
     }
     case 'n': {
@@ -24533,25 +24728,26 @@ document.addEventListener('DOMContentLoaded', () => {
 <!-- ── Chrome-style split workspace ──────────────────────────────── -->
 <div id="splitLeftHeader">
   <select id="splitLeftSelect" onchange="setSplitLeftView(this.value)" title="Choose left panel content">
-    <option value="lyrics">✏️ Lyrics</option>
+    <option value="list">📋 The List</option>
+    <option value="lyrics">✏️ Edit Lyrics (chords)</option>
     <option value="backend">▦ Backend</option>
-    <option value="list">📋 Song List</option>
   </select>
   <button id="splitLeftExpandBtn" class="split-expand-btn" onclick="splitExpandPane('left')" title="Expand left pane">⤢</button>
 </div>
 <div id="splitRightPanel">
   <div id="splitRightHeader">
     <select id="splitRightSelect" onchange="setSplitRightTool(this.value)" title="Choose panel content">
-      <option value="keyboard">🎹 Keyboard</option>
+      <option value="">— Select Tool —</option>
+      <option value="4track">🎙 4-Track</option>
       <option value="sequencer">🎛 Sequencer</option>
       <option value="looper">⏺ Looper</option>
-      <option value="4track">🎙 4-Track</option>
+      <option value="keyboard">🎹 Keyboard</option>
     </select>
     <button id="splitRightExpandBtn" class="split-expand-btn" onclick="splitExpandPane('right')" title="Expand right pane">⤢</button>
     <button class="split-hdr-btn" onclick="swapSplitPanels()" title="Swap panels">⇄</button>
-    <button class="split-hdr-btn close-btn" onclick="closeSplitMode()" title="Close split view">✕</button>
   </div>
   <div id="splitRightContent"></div>
+  <div id="splitRightDefault" class="split-right-default"></div>
 </div>
 <div id="splitDivider"><button id="splitSwapBtn" onclick="switchSplitSides()" title="Swap panels" onmousedown="event.stopPropagation()">⇄</button></div>
 
