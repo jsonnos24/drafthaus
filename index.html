@@ -7426,7 +7426,8 @@ body.il-perf-active #ilScrollFloat { display: none; }
 <div id="upgradeModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.85);align-items:center;justify-content:center;padding:20px;">
   <div style="background:#0d0f16;border:1px solid #2a2d3a;border-radius:18px;padding:28px 24px;max-width:620px;width:100%;font-family:'IBM Plex Mono',monospace;">
 
-    <div style="font-size:18px;font-weight:700;color:#f5c842;margin-bottom:4px;">Upgrade Drafthaus</div>
+    <div style="font-size:10px;font-weight:600;color:#f5c842;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:6px;">Upgrade Drafthaus</div>
+    <div style="font-size:20px;font-weight:700;color:#ffffff;margin-bottom:4px;">More Room to Create.</div>
     <div id="upgradeModalReason" style="font-size:11px;color:#666;margin-bottom:22px;line-height:1.7;"></div>
 
     <!-- Comparison table -->
@@ -7468,6 +7469,13 @@ body.il-perf-active #ilScrollFloat { display: none; }
           <td style="text-align:center;padding:9px 6px;color:#fff;">20 min</td>
           <td style="text-align:center;padding:9px 6px;color:#c4baf5;background:rgba(107,79,216,0.06);">1.5 hrs</td>
           <td style="text-align:center;padding:9px 6px;color:#f5c842;">4 hrs</td>
+        </tr>
+        <!-- Drop-in Samples -->
+        <tr style="border-top:1px solid #1e2130;">
+          <td style="padding:9px 10px 9px 0;color:#fff;">Drop-in Samples</td>
+          <td style="text-align:center;padding:9px 6px;color:#fff;">1 per song</td>
+          <td style="text-align:center;padding:9px 6px;color:#c4baf5;background:rgba(107,79,216,0.06);">2 per song</td>
+          <td style="text-align:center;padding:9px 6px;color:#f5c842;">Quota only</td>
         </tr>
         <!-- 4-Track Recorder -->
         <tr style="border-top:1px solid #1e2130;">
@@ -8022,9 +8030,9 @@ let userTier = 'free'; // 'free' | 'songwriter' | 'studio' — loaded from Fires
 
 // ── Tier helpers ───────────────────────────────────────────────────
 const TIER_LIMITS = {
-  free:       { songs: 2, recordingMinutes: 20, loops: 1, tracks: 2, exports: 1, collab: false },
-  songwriter: { songs: 20, recordingMinutes: 90, loops: 4, tracks: 4, exports: Infinity, collab: true },
-  studio:     { songs: Infinity, recordingMinutes: 240, loops: 4, tracks: 4, exports: Infinity, collab: true },
+  free:       { songs: 2, recordingMinutes: 20, loops: 1, tracks: 2, exports: 1, collab: false, uploadsPerSong: 1 },
+  songwriter: { songs: 20, recordingMinutes: 90, loops: 4, tracks: 4, exports: Infinity, collab: true, uploadsPerSong: 2 },
+  studio:     { songs: Infinity, recordingMinutes: 240, loops: 4, tracks: 4, exports: Infinity, collab: true, uploadsPerSong: Infinity },
 };
 function getTierLimits() { return TIER_LIMITS[userTier] || TIER_LIMITS.free; }
 
@@ -20443,7 +20451,7 @@ function loopBuildUI() {
         if (trackIdx >= getTierLimits().loops) { showUpgradeModal('Tracks 3 & 4 are available on Drafter and Prolific Drafter plans. Upgrade to unlock all 4 tracks.'); return; }
         const file = e.dataTransfer.files[0];
         if (!file || !file.type.startsWith('audio/')) { showToast('Please drop an audio file (MP3, WAV, etc.)', 'error'); return; }
-        if (file.size > 11 * 1024 * 1024) { showToast('File too large — please use files under 7 MB', 'error'); return; }
+        if (file.size > 11 * 1024 * 1024) { showToast('File too large — please use files under 11 MB', 'error'); return; }
         await loopDropAudioFile(trackIdx, file);
       });
     })(i, card);
@@ -20781,7 +20789,7 @@ async function loopCheckFeedbackWarning() {
 function loopAnyTrackActive(){return loopTracks.some(t=>['recording','playing','preroll'].includes(t.state));}
 
 // ── Loop Persistence ───────────────────────────────────────────────
-async function loopAutoSave(trackIdx, blob, mimeType, duration) {
+async function loopAutoSave(trackIdx, blob, mimeType, duration, source) {
   const songId = loopSongId || currentId;
   if (!songId || !auth.currentUser) {
     console.warn('[Looper] skipping save — no active song or user', { songId, user: auth.currentUser?.uid });
@@ -20811,6 +20819,7 @@ async function loopAutoSave(trackIdx, blob, mimeType, duration) {
       bars: loopBars,
       duration: Math.round(duration * 10) / 10,
       mimeType,
+      ...(source ? { source } : {}),
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     showDrawerStatus('saved', '✓  Loop saved');
@@ -20991,6 +21000,16 @@ async function loopLoadFromSaved(docId, downloadUrl, duration) {
 async function loopDropAudioFile(trackIdx, file) {
   await loopEnsureAudioCtx();
   const t = loopTracks[trackIdx]; if (!t) return;
+  // Upload count gate
+  const uploadLimit = getTierLimits().uploadsPerSong;
+  if (uploadLimit !== Infinity) {
+    const songId = loopSongId || currentId;
+    const uploadCount = await _countUploadsForSong('song_loops', songId);
+    if (uploadCount >= uploadLimit) {
+      showUpgradeModal(`Your plan allows ${uploadLimit} sample upload${uploadLimit === 1 ? '' : 's'} per song in the looper. Upgrade for more.`);
+      return;
+    }
+  }
   const stl = document.getElementById(`lstate-label-${trackIdx}`);
   if (stl) { stl.textContent = 'LOADING…'; stl.style.display = ''; }
   try {
@@ -21022,7 +21041,7 @@ async function loopDropAudioFile(trackIdx, file) {
     }
     // Upload to Firebase in background — don't block playback
     const blob = new Blob([arrBuf], { type: file.type });
-    loopAutoSave(trackIdx, blob, file.type, audioBuf.duration);
+    loopAutoSave(trackIdx, blob, file.type, audioBuf.duration, 'upload');
   } catch(err) {
     console.error('[Looper] drop decode failed', err);
     if (stl) { stl.textContent = ''; stl.style.display = 'none'; }
@@ -23610,7 +23629,7 @@ function mtBuildUI() {
         if (trackIdx >= getTierLimits().tracks) { showUpgradeModal('Tracks 3 & 4 are available on Drafter and Prolific Drafter plans. Upgrade to unlock all 4 tracks.'); return; }
         const file = e.dataTransfer.files[0];
         if (!file || !file.type.startsWith('audio/')) { showToast('Please drop an audio file (MP3, WAV, etc.)', 'error'); return; }
-        if (file.size > 11 * 1024 * 1024) { showToast('File too large — please use files under 7 MB', 'error'); return; }
+        if (file.size > 11 * 1024 * 1024) { showToast('File too large — please use files under 11 MB', 'error'); return; }
         await mtDropAudioFile(trackIdx, file);
       });
     })(i);
@@ -23630,6 +23649,16 @@ function mtBuildUI() {
 async function mtDropAudioFile(trackIdx, file) {
   _mtCreateCtxSync();
   const t = _mtTracks[trackIdx]; if (!t) return;
+  // Upload count gate
+  const uploadLimit = getTierLimits().uploadsPerSong;
+  if (uploadLimit !== Infinity) {
+    if (!_vrSongId) _vrSongId = currentId || null;
+    const uploadCount = await _countUploadsForSong('voice_takes', _vrSongId);
+    if (uploadCount >= uploadLimit) {
+      showUpgradeModal(`Your plan allows ${uploadLimit} sample upload${uploadLimit === 1 ? '' : 's'} per song in the 4-track. Upgrade for more.`);
+      return;
+    }
+  }
   const sl = _el('mt-state-'+trackIdx);
   if (sl) sl.textContent = 'LOADING…';
   const hint = _el('mt-empty-hint-'+trackIdx);
@@ -23661,7 +23690,7 @@ async function mtDropAudioFile(trackIdx, file) {
     if (_vrSongId && auth.currentUser) {
       showDrawerStatus('saving', '💾  Saving take to cloud…');
       const blob = new Blob([arrBuf], { type: file.type });
-      const newTake = await _uploadTake(blob, buffer.duration, file.type, trackIdx);
+      const newTake = await _uploadTake(blob, buffer.duration, file.type, trackIdx, 'upload');
       if (newTake) {
         showDrawerStatus('saved', '✓  Take saved');
         hideDrawerStatus(2000);
@@ -24454,8 +24483,19 @@ async function _vrGetQuota() {
   } catch(e) { return { used: 0, remaining: quotaSecs }; }
 }
 
+// ── Count uploaded (not recorded) files for a song ─────────────
+async function _countUploadsForSong(collectionName, songId) {
+  const uid = auth.currentUser?.uid;
+  if (!uid || !songId) return 0;
+  try {
+    const snap = await db.collection(collectionName)
+      .where('songId', '==', songId).where('userId', '==', uid).get();
+    return snap.docs.filter(d => d.data().source === 'upload').length;
+  } catch(e) { return 0; }
+}
+
 // ── Upload (with trackNum) — returns new doc ID ────────────────
-async function _uploadTake(blob, duration, mimeType, trackIdx) {
+async function _uploadTake(blob, duration, mimeType, trackIdx, source) {
   const uid = auth.currentUser?.uid;
   const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('wav') ? 'wav' : (mimeType.includes('mp3') || mimeType.includes('mpeg')) ? 'mp3' : 'ogg';
   const fname = 'take_' + Date.now() + '.' + ext;
@@ -24464,7 +24504,7 @@ async function _uploadTake(blob, duration, mimeType, trackIdx) {
     const ref  = firebase.storage().ref(path);
     const snap = await ref.put(blob, { contentType: mimeType });
     const url  = await snap.ref.getDownloadURL();
-    const docRef = await db.collection('voice_takes').add({
+    const doc  = {
       songId: _vrSongId, userId: uid,
       filename: fname, storagePath: path,
       downloadUrl: url,
@@ -24472,7 +24512,9 @@ async function _uploadTake(blob, duration, mimeType, trackIdx) {
       mimeType: mimeType,
       trackNum: typeof trackIdx === 'number' ? trackIdx : 0,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    };
+    if (source) doc.source = source;
+    const docRef = await db.collection('voice_takes').add(doc);
     return { id: docRef.id, downloadUrl: url, mimeType, duration: Math.round(duration),
              trackNum: typeof trackIdx === 'number' ? trackIdx : 0 };
   } catch(err) {
@@ -24662,7 +24704,7 @@ function _mtRenderTakesPanel(trackIdx) {
   const t = _mtTracks[trackIdx]; if (!t) return;
   const panel = _el('mt-takes-panel-'+trackIdx); if (!panel) return;
   const closeBtn = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;border-bottom:1px solid #1e2130;padding-bottom:6px;">
-    <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#4a4e60;letter-spacing:0.08em;text-transform:uppercase;">Takes (${t.takes.length})</span>
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#f5c842;letter-spacing:0.08em;text-transform:uppercase;">Takes (${t.takes.length})</span>
     <button onclick="mtToggleTakes(${trackIdx})" style="font-family:'IBM Plex Mono',monospace;font-size:9px;background:#1a1d28;border:1px solid #2a2d38;border-radius:4px;padding:2px 8px;cursor:pointer;color:#8a8e9e;letter-spacing:0.04em;" title="Close takes">✕</button>
   </div>`;
   if (t.takes.length === 0) {
