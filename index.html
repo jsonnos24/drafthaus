@@ -5616,13 +5616,121 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
 body.il-perf-active .rt-metro { display: none !important; }
 body.il-perf-active #siteHeader { display: none; }
 body.il-perf-active #stickySongBar { display: none !important; }
-/* In perf mode, Run Through button is redundant — hide it in both nav areas */
-body.il-perf-active #navSubRunBtn  { display: none; }
-body.il-perf-active #metroNavRunBtn { display: none; }
+/* Rehearse button stays visible in perf mode so user can exit */
 /* Elements only shown when metro bar is in perf overlay */
 .rt-perf-only { display: none; }
 .rt-metro.il-perf-metro .rt-perf-only { display: flex; align-items: center; }
 .rt-metro.il-perf-metro div.rt-perf-only { display: flex; }
+
+/* ── Rehearse control bar (slides up above bottom nav in perf mode) ── */
+#rehearseBar {
+  position: fixed;
+  bottom: 60px; left: 0; right: 0; /* always above bottom nav */
+  z-index: 9940;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  height: 44px;
+  background: rgba(12,12,16,0.98);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  /* hidden: slide down entirely below bottom nav */
+  transform: translateY(calc(100% + 60px));
+  transition: transform 0.22s cubic-bezier(0.34,1.2,0.64,1);
+  pointer-events: none;
+  will-change: transform;
+}
+#rehearseBar::-webkit-scrollbar { display: none; }
+body.il-perf-active #rehearseBar {
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.reh-sep {
+  width: 1px; height: 24px;
+  background: rgba(255,255,255,0.12);
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+.reh-btn {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: none;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 5px;
+  padding: 4px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.reh-btn:active { opacity: 0.7; }
+.reh-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(167,139,250,0.08);
+}
+.reh-btn.reh-metro-active {
+  color: #6ee7b7;
+  border-color: #6ee7b7;
+  background: rgba(110,231,183,0.08);
+}
+.reh-btn.reh-seq-active {
+  color: #60a5fa;
+  border-color: #60a5fa;
+  background: rgba(96,165,250,0.08);
+}
+.reh-btn.reh-arm-active {
+  color: #f87171;
+  border-color: #f87171;
+  background: rgba(248,113,113,0.08);
+  animation: armSeqPulse 1.2s ease-in-out infinite;
+}
+.reh-bpm-display {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg);
+  min-width: 32px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.reh-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.reh-time-sel {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--fg);
+  background: none;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 5px;
+  padding: 3px 6px;
+  height: 28px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
 
 /* ── Metro bar lifted into perf mode ───────────────────────────── */
 .rt-metro.il-perf-metro {
@@ -15292,7 +15400,7 @@ function rtUpdateDots(beat) {
 
 function rtMetroDelta(d) {
   rtMetroBpm = Math.max(40, Math.min(240, rtMetroBpm + d));
-  ['rtMetroBpmDisplay','rtMetroBpmDisplay2'].forEach(id => {
+  ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = rtMetroBpm;
   });
@@ -15335,7 +15443,7 @@ function rtTapTempo() {
     const intervals = recent.slice(1).map((t, i) => t - recent[i]);
     const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
     rtMetroBpm = Math.round(Math.max(40, Math.min(240, 60000 / avg)));
-    ['rtMetroBpmDisplay','rtMetroBpmDisplay2'].forEach(id => {
+    ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.textContent = rtMetroBpm;
     });
@@ -15343,8 +15451,10 @@ function rtTapTempo() {
     if (rtMetroRunning) { rtMetroStop(); rtMetroStart(); }
   }
   // Visual flash on tap button
-  const btn = document.getElementById('rtTapBtn');
-  if (btn) { btn.classList.add('tapping'); setTimeout(() => btn.classList.remove('tapping'), 100); }
+  ['rtTapBtn','rehTapBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) { btn.classList.add('tapping'); setTimeout(() => btn.classList.remove('tapping'), 100); }
+  });
   // Auto-clear tap history after 2.5s of no taps
   clearTimeout(_rtTapResetTimer);
   _rtTapResetTimer = setTimeout(() => { _rtTapTimes = []; }, 2500);
@@ -15355,6 +15465,11 @@ function rtMetroChangeTime(v) {
   rtMetroBeat = 0;
   rtBuildDots();
   rtUpdateDots(-1);
+  // Keep all time-sig selects in sync
+  ['rtMetroTimeSel','rtMetroTimeSel2','rehTimeSel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.value !== String(rtMetroTime)) el.value = String(rtMetroTime);
+  });
 }
 
 function rtMetroStop() {
@@ -15364,6 +15479,7 @@ function rtMetroStop() {
   rtMetroBeat = 0; rtUpdateDots(-1);
   const btn = document.getElementById('rtMetroPlayBtn');
   if (btn) { btn.textContent = '▶'; btn.classList.remove('active'); }
+  if (typeof _syncRehMetroBtn === 'function') _syncRehMetroBtn();
 }
 
 async function rtMetroToggle() {
@@ -15378,6 +15494,7 @@ async function rtMetroToggle() {
     const btn = document.getElementById('rtMetroPlayBtn');
     if (btn) { btn.textContent = '■'; btn.classList.add('active'); }
   }
+  if (typeof _syncRehMetroBtn === 'function') _syncRehMetroBtn();
 }
 
 function rtMetroSchedule() {
@@ -20573,6 +20690,9 @@ function ilSetPerfMode(on) {
     }
     const seqBtn = document.getElementById('rtSeqPlayBtn');
     if (seqBtn) seqBtn.textContent = '▶ Seq';
+    // Also reset rehearse bar seq button
+    const rehSeqBtn = document.getElementById('rehSeqPlayBtn');
+    if (rehSeqBtn) rehSeqBtn.textContent = '▶ Seq';
   }
   // Move metro bar into/out of the perf overlay
   const metro  = document.getElementById('rtMetroBar');
@@ -20593,6 +20713,46 @@ function ilSetPerfMode(on) {
       if (rtMetroRunning) rtMetroToggle();
     }
   }
+  // Sync rehearse bar state when entering/leaving perf mode
+  if (on) {
+    // Sync BPM display
+    const rehBpm = document.getElementById('rehBpmDisplay');
+    if (rehBpm) rehBpm.textContent = rtMetroBpm;
+    // Sync time signature select
+    const rehTs = document.getElementById('rehTimeSel');
+    if (rehTs) rehTs.value = String(rtMetroTime);
+    // Sync metro button state
+    _syncRehMetroBtn();
+    // Sync arm seq button state
+    _syncRehArmBtn();
+  } else {
+    // Stop metro if running, reset rehearse bar metro button
+    _syncRehMetroBtn();
+  }
+}
+
+// ── Rehearse bar helpers ───────────────────────────────────────────
+function _syncRehMetroBtn() {
+  const btn = document.getElementById('rehMetroBtn');
+  if (!btn) return;
+  if (rtMetroRunning) {
+    btn.textContent = '■ Metro';
+    btn.classList.add('reh-metro-active');
+  } else {
+    btn.textContent = '▶ Metro';
+    btn.classList.remove('reh-metro-active');
+  }
+}
+function rehMetroToggle() {
+  rtMetroToggle();
+  _syncRehMetroBtn();
+}
+function _syncRehArmBtn() {
+  const btn = document.getElementById('rehArmSeqBtn');
+  if (!btn) return;
+  const armed = (typeof _vrSeqArmed !== 'undefined') && _vrSeqArmed;
+  btn.classList.toggle('reh-arm-active', armed);
+  btn.textContent = armed ? '● Prime Seq' : 'Prime Seq';
 }
 
 // ── Auto-scroll ───────────────────────────────────────────────────
@@ -20662,6 +20822,17 @@ function ilScrollSpeedChange(val) {
 
 // Seq play/stop toggle for perf mode metro bar
 var _rtSeqCountdownTimer = null;
+function _syncRehSeqBtn(playing) {
+  const btn = document.getElementById('rehSeqPlayBtn');
+  if (!btn) return;
+  if (playing) {
+    btn.textContent = '■ Seq';
+    btn.classList.add('reh-seq-active');
+  } else {
+    btn.textContent = '▶ Seq';
+    btn.classList.remove('reh-seq-active');
+  }
+}
 function rtSeqTogglePlay() {
   const btn = document.getElementById('rtSeqPlayBtn');
   // If playing or counting down, stop everything
@@ -20669,6 +20840,7 @@ function rtSeqTogglePlay() {
     clearTimeout(_rtSeqCountdownTimer); _rtSeqCountdownTimer = null;
     seqStop();
     if (btn) btn.textContent = '▶ Seq';
+    _syncRehSeqBtn(false);
     const cd = document.getElementById('rtSeqCountdown');
     if (cd) cd.remove();
     return;
@@ -20696,6 +20868,7 @@ function rtSeqTogglePlay() {
     document.head.appendChild(s);
   }
   if (btn) btn.textContent = '■ Seq';
+  _syncRehSeqBtn(true);
   let count = 4;
   function tick() {
     const numEl = document.getElementById('rtSeqCdNum');
@@ -22231,6 +22404,19 @@ document.addEventListener('keydown', function(e) {
       else if (typeof showList === 'function') showList();
       break;
     }
+    case 'enter': {
+      if (window.innerWidth < 900) break;
+      e.preventDefault();
+      // Toggle: expand left pane full-width ↔ restore split
+      if (_splitExpandedSide === 'left') {
+        splitExpandPane('left'); // restores
+      } else if (_splitExpandedSide === 'right') {
+        splitExpandPane('right'); // restores
+      } else {
+        splitExpandPane('left'); // expand left (writing area) by default
+      }
+      break;
+    }
     case 'n': {
       e.preventDefault();
       if (typeof newSong === 'function') newSong();
@@ -23094,6 +23280,8 @@ window.vrToggleArmSeq = function() {
   _vrSeqArmed = !_vrSeqArmed;
   const btn = _el('rtArmSeqBtn');
   if (btn) btn.classList.toggle('armed', _vrSeqArmed);
+  // Sync rehearse bar arm button
+  if (typeof _syncRehArmBtn === 'function') _syncRehArmBtn();
 };
 
 // ── Open 4-Track from rehearse/perf metro bar ──────────────────
@@ -24627,6 +24815,38 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
     <div class="rt-mdots" id="rtMetroDots2" style="justify-content:center;padding-top:4px;"></div>
   </div>
+</div>
+
+<!-- ── Rehearse control bar (perf mode only, slides up above bottom nav) ── -->
+<div id="rehearseBar" aria-label="Rehearse controls">
+  <!-- Tuner -->
+  <button class="reh-btn" id="rehForkBtn" onclick="rtForkToggle()" title="Tuning Fork — E2 (82.41 Hz)">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v10"/><path d="M17 3v10"/><path d="M7 13 Q7 20 12 20 Q17 20 17 13"/><line x1="12" y1="20" x2="12" y2="24"/></svg>
+    Tuner
+  </button>
+  <div class="reh-sep"></div>
+  <!-- Metronome -->
+  <button class="reh-btn" id="rehMetroBtn" onclick="rehMetroToggle()" title="Metronome play/pause">▶ Metro</button>
+  <div class="reh-sep"></div>
+  <!-- Time signature -->
+  <span class="reh-label">Time</span>
+  <select class="reh-time-sel" id="rehTimeSel" onchange="rtMetroChangeTime(this.value)">
+    <option value="4">4/4</option>
+    <option value="3">3/4</option>
+    <option value="6">6/8</option>
+    <option value="5">5/4</option>
+  </select>
+  <div class="reh-sep"></div>
+  <!-- BPM -->
+  <span class="reh-label">BPM</span>
+  <button class="reh-btn" onclick="rtMetroDelta(-1)" title="BPM down">−</button>
+  <span class="reh-bpm-display" id="rehBpmDisplay">120</span>
+  <button class="reh-btn" onclick="rtMetroDelta(1)" title="BPM up">+</button>
+  <button class="reh-btn" id="rehTapBtn" onclick="rtTapTempo()" title="Tap Tempo">TAP</button>
+  <div class="reh-sep"></div>
+  <!-- Sequencer -->
+  <button class="reh-btn" id="rehSeqPlayBtn" onclick="rtSeqTogglePlay()" title="Play / Stop Sequencer">▶ Seq</button>
+  <button class="reh-btn" id="rehArmSeqBtn" onclick="vrToggleArmSeq()" title="Prime Sequencer — auto-starts on record">Prime Seq</button>
 </div>
 
 <nav class="bottom-nav" id="bottomNav">
