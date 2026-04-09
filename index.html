@@ -4477,8 +4477,7 @@ button, select, input, textarea { touch-action: manipulation; }
     transition: width 0.05s, max-width 0.05s;
   }
   body.split-active #stickySongBar {
-    right: calc(100% - var(--split-left)) !important;
-    transition: right 0.05s;
+    display: none !important;
   }
 }
 
@@ -4504,8 +4503,7 @@ button, select, input, textarea { touch-action: manipulation; }
     max-width: calc(100% - var(--split-left)) !important;
   }
   body.split-active.split-tool-left #stickySongBar {
-    left: var(--split-left) !important;
-    right: 0 !important;
+    display: none !important;
   }
   body.split-active.split-tool-left #splitLeftHeader {
     display: none !important;
@@ -9723,13 +9721,16 @@ function toggleSeqSub(id) {
 // ── Sticky bar update ─────────────────────────────────────
 function updateStickyBar(song) {
   const bar = document.getElementById('stickySongBar');
+  const splitBackBtn = document.getElementById('splitBackBtn');
   if (!bar) return;
   if (!song) {
     bar.style.display = 'none';
+    if (splitBackBtn) splitBackBtn.style.display = 'none';
     document.body.classList.remove('song-bar-visible');
     return;
   }
   bar.style.display = 'flex';
+  if (splitBackBtn) splitBackBtn.style.display = 'flex';
   document.body.classList.add('song-bar-visible');
   const titleEl = document.getElementById('stickyTitle');
   if (titleEl) titleEl.textContent = song.title || song.workingTitle || 'Untitled';
@@ -17788,7 +17789,6 @@ function _showSplitRightDefault() {
         '<div class="split-right-cta-icon">🎸</div>' +
         '<div class="split-right-cta-title">Upgrade Drafthaus</div>' +
         '<button class="split-right-cta-btn" onclick="showUpgradeModal(\'\')">View Plans →</button>' +
-        '<div class="split-right-cta-hint">Or select a tool from the dropdown above ↑</div>' +
       '</div>';
   }
 }
@@ -18158,6 +18158,55 @@ window.addEventListener('resize', function() {
   document.addEventListener('mouseup', onUp);
   document.addEventListener('touchend', onUp);
 })();
+
+/* ── Split pane keyboard shortcuts ──────────────────────────────────
+   L = Lyrics (left, expanded)     B = Backend (left, expanded)
+   T = 4-Track (right, expanded)   K = Keyboard (right, expanded)
+   S = Sequencer (right, expanded) O = Looper (right, expanded)
+   Pressing the same key again reverts to normal split.
+─────────────────────────────────────────────────────────────────── */
+function _kbToggleLeftTool(view) {
+  // If already showing this view expanded-left → revert
+  var leftSel = document.getElementById('splitLeftSelect');
+  var currentLeft = leftSel ? leftSel.value : '';
+  if (_splitExpandedSide === 'left' && currentLeft === view) {
+    splitExpandPane('left');
+    return;
+  }
+  // Ensure split is active
+  if (!_splitActive) openSplitMode();
+  setSplitLeftView(view);
+  // Expand left if not already
+  if (_splitExpandedSide !== 'left') splitExpandPane('left');
+}
+
+function _kbToggleRightTool(tool) {
+  // If already showing this tool expanded-right → revert
+  if (_splitExpandedSide === 'right' && _splitCurrentTool === tool) {
+    splitExpandPane('right');
+    return;
+  }
+  _desktopOpenTool(tool);
+  // Expand right if not already
+  if (_splitExpandedSide !== 'right') splitExpandPane('right');
+}
+
+document.addEventListener('keydown', function(e) {
+  // Skip if typing in any input/editable area or if a modifier is held
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' ||
+      e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  // Only on desktop split
+  if (window.innerWidth < 900) return;
+  switch (e.key.toLowerCase()) {
+    case 'l': e.preventDefault(); _kbToggleLeftTool('lyrics');    break;
+    case 'b': e.preventDefault(); _kbToggleLeftTool('backend');   break;
+    case 't': e.preventDefault(); _kbToggleRightTool('4track');   break;
+    case 'k': e.preventDefault(); _kbToggleRightTool('keyboard'); break;
+    case 's': e.preventDefault(); _kbToggleRightTool('sequencer');break;
+    case 'o': e.preventDefault(); _kbToggleRightTool('looper');   break;
+  }
+});
 
 /* ── Mobile hamburger menu ───────────────────────────────────────── */
 function toggleMobileMenu() {
@@ -23743,13 +23792,23 @@ window.mtToggleTakes = function(i) {
   // Close all panels first
   document.querySelectorAll('.mt-takes-panel.open').forEach(p => p.classList.remove('open'));
   if (isOpen) return; // was open → just close
-  // Position below the takes button, right-aligned to it
+  // Position the panel near the takes button, flipping upward if near the bottom
   const btn = _el('mt-takes-btn-'+i);
   if (btn) {
     const r = btn.getBoundingClientRect();
-    panel.style.top  = (r.bottom + 6) + 'px';
+    const panelH = 340; // max-height from CSS
+    const spaceBelow = window.innerHeight - r.bottom - 10;
     panel.style.right = (window.innerWidth - r.right) + 'px';
     panel.style.left  = 'auto';
+    if (spaceBelow >= panelH || spaceBelow >= r.top - 10) {
+      // Enough room below (or less room above) — open downward
+      panel.style.top    = (r.bottom + 6) + 'px';
+      panel.style.bottom = 'auto';
+    } else {
+      // Not enough room below — open upward
+      panel.style.bottom = (window.innerHeight - r.top + 6) + 'px';
+      panel.style.top    = 'auto';
+    }
   }
   panel.classList.add('open');
 };
@@ -25010,6 +25069,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 <!-- ── Chrome-style split workspace ──────────────────────────────── -->
 <div id="splitLeftHeader">
+  <button id="splitBackBtn" onclick="showList()" style="display:none;padding:5px 12px;font-size:11px;font-family:'IBM Plex Mono',monospace;font-weight:700;letter-spacing:0.08em;background:transparent;border:1.5px solid var(--gold);color:var(--gold);border-radius:6px;cursor:pointer;transition:all 0.15s;flex-shrink:0;" onmouseover="this.style.background='rgba(245,166,35,0.15)'" onmouseout="this.style.background='transparent'">← Drafts</button>
   <div style="flex:1"></div>
   <button id="splitLeftExpandBtn" class="split-expand-btn" onclick="splitExpandPane('left')" title="Expand left pane">⤢</button>
 </div>
@@ -25017,12 +25077,11 @@ document.addEventListener('DOMContentLoaded', () => {
   <div id="splitRightHeader">
     <div style="flex:1"></div>
     <button id="splitRightExpandBtn" class="split-expand-btn" onclick="splitExpandPane('right')" title="Expand right pane">⤢</button>
-    <button class="split-hdr-btn" onclick="swapSplitPanels()" title="Swap panels">⇄</button>
   </div>
   <div id="splitRightContent"></div>
   <div id="splitRightDefault" class="split-right-default"></div>
 </div>
-<div id="splitDivider"><button id="splitSwapBtn" onclick="switchSplitSides()" title="Swap panels" onmousedown="event.stopPropagation()">⇄</button></div>
+<div id="splitDivider"></div>
 
 <!-- ── Onboarding / Help overlay ──────────────────────────────────── -->
 <div id="onboardingOverlay" onclick="if(event.target===this)obClose()">
