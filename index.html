@@ -13943,7 +13943,7 @@ async function syncToSheet(song) {
       createdAt:      song.createdAt      || Date.now(),
       ...(song.publicToken ? { publicToken: song.publicToken } : {}),
     });
-    await db.collection('songs').doc(song.id).set(payload);
+    await db.collection('songs').doc(song.id).set(payload, { merge: true });
     clearPendingSync(song.id);
     setSyncStatus('saved', 'Saved ✓');
       } catch(e) {
@@ -22892,7 +22892,7 @@ document.addEventListener('keydown', function(e) {
 
 // ── Constants ──────────────────────────────────────────────────
 const VR_MAX_DURATION  = 4 * 60 + 30;
-const VR_QUOTA_SECONDS = 3 * 60 * 60;
+function getVrQuotaSeconds() { return getTierLimits().recordingMinutes * 60; }
 const VR_TRASH_TTL     = 7 * 24 * 60 * 60 * 1000;
 const MT_COLORS = ['#ff6b9d','#6bc5ff','#a5ff6b','#ffb86b'];
 const MT_NAMES  = ['T1','T2','T3','T4'];
@@ -22924,12 +22924,18 @@ let _mtPreloadedSongId = null; // song ID whose takes have been background-loade
 function _el(id) { return document.getElementById(id); }
 function _fmtDur(sec) { const m=Math.floor(sec/60); return m+':'+String(Math.floor(sec%60)).padStart(2,'0'); }
 function _setStatus(msg) { const e=_el('mtStatus'); if(e) e.textContent=msg; }
+function _fmtQuotaTime(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0 && m > 0) return h + 'h ' + m + 'm';
+  if (h > 0) return h + 'h';
+  return m + 'm';
+}
 function _updateQuotaDisplay(remainingSec) {
   const el=_el('vrTimeLimit'); if(!el) return;
-  const used=VR_QUOTA_SECONDS-remainingSec;
-  const um=Math.floor(used/60), us=Math.floor(used%60);
-  const rm=Math.floor(remainingSec/60), rs=Math.floor(remainingSec%60);
-  const txt=um+':'+String(us).padStart(2,'0')+' used of 3h · '+rm+':'+String(rs).padStart(2,'0')+' remaining';
+  const totalSec = getVrQuotaSeconds();
+  const usedSec = totalSec - remainingSec;
+  const txt = _fmtQuotaTime(usedSec) + ' used of ' + _fmtQuotaTime(totalSec) + ' · ' + _fmtQuotaTime(remainingSec) + ' remaining';
   el.textContent=txt;
   // Mirror to header chip
   const hq=document.getElementById('headerQuota');
