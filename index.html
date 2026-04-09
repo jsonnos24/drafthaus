@@ -5833,6 +5833,68 @@ body.il-perf-active #rehearseBar {
   cursor: pointer;
 }
 
+/* ── Metro settings gear button ─────────────────────────────────── */
+.reh-metro-settings-btn {
+  padding: 4px 7px;
+}
+.reh-metro-settings-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(167,139,250,0.08);
+}
+
+/* ── Metro settings popover ─────────────────────────────────────── */
+#rehMetroSettingsPanel {
+  position: fixed;
+  z-index: 9945;
+  bottom: calc(54px + max(5px, env(safe-area-inset-bottom, 0px)) + 44px + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(6px);
+  background: rgba(14,14,20,0.98);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+#rehMetroSettingsPanel.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+body.il-perf-active #rehMetroSettingsPanel.open {
+  /* only shown in perf mode */
+}
+.reh-ms-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.reh-ms-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+  text-transform: uppercase;
+  min-width: 30px;
+  flex-shrink: 0;
+}
+.reh-ms-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 0 -2px;
+}
+
 /* ── Metro bar lifted into perf mode ───────────────────────────── */
 .rt-metro.il-perf-metro {
   position: fixed;
@@ -21414,6 +21476,37 @@ function ilSetPerfMode(on) {
 }
 
 // ── Rehearse bar helpers ───────────────────────────────────────────
+function rehMetroSettingsToggle(e) {
+  if (e) e.stopPropagation();
+  const panel = document.getElementById('rehMetroSettingsPanel');
+  const btn   = document.getElementById('rehMetroSettingsBtn');
+  if (!panel) return;
+  const isOpen = panel.classList.toggle('open');
+  if (btn) btn.classList.toggle('active', isOpen);
+  if (isOpen) {
+    // Position popover above the gear button
+    const btnRect = btn.getBoundingClientRect();
+    const panelW  = panel.offsetWidth || 220;
+    let left = btnRect.left + btnRect.width / 2 - panelW / 2;
+    // Clamp to viewport
+    left = Math.max(8, Math.min(left, window.innerWidth - panelW - 8));
+    panel.style.left      = left + 'px';
+    panel.style.transform = 'translateY(0)';
+    // Close on outside click
+    setTimeout(() => {
+      document.addEventListener('click', _rehMetroSettingsOutside, { once: true });
+    }, 0);
+  }
+}
+function _rehMetroSettingsOutside(e) {
+  const panel = document.getElementById('rehMetroSettingsPanel');
+  const btn   = document.getElementById('rehMetroSettingsBtn');
+  if (panel && !panel.contains(e.target) && e.target !== btn) {
+    panel.classList.remove('open');
+    if (btn) btn.classList.remove('active');
+  }
+}
+
 function _syncRehMetroBtn() {
   const btn = document.getElementById('rehMetroBtn');
   if (!btn) return;
@@ -25765,39 +25858,47 @@ document.addEventListener('DOMContentLoaded', () => {
   </div>
 </div>
 
+<!-- ── Metro settings popover (shown above rehearseBar) ── -->
+<div id="rehMetroSettingsPanel" aria-label="Metronome settings">
+  <div class="reh-ms-row">
+    <span class="reh-ms-label">Time</span>
+    <select class="reh-time-sel" id="rehTimeSel" onchange="rtMetroChangeTime(this.value)">
+      <option value="4">4/4</option>
+      <option value="3">3/4</option>
+      <option value="6">6/8</option>
+      <option value="5">5/4</option>
+    </select>
+  </div>
+  <div class="reh-ms-divider"></div>
+  <div class="reh-ms-row">
+    <span class="reh-ms-label">BPM</span>
+    <button class="reh-btn" onclick="rtMetroDelta(-1)" title="BPM down">−</button>
+    <span class="reh-bpm-display" id="rehBpmDisplay">120</span>
+    <button class="reh-btn" onclick="rtMetroDelta(1)" title="BPM up">+</button>
+    <button class="reh-btn" id="rehTapBtn" onclick="rtTapTempo()" title="Tap Tempo">TAP</button>
+  </div>
+</div>
+
 <!-- ── Rehearse control bar (perf mode only, slides up above bottom nav) ── -->
 <div id="rehearseBar" aria-label="Rehearse controls">
+  <!-- Auto-scroll -->
+  <button class="reh-btn" id="rehScrollBtn" onclick="ilScrollToggle()" title="Auto-scroll lyrics">▶ Scroll</button>
+  <div class="reh-sep"></div>
+  <!-- Sequencer: Play + Prime -->
+  <button class="reh-btn" id="rehSeqPlayBtn" onclick="rtSeqTogglePlay()" title="Play / Stop Sequencer">▶ Seq</button>
+  <button class="reh-btn" id="rehArmSeqBtn" onclick="vrToggleArmSeq()" title="Prime Sequencer — auto-starts on record">Prime Seq</button>
+  <div class="reh-sep"></div>
+  <!-- Metronome + Settings gear -->
+  <button class="reh-btn" id="rehMetroBtn" onclick="rehMetroToggle()" title="Metronome play/pause">▶ Metro</button>
+  <button class="reh-btn reh-metro-settings-btn" id="rehMetroSettingsBtn" onclick="rehMetroSettingsToggle(event)" title="Metronome settings">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+  <div class="reh-sep"></div>
   <!-- Tuner -->
   <button class="reh-btn" id="rehForkBtn" onclick="rtForkToggle()" title="Tuning Fork — E2 (82.41 Hz)">
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v10"/><path d="M17 3v10"/><path d="M7 13 Q7 20 12 20 Q17 20 17 13"/><line x1="12" y1="20" x2="12" y2="24"/></svg>
     Tuner
   </button>
-  <div class="reh-sep"></div>
-  <!-- Metronome -->
-  <button class="reh-btn" id="rehMetroBtn" onclick="rehMetroToggle()" title="Metronome play/pause">▶ Metro</button>
-  <div class="reh-sep"></div>
-  <!-- Time signature -->
-  <span class="reh-label">Time</span>
-  <select class="reh-time-sel" id="rehTimeSel" onchange="rtMetroChangeTime(this.value)">
-    <option value="4">4/4</option>
-    <option value="3">3/4</option>
-    <option value="6">6/8</option>
-    <option value="5">5/4</option>
-  </select>
-  <div class="reh-sep"></div>
-  <!-- BPM -->
-  <span class="reh-label">BPM</span>
-  <button class="reh-btn" onclick="rtMetroDelta(-1)" title="BPM down">−</button>
-  <span class="reh-bpm-display" id="rehBpmDisplay">120</span>
-  <button class="reh-btn" onclick="rtMetroDelta(1)" title="BPM up">+</button>
-  <button class="reh-btn" id="rehTapBtn" onclick="rtTapTempo()" title="Tap Tempo">TAP</button>
-  <div class="reh-sep"></div>
-  <!-- Sequencer -->
-  <button class="reh-btn" id="rehSeqPlayBtn" onclick="rtSeqTogglePlay()" title="Play / Stop Sequencer">▶ Seq</button>
-  <button class="reh-btn" id="rehArmSeqBtn" onclick="vrToggleArmSeq()" title="Prime Sequencer — auto-starts on record">Prime Seq</button>
-  <div class="reh-sep"></div>
-  <!-- Auto-scroll -->
-  <button class="reh-btn" id="rehScrollBtn" onclick="ilScrollToggle()" title="Auto-scroll lyrics">▶ Scroll</button>
 </div>
 
 <nav class="bottom-nav" id="bottomNav">
