@@ -14086,6 +14086,8 @@ document.addEventListener('DOMContentLoaded', function() {
   // Auth handled by onAuthStateChanged
 });
 
+let _userTierUnsub = null; // holds the onSnapshot unsubscribe for the current user doc
+
 auth.onAuthStateChanged(user => {
   if (user) {
     // Clear any previous user's data before loading the new user's songs
@@ -14102,7 +14104,7 @@ auth.onAuthStateChanged(user => {
     }, { merge: true }).then(() => {
       let appInited = false;
       // Use onSnapshot so tier updates (e.g. after Stripe payment) are applied in real-time
-      userRef.onSnapshot(doc => {
+      _userTierUnsub = userRef.onSnapshot(doc => {
         const newTier = doc.data()?.tier || 'free';
         _dismissedShares = new Set(doc.data()?.dismissedShares || []);
         if (!appInited) {
@@ -14130,7 +14132,8 @@ auth.onAuthStateChanged(user => {
           showToast('🎉 Upgrade confirmed! Reload the page to unlock your new features.', 'success', 10000);
         }
       }, () => {
-        // Fallback: init app even if snapshot fails
+        // Fallback: init app if snapshot fails — but only if user is still signed in
+        if (!auth.currentUser) return;
         document.getElementById('landingOverlay').classList.add('hidden');
         const emailEl = document.getElementById('headerUserEmail');
         if (emailEl) emailEl.textContent = user.email || '';
@@ -14139,7 +14142,8 @@ auth.onAuthStateChanged(user => {
       });
     });
   } else {
-    // Logged out — clear everything
+    // Logged out — unsubscribe tier listener and clear everything
+    if (_userTierUnsub) { _userTierUnsub(); _userTierUnsub = null; }
     songs = [];
     currentId = null;
     _dismissedShares = new Set();
