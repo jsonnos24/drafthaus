@@ -7475,8 +7475,8 @@ body.il-perf-active #ilScrollFloat { display: none; }
         <!-- Drop-in Samples -->
         <tr style="border-top:1px solid #1e2130;">
           <td style="padding:9px 10px 9px 0;color:#fff;">Drop-in Samples</td>
-          <td style="text-align:center;padding:9px 6px;color:#00d97a;">✓</td>
-          <td style="text-align:center;padding:9px 6px;color:#00d97a;background:rgba(107,79,216,0.06);">✓</td>
+          <td style="text-align:center;padding:9px 6px;color:#fff;">1 per song</td>
+          <td style="text-align:center;padding:9px 6px;color:#c4baf5;background:rgba(107,79,216,0.06);">2 per song</td>
           <td style="text-align:center;padding:9px 6px;color:#00d97a;">✓</td>
         </tr>
         <!-- 4-Track Recorder -->
@@ -21002,6 +21002,17 @@ async function loopLoadFromSaved(docId, downloadUrl, duration) {
 async function loopDropAudioFile(trackIdx, file) {
   await loopEnsureAudioCtx();
   const t = loopTracks[trackIdx]; if (!t) return;
+  // Per-song upload limit
+  const uploadLimit = getTierLimits().uploadsPerSong;
+  if (uploadLimit !== Infinity) {
+    const songId = loopSongId || currentId;
+    const uploadCount = await _countUploadsForSong('song_loops', songId);
+    if (uploadCount >= uploadLimit) {
+      showToast('Upload limit reached — delete a saved loop to free your slot', 'info', 4500);
+      showUpgradeModal(`Your plan allows ${uploadLimit} sample upload${uploadLimit === 1 ? '' : 's'} per song in the looper. Upgrade for more.`);
+      return;
+    }
+  }
   const stl = document.getElementById(`lstate-label-${trackIdx}`);
   if (stl) { stl.textContent = 'LOADING…'; stl.style.display = ''; }
   try {
@@ -21021,16 +21032,6 @@ async function loopDropAudioFile(trackIdx, file) {
     if (barEl) barEl.textContent = `${audioBuf.duration.toFixed(1)}s`;
     const dlBtn = document.getElementById(`ldl-btn-${trackIdx}`);
     if (dlBtn) dlBtn.disabled = true; // no local blob to download
-    // Quota check before upload — playback is already live
-    const { remaining } = await _vrGetQuota();
-    if (audioBuf.duration > remaining) {
-      if (userTier === 'free') {
-        showUpgradeModal(`You've used your ${getTierLimits().recordingMinutes} minutes of free recording storage. Upgrade for more.`);
-      } else {
-        showToast('Recording quota full — delete old takes or loops to free space', 'error');
-      }
-      return; // skip upload but leave audio playable for this session
-    }
     // Upload to Firebase in background — don't block playback
     const blob = new Blob([arrBuf], { type: file.type });
     loopAutoSave(trackIdx, blob, file.type, audioBuf.duration, 'upload');
@@ -23628,6 +23629,17 @@ function mtBuildUI() {
 async function mtDropAudioFile(trackIdx, file) {
   _mtCreateCtxSync();
   const t = _mtTracks[trackIdx]; if (!t) return;
+  // Per-song upload limit
+  const uploadLimit = getTierLimits().uploadsPerSong;
+  if (uploadLimit !== Infinity) {
+    if (!_vrSongId) _vrSongId = currentId || null;
+    const uploadCount = await _countUploadsForSong('voice_takes', _vrSongId);
+    if (uploadCount >= uploadLimit) {
+      showToast('Upload limit reached — delete a take to free your slot', 'info', 4500);
+      showUpgradeModal(`Your plan allows ${uploadLimit} sample upload${uploadLimit === 1 ? '' : 's'} per song in the 4-track. Upgrade for more.`);
+      return;
+    }
+  }
   const sl = _el('mt-state-'+trackIdx);
   if (sl) sl.textContent = 'LOADING…';
   const hint = _el('mt-empty-hint-'+trackIdx);
@@ -23644,16 +23656,6 @@ async function mtDropAudioFile(trackIdx, file) {
     if (dd) dd.textContent = _fmtDur(_mtMaxDuration());
     const pb = _el('mtPlayBtn');
     if (pb) pb.disabled = !_mtTracks.some(t => t && t.buffer);
-    // Quota check before upload — waveform is already drawn
-    const { remaining } = await _vrGetQuota();
-    if (buffer.duration > remaining) {
-      if (userTier === 'free') {
-        showUpgradeModal(`You've used your ${getTierLimits().recordingMinutes} minutes of free recording storage. Upgrade for more.`);
-      } else {
-        showToast('Recording quota full — delete old takes or loops to free space', 'error');
-      }
-      return; // skip upload but leave waveform playable for this session
-    }
     // Upload to Firebase as a take in the background
     if (!_vrSongId) _vrSongId = currentId || null;
     if (_vrSongId && auth.currentUser) {
