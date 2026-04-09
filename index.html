@@ -2322,8 +2322,13 @@ button, select, input, textarea { touch-action: manipulation; }
   .proj-group:first-child .proj-group-header { border-top: none; margin-top: 0; padding-top: 6px; }
   .proj-group-header:hover { opacity: 0.65; }
   .proj-group-header.drag-over { opacity: 1; background: rgba(245,166,35,0.10); border-radius: 6px; outline: 1px dashed rgba(245,166,35,0.4); }
-  .proj-group-header.proj-drag-over { opacity: 1; background: rgba(255,255,255,0.06); border-radius: 6px; outline: 2px dashed rgba(255,255,255,0.3); }
+  /* Project-to-project reorder: directional insertion lines */
+  .proj-group-header.proj-drag-before { box-shadow: 0 -2px 0 0 var(--gold); background: rgba(245,166,35,0.05); border-radius: 6px; }
+  .proj-group-header.proj-drag-after  { box-shadow: 0  2px 0 0 var(--gold); background: rgba(245,166,35,0.05); border-radius: 6px; }
   .song-list-row.sl-dragging { opacity: 0.35; }
+  /* Song-to-song reorder: insertion lines */
+  .song-list-row.sl-drag-before { box-shadow: 0 -2px 0 0 var(--gold); }
+  .song-list-row.sl-drag-after  { box-shadow: 0  2px 0 0 var(--gold); }
   /* ── Project drag handle ── */
   .proj-drag-handle {
     display: inline-flex; align-items: center; justify-content: center;
@@ -8106,7 +8111,8 @@ const QUALITIES = [
 let songs = []; // always load fresh from Firestore; localStorage is write-only cache
 let currentId = null;
 let saveTimer = null;
-let userProjects = []; // user-defined folder names, persisted in users/{uid}.projects
+let userProjects  = []; // user-defined folder names, persisted in users/{uid}.projects
+let userSongOrders = {}; // { projKey: [songId,...] } — manual song order per project
 let userTier = 'free'; // 'free' | 'songwriter' | 'studio' — loaded from Firestore on login
 
 // ── Tier helpers ───────────────────────────────────────────────────
@@ -8164,6 +8170,9 @@ async function loadUserProjects() {
       userProjects = ['Ideas', 'Drafts', 'Finished'];
       db.collection('users').doc(uid).set({ projects: userProjects }, { merge: true }).catch(() => {});
     }
+    if (data.songOrders && typeof data.songOrders === 'object') {
+      userSongOrders = data.songOrders;
+    }
     renderGrid();
   } catch(e) { console.warn('loadUserProjects error', e); }
 }
@@ -8171,7 +8180,7 @@ async function loadUserProjects() {
 function saveUserProjects() {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
-  db.collection('users').doc(uid).set({ projects: userProjects }, { merge: true }).catch(() => {});
+  db.collection('users').doc(uid).set({ projects: userProjects, songOrders: userSongOrders }, { merge: true }).catch(() => {});
 }
 
 // ── Project tree builder ────────────────────────────────────────────
@@ -8616,8 +8625,8 @@ function renderGrid() {
     const sharingCount = (song.sharedWith?.length||0) + (song.sharedReadOnly?.length||0);
     const sharingIndicator = isOwnerSharing ? `<span class="sharing-indicator" title="Shared with ${sharingCount} person${sharingCount===1?'':'s'}"></span>` : '';
     const titleHtml = esc(song.title||song.workingTitle) || '<span style="color:var(--faint);font-style:italic;">Untitled</span>';
-    const draggable = (!isShared && !isViewOnly) ? `draggable="true" ondragstart="_slDragStart('${song.id}',event)" ondragend="_slDragEnd('${song.id}')"` : '';
-    return `<div class="song-list-row${isActive?' active-row':''}${(isShared||isViewOnly)?' shared-row':''}" id="row-${song.id}"
+    const draggable = (!isShared && !isViewOnly) ? `draggable="true" ondragstart="_slDragStart('${song.id}',event)" ondragend="_slDragEnd('${song.id}')" ondragover="_slRowDragOver(this,event)" ondragleave="_slRowDragLeave(this,event)" ondrop="_slRowDrop(this,event)"` : '';
+    return `<div class="song-list-row${isActive?' active-row':''}${(isShared||isViewOnly)?' shared-row':''}" id="row-${song.id}" data-song-id="${song.id}"
       style="cursor:pointer;" ${draggable} onclick="rowLoadSong('${song.id}')"
       onmouseenter="_slHoverEnter('${song.id}',this)" onmouseleave="_slHoverLeave()">
       <div class="song-list-title">${titleHtml}${sharedBadge}${viewOnlyBadge}${sharingIndicator}</div>
@@ -8653,7 +8662,7 @@ function renderGrid() {
       <div class="proj-group-header" data-proj="${esc(proj)}"
         onclick="toggleProjGroup('${proj.replace(/'/g,"\\'")}')"
         ondragover="_projHeaderDragOver(this,event)"
-        ondragleave="this.classList.remove('drag-over','proj-drag-over')"
+        ondragleave="_projHeaderDragLeave(this,event)"
         ondrop="_projHeaderDrop(this,event)">
         ${dragHandle}
         <span class="proj-group-name" id="pgn-${esc(proj)}">${esc(heading)}</span>
@@ -8710,7 +8719,16 @@ function renderGrid() {
   if (!q) {
     userProjects.forEach(p => { if (!myGroups[p]) myGroups[p] = []; });
   }
-  Object.keys(myGroups).forEach(k => myGroups[k].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)));
+  Object.keys(myGroups).forEach(k => {
+    const order = userSongOrders[k] || [];
+    myGroups[k].sort((a, b) => {
+      const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
+      if (ai !== -1 && bi !== -1) return ai - bi;   // both in manual order
+      if (ai !== -1) return -1;                      // only a is in order → a first
+      if (bi !== -1) return 1;                       // only b is in order → b first
+      return (b.updatedAt||0) - (a.updatedAt||0);   // neither → most recent first
+    });
+  });
 
   // ── Build nested tree from all leaf project paths ──
   const allLeafPaths = Object.keys(myGroups).filter(k => k !== '__none__');
@@ -16399,6 +16417,7 @@ function esc(str) {
 
 
 function initApp() {
+  loadUserProjects(); // must run before preload so project order is ready when renderGrid fires
   preloadSongsFromSheet(true);
   startSyncPolling();
 
@@ -23512,28 +23531,44 @@ function _projDragEnd(projKey, e) {
   _projDraggingKey = null;
   const el = document.getElementById('pg-' + projKey);
   if (el) el.classList.remove('proj-dragging');
-  document.querySelectorAll('.proj-group-header.proj-drag-over')
-    .forEach(h => h.classList.remove('proj-drag-over'));
+  document.querySelectorAll('.proj-group-header')
+    .forEach(h => h.classList.remove('proj-drag-before', 'proj-drag-after', 'drag-over'));
 }
 
 function _projHeaderDragOver(headerEl, e) {
   if (window._projDraggingKey) {
-    // Project reorder — only make sense if target is a different project
+    // Project reorder — only makes sense if target is a different project
     if (headerEl.dataset.proj === window._projDraggingKey) return;
     e.preventDefault(); e.stopPropagation();
     headerEl.classList.remove('drag-over');
-    headerEl.classList.add('proj-drag-over');
+    // Show insertion line above or below based on cursor position
+    const rect = headerEl.getBoundingClientRect();
+    const mid  = rect.top + rect.height / 2;
+    if (e.clientY < mid) {
+      headerEl.classList.add('proj-drag-before');
+      headerEl.classList.remove('proj-drag-after');
+    } else {
+      headerEl.classList.add('proj-drag-after');
+      headerEl.classList.remove('proj-drag-before');
+    }
   } else if (window._slDraggingSongId) {
     // Song → project assignment (existing behaviour)
     e.preventDefault(); e.stopPropagation();
-    headerEl.classList.remove('proj-drag-over');
+    headerEl.classList.remove('proj-drag-before', 'proj-drag-after');
     headerEl.classList.add('drag-over');
   }
 }
 
+function _projHeaderDragLeave(headerEl, e) {
+  // Ignore if the cursor moved to a child element still inside this header
+  if (headerEl.contains(e.relatedTarget)) return;
+  headerEl.classList.remove('drag-over', 'proj-drag-before', 'proj-drag-after');
+}
+
 function _projHeaderDrop(headerEl, e) {
   e.preventDefault(); e.stopPropagation();
-  headerEl.classList.remove('drag-over', 'proj-drag-over');
+  const insertBefore = headerEl.classList.contains('proj-drag-before');
+  headerEl.classList.remove('drag-over', 'proj-drag-before', 'proj-drag-after');
 
   if (window._projDraggingKey) {
     // ── Reorder projects ──
@@ -23542,10 +23577,13 @@ function _projHeaderDrop(headerEl, e) {
     _projDraggingKey = null;
     if (!fromKey || !toKey || fromKey === toKey || toKey === '__none__') return;
     const fromIdx = userProjects.indexOf(fromKey);
-    const toIdx   = userProjects.indexOf(toKey);
+    let   toIdx   = userProjects.indexOf(toKey);
     if (fromIdx === -1 || toIdx === -1) return;
     userProjects.splice(fromIdx, 1);
-    userProjects.splice(toIdx, 0, fromKey);
+    // Re-find toIdx after the splice (index may have shifted)
+    toIdx = userProjects.indexOf(toKey);
+    if (toIdx === -1) return;
+    userProjects.splice(insertBefore ? toIdx : toIdx + 1, 0, fromKey);
     saveUserProjects();
     renderGrid();
   } else {
@@ -23569,8 +23607,10 @@ function _slDragEnd(songId) {
   _slDraggingSongId = null;
   const row = document.getElementById('row-' + songId);
   if (row) row.classList.remove('sl-dragging');
-  document.querySelectorAll('.proj-group-header.drag-over,.proj-group-header.proj-drag-over')
-    .forEach(el => el.classList.remove('drag-over', 'proj-drag-over'));
+  document.querySelectorAll('.proj-group-header')
+    .forEach(el => el.classList.remove('drag-over', 'proj-drag-before', 'proj-drag-after'));
+  document.querySelectorAll('.song-list-row')
+    .forEach(el => el.classList.remove('sl-drag-before', 'sl-drag-after'));
 }
 
 function _slProjDrop(headerEl, e) {
@@ -23585,12 +23625,74 @@ function _slProjDrop(headerEl, e) {
   const rawProj = headerEl.dataset.proj || '';
   const newProj = rawProj === '__none__' ? '' : rawProj;
   if ((song.project || '') === newProj) return; // already in this project
+  // Remove from old project's order
+  const oldKey = (song.project || '').trim() || '__none__';
+  if (userSongOrders[oldKey]) {
+    userSongOrders[oldKey] = userSongOrders[oldKey].filter(id => id !== songId);
+  }
   song.project = newProj;
   song.updatedAt = Date.now();
   // Auto-expand the target group so the moved song is visible
   _expandedProjs.add(rawProj || '__none__');
   save();
   scheduleSyncToSheet(song);
+  saveUserProjects();
+  renderGrid();
+}
+
+// ── Song-row drag: reorder within same project ──────────────────────
+function _slRowDragOver(rowEl, e) {
+  if (!window._slDraggingSongId) return;
+  const dragId   = window._slDraggingSongId;
+  const targetId = rowEl.dataset.songId;
+  if (!targetId || dragId === targetId) return;
+  const dragSong   = songs.find(s => s.id === dragId);
+  const targetSong = songs.find(s => s.id === targetId);
+  if (!dragSong || !targetSong) return;
+  // Only handle reorder within the same project; cross-project drops go to the header
+  if ((dragSong.project || '') !== (targetSong.project || '')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const rect = rowEl.getBoundingClientRect();
+  if (e.clientY < rect.top + rect.height / 2) {
+    rowEl.classList.add('sl-drag-before');
+    rowEl.classList.remove('sl-drag-after');
+  } else {
+    rowEl.classList.add('sl-drag-after');
+    rowEl.classList.remove('sl-drag-before');
+  }
+}
+
+function _slRowDragLeave(rowEl, e) {
+  if (rowEl.contains(e.relatedTarget)) return;
+  rowEl.classList.remove('sl-drag-before', 'sl-drag-after');
+}
+
+function _slRowDrop(rowEl, e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const targetId    = rowEl.dataset.songId;
+  const dragId      = window._slDraggingSongId;
+  const insertBefore = rowEl.classList.contains('sl-drag-before');
+  rowEl.classList.remove('sl-drag-before', 'sl-drag-after');
+  if (!dragId || !targetId || dragId === targetId) return;
+  const dragSong   = songs.find(s => s.id === dragId);
+  const targetSong = songs.find(s => s.id === targetId);
+  if (!dragSong || !targetSong) return;
+  if ((dragSong.project || '') !== (targetSong.project || '')) return;
+  const projKey = (dragSong.project || '').trim() || '__none__';
+  // Build/update order for this project
+  let order = userSongOrders[projKey]
+    ? [...userSongOrders[projKey]]
+    : songs.filter(s => (s.project||'').trim() === (dragSong.project||'').trim()).map(s => s.id);
+  // Ensure both IDs are represented
+  if (!order.includes(dragId))   order.push(dragId);
+  if (!order.includes(targetId)) order.push(targetId);
+  order = order.filter(id => id !== dragId);
+  const targetIdx = order.indexOf(targetId);
+  order.splice(insertBefore ? targetIdx : targetIdx + 1, 0, dragId);
+  userSongOrders[projKey] = order;
+  saveUserProjects();
   renderGrid();
 }
 
