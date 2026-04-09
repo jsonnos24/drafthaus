@@ -13896,6 +13896,7 @@ async function syncToSheet(song) {
       sequencer:      song.sequencer      || {},
       sequences:      song.sequences      || [],
       loopTracks:     song.loopTracks     || [],
+      mtTracks:       song.mtTracks       || [],
       lyrics:         song.lyrics         || {},
       chordPositions: song.chordPositions || {},
       updatedAt:      song.updatedAt      || Date.now(),
@@ -19891,7 +19892,7 @@ function loopBuildUI() {
           onblur="loopSaveTrackName(${i},this)"
           onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
         >${t.label || LOOP_TRACK_NAMES[i]}</span>
-        <span class="track-state-label" id="lstate-label-${i}">EMPTY</span>
+        <span class="track-state-label" id="lstate-label-${i}" style="display:none">EMPTY</span>
       </div>
       <select class="ltrack-part-select" onchange="loopSaveTrackSetting(${i},'partId',this.value)" id="ltrack-part-${i}">
         <option value="">— Part —</option>
@@ -20208,7 +20209,7 @@ function loopUpdateTrackUI(i){
   const idleMode = _isReady ? {icon:'▶',lbl:'Play',state:'READY'} : {icon:'⏺',lbl:'Record',state:'EMPTY'};
   const map={idle:idleMode,preroll:{icon:'⏳',lbl:'Cancel',state:'COUNT IN'},recording:{icon:'⏹',lbl:'Stop Rec',state:'REC...'},playing:{icon:'⏸',lbl:'Mute',state:'PLAY'},muted:{icon:'▶',lbl:'Unmute',state:'MUTED'}};
   const m=map[t.state]||map.idle;
-  if(icon)icon.textContent=m.icon;if(label)label.textContent=m.lbl;if(stl){stl.textContent=m.state;stl.style.color=t.state==='preroll'?'#ff9900':t.state==='recording'?'#ff2200':t.state==='playing'?'#00e87a':t.state==='muted'?'#888':_isReady?'#e8c84a':'#ffd166';}
+  if(icon)icon.textContent=m.icon;if(label)label.textContent=m.lbl;if(stl){stl.textContent=m.state;stl.style.display=m.state==='EMPTY'?'none':'';stl.style.color=t.state==='preroll'?'#ff9900':t.state==='recording'?'#ff2200':t.state==='playing'?'#00e87a':t.state==='muted'?'#888':_isReady?'#e8c84a':'#ffd166';}
   loopUpdateMonitorPill();
 }
 function loopUpdateMonitorPill() {
@@ -22892,13 +22893,26 @@ function _mtSavedPan(i) {
   return v !== null ? Math.max(-100, Math.min(100, parseInt(v, 10))) : 0;
 }
 function _mtSavedLabel(i) {
-  return localStorage.getItem('drafthaus-mt-label-' + i) || MT_NAMES[i];
+  const song = getCurrentSong();
+  return song?.mtTracks?.[i]?.label
+    || localStorage.getItem('drafthaus-mt-label-' + i)
+    || MT_NAMES[i];
+}
+function mtSaveTrackSetting(i, key, value) {
+  const song = getCurrentSong();
+  if (!song) return;
+  if (!song.mtTracks) song.mtTracks = [{},{},{},{}];
+  while (song.mtTracks.length <= i) song.mtTracks.push({});
+  if (!song.mtTracks[i]) song.mtTracks[i] = {};
+  song.mtTracks[i][key] = value;
+  save();
 }
 function mtSaveLabel(i, el) {
   const name = el.textContent.trim() || MT_NAMES[i];
   el.textContent = name;
-  localStorage.setItem('drafthaus-mt-label-' + i, name);
   if (_mtTracks[i]) _mtTracks[i].name = name;
+  localStorage.setItem('drafthaus-mt-label-' + i, name); // keep as fallback
+  mtSaveTrackSetting(i, 'label', name);
 }
 
 // ── DOM-free track object builder (safe to call before overlay opens) ──
@@ -24168,7 +24182,12 @@ window.vrDeleteTake = async function(takeId, storagePath) {
 
 // ── Trash ──────────────────────────────────────────────────────
 window.vrToggleTrash = function() {
-  _el('vrTrashSection').classList.toggle('open');
+  const section = _el('vrTrashSection');
+  const isOpen  = section.classList.toggle('open');
+  if (isOpen) {
+    // Give the section time to expand before scrolling
+    setTimeout(() => section.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60);
+  }
 };
 
 window.vrLoadTrash = async function() {
