@@ -3812,6 +3812,9 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ══════════════════════════════════
      BOTTOM NAV BAR (mobile ≤ 768px)
      ══════════════════════════════════ */
+  /* Prevent iOS elastic-bounce scroll from resizing the viewport and making
+     position:fixed elements "fly" away from the bottom during momentum scroll */
+  body { overscroll-behavior-y: none; }
   /* Hide all side tabs — bottom nav replaces them everywhere */
   .seq-drawer-tab,
   .practice-tab,
@@ -5625,7 +5628,8 @@ body.il-perf-active #stickySongBar { display: none !important; }
 /* ── Rehearse control bar (slides up above bottom nav in perf mode) ── */
 #rehearseBar {
   position: fixed;
-  bottom: 60px; left: 0; right: 0; /* always above bottom nav */
+  /* Match nav height: 2px top-pad + 52px item + max(5px, safe-area-inset-bottom) bot-pad */
+  bottom: calc(54px + max(5px, env(safe-area-inset-bottom, 0px))); left: 0; right: 0;
   z-index: 9940;
   display: flex;
   align-items: center;
@@ -7293,8 +7297,8 @@ body.il-perf-active #ilScrollFloat { display: none; }
         <div style="display:flex;flex-direction:column;gap:9px;font-size:11px;line-height:1.3;">
           <div style="color:#7a8099;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>2 drafts</div>
           <div style="color:#7a8099;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>20 min recording</div>
+          <div style="color:#7a8099;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>Real-time sync</div>
           <div style="color:#7a8099;display:flex;gap:7px;align-items:baseline;"><span style="color:#ff5f5f;font-size:10px;">✕</span>No collaboration</div>
-          <div style="color:#7a8099;display:flex;gap:7px;align-items:baseline;"><span style="color:#ff5f5f;font-size:10px;">✕</span>1 song export</div>
         </div>
       </div>
 
@@ -7307,6 +7311,7 @@ body.il-perf-active #ilScrollFloat { display: none; }
         <div style="display:flex;flex-direction:column;gap:9px;font-size:11px;line-height:1.3;">
           <div style="color:#a89fe0;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>20 drafts</div>
           <div style="color:#a89fe0;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>1.5 hrs recording</div>
+          <div style="color:#a89fe0;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>Real-time sync</div>
           <div style="color:#a89fe0;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>Collaboration</div>
           <div style="color:#a89fe0;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>Unlimited exports</div>
         </div>
@@ -7320,8 +7325,10 @@ body.il-perf-active #ilScrollFloat { display: none; }
         <div style="display:flex;flex-direction:column;gap:9px;font-size:11px;line-height:1.3;">
           <div style="color:#d4bb6a;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>Unlimited drafts</div>
           <div style="color:#f5c842;font-weight:600;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>3 hrs recording</div>
+          <div style="color:#d4bb6a;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>Real-time sync</div>
           <div style="color:#d4bb6a;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>Collaboration</div>
           <div style="color:#d4bb6a;display:flex;gap:7px;align-items:baseline;"><span style="color:#00d97a;font-size:10px;">✓</span>Unlimited exports</div>
+          <div style="color:#888;display:flex;gap:7px;align-items:baseline;font-style:italic;"><span style="color:#f5c842;font-size:10px;">◎</span>Offline Mode <span style="font-size:9px;color:#555;margin-left:2px;">(unreleased)</span></div>
         </div>
       </div>
 
@@ -7444,6 +7451,7 @@ body.il-perf-active #ilScrollFloat { display: none; }
         <div class="ks-sep"></div>
         <div class="ks-section-label">General</div>
         <div class="ks-row"><kbd>Space</kbd><span>Play / Stop (metro, sequencer, keyboard, 4-track)</span></div>
+        <div class="ks-row"><kbd>↵ Enter</kbd><span>Expand active pane / Revert to split</span></div>
         <div class="ks-row"><kbd>Esc</kbd><span>Close open drawer</span></div>
         <div class="ks-row"><kbd>1</kbd>–<kbd>8</kbd><span>Play scale notes (Sequencer open)</span></div>
         <div class="ks-row"><kbd>N</kbd><span>New draft</span></div>
@@ -17715,6 +17723,7 @@ function openSplitMode(tool) {
 }
 
 var _splitExpandedSide = null;
+var _splitActiveSide = 'left'; // tracks which pane the user last interacted with
 
 function splitExpandPane(side) {
   if (_splitExpandedSide === side) {
@@ -18076,6 +18085,15 @@ function _initSplitAlwaysOn() {
   }
 }
 
+// Track which split pane was last interacted with (for Enter key expand)
+document.addEventListener('pointerdown', function(e) {
+  if (window.innerWidth < 900) return;
+  var right = document.getElementById('splitRightPanel');
+  if (right && right.contains(e.target)) { _splitActiveSide = 'right'; return; }
+  var left  = document.getElementById('splitLeftHeader');
+  if (left  && left.contains(e.target))  { _splitActiveSide = 'left'; }
+}, { passive: true });
+
 // Toggle split on desktop resize
 window.addEventListener('resize', function() {
   if (window.innerWidth >= 900 && !_splitActive) {
@@ -18125,6 +18143,14 @@ window.addEventListener('resize', function() {
     if (d) {
       d.addEventListener('mousedown', onDividerDown);
       d.addEventListener('touchstart', onDividerDown, { passive: false });
+      d.addEventListener('dblclick', function(e) {
+        e.preventDefault();
+        document.documentElement.style.setProperty('--split-left', '50%');
+        var div = document.getElementById('splitDivider');
+        if (div) div.style.left = 'calc(50% - 3px)';
+        var rp = document.getElementById('splitRightPanel');
+        if (rp) rp.style.left = '50%';
+      });
     }
   });
   document.addEventListener('mousemove', onMove);
@@ -22418,13 +22444,11 @@ document.addEventListener('keydown', function(e) {
     case 'enter': {
       if (window.innerWidth < 900) break;
       e.preventDefault();
-      // Toggle: expand left pane full-width ↔ restore split
-      if (_splitExpandedSide === 'left') {
-        splitExpandPane('left'); // restores
-      } else if (_splitExpandedSide === 'right') {
-        splitExpandPane('right'); // restores
+      // Expand whichever pane was last active, or toggle it back if already expanded
+      if (_splitExpandedSide) {
+        splitExpandPane(_splitExpandedSide); // revert — same call collapses it
       } else {
-        splitExpandPane('left'); // expand left (writing area) by default
+        splitExpandPane(_splitActiveSide); // expand the active side
       }
       break;
     }
@@ -24986,22 +25010,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 <!-- ── Chrome-style split workspace ──────────────────────────────── -->
 <div id="splitLeftHeader">
-  <select id="splitLeftSelect" onchange="setSplitLeftView(this.value)" title="Choose left panel content">
-    <option value="list">📋 The List</option>
-    <option value="lyrics">✏️ Edit Lyrics (chords)</option>
-    <option value="backend">▦ Backend</option>
-  </select>
+  <div style="flex:1"></div>
   <button id="splitLeftExpandBtn" class="split-expand-btn" onclick="splitExpandPane('left')" title="Expand left pane">⤢</button>
 </div>
 <div id="splitRightPanel">
   <div id="splitRightHeader">
-    <select id="splitRightSelect" onchange="setSplitRightTool(this.value)" title="Choose panel content">
-      <option value="">— Select Tool —</option>
-      <option value="4track">🎙 4-Track</option>
-      <option value="sequencer">🎛 Sequencer</option>
-      <option value="looper">⏺ Looper</option>
-      <option value="keyboard">🎹 Keyboard</option>
-    </select>
+    <div style="flex:1"></div>
     <button id="splitRightExpandBtn" class="split-expand-btn" onclick="splitExpandPane('right')" title="Expand right pane">⤢</button>
     <button class="split-hdr-btn" onclick="swapSplitPanels()" title="Swap panels">⇄</button>
   </div>
@@ -25056,7 +25070,7 @@ document.addEventListener('DOMContentLoaded', () => {
         The bottom bar gives you four tools that sync to your song's BPM:<br><br>
         <strong>4-Track</strong> — Record and overdub audio takes per section<br>
         <strong>Keyboard</strong> — Play and record melodies with your MIDI device, your computer keyboard (keys 1–8 once a key is assigned to a song), or the on-screen keys<br>
-        <strong>Sequencer</strong> — Program drum and chord patterns<br>
+        <strong>Sequencer</strong> — Program drum and chord patterns. Load built-in <strong>drum presets</strong> to start fast, then customize per section<br>
         <strong>Looper</strong> — Layer live loops on top of your song<br><br>
         Open the <strong>Mix</strong> panel to balance levels across all four.
       </div>
@@ -25075,6 +25089,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="ob-kbd">R</span><span class="ob-kd">Rehearse mode</span>
           <span class="ob-kbd">B</span><span class="ob-kd">Backend</span>
           <span class="ob-kbd">T / K / S / O</span><span class="ob-kd">4-Track / Keyboard / Sequencer / Looper</span>
+          <span class="ob-kbd">↵ Enter</span><span class="ob-kd">Expand active pane / revert</span>
           <span class="ob-kbd">Esc</span><span class="ob-kd">Close / go back</span>
           <span class="ob-kbd">N</span><span class="ob-kd">New draft</span>
           <span class="ob-kbd">/</span><span class="ob-kd">Search</span>
