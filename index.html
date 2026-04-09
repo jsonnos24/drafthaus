@@ -8534,6 +8534,9 @@ function openSong(id) {
   document.getElementById('loadSheetBtn')?.classList.remove('load-btn-glow');
   currentId = id;
   localStorage.setItem('drafthaus-last-song', id);
+  // Persist last opened song to Firestore so it restores across devices/sessions
+  const uid = auth.currentUser?.uid;
+  if (uid) db.collection('users').doc(uid).update({ lastSongId: id }).catch(() => {});
   const song = songs.find(s => s.id === id);
   if (!song) return;
 
@@ -14091,6 +14094,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 let _userTierUnsub = null; // holds the onSnapshot unsubscribe for the current user doc
+let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestore
 
 auth.onAuthStateChanged(user => {
   if (user) {
@@ -14111,6 +14115,7 @@ auth.onAuthStateChanged(user => {
       _userTierUnsub = userRef.onSnapshot(doc => {
         const newTier = doc.data()?.tier || 'free';
         _dismissedShares = new Set(doc.data()?.dismissedShares || []);
+        if (doc.data()?.lastSongId) _lastSongIdFromFirestore = doc.data().lastSongId;
         if (!appInited) {
           userTier = newTier;
           document.getElementById('landingOverlay').classList.add('hidden');
@@ -15878,9 +15883,9 @@ async function loadSongsFromSheet() {
     renderGrid();
     setSyncStatus('saved', 'Loaded ✓');
 
-    // Auto-restore last open song in backend view
+    // Auto-restore last open song — prefer Firestore (cross-device) over localStorage
     if (!currentId) {
-      const lastId = localStorage.getItem('drafthaus-last-song');
+      const lastId = _lastSongIdFromFirestore || localStorage.getItem('drafthaus-last-song');
       if (lastId && songs.find(s => s.id === lastId)) {
         openSong(lastId);
         setSongViewMode('backend');
