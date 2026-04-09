@@ -6986,6 +6986,16 @@ body.il-perf-active #ilScrollFloat { display: none; }
   font-size: 18px; pointer-events: none;
 }
 .looper-drawer-body .track-top-row { position: relative; }
+/* ── Drag-over states ──────────────────────────────────────────── */
+.looper-drawer-body .track-card.loop-drag-over {
+  border-color: #ffd166 !important;
+  background: rgba(255,209,102,0.06) !important;
+  box-shadow: 0 0 0 2px rgba(255,209,102,0.25);
+}
+.mt-waveform-wrap.mt-drag-over {
+  outline: 2px dashed rgba(255,209,102,0.6);
+  background: rgba(255,209,102,0.05) !important;
+}
 /* ── VU Meter ──────────────────────────────────────────────────── */
 .mt-vu-wrap { display:flex; gap:3px; align-items:flex-end; flex-shrink:0; margin:0 4px; }
 .mt-vu-canvas { border-radius:1px; display:block; }
@@ -20094,6 +20104,25 @@ function loopBuildUI() {
         <button class="track-clear-btn" onclick="loopClearTrack(${i})">✕</button>
       </div>`;
     grid.appendChild(card);
+    // ── Drag-and-drop audio files onto loop tracks ──────────────
+    (function(trackIdx, trackCard) {
+      trackCard.addEventListener('dragover', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (!trackCard.classList.contains('loop-tier-locked')) trackCard.classList.add('loop-drag-over');
+      });
+      trackCard.addEventListener('dragleave', (e) => {
+        if (!trackCard.contains(e.relatedTarget)) trackCard.classList.remove('loop-drag-over');
+      });
+      trackCard.addEventListener('drop', async (e) => {
+        e.preventDefault(); e.stopPropagation();
+        trackCard.classList.remove('loop-drag-over');
+        if (trackIdx >= getTierLimits().loops) { showUpgradeModal('Tracks 3 & 4 are available on Drafter and Prolific Drafter plans. Upgrade to unlock all 4 tracks.'); return; }
+        const file = e.dataTransfer.files[0];
+        if (!file || !file.type.startsWith('audio/')) { showToast('Please drop an audio file (MP3, WAV, etc.)', 'error'); return; }
+        if (file.size > 7 * 1024 * 1024) { showToast('File too large — please use files under 7 MB', 'error'); return; }
+        await loopDropAudioFile(trackIdx, file);
+      });
+    })(i, card);
     t.canvas = document.getElementById(`lring-canvas-${i}`);
     t.ctx2d = t.canvas.getContext('2d');
     loopDrawRing(t, 0);
@@ -20436,7 +20465,7 @@ async function loopAutoSave(trackIdx, blob, mimeType, duration) {
   }
   if (!loopSongId) loopSongId = songId; // keep in sync for loopLoadSavedLoops
   const uid = auth.currentUser.uid;
-  const ext = mimeType.includes('webm') ? 'webm' : 'ogg';
+  const ext = mimeType.includes('webm') ? 'webm' : (mimeType.includes('mp3') || mimeType.includes('mpeg')) ? 'mp3' : 'ogg';
   const fname = 'loop_' + Date.now() + '.' + ext;
   const path = 'loop_tracks/' + songId + '/' + fname;
   showDrawerStatus('saving', '💾  Saving loop to cloud…');
@@ -20631,6 +20660,40 @@ async function loopLoadFromSaved(docId, downloadUrl, duration) {
     console.error('[Looper] load from saved error', e);
     hideDrawerLoading();
     showToast('Could not load loop — try again.', 'error');
+  }
+}
+
+// ── Drop audio file onto a loop track ─────────────────────────────
+async function loopDropAudioFile(trackIdx, file) {
+  await loopEnsureAudioCtx();
+  const t = loopTracks[trackIdx]; if (!t) return;
+  const stl = document.getElementById(`lstate-label-${trackIdx}`);
+  if (stl) { stl.textContent = 'LOADING…'; stl.style.display = ''; }
+  try {
+    const arrBuf = await file.arrayBuffer();
+    // decodeAudioData may neuter the buffer — keep a copy for upload
+    const arrBufCopy = arrBuf.slice(0);
+    const audioBuf = await loopAudioCtx.decodeAudioData(arrBufCopy);
+    loopStopPlayback(trackIdx);
+    cancelAnimationFrame(t.rafId);
+    t.buffer = audioBuf;
+    t.recDuration = audioBuf.duration;
+    t.blob = null;
+    t.state = 'idle'; // READY state — user clicks ring to play
+    loopDrawRing(t, LOOP_NUM_LEDS);
+    loopUpdateTrackUI(trackIdx);
+    const barEl = document.getElementById(`lbar-counter-${trackIdx}`);
+    if (barEl) barEl.textContent = `${audioBuf.duration.toFixed(1)}s`;
+    const dlBtn = document.getElementById(`ldl-btn-${trackIdx}`);
+    if (dlBtn) dlBtn.disabled = true; // no local blob to download
+    // Upload to Firebase in background — don't block playback
+    const blob = new Blob([arrBuf], { type: file.type });
+    loopAutoSave(trackIdx, blob, file.type, audioBuf.duration);
+  } catch(err) {
+    console.error('[Looper] drop decode failed', err);
+    if (stl) { stl.textContent = ''; stl.style.display = 'none'; }
+    showDrawerStatus('error', '⚠ Could not decode audio — try a different file');
+    hideDrawerStatus(4000);
   }
 }
 
@@ -23196,6 +23259,27 @@ function mtBuildUI() {
     container.appendChild(lane);
     // Visually lock tracks beyond the tier limit
     if (i >= getTierLimits().tracks) lane.classList.add('mt-tier-locked');
+    // ── Drag-and-drop audio files onto waveform area ────────────
+    (function(trackIdx) {
+      const ww = _el('mt-wave-wrap-'+trackIdx);
+      if (!ww) return;
+      ww.addEventListener('dragover', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (trackIdx < getTierLimits().tracks) ww.classList.add('mt-drag-over');
+      });
+      ww.addEventListener('dragleave', (e) => {
+        if (!ww.contains(e.relatedTarget)) ww.classList.remove('mt-drag-over');
+      });
+      ww.addEventListener('drop', async (e) => {
+        e.preventDefault(); e.stopPropagation();
+        ww.classList.remove('mt-drag-over');
+        if (trackIdx >= getTierLimits().tracks) { showUpgradeModal('Tracks 3 & 4 are available on Drafter and Prolific Drafter plans. Upgrade to unlock all 4 tracks.'); return; }
+        const file = e.dataTransfer.files[0];
+        if (!file || !file.type.startsWith('audio/')) { showToast('Please drop an audio file (MP3, WAV, etc.)', 'error'); return; }
+        if (file.size > 7 * 1024 * 1024) { showToast('File too large — please use files under 7 MB', 'error'); return; }
+        await mtDropAudioFile(trackIdx, file);
+      });
+    })(i);
     t.waveCanvas = _el('mt-wave-'+i);
     t.waveCtx    = t.waveCanvas ? t.waveCanvas.getContext('2d') : null;
 
@@ -23205,6 +23289,52 @@ function mtBuildUI() {
       _mtRenderTakesPanel(i);
       _mtUpdateTakesBtn(i);
     }
+  }
+}
+
+// ── Drop audio file onto a 4-track lane ───────────────────────────
+async function mtDropAudioFile(trackIdx, file) {
+  _mtCreateCtxSync();
+  const t = _mtTracks[trackIdx]; if (!t) return;
+  const sl = _el('mt-state-'+trackIdx);
+  if (sl) sl.textContent = 'LOADING…';
+  const hint = _el('mt-empty-hint-'+trackIdx);
+  if (hint) hint.style.display = 'none';
+  try {
+    const arrBuf = await file.arrayBuffer();
+    const arrBufCopy = arrBuf.slice(0); // decodeAudioData may neuter — keep original for upload
+    const buffer = await _mtAudioCtx.decodeAudioData(arrBufCopy);
+    t.buffer = buffer;
+    t.duration = buffer.duration;
+    _mtDrawTrackWaveform(trackIdx, buffer, t.color);
+    if (sl) { sl.textContent = ''; }
+    const dd = _el('mtDurDisplay');
+    if (dd) dd.textContent = _fmtDur(_mtMaxDuration());
+    const pb = _el('mtPlayBtn');
+    if (pb) pb.disabled = !_mtTracks.some(t => t && t.buffer);
+    // Upload to Firebase as a take in the background
+    if (!_vrSongId) _vrSongId = currentId || null;
+    if (_vrSongId && auth.currentUser) {
+      showDrawerStatus('saving', '💾  Saving take to cloud…');
+      const blob = new Blob([arrBuf], { type: file.type });
+      const newTake = await _uploadTake(blob, buffer.duration, file.type, trackIdx);
+      if (newTake) {
+        showDrawerStatus('saved', '✓  Take saved');
+        hideDrawerStatus(2000);
+        await vrLoadTakes();
+        const idx = t.takes.findIndex(tk => tk.id === newTake.id);
+        if (idx >= 0) { t.activeTakeIdx = idx; _mtRenderTakesPanel(trackIdx); _mtUpdateTakesBtn(trackIdx); }
+      } else {
+        showDrawerStatus('error', '⚠  Save failed — check connection');
+        hideDrawerStatus(4000);
+      }
+    }
+  } catch(err) {
+    console.error('[MT] drop decode failed', err);
+    if (sl) sl.textContent = '';
+    if (hint) hint.style.display = '';
+    showDrawerStatus('error', '⚠ Could not decode audio — try a different file');
+    hideDrawerStatus(4000);
   }
 }
 
@@ -23981,7 +24111,7 @@ async function _vrGetQuota() {
 // ── Upload (with trackNum) — returns new doc ID ────────────────
 async function _uploadTake(blob, duration, mimeType, trackIdx) {
   const uid = auth.currentUser?.uid;
-  const ext = mimeType.includes('webm') ? 'webm' : (mimeType.includes('wav') ? 'wav' : 'ogg');
+  const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('wav') ? 'wav' : (mimeType.includes('mp3') || mimeType.includes('mpeg')) ? 'mp3' : 'ogg';
   const fname = 'take_' + Date.now() + '.' + ext;
   const path  = 'voice_takes/' + _vrSongId + '/' + fname;
   try {
