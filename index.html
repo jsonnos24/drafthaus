@@ -2374,16 +2374,21 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* ── New Project button at bottom of list ── */
   .new-proj-list-btn {
-    display: flex; align-items: center; gap: 7px;
-    width: 100%; background: none;
-    border: 1px dashed rgba(255,255,255,0.09); border-radius: 6px;
-    color: var(--faint); cursor: pointer;
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
-    padding: 9px 14px; margin-top: 14px;
-    transition: border-color 0.15s, color 0.15s, background 0.15s;
-    text-align: left; letter-spacing: 0.04em;
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; background: rgba(245,166,35,0.07);
+    border: 1px solid rgba(245,166,35,0.3); border-radius: 8px;
+    color: var(--gold); cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 11px 16px; margin-top: 16px;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+    text-align: left;
   }
-  .new-proj-list-btn:hover { border-color: rgba(245,166,35,0.4); color: var(--gold); background: rgba(245,166,35,0.04); }
+  .new-proj-list-btn:hover {
+    border-color: rgba(245,166,35,0.7);
+    background: rgba(245,166,35,0.13);
+    box-shadow: 0 0 0 3px rgba(245,166,35,0.08);
+  }
   /* new project inline input row */
   .new-proj-inline-row {
     display: none; align-items: center; gap: 8px;
@@ -20438,7 +20443,7 @@ function loopBuildUI() {
         if (trackIdx >= getTierLimits().loops) { showUpgradeModal('Tracks 3 & 4 are available on Drafter and Prolific Drafter plans. Upgrade to unlock all 4 tracks.'); return; }
         const file = e.dataTransfer.files[0];
         if (!file || !file.type.startsWith('audio/')) { showToast('Please drop an audio file (MP3, WAV, etc.)', 'error'); return; }
-        if (file.size > 7 * 1024 * 1024) { showToast('File too large — please use files under 7 MB', 'error'); return; }
+        if (file.size > 11 * 1024 * 1024) { showToast('File too large — please use files under 7 MB', 'error'); return; }
         await loopDropAudioFile(trackIdx, file);
       });
     })(i, card);
@@ -21005,6 +21010,16 @@ async function loopDropAudioFile(trackIdx, file) {
     if (barEl) barEl.textContent = `${audioBuf.duration.toFixed(1)}s`;
     const dlBtn = document.getElementById(`ldl-btn-${trackIdx}`);
     if (dlBtn) dlBtn.disabled = true; // no local blob to download
+    // Quota check before upload — playback is already live
+    const { remaining } = await _vrGetQuota();
+    if (audioBuf.duration > remaining) {
+      if (userTier === 'free') {
+        showUpgradeModal(`You've used your ${getTierLimits().recordingMinutes} minutes of free recording storage. Upgrade for more.`);
+      } else {
+        showToast('Recording quota full — delete old takes or loops to free space', 'error');
+      }
+      return; // skip upload but leave audio playable for this session
+    }
     // Upload to Firebase in background — don't block playback
     const blob = new Blob([arrBuf], { type: file.type });
     loopAutoSave(trackIdx, blob, file.type, audioBuf.duration);
@@ -23595,7 +23610,7 @@ function mtBuildUI() {
         if (trackIdx >= getTierLimits().tracks) { showUpgradeModal('Tracks 3 & 4 are available on Drafter and Prolific Drafter plans. Upgrade to unlock all 4 tracks.'); return; }
         const file = e.dataTransfer.files[0];
         if (!file || !file.type.startsWith('audio/')) { showToast('Please drop an audio file (MP3, WAV, etc.)', 'error'); return; }
-        if (file.size > 7 * 1024 * 1024) { showToast('File too large — please use files under 7 MB', 'error'); return; }
+        if (file.size > 11 * 1024 * 1024) { showToast('File too large — please use files under 7 MB', 'error'); return; }
         await mtDropAudioFile(trackIdx, file);
       });
     })(i);
@@ -23631,6 +23646,16 @@ async function mtDropAudioFile(trackIdx, file) {
     if (dd) dd.textContent = _fmtDur(_mtMaxDuration());
     const pb = _el('mtPlayBtn');
     if (pb) pb.disabled = !_mtTracks.some(t => t && t.buffer);
+    // Quota check before upload — waveform is already drawn
+    const { remaining } = await _vrGetQuota();
+    if (buffer.duration > remaining) {
+      if (userTier === 'free') {
+        showUpgradeModal(`You've used your ${getTierLimits().recordingMinutes} minutes of free recording storage. Upgrade for more.`);
+      } else {
+        showToast('Recording quota full — delete old takes or loops to free space', 'error');
+      }
+      return; // skip upload but leave waveform playable for this session
+    }
     // Upload to Firebase as a take in the background
     if (!_vrSongId) _vrSongId = currentId || null;
     if (_vrSongId && auth.currentUser) {
@@ -24415,13 +24440,15 @@ async function _vrGetQuota() {
   const quotaSecs = getTierLimits().recordingMinutes * 60;
   if (!uid) return { used: 0, remaining: quotaSecs };
   try {
-    const [takesSnap, trashSnap] = await Promise.all([
+    const [takesSnap, trashSnap, loopsSnap] = await Promise.all([
       db.collection('voice_takes').where('userId', '==', uid).get(),
-      db.collection('voice_trash').where('userId', '==', uid).get()
+      db.collection('voice_trash').where('userId', '==', uid).get(),
+      db.collection('song_loops').where('userId', '==', uid).get()
     ]);
     const used = [
       ...takesSnap.docs.map(d => d.data().duration || 0),
-      ...trashSnap.docs.map(d => d.data().duration || 0)
+      ...trashSnap.docs.map(d => d.data().duration || 0),
+      ...loopsSnap.docs.map(d => d.data().duration || 0)
     ].reduce((sum, d) => sum + d, 0);
     return { used, remaining: Math.max(0, quotaSecs - used) };
   } catch(e) { return { used: 0, remaining: quotaSecs }; }
