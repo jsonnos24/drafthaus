@@ -14094,28 +14094,38 @@ auth.onAuthStateChanged(user => {
     stopSyncPolling();
 
     // Register/update user profile, then load tier, then init app
-    db.collection('users').doc(user.uid).set({
+    const userRef = db.collection('users').doc(user.uid);
+    userRef.set({
       uid:         user.uid,
       email:       user.email,
       displayName: user.displayName || '',
     }, { merge: true }).then(() => {
-      return db.collection('users').doc(user.uid).get();
-    }).then(doc => {
-      userTier = doc.data()?.tier || 'free';
-      _dismissedShares = new Set(doc.data()?.dismissedShares || []);
-      document.getElementById('landingOverlay').classList.add('hidden');
-      const emailEl = document.getElementById('headerUserEmail');
-      if (emailEl) emailEl.textContent = user.email || '';
-      initApp();
-      // Boot always-on split after tier is known
-      setTimeout(() => { if (typeof _initSplitAlwaysOn === 'function') _initSplitAlwaysOn(); }, 150);
-    }).catch(() => {
-      // Fallback: init app even if tier load fails
-      document.getElementById('landingOverlay').classList.add('hidden');
-      const emailEl = document.getElementById('headerUserEmail');
-      if (emailEl) emailEl.textContent = user.email || '';
-      initApp();
-      setTimeout(() => { if (typeof _initSplitAlwaysOn === 'function') _initSplitAlwaysOn(); }, 150);
+      let appInited = false;
+      // Use onSnapshot so tier updates (e.g. after Stripe payment) are applied in real-time
+      userRef.onSnapshot(doc => {
+        const newTier = doc.data()?.tier || 'free';
+        _dismissedShares = new Set(doc.data()?.dismissedShares || []);
+        if (!appInited) {
+          userTier = newTier;
+          document.getElementById('landingOverlay').classList.add('hidden');
+          const emailEl = document.getElementById('headerUserEmail');
+          if (emailEl) emailEl.textContent = user.email || '';
+          initApp();
+          setTimeout(() => { if (typeof _initSplitAlwaysOn === 'function') _initSplitAlwaysOn(); }, 150);
+          appInited = true;
+        } else if (newTier !== userTier) {
+          // Tier changed after init (e.g. Stripe webhook updated Firestore) — reload to apply
+          userTier = newTier;
+          window.location.reload();
+        }
+      }, () => {
+        // Fallback: init app even if snapshot fails
+        document.getElementById('landingOverlay').classList.add('hidden');
+        const emailEl = document.getElementById('headerUserEmail');
+        if (emailEl) emailEl.textContent = user.email || '';
+        initApp();
+        setTimeout(() => { if (typeof _initSplitAlwaysOn === 'function') _initSplitAlwaysOn(); }, 150);
+      });
     });
   } else {
     // Logged out — clear everything
