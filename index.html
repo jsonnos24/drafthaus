@@ -5904,7 +5904,9 @@ body.il-perf-active #ilScrollFloat { display: none; }
   /* Slightly larger lyric text */
   .il-cc-syl { font-size: 19px; }
   /* Bigger chord label for readability */
-  .il-cc-chord { font-size: 15px; padding: 5px 10px 5px 12px; }
+  .il-cc-chord { font-size: 15px; padding: 5px 4px 5px 12px; }
+  /* Large tap target for the ✕ remove button */
+  .il-cc-chord-x { font-size: 14px; padding: 6px 8px; min-width: 32px; min-height: 32px; display: inline-flex; align-items: center; justify-content: center; }
   /* Larger drop zone above each syllable — easier to land on */
   .il-cc-slot { min-height: 38px; }
   /* More horizontal padding around each word column for a larger tap area */
@@ -21521,6 +21523,12 @@ function ilUnpositionChord(partId, lineIdx, wordIdx, sylIdx) {
     const el = document.elementFromPoint(x, y);
     return el ? el.closest('.il-cc-word-col') : null;
   }
+  // Use the ghost's visual center for hit-testing so drop lands where the ghost appears
+  function _ilGhostCenter() {
+    if (!_ilGhost) return null;
+    const r = _ilGhost.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
 
   function _ilCleanup() {
     if (_ilGhost) { _ilGhost.remove(); _ilGhost = null; }
@@ -21555,7 +21563,9 @@ function ilUnpositionChord(partId, lineIdx, wordIdx, sylIdx) {
     const touch = e.touches[0];
     _ilGhost.style.left = touch.clientX + 'px';
     _ilGhost.style.top  = touch.clientY + 'px';
-    const col = _ilColAt(touch.clientX, touch.clientY);
+    // Highlight whichever word the ghost is visually over, not where the finger is
+    const gc  = _ilGhostCenter();
+    const col = gc ? _ilColAt(gc.x, gc.y) : _ilColAt(touch.clientX, touch.clientY);
     if (_ilLastCol && _ilLastCol !== col) _ilLastCol.classList.remove('dragover');
     if (col) { col.classList.add('dragover'); _ilLastCol = col; }
     else _ilLastCol = null;
@@ -21564,7 +21574,9 @@ function ilUnpositionChord(partId, lineIdx, wordIdx, sylIdx) {
   document.addEventListener('touchend', function(e) {
     if (!_ilDrag) return;
     const touch = e.changedTouches[0];
-    const col   = _ilColAt(touch.clientX, touch.clientY);
+    // Drop on the word the ghost was visually over
+    const gc  = _ilGhostCenter();
+    const col = gc ? _ilColAt(gc.x, gc.y) : _ilColAt(touch.clientX, touch.clientY);
     if (col) {
       col.classList.remove('dragover');
       const partId  = col.dataset.part;
