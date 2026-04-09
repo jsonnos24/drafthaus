@@ -74,7 +74,7 @@ html.slate-mode .sub-header             { background: rgba(28,31,46,0.90); }
 html.slate-mode .bottom-nav             { background: rgba(28,31,46,0.98); }
 html.slate-mode .metro-bar              { background: rgba(28,31,46,0.98); }
 
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; overflow-x: hidden; }
 
 body {
   background: var(--bg);
@@ -766,7 +766,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .header-sub { display: none; }
   .sync-status { font-size: 11px; }
   .sync-dot { width: 8px; height: 8px; }
-  /* header-dropdown position set dynamically by toggleHeaderDropdown() */
+  /* header-dropdown is position:absolute inside header-status-wrap */
   /* Smaller nav buttons in mobile header */
   .header-nav-btns .bar-nav-btn { font-size: 8px !important; padding: 4px 7px !important; gap: 3px; }
   .header-nav-btns .bar-nav-btn svg { display: none; } /* hide clipboard icon on mobile */
@@ -4373,7 +4373,9 @@ button, select, input, textarea { touch-action: manipulation; }
 .header-status-wrap.open .header-status-btn { border-color: var(--border2); }
 .header-status-wrap.open .chevron { transform: rotate(180deg); }
 .header-dropdown {
-  position: fixed;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
   background: var(--card); border: 1px solid var(--border2);
   border-radius: 10px; padding: 6px;
   min-width: 200px;
@@ -7473,16 +7475,16 @@ body.il-perf-active #ilScrollFloat { display: none; }
         <!-- Drop-in Samples -->
         <tr style="border-top:1px solid #1e2130;">
           <td style="padding:9px 10px 9px 0;color:#fff;">Drop-in Samples</td>
-          <td style="text-align:center;padding:9px 6px;color:#fff;">1 per song</td>
-          <td style="text-align:center;padding:9px 6px;color:#c4baf5;background:rgba(107,79,216,0.06);">2 per song</td>
-          <td style="text-align:center;padding:9px 6px;color:#f5c842;">Quota only</td>
+          <td style="text-align:center;padding:9px 6px;color:#00d97a;">✓</td>
+          <td style="text-align:center;padding:9px 6px;color:#00d97a;background:rgba(107,79,216,0.06);">✓</td>
+          <td style="text-align:center;padding:9px 6px;color:#00d97a;">✓</td>
         </tr>
         <!-- 4-Track Recorder -->
         <tr style="border-top:1px solid #1e2130;">
           <td style="padding:9px 10px 9px 0;color:#fff;">4-Track Recorder</td>
           <td style="text-align:center;padding:9px 6px;color:#fff;">2 tracks</td>
-          <td style="text-align:center;padding:9px 6px;color:#00d97a;background:rgba(107,79,216,0.06);">✓</td>
-          <td style="text-align:center;padding:9px 6px;color:#00d97a;">✓</td>
+          <td style="text-align:center;padding:9px 6px;color:#c4baf5;background:rgba(107,79,216,0.06);">4 tracks</td>
+          <td style="text-align:center;padding:9px 6px;color:#f5c842;">4 tracks</td>
         </tr>
         <!-- Keyboard -->
         <tr style="border-top:1px solid #1e2130;">
@@ -7541,7 +7543,7 @@ body.il-perf-active #ilScrollFloat { display: none; }
       <button onclick="startCheckout('songwriter')" style="background:#1a1630;color:#c4baf5;border:1px solid #6b4fd8;border-radius:10px;padding:13px 8px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;">Get Drafter — $25</button>
       <button onclick="startCheckout('studio')" style="background:#f5c842;color:#000;border:none;border-radius:10px;padding:13px 8px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;">Get Prolific Drafter — $34 ★</button>
     </div>
-    <button onclick="closeUpgradeModal()" style="width:100%;background:none;border:none;color:#3a3e50;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;padding:6px;">Maybe later</button>
+    <button onclick="closeUpgradeModal()" style="width:100%;background:none;border:none;color:#f5c842;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;padding:6px;">Maybe later</button>
   </div>
 </div>
 
@@ -21000,16 +21002,6 @@ async function loopLoadFromSaved(docId, downloadUrl, duration) {
 async function loopDropAudioFile(trackIdx, file) {
   await loopEnsureAudioCtx();
   const t = loopTracks[trackIdx]; if (!t) return;
-  // Upload count gate
-  const uploadLimit = getTierLimits().uploadsPerSong;
-  if (uploadLimit !== Infinity) {
-    const songId = loopSongId || currentId;
-    const uploadCount = await _countUploadsForSong('song_loops', songId);
-    if (uploadCount >= uploadLimit) {
-      showUpgradeModal(`Your plan allows ${uploadLimit} sample upload${uploadLimit === 1 ? '' : 's'} per song in the looper. Upgrade for more.`);
-      return;
-    }
-  }
   const stl = document.getElementById(`lstate-label-${trackIdx}`);
   if (stl) { stl.textContent = 'LOADING…'; stl.style.display = ''; }
   try {
@@ -22751,21 +22743,8 @@ function rowDismissSharedSong(id) {
 // ── Header status dropdown ────────────────────────────────────────
 function toggleHeaderDropdown() {
   const wrap = document.getElementById('headerStatusWrap');
-  const menu = document.getElementById('headerDropdown');
-  const btn  = document.getElementById('headerStatusBtn');
-  if (!wrap || !menu || !btn) return;
-  const isOpen = wrap.classList.contains('open');
-  if (isOpen) {
-    wrap.classList.remove('open');
-    return;
-  }
-  // Position the dropdown directly under the button, right-aligned to it
-  const r = btn.getBoundingClientRect();
-  const menuW = 210;
-  const left = Math.min(r.right - menuW, window.innerWidth - menuW - 8);
-  menu.style.top  = (r.bottom + 6) + 'px';
-  menu.style.left = Math.max(8, left) + 'px';
-  wrap.classList.add('open');
+  if (!wrap) return;
+  wrap.classList.toggle('open');
 }
 function closeHeaderDropdown() {
   document.getElementById('headerStatusWrap')?.classList.remove('open');
@@ -23649,16 +23628,6 @@ function mtBuildUI() {
 async function mtDropAudioFile(trackIdx, file) {
   _mtCreateCtxSync();
   const t = _mtTracks[trackIdx]; if (!t) return;
-  // Upload count gate
-  const uploadLimit = getTierLimits().uploadsPerSong;
-  if (uploadLimit !== Infinity) {
-    if (!_vrSongId) _vrSongId = currentId || null;
-    const uploadCount = await _countUploadsForSong('voice_takes', _vrSongId);
-    if (uploadCount >= uploadLimit) {
-      showUpgradeModal(`Your plan allows ${uploadLimit} sample upload${uploadLimit === 1 ? '' : 's'} per song in the 4-track. Upgrade for more.`);
-      return;
-    }
-  }
   const sl = _el('mt-state-'+trackIdx);
   if (sl) sl.textContent = 'LOADING…';
   const hint = _el('mt-empty-hint-'+trackIdx);
