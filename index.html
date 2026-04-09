@@ -14931,8 +14931,15 @@ document.addEventListener('keydown',function(e){
     if (mso && mso.classList.contains('open')) { e.preventDefault(); mso.classList.remove('open'); return; }
     if (window._ilPerfMode) { e.preventDefault(); ilSetPerfMode(false); return; }
   }
-  // Space toggles metro only when not typing in a lyric area
-  if(e.code==='Space'&&e.target.tagName!=='INPUT'&&e.target.tagName!=='SELECT'&&!e.target.isContentEditable){e.preventDefault();metroToggle();}
+  // Space toggles metro — but yield to sequencer/keyboard/4-track if they're active
+  if(e.code==='Space'&&e.target.tagName!=='INPUT'&&e.target.tagName!=='SELECT'&&!e.target.isContentEditable){
+    const seqOpen  = document.getElementById('seqDrawer')?.classList.contains('open');
+    const kbdOpen  = document.getElementById('keyboardDrawer')?.classList.contains('open');
+    const tapOpen  = document.getElementById('vrOverlay')?.classList.contains('vr-open');
+    const miniBar  = document.getElementById('vrMiniBar');
+    const miniOpen = miniBar && miniBar.style.display !== 'none' && miniBar.offsetParent !== null;
+    if (!seqOpen && !kbdOpen && !tapOpen && !miniOpen) { e.preventDefault(); metroToggle(); }
+  }
   // Cmd/Ctrl+S saves
   if((e.metaKey||e.ctrlKey)&&e.key==='s'){e.preventDefault();saveEdits();}
   if(e.key==='Escape')metroForkStop();
@@ -18165,48 +18172,55 @@ window.addEventListener('resize', function() {
    S = Sequencer (right, expanded) O = Looper (right, expanded)
    Pressing the same key again reverts to normal split.
 ─────────────────────────────────────────────────────────────────── */
+
+// Track the left-pane view locally since splitLeftSelect is not a real DOM element
+var _kbLeftView = null;
+
 function _kbToggleLeftTool(view) {
-  // If already showing this view expanded-left → revert
-  var leftSel = document.getElementById('splitLeftSelect');
-  var currentLeft = leftSel ? leftSel.value : '';
-  if (_splitExpandedSide === 'left' && currentLeft === view) {
+  // Already showing this view AND left is expanded → revert to split
+  if (_splitExpandedSide === 'left' && _kbLeftView === view) {
     splitExpandPane('left');
     return;
   }
-  // Ensure split is active
+  // Clear any existing expansion cleanly
+  if (_splitExpandedSide) {
+    document.body.classList.remove('split-expanded-left', 'split-expanded-right');
+    _splitExpandedSide = null;
+    _syncExpandBtns();
+  }
   if (!_splitActive) openSplitMode();
   setSplitLeftView(view);
-  // Expand left if not already
-  if (_splitExpandedSide !== 'left') splitExpandPane('left');
+  _kbLeftView = view;
+  splitExpandPane('left');
 }
 
 function _kbToggleRightTool(tool) {
-  // If already showing this tool expanded-right → revert
+  // Already showing this tool AND right is expanded → revert to split
   if (_splitExpandedSide === 'right' && _splitCurrentTool === tool) {
     splitExpandPane('right');
     return;
   }
-  _desktopOpenTool(tool);
-  // Expand right if not already
-  if (_splitExpandedSide !== 'right') splitExpandPane('right');
+  // Clear any existing expansion cleanly
+  if (_splitExpandedSide) {
+    document.body.classList.remove('split-expanded-left', 'split-expanded-right');
+    _splitExpandedSide = null;
+    _syncExpandBtns();
+  }
+  // Set split ratio then open directly (bypass _desktopOpenTool's conflicting toggle)
+  var ratio = (tool === '4track') ? '50%' : '55%';
+  document.documentElement.style.setProperty('--split-left', ratio);
+  var div = document.getElementById('splitDivider');
+  var rp  = document.getElementById('splitRightPanel');
+  if (div) div.style.left = 'calc(' + ratio + ' - 3px)';
+  if (rp)  rp.style.left  = ratio;
+  if (_splitActive) {
+    setSplitRightTool(tool);
+  } else {
+    openSplitMode(tool);
+  }
+  splitExpandPane('right');
 }
 
-document.addEventListener('keydown', function(e) {
-  // Skip if typing in any input/editable area or if a modifier is held
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' ||
-      e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
-  // Only on desktop split
-  if (window.innerWidth < 900) return;
-  switch (e.key.toLowerCase()) {
-    case 'l': e.preventDefault(); _kbToggleLeftTool('lyrics');    break;
-    case 'b': e.preventDefault(); _kbToggleLeftTool('backend');   break;
-    case 't': e.preventDefault(); _kbToggleRightTool('4track');   break;
-    case 'k': e.preventDefault(); _kbToggleRightTool('keyboard'); break;
-    case 's': e.preventDefault(); _kbToggleRightTool('sequencer');break;
-    case 'o': e.preventDefault(); _kbToggleRightTool('looper');   break;
-  }
-});
 
 /* ── Mobile hamburger menu ───────────────────────────────────────── */
 function toggleMobileMenu() {
@@ -22439,24 +22453,28 @@ document.addEventListener('keydown', function(e) {
   switch (e.key.toLowerCase()) {
     case 't': {
       e.preventDefault();
+      if (window.innerWidth >= 900) { _kbToggleRightTool('4track'); break; }
       const overlay = document.getElementById('vrOverlay');
       if (overlay?.classList.contains('vr-open')) vrClose(); else vrOpen();
       break;
     }
     case 'k': {
       e.preventDefault();
+      if (window.innerWidth >= 900) { _kbToggleRightTool('keyboard'); break; }
       const kd = document.getElementById('keyboardDrawer');
       if (kd?.classList.contains('open')) closeKeyboardDrawer(); else openKeyboardDrawer();
       break;
     }
     case 's': {
       e.preventDefault();
+      if (window.innerWidth >= 900) { _kbToggleRightTool('sequencer'); break; }
       const sd = document.getElementById('seqDrawer');
       if (sd?.classList.contains('open')) closeSeqDrawer(); else openSeqDrawer();
       break;
     }
     case 'o': {
       e.preventDefault();
+      if (window.innerWidth >= 900) { _kbToggleRightTool('looper'); break; }
       const ld = document.getElementById('looperDrawer');
       if (ld?.classList.contains('open')) closeLooperDrawer(); else openLooperDrawer();
       break;
@@ -22476,11 +22494,13 @@ document.addEventListener('keydown', function(e) {
     }
     case 'l': {
       e.preventDefault();
+      if (window.innerWidth >= 900) { _kbToggleLeftTool('lyrics'); break; }
       stickyGoEditor();
       break;
     }
     case 'b': {
       e.preventDefault();
+      if (window.innerWidth >= 900) { _kbToggleLeftTool('backend'); break; }
       stickyGoBackend();
       break;
     }
