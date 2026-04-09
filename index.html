@@ -23633,9 +23633,9 @@ async function mtDropAudioFile(trackIdx, file) {
   const uploadLimit = getTierLimits().uploadsPerSong;
   if (uploadLimit !== Infinity) {
     if (!_vrSongId) _vrSongId = currentId || null;
-    const uploadCount = await _countUploadsForSong('voice_takes', _vrSongId);
+    const uploadCount = await _countUploadsForSong(['voice_takes', 'voice_trash'], _vrSongId);
     if (uploadCount >= uploadLimit) {
-      showToast('Upload limit reached — delete a take to free your slot', 'info', 4500);
+      showToast('Upload limit reached — empty your trash to free your slot', 'info', 4500);
       showUpgradeModal(`Your plan allows ${uploadLimit} sample upload${uploadLimit === 1 ? '' : 's'} per song in the 4-track. Upgrade for more.`);
       return;
     }
@@ -24455,13 +24455,15 @@ async function _vrGetQuota() {
 }
 
 // ── Count uploaded (not recorded) files for a song ─────────────
-async function _countUploadsForSong(collectionName, songId) {
+async function _countUploadsForSong(collections, songId) {
   const uid = auth.currentUser?.uid;
   if (!uid || !songId) return 0;
+  const names = Array.isArray(collections) ? collections : [collections];
   try {
-    const snap = await db.collection(collectionName)
-      .where('songId', '==', songId).where('userId', '==', uid).get();
-    return snap.docs.filter(d => d.data().source === 'upload').length;
+    const snaps = await Promise.all(names.map(c =>
+      db.collection(c).where('songId', '==', songId).where('userId', '==', uid).get()
+    ));
+    return snaps.flatMap(s => s.docs).filter(d => d.data().source === 'upload').length;
   } catch(e) { return 0; }
 }
 
@@ -24853,13 +24855,15 @@ window.vrDeleteTake = async function(takeId, storagePath) {
       if (row) { row.classList.add('lock-shake'); setTimeout(()=>row.classList.remove('lock-shake'),400); }
       return;
     }
-    await db.collection('voice_trash').add({
+    const trashDoc = {
       songId: _vrSongId, userId: d.userId||auth.currentUser?.uid||null,
       filename: d.filename, storagePath: d.storagePath,
       downloadUrl: d.downloadUrl, duration: d.duration, mimeType: d.mimeType,
       trackNum: d.trackNum || 0,
       deletedAt: firebase.firestore.Timestamp.now()
-    });
+    };
+    if (d.source) trashDoc.source = d.source;
+    await db.collection('voice_trash').add(trashDoc);
     await db.collection('voice_takes').doc(takeId).delete();
     vrLoadTakes();
   } catch(e) { console.error('[MT] delete error', e); }
