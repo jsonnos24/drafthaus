@@ -607,7 +607,7 @@ select.field-input option { background: var(--card); }
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.82);
   display: none; align-items: flex-start; justify-content: center;
-  z-index: 200; padding: 20px 0; overflow-y: auto;
+  z-index: 10400; padding: 20px 0; overflow-y: auto;
 }
 .modal-overlay.open { display: flex; -webkit-overflow-scrolling: touch; }
 .modal-box {
@@ -2322,7 +2322,18 @@ button, select, input, textarea { touch-action: manipulation; }
   .proj-group:first-child .proj-group-header { border-top: none; margin-top: 0; padding-top: 6px; }
   .proj-group-header:hover { opacity: 0.65; }
   .proj-group-header.drag-over { opacity: 1; background: rgba(245,166,35,0.10); border-radius: 6px; outline: 1px dashed rgba(245,166,35,0.4); }
+  .proj-group-header.proj-drag-over { opacity: 1; background: rgba(255,255,255,0.06); border-radius: 6px; outline: 2px dashed rgba(255,255,255,0.3); }
   .song-list-row.sl-dragging { opacity: 0.35; }
+  /* ── Project drag handle ── */
+  .proj-drag-handle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; flex-shrink: 0; cursor: grab; opacity: 0.25;
+    color: #fff; font-size: 12px; line-height: 1;
+    transition: opacity 0.15s; user-select: none;
+  }
+  .proj-group-header:hover .proj-drag-handle { opacity: 0.7; }
+  .proj-drag-handle:active { cursor: grabbing; opacity: 1; }
+  .proj-group.proj-dragging { opacity: 0.35; }
   .proj-group-name {
     font-family: 'IBM Plex Mono', monospace; font-size: 10px;
     text-transform: uppercase; letter-spacing: 0.18em; color: var(--gold); font-weight: 600;
@@ -6589,14 +6600,14 @@ body.il-perf-active #ilScrollFloat { display: none; }
   border-radius: 8px; padding: 8px 10px; margin-bottom: 6px;
   opacity: 0.75;
 }
-.vr-trash-row .vr-take-dur { color: #5a4a34; }
+.vr-trash-row .vr-take-dur { color: rgba(255,255,255,0.8); }
 .vr-trash-expiry { font-size: 12px; color: rgba(255,255,255,0.75); }
 .vr-trash-restore-btn {
   background: none; border: none; cursor: pointer; padding: 4px;
   border-radius: 4px; display: flex; align-items: center;
-  color: #6a5a40; transition: color 0.15s;
+  color: #c8a96e; font-size: 18px; line-height: 1; transition: color 0.15s;
 }
-.vr-trash-restore-btn:hover { color: #c8a96e; }
+.vr-trash-restore-btn:hover { color: #f0cc88; }
 /* ── Global recording countdown ─────────────────────────────── */
 #vrGlobalCountdown {
   display: none; position: fixed; inset: 0; z-index: 9900;
@@ -7206,10 +7217,10 @@ body.il-perf-active #ilScrollFloat { display: none; }
 .vr-trash-section.open { display: block; }
 .vr-trash-restore-btn {
   background: none; border: none; cursor: pointer;
-  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
-  color: #3a3e50; padding: 2px 4px; border-radius: 3px;
+  font-size: 18px; line-height: 1;
+  color: #c8a96e; padding: 2px 4px; border-radius: 3px;
 }
-.vr-trash-restore-btn:hover { color: #c8a96e; }
+.vr-trash-restore-btn:hover { color: #f0cc88; }
 
 /* ── Global recording countdown ─────────────────────────────── */
 #vrGlobalCountdown {
@@ -8558,7 +8569,10 @@ function renderGrid() {
     });
     const projKeys = Object.keys(groups).sort((a,b) => {
       if (a==='__none__') return 1; if (b==='__none__') return -1;
-      return (projLastUp[b]||0) - (projLastUp[a]||0);
+      const ai = userProjects.indexOf(a), bi = userProjects.indexOf(b);
+      if (ai === -1 && bi === -1) return (projLastUp[b]||0) - (projLastUp[a]||0);
+      if (ai === -1) return 1; if (bi === -1) return -1;
+      return ai - bi;
     });
     projKeys.forEach(k => groups[k].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)));
     const mostRecentSong = [...songList].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
@@ -8587,14 +8601,13 @@ function renderGrid() {
     </div>`;
     // ── Actions dropdown ──
     const isViewOnly = !!song._viewOnly;
-    const assignItem  = `<button class="sl-actions-item" onclick="event.stopPropagation();rowAssignProject('${song.id}')">📁 Assign to Project</button>`;
     const shareItem   = !isShared ? `<button class="sl-actions-item share" onclick="event.stopPropagation();rowShareSong('${song.id}')">⬡ Share</button>` : '';
     const deleteItem  = !isShared ? `<button class="sl-actions-item danger" onclick="event.stopPropagation();deleteLocalSong('${song.id}')">✕ Delete</button>` : '';
     const dismissItem = (isShared || isViewOnly) ? `<button class="sl-actions-item danger" onclick="event.stopPropagation();rowDismissSharedSong('${song.id}')">✕ Remove from my list</button>` : '';
     const actionsHtml = `<div class="sl-actions-wrap" onclick="event.stopPropagation()">
       <button class="sl-actions-btn" onclick="toggleRowActions('${song.id}',event)">⋯</button>
       <div class="sl-actions-menu" id="slm-${song.id}">
-        ${assignItem}${shareItem}${deleteItem}${dismissItem}
+        ${shareItem}${deleteItem}${dismissItem}
       </div>
     </div>`;
     const sharedBadge = (isShared && !isViewOnly) ? '<span class="shared-badge" title="Shared with you (can edit)">⬡</span>' : '';
@@ -8632,12 +8645,17 @@ function renderGrid() {
         <button class="proj-action-btn danger" onclick="promptDeleteProject('${safeProj.replace(/'/g,"\\'")}')">delete</button>
       </span>`;
     const subClass = depth > 0 ? ' proj-subgroup' : '';
+    const dragHandle = isUnassigned ? '' : `<span class="proj-drag-handle" draggable="true"
+      ondragstart="_projDragStart('${safeProj.replace(/'/g,"\\'")}',event)"
+      ondragend="_projDragEnd('${safeProj.replace(/'/g,"\\'")}',event)"
+      onclick="event.stopPropagation()" title="Drag to reorder">⠿</span>`;
     return `<div class="proj-group${subClass}${isCollapsed?' collapsed':''}" id="pg-${esc(proj)}">
       <div class="proj-group-header" data-proj="${esc(proj)}"
         onclick="toggleProjGroup('${proj.replace(/'/g,"\\'")}')"
-        ondragover="if(window._slDraggingSongId){event.preventDefault();event.stopPropagation();this.classList.add('drag-over')}"
-        ondragleave="this.classList.remove('drag-over')"
-        ondrop="_slProjDrop(this,event)">
+        ondragover="_projHeaderDragOver(this,event)"
+        ondragleave="this.classList.remove('drag-over','proj-drag-over')"
+        ondrop="_projHeaderDrop(this,event)">
+        ${dragHandle}
         <span class="proj-group-name" id="pgn-${esc(proj)}">${esc(heading)}</span>
         <span class="proj-group-count">${isEmpty ? 'Empty' : (()=>{
           const counts = { idea:0, drafting:0, finished:0 };
@@ -17279,13 +17297,16 @@ function storageToggleShareRow(open) {
   if (open) {
     document.getElementById('storageShareEmail').value = '';
     document.getElementById('storageShareMsg').textContent = '';
+    const roleSel = document.getElementById('storageShareRole');
+    if (roleSel) roleSel.value = 'edit';
     setTimeout(() => document.getElementById('storageShareEmail').focus(), 80);
   }
 }
 
 async function storageShareSend() {
-  const email = document.getElementById('storageShareEmail').value.trim().toLowerCase();
-  const msgEl = document.getElementById('storageShareMsg');
+  const email  = document.getElementById('storageShareEmail').value.trim().toLowerCase();
+  const role   = document.getElementById('storageShareRole')?.value || 'edit';
+  const msgEl  = document.getElementById('storageShareMsg');
   msgEl.className = 'storage-share-msg';
   msgEl.textContent = '';
   if (!email) { msgEl.textContent = 'Enter an email.'; msgEl.classList.add('err'); return; }
@@ -17297,7 +17318,7 @@ async function storageShareSend() {
   const targetUid = usersSnap.docs[0].id;
   const myUid = auth.currentUser?.uid;
 
-  // Collect song IDs from purple song-select checkboxes
+  // Collect song IDs from checkboxes
   const songIds = new Set(
     [...document.querySelectorAll('#storageTableBody .song-check:checked')].map(cb => cb.dataset.song)
   );
@@ -17306,12 +17327,28 @@ async function storageShareSend() {
   for (const songId of songIds) {
     const song = songs.find(s => s.id === songId);
     if (!song || (song.ownerId && song.ownerId !== myUid)) continue; // only owner
-    if (song.sharedWith?.includes(targetUid)) { shared++; continue; } // already shared
     try {
-      await db.collection('songs').doc(songId).update({
-        sharedWith: firebase.firestore.FieldValue.arrayUnion(targetUid)
-      });
-      song.sharedWith = [...(song.sharedWith || []), targetUid];
+      if (role === 'view') {
+        // Remove from edit list if upgrading down, add to view-only
+        if (song.sharedWith?.includes(targetUid)) {
+          await db.collection('songs').doc(songId).update({ sharedWith: firebase.firestore.FieldValue.arrayRemove(targetUid) });
+          song.sharedWith = (song.sharedWith || []).filter(u => u !== targetUid);
+        }
+        if (!song.sharedReadOnly?.includes(targetUid)) {
+          await db.collection('songs').doc(songId).update({ sharedReadOnly: firebase.firestore.FieldValue.arrayUnion(targetUid) });
+          song.sharedReadOnly = [...(song.sharedReadOnly || []), targetUid];
+        }
+      } else {
+        // Remove from view-only if upgrading, add to edit
+        if (song.sharedReadOnly?.includes(targetUid)) {
+          await db.collection('songs').doc(songId).update({ sharedReadOnly: firebase.firestore.FieldValue.arrayRemove(targetUid) });
+          song.sharedReadOnly = (song.sharedReadOnly || []).filter(u => u !== targetUid);
+        }
+        if (!song.sharedWith?.includes(targetUid)) {
+          await db.collection('songs').doc(songId).update({ sharedWith: firebase.firestore.FieldValue.arrayUnion(targetUid) });
+          song.sharedWith = [...(song.sharedWith || []), targetUid];
+        }
+      }
       shared++;
     } catch(e) { console.error('Share error:', e); }
   }
@@ -23400,6 +23437,65 @@ var _dismissedShares = new Set();
 
 // ── Song list drag-to-reproject ───────────────────────────────────
 var _slDraggingSongId = null;
+var _projDraggingKey  = null;
+
+// ── Project reorder drag ──────────────────────────────────────────
+function _projDragStart(projKey, e) {
+  _projDraggingKey = projKey;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', '__proj__:' + projKey);
+  e.stopPropagation();
+  setTimeout(() => {
+    const el = document.getElementById('pg-' + projKey);
+    if (el) el.classList.add('proj-dragging');
+  }, 0);
+}
+
+function _projDragEnd(projKey, e) {
+  _projDraggingKey = null;
+  const el = document.getElementById('pg-' + projKey);
+  if (el) el.classList.remove('proj-dragging');
+  document.querySelectorAll('.proj-group-header.proj-drag-over')
+    .forEach(h => h.classList.remove('proj-drag-over'));
+}
+
+function _projHeaderDragOver(headerEl, e) {
+  if (window._projDraggingKey) {
+    // Project reorder — only make sense if target is a different project
+    if (headerEl.dataset.proj === window._projDraggingKey) return;
+    e.preventDefault(); e.stopPropagation();
+    headerEl.classList.remove('drag-over');
+    headerEl.classList.add('proj-drag-over');
+  } else if (window._slDraggingSongId) {
+    // Song → project assignment (existing behaviour)
+    e.preventDefault(); e.stopPropagation();
+    headerEl.classList.remove('proj-drag-over');
+    headerEl.classList.add('drag-over');
+  }
+}
+
+function _projHeaderDrop(headerEl, e) {
+  e.preventDefault(); e.stopPropagation();
+  headerEl.classList.remove('drag-over', 'proj-drag-over');
+
+  if (window._projDraggingKey) {
+    // ── Reorder projects ──
+    const fromKey = window._projDraggingKey;
+    const toKey   = headerEl.dataset.proj;
+    _projDraggingKey = null;
+    if (!fromKey || !toKey || fromKey === toKey || toKey === '__none__') return;
+    const fromIdx = userProjects.indexOf(fromKey);
+    const toIdx   = userProjects.indexOf(toKey);
+    if (fromIdx === -1 || toIdx === -1) return;
+    userProjects.splice(fromIdx, 1);
+    userProjects.splice(toIdx, 0, fromKey);
+    saveUserProjects();
+    renderGrid();
+  } else {
+    // ── Assign song to project (existing behaviour) ──
+    _slProjDrop(headerEl, e);
+  }
+}
 
 function _slDragStart(songId, e) {
   _slDraggingSongId = songId;
@@ -23416,7 +23512,8 @@ function _slDragEnd(songId) {
   _slDraggingSongId = null;
   const row = document.getElementById('row-' + songId);
   if (row) row.classList.remove('sl-dragging');
-  document.querySelectorAll('.proj-group-header.drag-over').forEach(el => el.classList.remove('drag-over'));
+  document.querySelectorAll('.proj-group-header.drag-over,.proj-group-header.proj-drag-over')
+    .forEach(el => el.classList.remove('drag-over', 'proj-drag-over'));
 }
 
 function _slProjDrop(headerEl, e) {
@@ -25446,6 +25543,10 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
     <div class="storage-footer">
       <div class="storage-footer-share" id="storageShareRow">
+        <select id="storageShareRole" class="reh-time-sel" style="height:32px;font-size:10px;flex-shrink:0;">
+          <option value="edit">✏️ Can Edit</option>
+          <option value="view">👁 View Only</option>
+        </select>
         <input type="email" class="storage-share-input" id="storageShareEmail" placeholder="Email address to share with…" onkeydown="if(event.key==='Enter')storageShareSend()">
         <button class="storage-share-send-btn" onclick="storageShareSend()">Share</button>
         <span class="storage-share-msg" id="storageShareMsg"></span>
