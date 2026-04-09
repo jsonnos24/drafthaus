@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pro Guitar Tuner</title>
+<style>
+body { margin:0; font-family:sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; background:#f0f0f0; }
+#tuner-container { position:relative; width:90vw; max-width:400px; }
+canvas { width:100%; height:auto; }
+#note { font-size:6vw; margin-top:1vh; text-align:center; }
+#detune { font-size:4vw; text-align:center; margin-top:1vh; }
+#strings { font-size:4vw; text-align:center; margin-top:1vh; }
+.active { color: green; font-weight:bold; }
+button { font-size:5vw; padding:1vh 2vw; margin-top:2vh; }
+select { font-size:4vw; padding:1vh 2vw; margin-top:2vh; }
+</style>
+</head>
+<body>
+
+<h1>Pro Guitar Tuner</h1>
+<div id="tuner-container">
+<canvas id="gauge" width="400" height="400"></canvas>
+</div>
+<div id="note">-</div>
+<div id="detune"></div>
+<div id="strings">E A D G B e</div>
+<select id="tuning">
+<option value="standard">Standard (E A D G B e)</option>
+<option value="halfstep">Half-step Down (Eb Ab Db Gb Bb eb)</option>
+<option value="dropd">Drop D (D A D G B e)</option>
+</select>
+<button id="start">Start Tuner</button>
+
+<script>
+const noteNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+let stringNotes=['E2','A2','D3','G3','B3','E4'];
+const stringNames=['E','A','D','G','B','e'];
+
+let audioContext, analyser, dataArray;
+let needleAngle=0, beepPlayed=false, detuneHistory=[];
+
+const canvas=document.getElementById('gauge');
+const ctx=canvas.getContext('2d');
+const centerX=canvas.width/2, centerY=canvas.height/2;
+const radius=150;
+let maxAngle=70; // Wider sweep
+
+document.getElementById('tuning').onchange=e=>{
+  const val=e.target.value;
+  if(val==='standard') stringNotes=['E2','A2','D3','G3','B3','E4'];
+  else if(val==='halfstep') stringNotes=['D#2','G#2','C#3','F#3','A#3','D#4'];
+  else if(val==='dropd') stringNotes=['D2','A2','D3','G3','B3','E4'];
+};
+
+document.getElementById('start').onclick=async()=>{
+  audioContext=new (window.AudioContext||window.webkitAudioContext)();
+  const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+  const source=audioContext.createMediaStreamSource(stream);
+  analyser=audioContext.createAnalyser();
+  source.connect(analyser);
+  analyser.fftSize=2048;
+  dataArray=new Float32Array(analyser.fftSize);
+  requestAnimationFrame(updateTuner);
+};
+
+// Auto-correlation to find pitch
+function autoCorrelate(buf,sampleRate){
+  let SIZE=buf.length,rms=0;
+  for(let i=0;i<SIZE;i++) rms+=buf[i]*buf[i];
+  rms=Math.sqrt(rms/SIZE);
+  if(rms<0.01) return -1;
+  let r=new Array(SIZE).fill(0);
+  for(let i=0;i<SIZE;i++) for(let j=0;j<SIZE-i;j++) r[i]+=buf[j]*buf[j+i];
+  let d=0; while(r[d]>r[d+1]) d++;
+  let maxval=-1,maxpos=-1;
+  for(let i=d;i<SIZE;i++) if(r[i]>maxval){ maxval=r[i]; maxpos=i; }
+  return sampleRate/maxpos;
+}
+
+function freqToNote(freq){
+  let noteNum=12*(Math.log2(freq/440))+69;
+  let rounded=Math.round(noteNum);
+  let detune=freq-(440*Math.pow(2,(rounded-69)/12));
+  let name=noteNames[rounded%12];
+  return {name,detune};
+}
+
+function stringToFreq(note){
+  let octave=parseInt(note.slice(-1));
+  let n=noteNames.indexOf(note.slice(0,-1));
+  return 440*Math.pow(2,(n+(octave-4)*12-9)/12);
+}
+
+function closestString(freq){
+  let minDiff=Infinity,index=-1;
+  for(let i=0;i<stringNotes.length;i++){
+    let f=stringToFreq(stringNotes[i]);
+    let diff=Math.abs(freq-f);
+    if(diff<minDiff){ minDiff=diff; index=i; }
+  }
+  return index;
+}
+
+function playBeep(){
+  const osc=audioContext.createOscillator();
+  const gain=audioContext.createGain();
+  osc.frequency.value=1000;
+  gain.gain.value=0.1;
+  osc.connect(gain).connect(audioContext.destination);
+  osc.start();
+  osc.stop(audioContext.currentTime+0.1);
+}
+
+// Draw color-coded arcs and needle
+function drawGauge(angle,detune){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // Color arcs
+  for(let i=-maxAngle;i<=maxAngle;i++){
+    ctx.beginPath();
+    ctx.moveTo(centerX,centerY);
+    let rad=(i-90)*Math.PI/180;
+    let x=centerX+radius*Math.cos(rad);
+    let y=centerY+radius*Math.sin(rad);
+    ctx.lineTo(x,y);
+    // Color zones based on detune
+    if(Math.abs(detune)<0.5) ctx.strokeStyle='green';
+    else if(Math.abs(detune)<1) ctx.strokeStyle='lightgreen';
+    else if(Math.abs(detune)<2) ctx.strokeStyle='yellow';
+    else ctx.strokeStyle='red';
+    ctx.lineWidth=2;
+    ctx.stroke();
+  }
+  // Numeric markers
+  for(let i=-maxAngle+10;i<=maxAngle-10;i+=10){
+    ctx.beginPath();
+    let rad=(i-90)*Math.PI/180;
+    let x=centerX+(radius-20)*Math.cos(rad);
+    let y=centerY+(radius-20)*Math.sin(rad);
+    ctx.fillStyle='#000';
+    ctx.font='14px sans-serif';
+    ctx.fillText(i,x-7,y+5);
+  }
+  // Needle shadow
+  ctx.save();
+  ctx.shadowColor='rgba(0,0,0,0.5)';
+  ctx.shadowBlur=10;
+  ctx.beginPath();
+  let rad=(angle-90)*Math.PI/180;
+  let nx=centerX+(radius-25)*Math.cos(rad);
+  let ny=centerY+(radius-25)*Math.sin(rad);
+  ctx.moveTo(centerX,centerY);
+  ctx.lineTo(nx,ny);
+  ctx.strokeStyle='black';
+  ctx.lineWidth=5;
+  ctx.stroke();
+  ctx.restore();
+  // Needle pivot
+  ctx.beginPath();
+  ctx.arc(centerX,centerY,8,0,2*Math.PI);
+  ctx.fillStyle='black';
+  ctx.fill();
+}
+
+function updateTuner(){
+  analyser.getFloatTimeDomainData(dataArray);
+  let freq=autoCorrelate(dataArray,audioContext.sampleRate);
+  if(freq!==-1){
+    const note=freqToNote(freq);
+    document.getElementById('note').innerText=note.name;
+    document.getElementById('detune').innerText=(note.detune>0?'Sharp ':'Flat ')+note.detune.toFixed(2)+' Hz';
+    
+    // Moving average for smooth needle
+    detuneHistory.push(note.detune);
+    if(detuneHistory.length>5) detuneHistory.shift();
+    let avgDetune = detuneHistory.reduce((a,b)=>a+b,0)/detuneHistory.length;
+    
+    let targetAngle=Math.max(-maxAngle,Math.min(maxAngle,(avgDetune/1.5)*maxAngle));
+    needleAngle += (targetAngle-needleAngle)*0.15;
+    
+    drawGauge(needleAngle,avgDetune);
+    
+    if(Math.abs(avgDetune)<0.5 && !beepPlayed){ playBeep(); beepPlayed=true; }
+    else if(Math.abs(avgDetune)>=0.5) beepPlayed=false;
+    
+    let idx=closestString(freq);
+    let display=stringNames.map((s,i)=>i===idx?`<span class="active">${s}</span>`:s).join(' ');
+    document.getElementById('strings').innerHTML=display;
+  }
+  requestAnimationFrame(updateTuner);
+}
+</script>
+</body>
+</html>
