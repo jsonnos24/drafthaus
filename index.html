@@ -7236,7 +7236,7 @@ body.il-perf-active #ilScrollFloat { display: flex; }
 .ks-btn:hover { color: #ff69b4; border-color: rgba(255,45,138,0.75); background: rgba(255,45,138,0.07); box-shadow: 0 0 14px rgba(255,45,138,0.55), 0 0 28px rgba(255,45,138,0.25); }
 .ks-panel {
   display: none; position: absolute; top: calc(100% + 8px); right: 0;
-  z-index: 9000; width: 280px;
+  z-index: 99999; width: 280px;
   background: var(--card); border: 1px solid var(--border2);
   border-radius: 12px; padding: 14px 16px;
   box-shadow: 0 12px 40px rgba(0,0,0,0.55);
@@ -20725,6 +20725,12 @@ function ilSetPerfMode(on) {
     _syncRehMetroBtn();
     // Sync arm seq button state
     _syncRehArmBtn();
+    // Sync scroll button state
+    const rehScroll = document.getElementById('rehScrollBtn');
+    if (rehScroll) {
+      rehScroll.textContent = _ilScrollActive ? '⏹ Scroll' : '▶ Scroll';
+      rehScroll.classList.toggle('reh-seq-active', !!_ilScrollActive);
+    }
   } else {
     // Stop metro if running, reset rehearse bar metro button
     _syncRehMetroBtn();
@@ -20750,7 +20756,7 @@ function rehMetroToggle() {
 function _syncRehArmBtn() {
   const btn = document.getElementById('rehArmSeqBtn');
   if (!btn) return;
-  const armed = (typeof _vrSeqArmed !== 'undefined') && _vrSeqArmed;
+  const armed = !!window._vrSeqArmedState;
   btn.classList.toggle('reh-arm-active', armed);
   btn.textContent = armed ? '● Prime Seq' : 'Prime Seq';
 }
@@ -20769,16 +20775,20 @@ function ilScrollStart() {
   _ilScrollActive   = true;
   _ilScrollLastTime = null;
   _ilScrollDebt     = 0;
-  const btn = document.getElementById('ilScrollPlayBtn');
-  if (btn) btn.textContent = '⏹ Scroll';
+  ['ilScrollPlayBtn','rehScrollBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) { btn.textContent = '⏹ Scroll'; btn.classList.add('reh-seq-active'); }
+  });
   _ilScrollRaf = requestAnimationFrame(ilScrollStep);
 }
 function ilScrollStop() {
   _ilScrollActive   = false;
   _ilScrollLastTime = null;
   _ilScrollDebt     = 0;
-  const btn = document.getElementById('ilScrollPlayBtn');
-  if (btn) btn.textContent = '▶ Scroll';
+  ['ilScrollPlayBtn','rehScrollBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) { btn.textContent = '▶ Scroll'; btn.classList.remove('reh-seq-active'); }
+  });
   if (_ilScrollRaf) { cancelAnimationFrame(_ilScrollRaf); _ilScrollRaf = null; }
 }
 function ilScrollStep(timestamp) {
@@ -23278,6 +23288,7 @@ document.addEventListener('click', function(e) {
 // ── Arm Seq (perf-mode compat) ─────────────────────────────────
 window.vrToggleArmSeq = function() {
   _vrSeqArmed = !_vrSeqArmed;
+  window._vrSeqArmedState = _vrSeqArmed; // expose for cross-scope access
   const btn = _el('rtArmSeqBtn');
   if (btn) btn.classList.toggle('armed', _vrSeqArmed);
   // Sync rehearse bar arm button
@@ -24519,7 +24530,6 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
       <button class="drawer-help-btn" onclick="openDrawerHelp('looper')" title="How to use Looper">?</button>
-      <button class="looper-drawer-close" onclick="closeLooperDrawer()">✕</button>
     </div>
   </div>
   <!-- Monitor status strip — always visible below header -->
@@ -24620,7 +24630,6 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
       <button class="drawer-help-btn" onclick="openDrawerHelp('keyboard')" title="How to use Keyboard">?</button>
-      <button class="keyboard-drawer-close" onclick="closeKeyboardDrawer()">✕</button>
     </div>
   </div>
   <div class="keyboard-drawer-body" id="keyboardDrawerBody">
@@ -24644,7 +24653,6 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
       <button class="drawer-help-btn" onclick="openDrawerHelp('sequencer')" title="How to use Sequencer">?</button>
-      <button class="seq-drawer-close" onclick="closeSeqDrawer()">✕</button>
     </div>
   </div>
   <div class="seq-drawer-body" id="seqDrawerBody">
@@ -24847,6 +24855,9 @@ document.addEventListener('DOMContentLoaded', () => {
   <!-- Sequencer -->
   <button class="reh-btn" id="rehSeqPlayBtn" onclick="rtSeqTogglePlay()" title="Play / Stop Sequencer">▶ Seq</button>
   <button class="reh-btn" id="rehArmSeqBtn" onclick="vrToggleArmSeq()" title="Prime Sequencer — auto-starts on record">Prime Seq</button>
+  <div class="reh-sep"></div>
+  <!-- Auto-scroll -->
+  <button class="reh-btn" id="rehScrollBtn" onclick="ilScrollToggle()" title="Auto-scroll lyrics">▶ Scroll</button>
 </div>
 
 <nav class="bottom-nav" id="bottomNav">
@@ -25159,9 +25170,6 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
       <div style="display:flex;align-items:center;gap:8px;">
         <button class="drawer-help-btn" onclick="openDrawerHelp('4track')" title="How to use 4-Track">?</button>
-        <button class="vr-close-btn" onclick="vrClose()" title="Close (Esc)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
       </div>
     </div>
 
