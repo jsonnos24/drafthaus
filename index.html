@@ -3557,6 +3557,14 @@ button, select, input, textarea { touch-action: manipulation; }
   .looper-drawer-body .track-num {
     font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 1.5px; color: #ffd166;
   }
+  .looper-drawer-body .track-num[contenteditable] { outline: none; cursor: text; min-width: 20px; border-radius: 2px; }
+  .looper-drawer-body .track-num[contenteditable]:hover { border-bottom: 1px dashed rgba(255,209,102,0.4); }
+  .looper-drawer-body .track-num[contenteditable]:focus { border-bottom: 1px solid rgba(255,209,102,0.7); background: rgba(255,209,102,0.07); padding: 1px 4px; }
+  .looper-drawer-body .ltrack-part-select {
+    width: 100%; font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    padding: 3px 5px; border-radius: 4px; border: 1px solid #2c2f36;
+    background: #1a1d24; color: #ffd166; cursor: pointer; margin-bottom: 2px;
+  }
   .looper-drawer-body .track-state-label {
     font-family: 'IBM Plex Mono', monospace; font-size: 8px;
     letter-spacing: 1.5px; text-transform: uppercase; color: #ffd166; transition: color 0.2s;
@@ -5893,8 +5901,21 @@ body.il-perf-active #ilScrollFloat { display: none; }
 @media(max-width:700px) {
   #songViewRunthrough { padding: 20px 0 120px; }
   .il-song-title { font-size: 28px; }
-  .il-cc-syl { font-size: 17px; }
-  .il-tray-pill { font-size: 13px; }
+  /* Slightly larger lyric text */
+  .il-cc-syl { font-size: 19px; }
+  /* Bigger chord label for readability */
+  .il-cc-chord { font-size: 15px; padding: 5px 10px 5px 12px; }
+  /* Larger drop zone above each syllable — easier to land on */
+  .il-cc-slot { min-height: 38px; }
+  /* More horizontal padding around each word column for a larger tap area */
+  .il-cc-word-col { padding: 6px 4px 2px; }
+  /* Palette / tray pills: bigger text + tall enough to grab comfortably */
+  .il-tray-pill {
+    font-size: 15px; padding: 10px 14px;
+    min-height: 44px; display: inline-flex; align-items: center;
+    border-radius: 8px;
+  }
+  .il-palette-pill { font-size: 14px; padding: 10px 8px; min-height: 44px; }
   .il-part-side { width: 32px; padding-right: 10px; margin-right: 12px; }
   .il-part-name { font-size: 9px; }
   /* ── Perf mode mobile overrides ─────────────────────────────── */
@@ -6748,6 +6769,9 @@ body.il-perf-active #ilScrollFloat { display: none; }
   font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase;
 }
+.mt-track-label[contenteditable] { outline: none; cursor: text; min-width: 16px; border-radius: 2px; }
+.mt-track-label[contenteditable]:hover { border-bottom: 1px dashed rgba(255,255,255,0.25); }
+.mt-track-label[contenteditable]:focus { border-bottom: 1px solid rgba(255,255,255,0.5); background: rgba(255,255,255,0.05); padding: 1px 3px; }
 .mt-track-label.color-0 { color: #ff6b9d; }
 .mt-track-label.color-1 { color: #6bc5ff; }
 .mt-track-label.color-2 { color: #a5ff6b; }
@@ -7236,7 +7260,7 @@ body.il-perf-active #ilScrollFloat { display: none; }
 }
 .ks-btn:hover { color: #ff69b4; border-color: rgba(255,45,138,0.75); background: rgba(255,45,138,0.07); box-shadow: 0 0 14px rgba(255,45,138,0.55), 0 0 28px rgba(255,45,138,0.25); }
 .ks-panel {
-  display: none; position: absolute; top: calc(100% + 8px); right: 0;
+  display: none; position: fixed;
   z-index: 99999; width: 280px;
   background: var(--card); border: 1px solid var(--border2);
   border-radius: 12px; padding: 14px 16px;
@@ -19812,7 +19836,8 @@ function loopMakeTrack(i) {
     sourceNode:null, gainNode:null, mediaRecorder:null, chunks:[], allChunks:[],
     volume:85, ledLit:0, totalLeds:LOOP_NUM_LEDS, recStartTime:0, recDuration:0,
     prerollOffset:0, rafId:null, canvas:null, ctx2d:null,
-    partId: saved.partId || '', loopCount: saved.loopCount || 1 };
+    partId: saved.partId || '', loopCount: saved.loopCount || 1,
+    label: saved.label || '' };
 }
 
 function loopSaveTrackSetting(i, key, value) {
@@ -19825,6 +19850,11 @@ function loopSaveTrackSetting(i, key, value) {
   if (loopTracks[i]) loopTracks[i][key] = value;
   save();
   scheduleSyncToSheet(song);
+}
+function loopSaveTrackName(i, el) {
+  const name = el.textContent.trim() || LOOP_TRACK_NAMES[i];
+  el.textContent = name; // normalise (in case it was left blank)
+  loopSaveTrackSetting(i, 'label', name);
 }
 
 // Sync part-select dropdowns and in-memory partIds to the current song's saved data.
@@ -19857,9 +19887,16 @@ function loopBuildUI() {
     card.className = 'track-card'; card.dataset.track = i+1; card.id = `ltrack-card-${i}`;
     card.innerHTML = `
       <div class="track-top-row">
-        <span class="track-num">${LOOP_TRACK_NAMES[i]}</span>
+        <span class="track-num" contenteditable="true" id="ltrack-name-${i}"
+          onblur="loopSaveTrackName(${i},this)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
+        >${t.label || LOOP_TRACK_NAMES[i]}</span>
         <span class="track-state-label" id="lstate-label-${i}">EMPTY</span>
       </div>
+      <select class="ltrack-part-select" onchange="loopSaveTrackSetting(${i},'partId',this.value)" id="ltrack-part-${i}">
+        <option value="">— Part —</option>
+        ${STRUCTURE_PARTS.map(p=>`<option value="${p.id}">${p.label}</option>`).join('')}
+      </select>
       <div class="ring-wrap" id="lring-wrap-${i}" onclick="loopHandleTrackClick(${i})">
         <canvas class="ring-canvas" id="lring-canvas-${i}" width="52" height="52"></canvas>
         <div class="ring-btn" id="lring-btn-${i}">
@@ -19883,19 +19920,12 @@ function loopBuildUI() {
           <input type="range" class="track-vol" min="0" max="100" value="85"
             oninput="loopSetTrackVolume(${i}, this.value)" style="--vol:85%">
         </div>
-        <button class="track-dl-btn" id="ldl-btn-${i}" onclick="loopDownloadTrack(${i})" disabled>↓</button>
-        <button class="track-clear-btn" onclick="loopClearTrack(${i})">✕</button>
-      </div>
-      <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;">
-        <select style="flex:1;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:3px 5px;border-radius:4px;border:1px solid #2c2f36;background:#1a1d24;color:#ffd166;cursor:pointer;"
-          onchange="loopSaveTrackSetting(${i},'partId',this.value)" id="ltrack-part-${i}">
-          <option value="">— Part —</option>
-          ${STRUCTURE_PARTS.map(p=>`<option value="${p.id}">${p.label}</option>`).join('')}
-        </select>
         <select style="font-family:'IBM Plex Mono',monospace;font-size:9px;padding:3px 5px;border-radius:4px;border:1px solid #2c2f36;background:#1a1d24;color:#ffd166;cursor:pointer;min-width:52px;"
           onchange="loopSaveTrackSetting(${i},'loopCount',parseInt(this.value))" id="ltrack-count-${i}">
           ${[1,2,3,4,5,6,7,8].map(n=>`<option value="${n}">${n}×</option>`).join('')}
         </select>
+        <button class="track-dl-btn" id="ldl-btn-${i}" onclick="loopDownloadTrack(${i})" disabled>↓</button>
+        <button class="track-clear-btn" onclick="loopClearTrack(${i})">✕</button>
       </div>`;
     grid.appendChild(card);
     t.canvas = document.getElementById(`lring-canvas-${i}`);
@@ -21462,6 +21492,114 @@ function ilUnpositionChord(partId, lineIdx, wordIdx, sylIdx) {
   ilScheduleSave();
 }
 
+// ── Mobile touch drag for lyrics chord palette ────────────────────
+(function() {
+  let _ilDrag = null;
+  let _ilGhost = null;
+  let _ilLastCol = null;
+
+  function _ilCreateGhost(text, x, y) {
+    const g = document.createElement('div');
+    g.textContent = text;
+    g.style.cssText = [
+      'position:fixed;z-index:9999;pointer-events:none;',
+      'background:rgba(245,166,35,0.18);color:#f5a623;',
+      "font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:16px;",
+      'padding:8px 16px;border-radius:6px;white-space:nowrap;',
+      'border:1.5px solid rgba(245,166,35,0.7);',
+      'box-shadow:0 6px 20px rgba(245,166,35,0.35);',
+      // Offset above the finger so it's visible above the thumb
+      'transform:translate(-50%,calc(-100% - 24px));',
+      `left:${x}px;top:${y}px;`
+    ].join('');
+    document.body.appendChild(g);
+    return g;
+  }
+
+  function _ilColAt(x, y) {
+    const el = document.elementFromPoint(x, y);
+    return el ? el.closest('.il-cc-word-col') : null;
+  }
+
+  function _ilCleanup() {
+    if (_ilGhost) { _ilGhost.remove(); _ilGhost = null; }
+    if (_ilLastCol) { _ilLastCol.classList.remove('dragover'); _ilLastCol = null; }
+    document.querySelectorAll('.il-palette-pill.dragging,.il-tray-pill.dragging,.il-cc-chord.dragging')
+      .forEach(p => p.classList.remove('dragging'));
+    _ilDrag = null;
+  }
+
+  document.addEventListener('touchstart', function(e) {
+    const pill  = e.target.closest('.il-palette-pill,.il-tray-pill');
+    const chord = e.target.closest('.il-cc-chord');
+    if (!pill && !chord) return;
+    const el    = pill || chord;
+    const touch = e.touches[0];
+    if (pill) {
+      _ilDrag = { type: 'tray', partId: el.dataset.part, chord: el.dataset.chord };
+    } else {
+      _ilDrag = {
+        type: 'positioned', partId: el.dataset.part, chord: el.dataset.chord,
+        line: parseInt(el.dataset.line), word: parseInt(el.dataset.word),
+        syl:  parseInt(el.dataset.syl ?? 0)
+      };
+    }
+    _ilGhost = _ilCreateGhost(_ilDrag.chord, touch.clientX, touch.clientY);
+    setTimeout(() => el.classList.add('dragging'), 0);
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function(e) {
+    if (!_ilDrag || !_ilGhost) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    _ilGhost.style.left = touch.clientX + 'px';
+    _ilGhost.style.top  = touch.clientY + 'px';
+    const col = _ilColAt(touch.clientX, touch.clientY);
+    if (_ilLastCol && _ilLastCol !== col) _ilLastCol.classList.remove('dragover');
+    if (col) { col.classList.add('dragover'); _ilLastCol = col; }
+    else _ilLastCol = null;
+  }, { passive: false });
+
+  document.addEventListener('touchend', function(e) {
+    if (!_ilDrag) return;
+    const touch = e.changedTouches[0];
+    const col   = _ilColAt(touch.clientX, touch.clientY);
+    if (col) {
+      col.classList.remove('dragover');
+      const partId  = col.dataset.part;
+      const lineIdx = parseInt(col.dataset.line);
+      const wordIdx = parseInt(col.dataset.word);
+      const sylIdx  = parseInt(col.dataset.syl ?? 0);
+      const drag    = _ilDrag;
+      if (!rtChordPositions[partId]) rtChordPositions[partId] = [];
+      if (drag.type === 'positioned' && rtChordPositions[drag.partId]) {
+        rtChordPositions[drag.partId] = rtChordPositions[drag.partId]
+          .filter(p => !(p.line === drag.line && p.word === drag.word && (p.syl ?? 0) === drag.syl));
+      }
+      rtChordPositions[partId] = rtChordPositions[partId]
+        .filter(p => !(p.line === lineIdx && p.word === wordIdx && (p.syl ?? 0) === sylIdx));
+      rtChordPositions[partId].push({ chord: drag.chord, line: lineIdx, word: wordIdx, syl: sylIdx });
+      ilRefreshPartView(partId);
+      if (drag.type === 'positioned' && drag.partId !== partId) ilRefreshPartView(drag.partId);
+      ilScheduleSave();
+    } else {
+      // Dragging a positioned chord back onto the palette removes it
+      const palette = document.elementFromPoint(touch.clientX, touch.clientY)
+        ?.closest('.il-chord-palette');
+      if (palette && _ilDrag.type === 'positioned') {
+        const drag = _ilDrag;
+        if (rtChordPositions[drag.partId]) {
+          rtChordPositions[drag.partId] = rtChordPositions[drag.partId]
+            .filter(p => !(p.line === drag.line && p.word === drag.word && (p.syl ?? 0) === drag.syl));
+          ilRefreshPartView(drag.partId);
+          ilScheduleSave();
+        }
+      }
+    }
+    _ilCleanup();
+  });
+})();
+
 // ── Lyrics raw editing ────────────────────────────────────────────
 function ilToggleLyricsEdit(partId) {
   const ta  = document.getElementById('illyricsedit-' + partId);
@@ -22041,7 +22179,16 @@ document.addEventListener('click', function(e) {
 
 // ── Keyboard shortcuts panel ──────────────────────────────────────
 function toggleKsPanel() {
-  document.getElementById('ksPanel')?.classList.toggle('open');
+  const panel = document.getElementById('ksPanel');
+  const btn   = document.querySelector('.ks-btn');
+  if (!panel || !btn) return;
+  const isOpen = panel.classList.contains('open');
+  if (!isOpen) {
+    const rect = btn.getBoundingClientRect();
+    panel.style.top  = (rect.bottom + 8) + 'px';
+    panel.style.left = Math.max(8, Math.min(rect.right - 280, window.innerWidth - 288)) + 'px';
+  }
+  panel.classList.toggle('open');
 }
 document.addEventListener('click', function(e) {
   const wrap = document.getElementById('ksWrap');
@@ -22744,6 +22891,15 @@ function _mtSavedPan(i) {
   const v = localStorage.getItem('drafthaus-mt-pan-' + i);
   return v !== null ? Math.max(-100, Math.min(100, parseInt(v, 10))) : 0;
 }
+function _mtSavedLabel(i) {
+  return localStorage.getItem('drafthaus-mt-label-' + i) || MT_NAMES[i];
+}
+function mtSaveLabel(i, el) {
+  const name = el.textContent.trim() || MT_NAMES[i];
+  el.textContent = name;
+  localStorage.setItem('drafthaus-mt-label-' + i, name);
+  if (_mtTracks[i]) _mtTracks[i].name = name;
+}
 
 // ── DOM-free track object builder (safe to call before overlay opens) ──
 function _mtEnsureTrackObjects() {
@@ -22796,7 +22952,10 @@ function mtBuildUI() {
     lane.className = 'mt-track'; lane.id = 'mt-track-'+i;
     lane.innerHTML = `
       <div class="mt-track-head">
-        <span class="mt-track-label color-${i}">${MT_NAMES[i]}</span>
+        <span class="mt-track-label color-${i}" contenteditable="true" id="mt-label-${i}"
+          onblur="mtSaveLabel(${i},this)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
+        >${_mtSavedLabel(i)}</span>
         <button class="mt-arm-btn" id="mt-arm-${i}" onclick="mtArmTrack(${i})" title="Arm for recording">ARM</button>
       </div>
       <div class="mt-waveform-wrap" id="mt-wave-wrap-${i}" style="cursor:pointer;" onclick="mtWaveformSeek(${i},event)" title="Click to seek">
