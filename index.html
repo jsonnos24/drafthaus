@@ -8718,7 +8718,21 @@ function renderGrid() {
 
   function _renderMyTree(subtree, depth) {
     depth = depth || 0;
-    return Object.keys(subtree).sort((a,b) => a.toLowerCase().localeCompare(b.toLowerCase())).map(name => {
+    // Sort by position in userProjects. For folder nodes (no fullPath), use the
+    // minimum index of any descendant leaf so folders respect their children's order.
+    function _minProjIdx(node) {
+      if (node.fullPath !== null) {
+        const i = userProjects.indexOf(node.fullPath);
+        return i === -1 ? Infinity : i;
+      }
+      const childIdxs = Object.values(node.children).map(_minProjIdx);
+      return childIdxs.length ? Math.min(...childIdxs) : Infinity;
+    }
+    return Object.keys(subtree).sort((a, b) => {
+      const ai = _minProjIdx(subtree[a]), bi = _minProjIdx(subtree[b]);
+      if (ai !== bi) return ai - bi;
+      return a.toLowerCase().localeCompare(b.toLowerCase()); // fallback: alpha
+    }).map(name => {
       const node = subtree[name];
       const hasKids = Object.keys(node.children).length > 0;
       if (hasKids) {
@@ -16957,19 +16971,62 @@ function _renderPublicView(song) {
   const workTitle = song.title && song.workingTitle ? `<div style="font-size:13px;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-top:4px;">${esc(song.workingTitle)}</div>` : '';
   const moodChips = (song.moods||[]).map(m => `<span style="background:rgba(200,160,255,0.12);color:var(--purple);border:1px solid rgba(200,160,255,0.25);border-radius:20px;padding:3px 10px;font-size:11px;">${esc(m)}</span>`).join('');
 
-  // Build chord/structure display
+  // Render a chord-above-word chart for a section (static, no interactivity)
+  function _pvChordChart(lyricText, positions) {
+    if (!lyricText || !lyricText.trim()) return '';
+    // Build lookup: "line,word" → first chord label at that word
+    const posMap = {};
+    (positions || []).forEach(p => {
+      const key = p.line + ',' + p.word;
+      if (!posMap[key]) posMap[key] = p.chord;
+    });
+    const lines = lyricText.split('\n');
+    let out = '';
+    lines.forEach((line, li) => {
+      const words = line.match(/\S+/g) || [];
+      if (!words.length) { out += '<div style="height:0.8em;"></div>'; return; }
+      out += '<div style="display:flex;flex-wrap:wrap;gap:0 14px;margin-bottom:4px;">';
+      words.forEach((word, wi) => {
+        const chord = posMap[li + ',' + wi] || '';
+        out += '<div style="display:inline-flex;flex-direction:column;align-items:flex-start;">'
+          + '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;font-weight:700;color:var(--gold);min-height:17px;line-height:17px;">' + (chord ? esc(chord) : '') + '</span>'
+          + '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:13px;color:var(--text);line-height:1.5;">' + esc(word) + '</span>'
+          + '</div>';
+      });
+      out += '</div>';
+    });
+    return out;
+  }
+
+  // Build chord/structure/lyrics display
   let structureHtml = '';
   const sectionOrder = song.sectionOrder || Object.keys(song.structure || {});
-  const chords = song.chords || {};
+  const chordPositions = song.chordPositions || {};
+  const chordProg = song.chords || {};
+  const lyrics = song.lyrics || {};
   for (const sec of sectionOrder) {
     const secData = (song.structure||{})[sec];
     if (!secData) continue;
-    const secChords = chords[sec] || {};
-    const chordList = Object.values(secChords).filter(Boolean);
+    const lyricText = (lyrics[sec] || '').trim();
+    const positions = chordPositions[sec] || [];
+    const chartHtml = _pvChordChart(lyricText, positions);
+
+    // Chord progression pills (separate from inline annotations)
+    const progChords = (chordProg[sec] || []).filter(Boolean);
+    const progHtml = progChords.length
+      ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">'
+        + progChords.map(c => `<span style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:6px;padding:4px 12px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text);">${esc((c.root||'') + (c.quality && c.quality !== 'maj' ? c.quality : ''))}</span>`).join('')
+        + '</div>'
+      : '';
+
+    const emptyMsg = (!chartHtml && !progHtml)
+      ? '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:var(--faint);">No lyrics or chords recorded</div>'
+      : '';
+
     structureHtml += `
-      <div style="margin-bottom:18px;">
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.15em;color:var(--gold);margin-bottom:8px;">${esc(sec)}</div>
-        ${chordList.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;">${chordList.map(c=>`<span style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:6px;padding:4px 12px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text);">${esc(c)}</span>`).join('')}</div>` : `<div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);">No chords recorded</div>`}
+      <div style="margin-bottom:28px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.15em;color:var(--gold);margin-bottom:10px;">${esc(sec)}</div>
+        ${progHtml}${chartHtml}${emptyMsg}
       </div>`;
   }
 
@@ -17008,7 +17065,7 @@ function _renderPublicView(song) {
       <!-- Structure + Chords -->
       ${sectionOrder.length ? `
         <div style="margin-bottom:28px;">
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.15em;color:var(--faint);margin-bottom:16px;">Song Structure & Chords</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.15em;color:var(--faint);margin-bottom:16px;">Song Structure, Chords & Lyrics</div>
           ${structureHtml}
         </div>` : ''}
 
