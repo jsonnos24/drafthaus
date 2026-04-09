@@ -9998,8 +9998,10 @@ async function _headerEnumerateAudio() {
     const audioIns  = all.filter(d => d.kind === 'audioinput');
     const audioOuts = all.filter(d => d.kind === 'audiooutput');
     // Sync into shared _vrDevices so 4-Track stays in sync
-    _vrDevices.inputs  = audioIns;
-    _vrDevices.outputs = audioOuts;
+    if (typeof _vrDevices !== 'undefined') {
+      _vrDevices.inputs  = audioIns;
+      _vrDevices.outputs = audioOuts;
+    }
     _headerUpdateAudioSelects(audioIns, audioOuts);
     if (typeof _vrUpdateDeviceLabels === 'function') _vrUpdateDeviceLabels();
   } catch(e) { console.warn('Audio enumerate failed:', e); }
@@ -14414,6 +14416,16 @@ function launchInspoSong() {
   if (!_inspoRolled) return;
   const d = _inspoRolled;
 
+  // Enforce tier song limit before creating
+  const limits = getTierLimits();
+  const uid = auth.currentUser?.uid;
+  const myCount = songs.filter(s => !s.ownerId || s.ownerId === uid || s.sharedWith?.includes(uid)).length;
+  if (myCount >= limits.songs) {
+    closeInspoDrawer();
+    showUpgradeModal(`You've reached your ${limits.songs}-song limit on the free plan. Upgrade to create unlimited songs.`);
+    return;
+  }
+
   // Create new song
   const song = {
     id: genId(),
@@ -17579,10 +17591,26 @@ function setSplitRightTool(tool) {
     if (!rtEl) return;
     if (!_splitOrigParents['lyrics']) _splitOrigParents['lyrics'] = rtEl.parentNode;
     content.appendChild(rtEl);
-    if (typeof setSongViewMode === 'function') setSongViewMode('runthrough');
-    if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
+    // Show the element without calling setSongViewMode/ilSetPerfMode — those exit perf mode.
+    // If we're in perf mode, the runthrough element is already visible; we just moved it.
+    if (!window._ilPerfMode) {
+      rtEl.style.display = '';
+      var beEl = document.getElementById('songViewBackend');
+      if (beEl) beEl.style.display = 'none';
+    }
     var song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
     if (song && typeof ilInitAndRender === 'function') ilInitAndRender(song);
+  } else if (tool === 'backend') {
+    var beEl2 = document.getElementById('songViewBackend');
+    if (!beEl2) return;
+    if (!_splitOrigParents['backend']) _splitOrigParents['backend'] = beEl2.parentNode;
+    content.appendChild(beEl2);
+    beEl2.style.display = '';
+    // Make sure the left panel still shows the runthrough in whatever state it was in
+    var rtEl2 = document.getElementById('songViewRunthrough');
+    if (rtEl2) rtEl2.style.display = '';
+    var song2 = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
+    if (song2 && typeof renderSectionOrderSidebar === 'function') renderSectionOrderSidebar(song2);
   } else if (tool === '4track') {
     var overlay = document.getElementById('vrOverlay');
     if (!overlay) return;
@@ -17620,6 +17648,13 @@ function _splitReturnDrawer() {
     var origParent = _splitOrigParents['lyrics'];
     if (rtEl && origParent) origParent.appendChild(rtEl);
     delete _splitOrigParents['lyrics'];
+    return;
+  }
+  if (_splitCurrentTool === 'backend') {
+    var beEl = document.getElementById('songViewBackend');
+    var origParent = _splitOrigParents['backend'];
+    if (beEl && origParent) origParent.appendChild(beEl);
+    delete _splitOrigParents['backend'];
     return;
   }
   if (_splitCurrentTool === '4track') {
@@ -20081,26 +20116,41 @@ function _ensureDetailView() {
   }
 }
 
+// Clean up the legacy CSS-split system (_ilSplitMode / il-perf-split).
+// Call this at the top of any navigation function that might be entered from that state.
+function _cleanupIlSplitMode() {
+  if (window._ilSplitMode) ilToggleSplitMode(); // removes il-split-active
+  document.body.classList.remove('il-perf-split');
+  const rtEl = document.getElementById('songViewRunthrough');
+  if (rtEl) rtEl.classList.remove('il-perf-mode');
+}
+
 // Go to editor (run-through) view and exit perf mode
 function stickyGoEditor() {
   if (!getCurrentSong()) { showNoSongModal(stickyGoEditor); return; }
   _ensureDetailView();
-  closeAllDrawers();
-  const _fromPerf = window._ilPerfMode;
-  setSongViewMode('runthrough'); // internally calls ilSetPerfMode(false)
-  if (_fromPerf) {
-    // Keep perf rendering on the left panel while editor opens on the right
-    const rtEl = document.getElementById('songViewRunthrough');
-    if (rtEl) rtEl.classList.add('il-perf-mode');
-    document.body.classList.add('il-perf-split');
-    if (!window._ilSplitMode) ilToggleSplitMode();
+  _cleanupIlSplitMode();
+  if (window._ilPerfMode && window.innerWidth >= 900) {
+    // In perf mode on desktop: open/toggle the draggable split with lyrics on the right.
+    // Don't call closeAllDrawers() here — that would teardown any existing split.
+    _desktopOpenTool('lyrics');
+    return;
   }
+  closeAllDrawers();
+  setSongViewMode('runthrough');
 }
 
 // Go to backend view (closes any open drawer first)
 function stickyGoBackend() {
   if (!getCurrentSong()) { showNoSongModal(stickyGoBackend); return; }
   _ensureDetailView();
+  _cleanupIlSplitMode();
+  if (window._ilPerfMode && window.innerWidth >= 900) {
+    // In perf mode on desktop: open/toggle the draggable split with backend on the right.
+    // Don't call closeAllDrawers() here — that would teardown any existing split.
+    _desktopOpenTool('backend');
+    return;
+  }
   closeAllDrawers();
   setSongViewMode('backend');
 }
@@ -24253,7 +24303,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             <span>LYRICS</span>
           </button>
-          <button class="metro-seg-btn metro-seg-back" id="metroSegBack" onclick="setSongViewMode('backend')" title="Backend">
+          <button class="metro-seg-btn metro-seg-back" id="metroSegBack" onclick="stickyGoBackend()" title="Backend">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
             <span>BACKEND</span>
           </button>
@@ -24496,7 +24546,6 @@ document.addEventListener('DOMContentLoaded', () => {
       <option value="sequencer">🎛 Sequencer</option>
       <option value="looper">⏺ Looper</option>
       <option value="4track">🎙 4-Track</option>
-      <option value="lyrics">✏️ Lyrics</option>
     </select>
     <button id="splitRightExpandBtn" class="split-expand-btn" onclick="splitExpandPane('right')" title="Expand right pane">⤢</button>
     <button class="split-hdr-btn" onclick="swapSplitPanels()" title="Swap panels">⇄</button>
