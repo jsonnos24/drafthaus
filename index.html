@@ -8141,6 +8141,7 @@ let _rowTimerInterval = null;
 function rowLoadSong(id) {
   openSong(id);
   renderGrid();
+  _setWorkLayout();
 }
 
 function getProjectList() {
@@ -8211,6 +8212,7 @@ function newSong() {
   songs.unshift(song);
   save();
   openSong(song.id);
+  _setWorkLayout();
 }
 
 // ── Drawer-safe background song operations ────────────────────────
@@ -14516,7 +14518,7 @@ function launchInspoSong() {
 
   // Fully open the song so all views (Lyrics, Rehearse, Backend) are in sync
   openSong(song.id);
-  setTimeout(() => openSeqDrawer(), 400);
+  _setWorkLayout(); // lyrics left + 4-track right
 }
 
 // ── Practice Mode / Run Through ────────────────────────────────────
@@ -17428,6 +17430,7 @@ window._noSongModalLoad = function(id) {
   const cb = _noSongModalCallback;
   closeNoSongModal();
   openSong(id);          // navigates to song detail (calls showDetail)
+  _setWorkLayout();
   if (cb) cb();          // then applies the intended view mode
 };
 window._noSongModalNew = function() {
@@ -17436,6 +17439,7 @@ window._noSongModalNew = function() {
     closeNoSongModal();
     openSong(song.id);   // navigates to song detail
     showToast('New draft created — you can name it in the editor.', 'success', 4000);
+    _setWorkLayout();
     if (cb) cb();        // then applies the intended view mode
   });
 };
@@ -17656,7 +17660,6 @@ function _showSplitRightDefault() {
       '<div class="split-right-cta">' +
         '<div class="split-right-cta-icon">🎸</div>' +
         '<div class="split-right-cta-title">Upgrade Drafthaus</div>' +
-        '<div class="split-right-cta-body">Unlock 4-Track recording, Looper, Sequencer, and Keyboard. Your workspace layout is also saved between sessions on paid plans.</div>' +
         '<button class="split-right-cta-btn" onclick="showUpgradeModal(\'\')">View Plans →</button>' +
         '<div class="split-right-cta-hint">Or select a tool from the dropdown above ↑</div>' +
       '</div>';
@@ -17896,6 +17899,29 @@ function setSplitLeftView(view) {
   if (typeof userTier !== 'undefined' && userTier !== 'free') {
     try { localStorage.setItem('dh_split_left', view); } catch(e) {}
   }
+}
+
+/* ── Work layout: lyrics left + 4-Track right ───────────────────── */
+// Called whenever the user explicitly opens or creates a draft.
+function _setWorkLayout() {
+  if (window.innerWidth < 900 || !_splitActive) return;
+  // Small delay so openSong() finishes populating fields first
+  setTimeout(function() {
+    setSplitLeftView('lyrics');
+    // Restore right pane split ratio to 50/50 for 4-track
+    document.documentElement.style.setProperty('--split-left', '50%');
+    var div = document.getElementById('splitDivider');
+    var rp  = document.getElementById('splitRightPanel');
+    if (div) div.style.left = 'calc(50% - 3px)';
+    if (rp)  rp.style.left = '50%';
+    // Restore if right pane was collapsed
+    if (_splitExpandedSide === 'left') {
+      _splitExpandedSide = null;
+      document.body.classList.remove('split-expanded-left');
+      _syncExpandBtns();
+    }
+    setSplitRightTool('4track');
+  }, 80);
 }
 
 /* ── Always-on split init (desktop only) ─────────────────────────── */
@@ -20280,6 +20306,7 @@ function switchToSong(id) {
   // Open song
   openSong(id);
   renderGrid();
+  _setWorkLayout();
 }
 
 // Close dropdown when clicking outside
