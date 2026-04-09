@@ -7077,7 +7077,7 @@ body.il-perf-active #ilScrollFloat { display: none; }
 .mt-track {
   display: flex; align-items: stretch; gap: 0;
   background: #0e1018; border: 1px solid #1e2130; border-radius: 8px;
-  overflow: hidden; min-height: 90px;
+  overflow: hidden; min-height: 60px;
   transition: border-color 0.15s;
 }
 .mt-track.mt-armed  { border-color: #803030; background: #120e0e; }
@@ -7119,10 +7119,10 @@ body.il-perf-active #ilScrollFloat { display: none; }
 .mt-waveform-wrap {
   flex: 1; position: relative; overflow: hidden;
   background: #080a10; cursor: pointer;
-  min-height: 90px;
+  min-height: 60px;
 }
 .mt-waveform-canvas {
-  display: block; width: 100%; height: 90px; image-rendering: pixelated;
+  display: block; width: 100%; height: 60px; image-rendering: pixelated;
 }
 .mt-playhead {
   position: absolute; top: 0; bottom: 0; width: 1px;
@@ -7156,7 +7156,7 @@ body.il-perf-active #ilScrollFloat { display: none; }
 .mt-vol-slider {
   -webkit-appearance: none; appearance: none;
   writing-mode: vertical-lr; direction: rtl;
-  width: 5px; height: 68px; border-radius: 3px;
+  width: 5px; height: 40px; border-radius: 3px;
   background: linear-gradient(to top, #5a6070 0%, #5a6070 var(--vol,85%), #1e2130 var(--vol,85%), #1e2130 100%);
   outline: none; cursor: pointer;
   margin: 0;
@@ -8952,7 +8952,13 @@ function renderGrid() {
       const hasKids = Object.keys(node.children).length > 0;
       if (hasKids) {
         const childHtml = _renderMyTree(node.children, depth + 1);
-        return buildFolderGroup(name, childHtml, depth);
+        // If this parent folder also has songs assigned directly to it (e.g. "Ideas"
+        // when "Ideas/Callam" also exists), render those songs first inside the folder.
+        let ownSongsHtml = '';
+        if (node.fullPath && myGroups[node.fullPath] && myGroups[node.fullPath].length > 0) {
+          ownSongsHtml = buildProjGroup(node.fullPath, myGroups[node.fullPath], null, allLeafPaths.length, depth + 1);
+        }
+        return buildFolderGroup(name, ownSongsHtml + childHtml, depth);
       } else {
         const fullPath = node.fullPath || name;
         return buildProjGroup(fullPath, myGroups[fullPath] || [], null, allLeafPaths.length, depth);
@@ -9066,7 +9072,9 @@ let _rowTimerInterval = null;
 
 function rowLoadSong(id) {
   openSong(id);
-  renderGrid();
+  // Defer grid re-render so the detail view paints first — calling it synchronously
+  // causes both DOM operations to compete in the same frame, stalling the transition.
+  requestAnimationFrame(() => renderGrid());
   _setWorkLayout();
 }
 
@@ -9284,10 +9292,12 @@ function openSong(id) {
   }
   setTimeout(() => { if (typeof mtPreloadForSong === 'function') mtPreloadForSong(id); if (typeof loopPreloadForSong === 'function') loopPreloadForSong(id); }, 0);
 
-  // If the 4-track overlay is already open, sync it to the new song immediately —
-  // otherwise _vrSongId stays stale and takes/waveforms won't refresh until re-open.
+  // Sync 4-track to the new song whenever the overlay is open OR it's the active split tool.
+  // (The split drawer map has openFn:null for 4-track, so the generic refresh above won't fire.)
   const _vrOverlayEl = document.getElementById('vrOverlay');
-  if (_vrOverlayEl && _vrOverlayEl.classList.contains('vr-open')) {
+  const _vrNeedsSync = (_vrOverlayEl && _vrOverlayEl.classList.contains('vr-open'))
+                    || (_splitActive && _splitCurrentTool === '4track');
+  if (_vrNeedsSync) {
     if (typeof _vrSongId !== 'undefined') _vrSongId = id;
     const _vrNewSong = songs.find(s => s.id === id);
     const _vrNameEl  = document.getElementById('vrDeckSongName');
@@ -9581,7 +9591,7 @@ function addSectionToSong(partId) {
       wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
       chordSlots: [], chordDegrees: [],
       kick: [], snare: [], hat: [], crash: [], clap: [], melody: [],
-      melodyQuantize: true, mixer: {},
+      melodyQuantize: false, mixer: {},
     });
     if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
   }
@@ -11834,9 +11844,15 @@ function seqPushUndo(song) {
   if (!song) song = getCurrentSong();
   if (!song) return;
   const seqs = getSongSequences(song);
+  const activeSeq = seqs[seqActiveIdx];
+  if (!activeSeq) return;
+  // Snapshot the ACTIVE sequence's data only — never the full list.
+  // This means undo can only ever revert chord/drum/melody edits within a
+  // sequence; it will never remove or add sequence tabs.
   _seqUndoStack.push({
-    sequences: JSON.parse(JSON.stringify(seqs)),
-    activeIdx: seqActiveIdx,
+    sequenceId: activeSeq.id,
+    activeIdx:  seqActiveIdx,
+    data:       JSON.parse(JSON.stringify(activeSeq)),
   });
   if (_seqUndoStack.length > _SEQ_UNDO_MAX) _seqUndoStack.shift();
   _seqSyncUndoBtn();
@@ -11856,10 +11872,16 @@ window.seqUndoActive = function() {
   const snap = _seqUndoStack.pop();
   const song = getCurrentSong();
   if (!song) return;
-  song.sequences = snap.sequences;
-  seqActiveIdx      = Math.min(snap.activeIdx, snap.sequences.length - 1);
-  kbdMelodySeqIdx   = Math.min(kbdMelodySeqIdx, snap.sequences.length - 1);
-  song.sequencer    = song.sequences[seqActiveIdx];
+  const seqs = getSongSequences(song);
+  // Find the snapshotted sequence by id (handles reordering), fall back to index
+  let idx = seqs.findIndex(s => s.id === snap.sequenceId);
+  if (idx < 0) idx = Math.min(snap.activeIdx, seqs.length - 1);
+  if (idx < 0 || !seqs[idx]) { _seqSyncUndoBtn(); _kbdSyncUndoBtn(); return; }
+  // Restore chord/drum/melody data within the sequence — never touch the sequence list
+  Object.assign(seqs[idx], snap.data);
+  seqActiveIdx    = idx;
+  kbdMelodySeqIdx = Math.min(kbdMelodySeqIdx, seqs.length - 1);
+  song.sequencer  = seqs[idx];
   seqLoadSequenceIntoDOM(song.sequencer, song);
   seqRenderSequenceTabs();
   seqRenderChordPills(song);
@@ -12030,7 +12052,7 @@ function seqAddSequence(partId) {
     instrument: cur.instrument || 'piano+synth',
     chordSlots: [], chordDegrees: [],
     kick: [], snare: [], hat: [], crash: [], clap: [], melody: [],
-    melodyQuantize: true, mixer: {},
+    melodyQuantize: false, mixer: {},
   };
   seqs.push(newSeq);
   seqActiveIdx = seqs.length - 1;
@@ -13632,6 +13654,7 @@ function kbdRenderMelodyTabs(song) {
       ondragend="seqTabDragEnd()">
       <span class="seq-tab-dot" style="background:${color};"></span>
       ${label}${noteCount ? `<span style="font-size:9px;opacity:0.55;margin-left:3px;">${noteCount}♪</span>` : ''}
+      <span class="seq-tab-edit" onclick="event.stopPropagation();seqShowTabEditPopup(event,${i})" title="Reassign or reorder">✎</span>
     </button>`;
   }).join('');
   const undoOpacity = _seqUndoStack.length ? '0.8' : '0.3';
@@ -19001,22 +19024,32 @@ function setSplitLeftView(view) {
 // Called whenever the user explicitly opens or creates a draft.
 function _setWorkLayout() {
   if (window.innerWidth < 900 || !_splitActive) return;
-  // Small delay so openSong() finishes populating fields first
   setTimeout(function() {
-    setSplitLeftView('lyrics');
-    // Restore right pane split ratio to 50/50 for 4-track
-    document.documentElement.style.setProperty('--split-left', '50%');
-    var div = document.getElementById('splitDivider');
-    var rp  = document.getElementById('splitRightPanel');
-    if (div) div.style.left = 'calc(50% - 3px)';
-    if (rp)  rp.style.left = '50%';
+    // Show lyrics on the left — but bypass setSplitLeftView's toggle behaviour
+    // (it flips to list if you call it while left is already on lyrics).
+    var leftSel = document.getElementById('splitLeftSelect');
+    var currentLeft = leftSel ? leftSel.value : '';
+    if (currentLeft !== 'lyrics') {
+      setSplitLeftView('lyrics');
+    } else {
+      // Already on lyrics — just re-render for the new song without toggling.
+      if (typeof _ensureDetailView === 'function') _ensureDetailView();
+      if (typeof setSongViewMode === 'function') setSongViewMode('runthrough');
+      var _lyrSong = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
+      if (_lyrSong && typeof ilInitAndRender === 'function') ilInitAndRender(_lyrSong);
+    }
     // Restore if right pane was collapsed
     if (_splitExpandedSide === 'left') {
       _splitExpandedSide = null;
       document.body.classList.remove('split-expanded-left');
       _syncExpandBtns();
     }
-    setSplitRightTool('4track');
+    // Only set the right tool if nothing is showing there — never clobber what's open.
+    if (!_splitCurrentTool) {
+      var savedRight = null;
+      try { savedRight = localStorage.getItem('dh_split_right'); } catch(e) {}
+      if (savedRight) setSplitRightTool(savedRight);
+    }
   }, 80);
 }
 
@@ -21557,7 +21590,7 @@ function switchToSong(id) {
   document.getElementById('songSwitcherBtn')?.classList.remove('open');
   // Open song
   openSong(id);
-  renderGrid();
+  requestAnimationFrame(() => renderGrid());
   _setWorkLayout();
 }
 
@@ -22823,7 +22856,7 @@ function ilAddSection(sel) {
         wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
         chordSlots: [], chordDegrees: [],
         kick: [], snare: [], hat: [], crash: [], clap: [], melody: [],
-        melodyQuantize: true, mixer: {},
+        melodyQuantize: false, mixer: {},
       });
       if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
       if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
@@ -25312,18 +25345,22 @@ function _mtDrawTrackWaveform(trackIdx, buffer, color) {
   const canvas = _el('mt-wave-'+trackIdx); if (!canvas) return;
   const wrap   = _el('mt-wave-wrap-'+trackIdx);
   const W = wrap ? wrap.offsetWidth || 300 : 300;
-  const H = wrap ? (wrap.offsetHeight || 90) : 90;
+  const H = wrap ? (wrap.offsetHeight || 60) : 60;
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
+  const mid = H / 2;
+  // Center zero line
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(0, mid - 0.5, W, 1);
   const ch = buffer.getChannelData(0);
   const step = Math.max(1, Math.floor(ch.length / W));
+  ctx.fillStyle = color || '#4a5468';
   for (let x = 0; x < W; x++) {
     let max = 0;
     for (let j = 0; j < step; j++) { const v=Math.abs(ch[x*step+j]||0); if(v>max) max=v; }
-    const barH = Math.max(1, max * H * 0.85);
-    ctx.fillStyle = color || '#4a5468';
-    ctx.fillRect(x, (H - barH) / 2, 1, barH);
+    const barH = Math.max(1, max * mid * 0.9);
+    ctx.fillRect(x, mid - barH, 1, barH * 2);
   }
 }
 
