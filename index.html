@@ -1698,6 +1698,46 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-slot.just-dropped {
     animation: slotDrop 0.35s ease forwards;
   }
+  /* Chord continuation (tail) slots — same chord, not re-triggered */
+  [data-row="chord"] .seq-slot.chord-tail {
+    opacity: 0.55;
+    font-size: 7px;
+    letter-spacing: -0.5px;
+  }
+  [data-row="chord"] .seq-slot.chord-tail::before {
+    content: '—';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 10px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  /* Resize handle — right edge of a filled chord slot */
+  [data-row="chord"] .seq-slot .seq-resize-handle {
+    position: absolute; right: 0; top: 0; bottom: 0; width: 8px;
+    cursor: ew-resize; opacity: 0; z-index: 6;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+    transition: opacity 0.12s;
+  }
+  [data-row="chord"] .seq-slot.filled .seq-resize-handle {
+    pointer-events: auto;
+  }
+  [data-row="chord"] .seq-slot.filled:hover .seq-resize-handle {
+    opacity: 1;
+  }
+  [data-row="chord"] .seq-slot .seq-resize-handle::after {
+    content: '';
+    width: 3px; height: 52%;
+    background: rgba(255,255,255,0.55);
+    border-radius: 2px;
+    pointer-events: none;
+  }
+  [data-row="chord"] .seq-slot.filled:hover .seq-resize-handle::after,
+  [data-row="chord"] .seq-slot.chord-tail:hover .seq-resize-handle::after {
+    background: var(--gold);
+  }
 
 
   /* Loading button animation */
@@ -11530,9 +11570,9 @@ var _acousticMainBufs  = {};
 var _acousticLoadState = 'idle'; // 'idle' | 'loading' | 'ready' | 'failed'
 const _ACOUSTIC_URLS = {
   kick:  'https://tonejs.github.io/audio/drum-samples/acoustic-kit/kick.mp3',
-  snare: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/snare.mp3',
+  snare: 'https://tonejs.github.io/audio/drum-samples/breakbeat13/snare0.mp3',
   hat:   'https://tonejs.github.io/audio/drum-samples/acoustic-kit/hihat.mp3',
-  crash: 'https://shinjith-dev.github.io/JavaScript-Drum-Kit/audios/crash.wav',
+  crash: 'https://tonejs.github.io/audio/drum-samples/CR78/cymbal.mp3',
 };
 // Kit 2: HARGREAVES (Stark)
 var _acoustic2RawBytes  = {};
@@ -11540,8 +11580,9 @@ var _acoustic2MainBufs  = {};
 var _acoustic2LoadState = 'idle';
 const _ACOUSTIC2_URLS = {
   kick:  'https://tonejs.github.io/audio/drum-samples/Stark/kick.mp3',
-  snare: 'https://tonejs.github.io/audio/drum-samples/Stark/snare.mp3',
+  snare: 'https://tonejs.github.io/audio/drum-samples/breakbeat8/snare0.mp3',
   hat:   'https://tonejs.github.io/audio/drum-samples/Stark/hihat.mp3',
+  crash: 'https://tonejs.github.io/audio/drum-samples/CR78/cymbal.mp3',
 };
 // Helpers: check active kit type, get active buffers
 function _drumIsAcoustic() { return seqDrumMode === 'lacer' || seqDrumMode === 'hargreaves'; }
@@ -11965,21 +12006,21 @@ function _midiHandleMessage(msg) {
 function _midiNoteOn(midiNote, velocity) {
   getSeqAudioCtx();
   let samplerPlayed = false;
-  if (_instrHas('piano') && _pianoLoaded) {
+  if (_melodyInstrHas('piano') && _pianoLoaded) {
     playPianoNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
     samplerPlayed = true;
   }
-  if (_instrHas('guitar') && _guitarLoaded) {
+  if (_melodyInstrHas('guitar') && _guitarLoaded) {
     playGuitarNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
     samplerPlayed = true;
   }
-  if (_instrHas('synth') || (!samplerPlayed && !_instrHas('piano') && !_instrHas('guitar'))) {
+  if (_melodyInstrHas('synth') || (!samplerPlayed && (!_melodyInstrHas('piano') || !_pianoLoaded) && (!_melodyInstrHas('guitar') || !_guitarLoaded))) {
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
     const ctx = getSeqAudioCtx();
     const o = ctx.createOscillator(), g = ctx.createGain();
     o.type = document.getElementById('seqWave')?.value || 'triangle';
     o.frequency.value = freq;
-    o.connect(g); g.connect(seqGetChordsOut());
+    o.connect(g); g.connect(seqGetMelodyOut());
     const t = ctx.currentTime;
     g.gain.setValueAtTime(velocity * 0.22, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 2.0);
@@ -12902,8 +12943,9 @@ function seqSaveAllToCurrent(song) {
   // Save chord slots
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
   if (slots.length) {
-    sd.chordSlots   = slots.map(s => s.textContent.trim() || '');
-    sd.chordDegrees = slots.map(s => s.dataset.chordDegree ?? '');
+    sd.chordSlots     = slots.map(s => s.textContent.trim() || '');
+    sd.chordDegrees   = slots.map(s => s.dataset.chordDegree ?? '');
+    sd.chordContinued = slots.map(s => s.classList.contains('chord-tail'));
   }
   // Save drum lanes
   ['kick','snare','hat','crash','clap'].forEach((lane, li) => {
@@ -13336,8 +13378,9 @@ function seqBuildGrids(song) {
   // Chord grid
   const chordGrid = document.getElementById('seqChordGrid');
   if (chordGrid) {
-    const savedSlots   = sd.chordSlots   || [];
-    const savedDegrees = sd.chordDegrees || [];
+    const savedSlots     = sd.chordSlots     || [];
+    const savedDegrees   = sd.chordDegrees   || [];
+    const savedContinued = sd.chordContinued || [];
     chordGrid.innerHTML = '';
     for (let i = 0; i < totalSteps; i++) {
       const slot = document.createElement('div');
@@ -13348,9 +13391,16 @@ function seqBuildGrids(song) {
       if (val) {
         slot.textContent = val;
         slot.classList.add('filled');
+        if (savedContinued[i]) slot.classList.add('chord-tail');
         const deg = savedDegrees[i];
         if (deg !== undefined && deg !== '') slot.dataset.chordDegree = deg;
       }
+      // Resize handle — always present, only interactive/visible when slot is filled
+      const rHandle = document.createElement('div');
+      rHandle.className = 'seq-resize-handle';
+      rHandle.title = 'Drag to extend chord';
+      slot.appendChild(rHandle);
+
       slot.addEventListener('dragenter', e => { e.preventDefault(); slot.classList.add('drag-over'); });
       slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
       slot.addEventListener('dragover', e => e.preventDefault());
@@ -13360,19 +13410,54 @@ function seqBuildGrids(song) {
         const raw = e.dataTransfer.getData('text/plain');
         let chord = raw, degree = '';
         try { const p = JSON.parse(raw); chord = p.chord; degree = String(p.degree); } catch(_) {}
+        // If dropping on a tail slot, clear this slot and all following tails first
+        if (slot.classList.contains('chord-tail')) {
+          const allSlots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
+          const idx = parseInt(slot.dataset.idx);
+          for (let j = idx; j < allSlots.length; j++) {
+            if (j === idx || allSlots[j].classList.contains('chord-tail')) {
+              allSlots[j].textContent = '';
+              allSlots[j].classList.remove('filled', 'chord-tail');
+              delete allSlots[j].dataset.chordDegree;
+            } else break;
+          }
+        }
         slot.textContent = chord;
         slot.classList.add('filled');
+        slot.classList.remove('chord-tail');
         if (degree !== '') slot.dataset.chordDegree = degree;
         else delete slot.dataset.chordDegree;
         slot.classList.add('just-dropped');
         slot.addEventListener('animationend', () => slot.classList.remove('just-dropped'), { once: true });
         seqSaveChordSlots();
       });
-      slot.addEventListener('click', () => {
+      slot.addEventListener('click', e => {
+        if (e.target.closest('.seq-resize-handle')) return; // resize handle has its own events
         if (slot.classList.contains('filled')) {
-          slot.textContent = '';
-          slot.classList.remove('filled');
-          delete slot.dataset.chordDegree;
+          const allSlots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
+          const idx = parseInt(slot.dataset.idx);
+          if (slot.classList.contains('chord-tail')) {
+            // Click on tail: shrink — clear from this slot onwards
+            for (let j = idx; j < allSlots.length; j++) {
+              if (j === idx || allSlots[j].classList.contains('chord-tail')) {
+                allSlots[j].textContent = '';
+                allSlots[j].classList.remove('filled', 'chord-tail');
+                delete allSlots[j].dataset.chordDegree;
+              } else break;
+            }
+          } else {
+            // Click on head: clear head and all following tails
+            slot.textContent = '';
+            slot.classList.remove('filled');
+            delete slot.dataset.chordDegree;
+            for (let j = idx + 1; j < allSlots.length; j++) {
+              if (allSlots[j].classList.contains('chord-tail')) {
+                allSlots[j].textContent = '';
+                allSlots[j].classList.remove('filled', 'chord-tail');
+                delete allSlots[j].dataset.chordDegree;
+              } else break;
+            }
+          }
           seqSaveChordSlots();
         }
       });
@@ -13407,8 +13492,9 @@ function seqSaveChordSlots() {
   seqGetData(song); // ensure song.sequencer → active sequence
   seqPushUndo(); // snapshot BEFORE overwriting
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
-  song.sequencer.chordSlots   = slots.map(s => s.textContent.trim() || '');
-  song.sequencer.chordDegrees = slots.map(s => s.dataset.chordDegree ?? '');
+  song.sequencer.chordSlots     = slots.map(s => s.textContent.trim() || '');
+  song.sequencer.chordDegrees   = slots.map(s => s.dataset.chordDegree ?? '');
+  song.sequencer.chordContinued = slots.map(s => s.classList.contains('chord-tail'));
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
@@ -13417,7 +13503,7 @@ function seqSaveChordSlots() {
 function seqClearAllChordSlots() {
   document.querySelectorAll('#seqChordGrid .seq-slot.filled').forEach(slot => {
     slot.textContent = '';
-    slot.classList.remove('filled');
+    slot.classList.remove('filled', 'chord-tail');
     delete slot.dataset.chordDegree;
   });
   seqSaveChordSlots();
@@ -13598,7 +13684,7 @@ function seqPlayChord(freqs, time, velocity) {
   const ctx = getSeqAudioCtx();
   // Root is loudest and sustains longest; third is lighter; fifth is softest & quickest
   const amps   = [0.26, 0.15, 0.10];  // per-voice gain  (root, third, fifth)
-  const decays = [0.90, 0.68, 0.52];  // decay end times (seconds after attack)
+  const decays = [2.20, 1.60, 1.10];  // decay end times (seconds after attack)
   freqs.forEach((f, i) => {
     const o = ctx.createOscillator(), g = ctx.createGain();
     o.type = (document.getElementById('seqWave')?.value || 'triangle'); o.frequency.value = f;
@@ -13616,13 +13702,13 @@ function seqPlayChord(freqs, time, velocity) {
 // Piano-sampler version: accepts MIDI note array and strums with slight timing offset
 function seqPlayChordPiano(midiNotes, time, velocity) {
   midiNotes.forEach((midi, i) => {
-    playPianoNote(midi, time + i * 0.022, velocity, 1.6);
+    playPianoNote(midi, time + i * 0.022, velocity, 2.8);
   });
 }
 
 function seqPlayChordGuitar(midiNotes, time, velocity) {
   midiNotes.forEach((midi, i) => {
-    playGuitarNote(midi, time + i * 0.028, velocity, 1.4);
+    playGuitarNote(midi, time + i * 0.028, velocity, 2.4);
   });
 }
 
@@ -13745,10 +13831,11 @@ function seqPlayClap(time, vel) {
 function seqPlayCrash(time, vel) {
   const ctx = getSeqAudioCtx();
   const out = seqGetDrumsOut();
-  // ── LACER: use real crash sample ──
-  if (seqDrumMode === 'lacer' && _acousticMainBufs.crash) {
+  // ── LACER / HARGREAVES: use real crash sample ──
+  const _crashBuf = seqDrumMode === 'hargreaves' ? _acoustic2MainBufs.crash : _acousticMainBufs.crash;
+  if (_drumIsAcoustic() && _crashBuf) {
     const src = ctx.createBufferSource(), g = ctx.createGain();
-    src.buffer = _acousticMainBufs.crash;
+    src.buffer = _crashBuf;
     g.gain.setValueAtTime(vel * 0.7, time);
     src.connect(g); g.connect(out); src.start(time); return;
   }
@@ -14102,10 +14189,12 @@ function seqScheduleNotes() {
 
     // ── Audio scheduling (runs on audio thread — unaffected by tab throttle) ──
     // Chord: read from DOM slot if chord grid is open, else fall back to song data
+    // chord-tail slots are continuation markers — skip retrigger on those steps
     const slot = chordSlots[i];
     const _chordName = slot
-      ? (slot.classList.contains('filled') ? slot.textContent.trim() : '')
-      : ((getCurrentSong()?.sequencer?.chordSlots?.[i]) || '');
+      ? (slot.classList.contains('filled') && !slot.classList.contains('chord-tail') ? slot.textContent.trim() : '')
+      : ((getCurrentSong()?.sequencer?.chordSlots?.[i] && !getCurrentSong()?.sequencer?.chordContinued?.[i])
+          ? (getCurrentSong()?.sequencer?.chordSlots?.[i]) : '');
     if (_chordName && loopChords[_chordName]) {
       const midiNotes = loopChordsMidi?.[_chordName];
       let samplerPlayed = false;
@@ -19112,8 +19201,8 @@ async function exportWAV() {
       });
     }
     function schedCrash(t, vel) {
-      // LACER: use real crash sample
-      if (seqDrumMode === 'lacer' && offAcousticBufs.crash) {
+      // LACER / HARGREAVES: use real crash sample
+      if (_drumIsAcoustic() && offAcousticBufs.crash) {
         const src = offCtx.createBufferSource(), g = offCtx.createGain();
         src.buffer = offAcousticBufs.crash; g.gain.setValueAtTime(vel * 0.7, t);
         src.connect(g); g.connect(offCtx.destination); src.start(t); return;
@@ -19641,6 +19730,90 @@ async function exportMidiZip() {
     document.querySelectorAll('.seq-chord-pill.dragging').forEach(p => p.classList.remove('dragging'));
     dragChord  = null;
     dragDegree = null;
+  });
+})();
+
+
+// ── Chord slot resize drag ────────────────────────────────────────
+// Allows dragging the right-edge handle of a filled chord slot to
+// extend (or shrink) the chord across multiple steps without re-triggering.
+(() => {
+  let _rDrag = null; // { headIdx, allSlots, chord, degree }
+
+  document.addEventListener('mousedown', e => {
+    const handle = e.target.closest('.seq-resize-handle');
+    if (!handle) return;
+    const slot = handle.closest('#seqChordGrid .seq-slot');
+    if (!slot || !slot.classList.contains('filled')) return;
+    e.preventDefault();
+    const grid = document.getElementById('seqChordGrid');
+    if (!grid) return;
+    const allSlots = [...grid.querySelectorAll('.seq-slot')];
+    let slotIdx = parseInt(slot.dataset.idx);
+    if (isNaN(slotIdx)) return;
+    // Walk back to the head of this chain
+    let headIdx = slotIdx;
+    while (headIdx > 0 && allSlots[headIdx]?.classList.contains('chord-tail')) headIdx--;
+    const head = allSlots[headIdx];
+    if (!head?.classList.contains('filled')) return;
+    _rDrag = {
+      headIdx,
+      allSlots,
+      chord:  head.textContent.trim(),
+      degree: head.dataset.chordDegree
+    };
+    document.body.style.cursor    = 'ew-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!_rDrag) return;
+    const { headIdx, allSlots, chord, degree } = _rDrag;
+    // Find which chord-grid slot is under the cursor
+    const els = document.elementsFromPoint(e.clientX, e.clientY);
+    let targetSlot = null;
+    for (const el of els) {
+      if (el !== e.target && el.classList?.contains('seq-slot') && el.closest('#seqChordGrid')) {
+        targetSlot = el; break;
+      }
+      if (el.classList?.contains('seq-slot') && el.closest('#seqChordGrid')) {
+        targetSlot = el; break;
+      }
+    }
+    if (!targetSlot) return;
+    const targetIdx = parseInt(targetSlot.dataset.idx);
+    if (isNaN(targetIdx) || targetIdx < headIdx) return;
+    // Extend or shrink: update slots headIdx+1 … targetIdx as tails, clear beyond
+    for (let i = headIdx + 1; i < allSlots.length; i++) {
+      const s = allSlots[i];
+      // Stop expanding if we hit an independent head (filled, not a tail)
+      if (i > targetIdx && s.classList.contains('filled') && !s.classList.contains('chord-tail')) break;
+      if (i <= targetIdx) {
+        // Ensure this is a tail of our chain
+        if (s.classList.contains('filled') && !s.classList.contains('chord-tail')) break; // don't clobber another chord
+        s.textContent = chord;
+        s.classList.add('filled', 'chord-tail');
+        if (degree !== undefined && degree !== '') s.dataset.chordDegree = degree;
+        else delete s.dataset.chordDegree;
+      } else {
+        // Clear tail slots beyond the new end
+        if (s.classList.contains('chord-tail')) {
+          s.textContent = '';
+          s.classList.remove('filled', 'chord-tail');
+          delete s.dataset.chordDegree;
+        } else {
+          break; // hit a non-tail, stop
+        }
+      }
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!_rDrag) return;
+    _rDrag = null;
+    document.body.style.cursor    = '';
+    document.body.style.userSelect = '';
+    seqSaveChordSlots();
   });
 })();
 
@@ -25432,8 +25605,10 @@ document.addEventListener('keydown', function(e) {
 
 // ── Sequencer: keyboard 1-8 plays/inserts from key trigger bank ─────
 document.addEventListener('keydown', function(e) {
-  // Only fire when the sequencer drawer is open
-  if (!document.getElementById('seqDrawer')?.classList.contains('open')) return;
+  // Fire when the sequencer drawer OR keyboard drawer is open (chord keys live in keyboard drawer now)
+  const _seqOpen = document.getElementById('seqDrawer')?.classList.contains('open');
+  const _kbdOpen = document.getElementById('keyboardDrawer')?.classList.contains('open');
+  if (!_seqOpen && !_kbdOpen) return;
   // Don't fire while typing in an input
   const tag = document.activeElement?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
