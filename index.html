@@ -9301,10 +9301,8 @@ function openSong(id) {
       _mtAudioCtx.resume().catch(() => {});
     }
   }
-  setTimeout(() => { if (typeof mtPreloadForSong === 'function') mtPreloadForSong(id); if (typeof loopPreloadForSong === 'function') loopPreloadForSong(id); }, 0);
-
   // Sync 4-track to the new song whenever the overlay is open OR it's the active split tool.
-  // (The split drawer map has openFn:null for 4-track, so the generic refresh above won't fire.)
+  // Compute this BEFORE the preload setTimeout so we can skip the redundant preload below.
   const _vrOverlayEl = document.getElementById('vrOverlay');
   const _vrNeedsSync = (_vrOverlayEl && _vrOverlayEl.classList.contains('vr-open'))
                     || (_splitActive && _splitCurrentTool === '4track');
@@ -9313,8 +9311,18 @@ function openSong(id) {
     const _vrNewSong = songs.find(s => s.id === id);
     const _vrNameEl  = document.getElementById('vrDeckSongName');
     if (_vrNameEl) _vrNameEl.textContent = _vrNewSong ? (_vrNewSong.title || _vrNewSong.workingTitle || 'Untitled') : '';
-    setTimeout(() => { if (typeof vrLoadTakes === 'function') vrLoadTakes(); }, 0);
   }
+  setTimeout(() => {
+    if (typeof loopPreloadForSong === 'function') loopPreloadForSong(id);
+    if (_vrNeedsSync) {
+      // 4-track is visible — vrLoadTakes handles the full Firestore query + buffer load.
+      // Skip mtPreloadForSong entirely to avoid a duplicate query and download race.
+      if (typeof vrLoadTakes === 'function') vrLoadTakes();
+    } else {
+      // 4-track is not visible — preload silently in background.
+      if (typeof mtPreloadForSong === 'function') mtPreloadForSong(id);
+    }
+  }, 0);
 }
 
 function populateSongFields(song) {
@@ -25281,6 +25289,8 @@ window.vrLoadTakes = async function() {
     // Wait for all track buffers to load in parallel (not sequentially)
     await Promise.all(_loadPromises);
     _el('mtPlayBtn').disabled = !_mtTracks.some(t=>t&&t.buffer);
+    // Mark preload cache so mtPreloadForSong won't re-fetch if 4-track is closed and reopened
+    _mtPreloadedSongId = _vrSongId;
     const { remaining } = await _vrGetQuota();
     _updateQuotaDisplay(remaining);
     hideDrawerLoading();
