@@ -1532,7 +1532,7 @@ button, select, input, textarea { touch-action: manipulation; }
     letter-spacing: 0.18em; color: var(--faint);
     margin-bottom: 10px;
   }
-  .seq-chords-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; margin-bottom: 12px; scrollbar-width: none; }
+  .seq-chords-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; overflow-y: visible; align-items: flex-start; margin-bottom: 12px; scrollbar-width: none; }
   .seq-chords-row::-webkit-scrollbar { display: none; }
   .seq-chord-pill {
     font-family: 'IBM Plex Mono', monospace; font-size: 12px;
@@ -1552,6 +1552,21 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-chord-pill[data-degree="7"] { --pill-bg: #4d3084; --pill-border: #aa52f0; --pill-color: #f3c8ff; }
   .seq-chord-pill:hover { filter: brightness(1.25); }
   .seq-chord-pill:active { cursor: grabbing; }
+  /* Column wrapper: main pill on top, variants stacked below */
+  .seq-chord-pill-col {
+    display: flex; flex-direction: column; align-items: stretch; gap: 3px; flex-shrink: 0;
+  }
+  /* Variation chord pills */
+  .seq-chord-var-pill {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    padding: 4px 8px; background: var(--card2);
+    border: 1px solid var(--border2); border-radius: 4px;
+    cursor: grab; user-select: none; color: var(--text2);
+    transition: all 0.12s; text-align: center; white-space: nowrap;
+  }
+  .seq-chord-var-pill:hover { background: rgba(160,100,255,0.18); color: var(--text); border-color: rgba(160,100,255,0.5); }
+  .seq-chord-var-pill:active { cursor: grabbing; }
+  .seq-chord-var-pill.dragging { opacity: 0.45; }
 
   .seq-grid-row { display: flex; align-items: center; gap: 0; margin-bottom: 4px; flex-wrap: nowrap; }
   .seq-sub-body { display: block; max-width: 100%; }
@@ -11709,7 +11724,8 @@ function playGuitarNote(midiNote, time, velocity, durationS) {
   src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
   const dur = durationS || 1.2;
   const vol = Math.min(1, (velocity || 0.8) * 0.9);
-  gain.gain.setValueAtTime(vol, time);
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.linearRampToValueAtTime(vol, time + 0.06);
   gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
   src.connect(gain);
   gain.connect(seqGetChordsOut());
@@ -11767,7 +11783,8 @@ function playPianoNote(midiNote, time, velocity, durationS) {
   src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
   const dur = durationS || 1.4;
   const vol = Math.min(1, (velocity || 0.8) * 0.85);
-  gain.gain.setValueAtTime(vol, time);
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.linearRampToValueAtTime(vol, time + 0.06);
   gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
   src.connect(gain);
   gain.connect(seqGetChordsOut());
@@ -13432,17 +13449,47 @@ function seqRenderChordPills(song) {
   const mode = seqCurrentMode();
   const names = seqGetScaleChords(key, mode);
   const roman = ['I','II','III','IV','V','VI','VII','VIII'];
-  el.innerHTML = names.map((name, i) =>
-    `<div class="seq-chord-pill" data-degree="${i}" draggable="true"
-      title="Click to fill next slot · Drag into grid"
-      ondragstart="this.classList.add('dragging');event.dataTransfer.setData('text/plain',JSON.stringify({chord:'${name}',degree:${i}}))"
-      ondragend="this.classList.remove('dragging')"
-      onclick="seqClickFillChord('${name}',${i})">
-      <span style="font-size:9px;opacity:0.65;display:block;text-align:center;margin-bottom:1px;">${roman[i]}</span>
-      ${name}
-    </div>`
-  ).join('')
-  + `<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;margin-left:4px;">
+
+  // Variation suffixes per base chord quality
+  const QUAL_VARIANTS = {
+    '':    ['sus2','sus4','add9','maj7','7'],
+    'm':   ['m7','m9','madd9','msus4'],
+    'dim': ['dim7','m7b5','dimM7'],
+  };
+
+  function parseChord(name) {
+    const s = name.replace('_viii','');
+    const root = (s.length >= 2 && s[1] === '#') ? s.slice(0,2) : s[0];
+    const qual = s.slice(root.length);
+    return { root, qual };
+  }
+
+  el.innerHTML = names.map((name, i) => {
+    const displayName = name.replace('_viii','');
+    const { root, qual } = parseChord(name);
+    const variants = (QUAL_VARIANTS[qual] || []).map(sfx => root + sfx);
+    const varHtml = variants.map(vname =>
+      `<div class="seq-chord-var-pill" draggable="true"
+        title="Click to fill next slot · Drag into grid"
+        ondragstart="this.classList.add('dragging');event.dataTransfer.setData('text/plain',JSON.stringify({chord:'${vname}',degree:''}))"
+        ondragend="this.classList.remove('dragging')"
+        onclick="seqClickFillChord('${vname}','')">
+        ${vname}
+      </div>`
+    ).join('');
+    return `<div class="seq-chord-pill-col">
+      <div class="seq-chord-pill" data-degree="${i}" draggable="true"
+        title="Click to fill next slot · Drag into grid"
+        ondragstart="this.classList.add('dragging');event.dataTransfer.setData('text/plain',JSON.stringify({chord:'${name}',degree:${i}}))"
+        ondragend="this.classList.remove('dragging')"
+        onclick="seqClickFillChord('${name}',${i})">
+        <span style="font-size:9px;opacity:0.65;display:block;text-align:center;margin-bottom:1px;">${roman[i]}</span>
+        ${displayName}
+      </div>
+      ${varHtml}
+    </div>`;
+  }).join('')
+  + `<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;margin-left:4px;align-self:flex-start;margin-top:2px;">
       <button class="seq-chord-mode-btn active" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Preview mode — clicking a chord just plays it, nothing is added to the grid">▶ Preview</button>
       <button class="seq-humanize-btn" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords — adds subtle timing variation so they feel less robotic">〜 Humanize</button>
       <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;flex-shrink:0;" onclick="seqClearAllChordSlots()">Clear</button>
@@ -13466,7 +13513,7 @@ function seqPlayChord(freqs, time, velocity) {
     const amp = (amps[i] ?? 0.10) * velocity;
     const dec = decays[i] ?? 0.52;
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(amp, t + 0.018);
+    g.gain.linearRampToValueAtTime(amp, t + 0.08);
     g.gain.exponentialRampToValueAtTime(0.001, t + dec);
     o.start(t); o.stop(t + dec + 0.05);
   });
@@ -13489,14 +13536,21 @@ function seqPlayChordByName(name) {
   const key  = seqCurrentKey();
   const mode = seqCurrentMode();
   const t    = getSeqAudioCtx().currentTime;
-  const midiMap   = seqGenChordMidi(key, mode);
-  const midiNotes = midiMap[name];
+  const midiMap = seqGenChordMidi(key, mode);
+  // Use diatonic map first; fall back to interval-based parsing for variation chords
+  const midiNotes = midiMap[name] || _chordVariantToMidi(name);
   let samplerPlayed = false;
-  if (_instrHas('piano') && _pianoLoaded && midiNotes) { seqPlayChordPiano(midiNotes, t, 0.8); samplerPlayed = true; }
-  if (_instrHas('guitar') && _guitarLoaded && midiNotes) { seqPlayChordGuitar(midiNotes, t, 0.8); samplerPlayed = true; }
+  if (_instrHas('piano') && _pianoLoaded && midiNotes && midiNotes.length) { seqPlayChordPiano(midiNotes, t, 0.8); samplerPlayed = true; }
+  if (_instrHas('guitar') && _guitarLoaded && midiNotes && midiNotes.length) { seqPlayChordGuitar(midiNotes, t, 0.8); samplerPlayed = true; }
   if (_instrHas('synth') || (!samplerPlayed && !_instrHas('piano') && !_instrHas('guitar'))) {
     const chords = seqGenChords(key, mode);
-    if (chords[name]) seqPlayChord(chords[name], t, 0.8);
+    if (chords[name]) {
+      seqPlayChord(chords[name], t, 0.8);
+    } else if (midiNotes && midiNotes.length) {
+      // Convert MIDI → Hz for synth fallback
+      const freqs = midiNotes.map(m => 440 * Math.pow(2, (m - 69) / 12));
+      seqPlayChord(freqs, t, 0.8);
+    }
   }
 }
 
@@ -14252,12 +14306,13 @@ function kbdPlayNote(note, octave, sustained = false) {
       if (sustained) {
         // Attack → sustain hold; release applied by kbdNoteOff on finger-lift
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.75, t + 0.015);
+        gain.gain.linearRampToValueAtTime(0.75, t + 0.06);
         src.connect(gain); gain.connect(seqGetMelodyOut());
         src.start(t);
         _kbdActiveSustain.set(sustKey, { src, gain });
       } else {
-        gain.gain.setValueAtTime(0.75, t);
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.75, t + 0.06);
         gain.gain.exponentialRampToValueAtTime(0.001, t + 1.8);
         src.connect(gain); gain.connect(seqGetMelodyOut());
         src.start(t); src.stop(t + 1.9);
@@ -14274,12 +14329,13 @@ function kbdPlayNote(note, octave, sustained = false) {
       src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
       if (sustained) {
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.75, t + 0.015);
+        gain.gain.linearRampToValueAtTime(0.75, t + 0.06);
         src.connect(gain); gain.connect(seqGetMelodyOut());
         src.start(t);
         _kbdActiveSustain.set(sustKey, { src, gain });
       } else {
-        gain.gain.setValueAtTime(0.75, t);
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.75, t + 0.06);
         gain.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
         src.connect(gain); gain.connect(seqGetMelodyOut());
         src.start(t); src.stop(t + 1.6);
@@ -14296,12 +14352,12 @@ function kbdPlayNote(note, octave, sustained = false) {
     o.connect(g); g.connect(seqGetMelodyOut());
     if (sustained) {
       g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.3, t + 0.01);
+      g.gain.linearRampToValueAtTime(0.3, t + 0.06);
       o.start(t);
       _kbdActiveSustain.set(sustKey, { src: o, gain: g });
     } else {
       g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.3, t + 0.01);
+      g.gain.linearRampToValueAtTime(0.3, t + 0.06);
       g.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
       o.start(t); o.stop(t + 1.3);
     }
@@ -18976,7 +19032,7 @@ async function exportWAV() {
         const amp = (amps[fi] ?? 0.10) * vel;
         const dec = decays[fi] ?? 0.52;
         g.gain.setValueAtTime(0, at);
-        g.gain.linearRampToValueAtTime(amp, at + 0.018);
+        g.gain.linearRampToValueAtTime(amp, at + 0.08);
         g.gain.exponentialRampToValueAtTime(0.001, at + dec);
         o.start(at); o.stop(at + dec + 0.05);
       });
@@ -19151,7 +19207,27 @@ function _midiTempoTrack(bpm, timeSig) {
   return _midiEventsToTrack(events);
 }
 
+// Interval sets for all supported chord qualities / suffixes
+const _CHORD_INTERVALS = {
+  '':      [0,4,7],
+  'sus2':  [0,2,7],
+  'sus4':  [0,5,7],
+  'add9':  [0,4,7,14],
+  'maj7':  [0,4,7,11],
+  '7':     [0,4,7,10],
+  'm':     [0,3,7],
+  'm7':    [0,3,7,10],
+  'm9':    [0,3,7,10,14],
+  'madd9': [0,3,7,14],
+  'msus4': [0,5,7],
+  'dim':   [0,3,6],
+  'dim7':  [0,3,6,9],
+  'm7b5':  [0,3,6,10],
+  'dimM7': [0,3,6,11],
+};
+
 // Parse chord name → array of MIDI note numbers (octave 3 root)
+// Handles diatonic qualities AND variant suffixes (sus2, maj7, m7b5, etc.)
 function _chordToMidi(name) {
   if (!name) return [];
   const s = name.replace('_viii', '');
@@ -19161,9 +19237,12 @@ function _chordToMidi(name) {
   const ri = SEQ_NOTES.indexOf(root);
   if (ri < 0) return [];
   const rootMidi = 48 + ri; // C3 = 48
-  const ivs = qual === 'dim' ? [0,3,6] : qual === 'm' ? [0,3,7] : [0,4,7];
+  const ivs = _CHORD_INTERVALS[qual] ?? [0,4,7];
   return ivs.map(i => rootMidi + i);
 }
+
+// Same as _chordToMidi but used explicitly for variant chords (alias for clarity)
+function _chordVariantToMidi(name) { return _chordToMidi(name); }
 
 // Chord progression MIDI track (channel 0)
 function _midiChordTrack(chordSlots, grid) {
