@@ -7102,6 +7102,43 @@ body.il-perf-active #ilScrollFloat { display: none; }
 .mt-track-label.color-2 { color: #a5ff6b; }
 .mt-track-label.color-3 { color: #ffb86b; }
 
+/* ── Head layout helpers ── */
+.mt-head-left {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+/* ── Mute / Solo buttons ── */
+.mt-mute-solo-row {
+  display: flex; gap: 3px;
+}
+.mt-ms-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  width: 22px; height: 18px; border-radius: 3px;
+  border: 1px solid #2a2d38; background: #1a1d28;
+  cursor: pointer; color: #5a6070;
+  transition: all 0.12s; padding: 0; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.mt-ms-btn:hover { border-color: #4a4e60; color: #8a8e9e; }
+/* Mute active */
+.mt-mute-btn.mt-muted {
+  background: #3a1a1a; border-color: #803030; color: #e06060;
+  box-shadow: 0 0 5px rgba(200,60,60,0.3);
+}
+/* Solo active */
+.mt-solo-btn.mt-soloed {
+  background: #2a2a0a; border-color: #c8a020; color: #f5c842;
+  box-shadow: 0 0 5px rgba(200,160,30,0.3);
+}
+/* Track visually dimmed when muted */
+.mt-track.mt-is-muted .mt-waveform-wrap {
+  opacity: 0.35;
+}
+/* Non-soloed tracks dimmed when any solo is active */
+.mt-track.mt-solo-dimmed .mt-waveform-wrap {
+  opacity: 0.25;
+}
+
 .mt-arm-btn {
   font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700;
   letter-spacing: 0.12em; text-transform: uppercase;
@@ -7721,9 +7758,9 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
      Mobile visual order: header → device-bar → monPill → feedbackWarn → tracks → trash → transport
   ── */
   .vr-deck-header   { order: 1; flex-shrink: 0; }
-  .vr-device-bar    { order: 2; flex-shrink: 0; }
-  #vrMonPill        { order: 3; flex-shrink: 0; }
-  .vr-feedback-warn { order: 4; flex-shrink: 0; }
+  .vr-device-bar    { order: 2; }  /* hidden — order preserved for DOM integrity */
+  #vrMonPill        { order: 3; }  /* hidden */
+  .vr-feedback-warn { order: 4; }  /* hidden */
   .mt-tracks        { order: 5; }  /* flex: 1 + overflow set below */
   .vr-trash-toggle  { order: 6; flex-shrink: 0; }
   .vr-trash-section { order: 7; flex-shrink: 0; max-height: 120px; overflow-y: auto; }
@@ -7761,28 +7798,13 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     font-size: 13px !important;
   }
 
-  /* ── Device bar: collapse to single scrollable row ── */
-  .vr-device-bar {
-    flex-wrap: wrap !important;
-    gap: 6px !important;
-    padding: 6px 12px !important;
-    flex-shrink: 0;
-  }
-  .vr-io-group {
-    flex-direction: row !important;
-    flex-wrap: wrap !important;
-    gap: 6px !important;
-  }
-  .vr-device-btn {
-    max-width: 44vw !important;
-    font-size: 10px !important;
-    padding: 5px 10px !important;
-  }
-
-  /* ── Monitor pill ── */
-  #vrMonPill {
-    margin: 4px 12px !important;
-    flex-shrink: 0;
+  /* ── Device bar + monitor pill: hidden on mobile ──
+     Mobile users are on their phone mic/speaker — these controls are irrelevant
+     and add visual noise. ── */
+  .vr-device-bar,
+  #vrMonPill,
+  .vr-feedback-warn {
+    display: none !important;
   }
 
   /* ── Scrollable middle section (tracks + trash) ── */
@@ -7826,10 +7848,24 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     gap: 8px !important;
   }
 
+  /* Track head layout on mobile: label+mute/solo on left, ARM on right */
+  .mt-head-left {
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+
   /* Track label: bigger, easier to tap/read */
   .mt-track-label {
     font-size: 11px !important;
     letter-spacing: 0.12em !important;
+  }
+
+  /* Mute/Solo buttons: slightly bigger tap target on mobile */
+  .mt-ms-btn {
+    width: 30px !important;
+    height: 26px !important;
+    font-size: 10px !important;
+    border-radius: 5px !important;
   }
 
   /* ARM button: wide and tall — easy thumb tap */
@@ -7841,13 +7877,19 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     min-height: 36px !important;
   }
 
-  /* Waveform: full width */
+  /* Waveform: pinned height so offsetHeight is always reliable for canvas draw */
   .mt-waveform-wrap {
+    height: 56px !important;
     min-height: 56px !important;
+    flex-shrink: 0 !important;
+    flex-grow: 0 !important;
+    flex-basis: 56px !important;
     border-radius: 0 !important;
   }
   .mt-waveform-canvas {
+    width: 100% !important;
     height: 56px !important;
+    display: block !important;
   }
 
   /* Track state badge */
@@ -24624,6 +24666,8 @@ function mtBuildUI() {
       panNode:      p ? p.panNode      : null,
       sourceNode:   null,
       volume: vol, pan: pan,
+      muted:        p ? (p.muted  || false) : false,
+      soloed:       p ? (p.soloed || false) : false,
       takes:        p ? p.takes        : [],
       activeTakeIdx: p ? p.activeTakeIdx : -1,
       duration:     p ? p.duration     : 0,
@@ -24635,10 +24679,16 @@ function mtBuildUI() {
     lane.className = 'mt-track'; lane.id = 'mt-track-'+i;
     lane.innerHTML = `
       <div class="mt-track-head">
-        <span class="mt-track-label color-${i}" contenteditable="true" id="mt-label-${i}"
-          onblur="mtSaveLabel(${i},this)"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
-        >${_mtSavedLabel(i)}</span>
+        <div class="mt-head-left">
+          <span class="mt-track-label color-${i}" contenteditable="true" id="mt-label-${i}"
+            onblur="mtSaveLabel(${i},this)"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
+          >${_mtSavedLabel(i)}</span>
+          <div class="mt-mute-solo-row">
+            <button class="mt-ms-btn mt-mute-btn" id="mt-mute-${i}" onclick="mtToggleMute(${i})" title="Mute track">M</button>
+            <button class="mt-ms-btn mt-solo-btn" id="mt-solo-${i}" onclick="mtToggleSolo(${i})" title="Solo track">S</button>
+          </div>
+        </div>
         <button class="mt-arm-btn" id="mt-arm-${i}" onclick="mtArmTrack(${i})" title="Arm for recording">ARM</button>
       </div>
       <div class="mt-waveform-wrap" id="mt-wave-wrap-${i}" style="cursor:pointer;" onclick="mtWaveformSeek(${i},event)" title="Click to seek">
@@ -24808,6 +24858,68 @@ window.mtResetPan = function(i) {
   sl.value = 0; mtSetPan(i, 0);
 };
 
+// ── Mute ───────────────────────────────────────────────────────
+window.mtToggleMute = function(i) {
+  const t = _mtTracks[i]; if (!t) return;
+  t.muted = !t.muted;
+  // Apply gain: muted = 0, otherwise restore volume (unless soloed chain overrides)
+  _mtApplyMuteGain(i);
+  // Update button + track visual
+  const btn  = _el('mt-mute-'+i);
+  const lane = _el('mt-track-'+i);
+  if (btn)  btn.classList.toggle('mt-muted', t.muted);
+  if (lane) lane.classList.toggle('mt-is-muted', t.muted);
+  // If we're muting a track that was soloed, also clear solo
+  if (t.muted && t.soloed) {
+    t.soloed = false;
+    const sb = _el('mt-solo-'+i);
+    if (sb) sb.classList.remove('mt-soloed');
+    _mtRefreshSoloDimming();
+  }
+};
+
+// ── Solo ───────────────────────────────────────────────────────
+window.mtToggleSolo = function(i) {
+  const t = _mtTracks[i]; if (!t) return;
+  t.soloed = !t.soloed;
+  // Un-mute if we're soloing
+  if (t.soloed && t.muted) {
+    t.muted = false;
+    const mb  = _el('mt-mute-'+i);
+    const ln  = _el('mt-track-'+i);
+    if (mb) mb.classList.remove('mt-muted');
+    if (ln) ln.classList.remove('mt-is-muted');
+  }
+  const sb   = _el('mt-solo-'+i);
+  if (sb) sb.classList.toggle('mt-soloed', t.soloed);
+  _mtRefreshSoloDimming();
+  _mtApplyAllGains();
+};
+
+// Apply gain to a single track based on its mute/solo state
+function _mtApplyMuteGain(i) {
+  const t = _mtTracks[i]; if (!t || !t.gainNode) return;
+  const anySolo = _mtTracks.some(tt => tt && tt.soloed);
+  const audible = !t.muted && (!anySolo || t.soloed);
+  t.gainNode.gain.setTargetAtTime(audible ? (t.volume / 100) : 0,
+    _mtAudioCtx ? _mtAudioCtx.currentTime : 0, 0.015);
+}
+
+// Reapply gain to all tracks (called after solo change)
+function _mtApplyAllGains() {
+  _mtTracks.forEach((t, i) => { if (t) _mtApplyMuteGain(i); });
+}
+
+// Update the solo-dimming class on all track lanes
+function _mtRefreshSoloDimming() {
+  const anySolo = _mtTracks.some(t => t && t.soloed);
+  _mtTracks.forEach((t, idx) => {
+    const lane = _el('mt-track-'+idx);
+    if (!lane) return;
+    lane.classList.toggle('mt-solo-dimmed', anySolo && t && !t.soloed && !t.muted);
+  });
+}
+
 // ── Progress bar seek ──────────────────────────────────────────
 window.mtProgressSeek = function(event) {
   if (!_mtIsPlaying && !_mtTracks.some(t=>t&&t.buffer)) return;
@@ -24890,6 +25002,8 @@ function _mtStartPlayback(offsetSec) {
     t.sourceNode.start(0, Math.min(offset, t.buffer.duration));
     t.sourceNode.onended = () => { if (!_vrRecording) _mtCheckAllEnded(); };
   });
+  // Apply mute/solo gain state to all tracks
+  if (typeof _mtApplyAllGains === 'function') _mtApplyAllGains();
   const _sb = _el('mtStopBtn'); if (_sb) _sb.disabled = false;
   const _pb = _el('mtPlayBtn'); if (_pb) _pb.disabled = false;
   _mtUpdateMonPill('playing');
