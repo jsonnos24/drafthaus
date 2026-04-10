@@ -132,6 +132,16 @@ body::after {
 /* Mobile header action items — hidden on desktop, shown via media query */
 .hla-storage-mobile { display: none; }
 .hla-mobile-pills   { display: none; }
+/* Mobile-only 4-track icons — hidden on desktop */
+.mt-mob-icons { display: none; }
+/* Shake animation for lock button feedback */
+@keyframes _mtLockShake {
+  0%,100% { transform: translateX(0); }
+  20%      { transform: translateX(-4px); }
+  60%      { transform: translateX(4px); }
+  80%      { transform: translateX(-2px); }
+}
+.mt-shake { animation: _mtLockShake 0.35s ease; }
 .header-nav-btns { display: flex; align-items: center; gap: 6px; }
 .header-logo {
   font-family: 'IBM Plex Mono', monospace;
@@ -8023,6 +8033,55 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   #vrOverlay.vr-rt-compact #vrDeck {
     max-height: 92dvh !important;
     border-radius: 20px 20px 0 0 !important;
+  }
+
+  /* ── Single-take mode: hide Takes button on mobile ── */
+  .mt-takes-btn {
+    display: none !important;
+  }
+
+  /* ── Mobile track action icons: trash + lock below M/S buttons ── */
+  .mt-mob-icons {
+    display: flex !important;
+    gap: 5px !important;
+    margin-top: 5px !important;
+  }
+  .mt-mob-icon-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 30px !important;
+    height: 26px !important;
+    background: #141720 !important;
+    border: 1px solid #2a2d3a !important;
+    border-radius: 5px !important;
+    cursor: pointer;
+    color: #6a6e82 !important;
+    padding: 0 !important;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .mt-mob-icon-btn:active { opacity: 0.7; }
+  .mt-mob-icon-btn svg { width: 12px; height: 12px; }
+
+  /* Trash button: subtle red */
+  .mt-mob-trash-btn { color: #b04848 !important; border-color: #3a2020 !important; }
+  .mt-mob-trash-btn:hover { color: #e05c5c !important; border-color: #5a2020 !important; background: rgba(224,92,92,0.08) !important; }
+
+  /* Lock button: gold accent when locked */
+  .mt-mob-lock-btn.mt-locked {
+    color: #f5c842 !important;
+    border-color: #3a3010 !important;
+    background: #1a1808 !important;
+  }
+  .mt-mob-lock-btn:hover { color: #f5c842 !important; border-color: #4a3a10 !important; }
+
+  /* Locked track: dim the ARM button and waveform */
+  .mt-track.mt-track-locked .mt-arm-btn {
+    opacity: 0.35 !important;
+    pointer-events: none !important;
+  }
+  .mt-track.mt-track-locked .mt-waveform-wrap {
+    opacity: 0.55 !important;
   }
 }
 
@@ -24668,6 +24727,7 @@ function mtBuildUI() {
       volume: vol, pan: pan,
       muted:        p ? (p.muted  || false) : false,
       soloed:       p ? (p.soloed || false) : false,
+      locked:       p ? (p.locked || false) : false,
       takes:        p ? p.takes        : [],
       activeTakeIdx: p ? p.activeTakeIdx : -1,
       duration:     p ? p.duration     : 0,
@@ -24687,6 +24747,14 @@ function mtBuildUI() {
           <div class="mt-mute-solo-row">
             <button class="mt-ms-btn mt-mute-btn" id="mt-mute-${i}" onclick="mtToggleMute(${i})" title="Mute track">M</button>
             <button class="mt-ms-btn mt-solo-btn" id="mt-solo-${i}" onclick="mtToggleSolo(${i})" title="Solo track">S</button>
+          </div>
+          <div class="mt-mob-icons">
+            <button class="mt-mob-icon-btn mt-mob-trash-btn" onclick="mtMobileTrashTrack(${i})" title="Clear track recording">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14H6L5,6"/><path d="M10,11v6"/><path d="M14,11v6"/><path d="M9,6V4h6v2"/></svg>
+            </button>
+            <button class="mt-mob-icon-btn mt-mob-lock-btn" id="mt-mob-lock-${i}" onclick="mtMobileLockTrack(${i})" title="Lock track">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="mt-mob-lock-icon-${i}"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8,11V7a4,4,0,0,1,8,0v4"/></svg>
+            </button>
           </div>
         </div>
         <button class="mt-arm-btn" id="mt-arm-${i}" onclick="mtArmTrack(${i})" title="Arm for recording">ARM</button>
@@ -24819,6 +24887,14 @@ window.mtArmTrack = function(i) {
     showUpgradeModal('Tracks 3 & 4 are available on Drafter and Prolific Drafter plans. Upgrade to unlock all 4 tracks.');
     return;
   }
+  // Mobile lock: prevent arming a locked track
+  const tLock = _mtTracks[i];
+  if (tLock && tLock.locked) {
+    const lockBtn = _el('mt-mob-lock-'+i);
+    if (lockBtn) { lockBtn.classList.add('mt-shake'); setTimeout(() => lockBtn.classList.remove('mt-shake'), 400); }
+    showToast('Track is locked — tap 🔒 to unlock', 'warn', 2000);
+    return;
+  }
   const wasArmed = (_mtArmedTrack === i);
   _mtArmedTrack = wasArmed ? -1 : i;
   _mtTracks.forEach((t, idx) => {
@@ -24830,6 +24906,58 @@ window.mtArmTrack = function(i) {
   });
   _setStatus(_mtArmedTrack >= 0 ? 'Track '+MT_NAMES[_mtArmedTrack]+' armed — press ⏺ to record' : 'Arm a track to record');
   _el('mtRecBtn').classList.toggle('mt-active', _mtArmedTrack >= 0);
+};
+
+// ── Mobile: clear track (trash all takes) ─────────────────────
+window.mtMobileTrashTrack = async function(i) {
+  const t = _mtTracks[i]; if (!t) return;
+  if (!t.takes || t.takes.length === 0) { showToast('Track is already empty', 'info', 1800); return; }
+  if (!confirm('Clear track ' + (MT_NAMES[i] || (i+1)) + '? The recording will be moved to trash.')) return;
+  showDrawerStatus('saving', 'Clearing track…');
+  try {
+    for (const take of t.takes) {
+      const doc = await db.collection('voice_takes').doc(take.id).get();
+      if (!doc.exists) continue;
+      const d = doc.data();
+      const trashDoc = {
+        songId: _vrSongId, userId: d.userId || auth.currentUser?.uid || null,
+        filename: d.filename, storagePath: d.storagePath,
+        downloadUrl: d.downloadUrl, duration: d.duration, mimeType: d.mimeType,
+        trackNum: d.trackNum || i,
+        deletedAt: firebase.firestore.Timestamp.now()
+      };
+      if (d.source) trashDoc.source = d.source;
+      await db.collection('voice_trash').add(trashDoc);
+      await db.collection('voice_takes').doc(take.id).delete();
+    }
+    showDrawerStatus('saved', '✓  Track cleared');
+    hideDrawerStatus(2000);
+    await vrLoadTakes();
+  } catch(e) {
+    console.error('[MT] mobileTrash error', e);
+    showDrawerStatus('error', '⚠  Could not clear track');
+    hideDrawerStatus(3000);
+  }
+};
+
+// ── Mobile: toggle track lock ──────────────────────────────────
+window.mtMobileLockTrack = function(i) {
+  const t = _mtTracks[i]; if (!t) return;
+  t.locked = !t.locked;
+  const lane = _el('mt-track-'+i);
+  const btn  = _el('mt-mob-lock-'+i);
+  if (lane) lane.classList.toggle('mt-track-locked', t.locked);
+  if (btn)  btn.classList.toggle('mt-locked', t.locked);
+  // If we just locked this track and it was armed, disarm it
+  if (t.locked && _mtArmedTrack === i) {
+    _mtArmedTrack = -1;
+    if (lane) lane.classList.remove('mt-armed');
+    const armBtn = _el('mt-arm-'+i);
+    if (armBtn) armBtn.textContent = 'ARM';
+    _el('mtRecBtn')?.classList.remove('mt-active');
+    _setStatus('Arm a track to record');
+  }
+  showToast(t.locked ? 'Track ' + (MT_NAMES[i] || (i+1)) + ' locked' : 'Track ' + (MT_NAMES[i] || (i+1)) + ' unlocked', 'info', 1500);
 };
 
 // ── Volume ─────────────────────────────────────────────────────
@@ -25643,6 +25771,27 @@ async function _mtFinishRecording(trackIdx, mimeType) {
       await _mtLoadTakeBuffer(trackIdx, t.takes[idx]);
       _mtRenderTakesPanel(trackIdx);
     }
+    // Mobile single-take mode: silently trash all prior takes for this track
+    if (window.innerWidth <= 768 && newTake) {
+      const prevTakes = t.takes.filter(tk => tk.id !== newTake.id);
+      for (const oldTake of prevTakes) {
+        try {
+          const oldDoc = await db.collection('voice_takes').doc(oldTake.id).get();
+          if (oldDoc.exists) {
+            const od = oldDoc.data();
+            await db.collection('voice_trash').add({
+              songId: _vrSongId, userId: od.userId || auth.currentUser?.uid || null,
+              filename: od.filename, storagePath: od.storagePath,
+              downloadUrl: od.downloadUrl, duration: od.duration, mimeType: od.mimeType,
+              trackNum: od.trackNum || trackIdx,
+              deletedAt: firebase.firestore.Timestamp.now()
+            });
+          }
+          await db.collection('voice_takes').doc(oldTake.id).delete();
+        } catch(e) { console.warn('[MT] mobile single-take cleanup:', e); }
+      }
+      if (prevTakes.length > 0) await vrLoadTakes(); // refresh after cleanup
+    }
   }
   _el('mtPlayBtn').disabled = !_mtTracks.some(t=>t&&t.buffer);
 }
@@ -25846,11 +25995,18 @@ async function _mtLoadTakeBuffer(trackIdx, take, expectedSongId) {
   }
 }
 
-function _mtDrawTrackWaveform(trackIdx, buffer, color) {
+function _mtDrawTrackWaveform(trackIdx, buffer, color, _attempt) {
   const canvas = _el('mt-wave-'+trackIdx); if (!canvas) return;
   const wrap   = _el('mt-wave-wrap-'+trackIdx);
-  const W = wrap ? wrap.offsetWidth || 300 : 300;
+  let W = wrap ? wrap.offsetWidth : 0;
   const H = wrap ? (wrap.offsetHeight || 60) : 60;
+  // If the element isn't laid out yet (e.g. overlay is mid-animation or still hidden),
+  // defer with rAF so the browser has time to compute dimensions. Up to 5 retries.
+  if (W === 0 && (_attempt || 0) < 5) {
+    requestAnimationFrame(() => _mtDrawTrackWaveform(trackIdx, buffer, color, (_attempt || 0) + 1));
+    return;
+  }
+  W = W || 300; // final fallback
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
