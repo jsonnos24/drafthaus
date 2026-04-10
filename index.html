@@ -9185,24 +9185,9 @@ function _drawerQuickLoad(id, afterLoad) {
       _mtAudioCtx.resume().catch(() => {});
     }
   }
-  const _dqlVrEl = document.getElementById('vrOverlay');
-  const _dqlVrSync = (_dqlVrEl && _dqlVrEl.classList.contains('vr-open'))
-                  || (typeof _splitActive !== 'undefined' && _splitActive && typeof _splitCurrentTool !== 'undefined' && _splitCurrentTool === '4track');
-  if (_dqlVrSync && typeof _vrSongId !== 'undefined') {
-    _vrSongId = id;
-    const _dqlSong = songs.find(s => s.id === id);
-    const _dqlNameEl = document.getElementById('vrDeckSongName');
-    if (_dqlNameEl) _dqlNameEl.textContent = _dqlSong ? (_dqlSong.title || _dqlSong.workingTitle || 'Untitled') : '';
-  }
   setTimeout(() => {
     if (typeof loopPreloadForSong === 'function') loopPreloadForSong(id);
-    if (_dqlVrSync) {
-      if (typeof _mtTracks !== 'undefined' && !_mtIsPlaying && !_vrRecording) {
-        _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
-      }
-      if (typeof _mtPreloadedSongId !== 'undefined') _mtPreloadedSongId = null;
-      if (typeof vrLoadTakes === 'function') vrLoadTakes();
-    } else {
+    if (!(typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track')) {
       if (typeof mtPreloadForSong === 'function') mtPreloadForSong(id);
     }
   }, 0);
@@ -9321,29 +9306,11 @@ function openSong(id) {
       _mtAudioCtx.resume().catch(() => {});
     }
   }
-  // Sync 4-track to the new song whenever the overlay is open OR it's the active split tool.
-  // Compute this BEFORE the preload setTimeout so we can skip the redundant preload below.
-  const _vrOverlayEl = document.getElementById('vrOverlay');
-  const _vrNeedsSync = (_vrOverlayEl && _vrOverlayEl.classList.contains('vr-open'))
-                    || (_splitActive && _splitCurrentTool === '4track');
-  if (_vrNeedsSync) {
-    if (typeof _vrSongId !== 'undefined') _vrSongId = id;
-    const _vrNewSong = songs.find(s => s.id === id);
-    const _vrNameEl  = document.getElementById('vrDeckSongName');
-    if (_vrNameEl) _vrNameEl.textContent = _vrNewSong ? (_vrNewSong.title || _vrNewSong.workingTitle || 'Untitled') : '';
-  }
   setTimeout(() => {
     if (typeof loopPreloadForSong === 'function') loopPreloadForSong(id);
-    if (_vrNeedsSync) {
-      // 4-track is visible — clear stale buffers from the previous song first,
-      // then vrLoadTakes handles the full Firestore query + buffer load.
-      if (typeof _mtTracks !== 'undefined' && !_mtIsPlaying && !_vrRecording) {
-        _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
-      }
-      if (typeof _mtPreloadedSongId !== 'undefined') _mtPreloadedSongId = null;
-      if (typeof vrLoadTakes === 'function') vrLoadTakes();
-    } else {
-      // 4-track is not visible — preload silently in background.
+    // 4-track openFn (in _splitDrawerMap) handles its own refresh when visible.
+    // Only run background preload when 4-track is NOT the active split tool.
+    if (!(_splitActive && _splitCurrentTool === '4track')) {
       if (typeof mtPreloadForSong === 'function') mtPreloadForSong(id);
     }
   }, 0);
@@ -18720,7 +18687,19 @@ var _splitDrawerMap = {
   keyboard:  { drawerId: 'keyboardDrawer',  overlayId: 'keyboardDrawerOverlay', openFn: openKeyboardDrawer,  closeFn: null },
   sequencer: { drawerId: 'seqDrawer',       overlayId: 'seqDrawerOverlay',      openFn: openSeqDrawer,      closeFn: null },
   looper:    { drawerId: 'looperDrawer',    overlayId: 'looperOverlay',         openFn: openLooperDrawer,   closeFn: null },
-  '4track':  { drawerId: 'vrOverlay',       overlayId: null,                    openFn: null,               closeFn: null, is4track: true }
+  '4track':  { drawerId: 'vrOverlay',       overlayId: null,                    openFn: function() {
+    // Sync to the current song without re-initialising the full overlay
+    if (typeof _vrSongId !== 'undefined') _vrSongId = currentId || null;
+    const _s4 = songs.find(s => s.id === currentId);
+    const _n4 = document.getElementById('vrDeckSongName');
+    if (_n4) _n4.textContent = _s4 ? (_s4.title || _s4.workingTitle || 'Untitled') : '';
+    // Clear stale buffers from the previous song then reload
+    if (typeof _mtTracks !== 'undefined' && Array.isArray(_mtTracks) && !_mtIsPlaying && !_vrRecording) {
+      _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
+    }
+    if (typeof _mtPreloadedSongId !== 'undefined') _mtPreloadedSongId = null;
+    if (typeof vrLoadTakes === 'function') vrLoadTakes();
+  }, closeFn: null, is4track: true }
 };
 
 function openSplitMode(tool) {
