@@ -9256,30 +9256,15 @@ function _stopAllAudio() {
 // Hard-sync the 4-track to a new song. Called every time openSong fires.
 // Bails silently if the 4-track has never been initialised or isn't visible.
 function _vr4TrackSyncToSong(id) {
-  // Nothing to do if 4-track has never been opened
-  if (typeof _vrSongId === 'undefined' || typeof vrLoadTakes !== 'function') {
-    console.warn('[4T-sync] bail: vrSongId undefined or vrLoadTakes missing');
-    return;
-  }
+  // _vrSongId and vrLoadTakes live in a different script block (let-scoped).
+  // We can only reach them via window bridge functions set up in that block.
+  if (typeof window._vr4trackSetSongAndReload !== 'function') return;
   // Nothing to do if the overlay isn't visible and isn't in the split panel
-  const _ov = document.getElementById('vrOverlay');
-  const _vrOpen   = !!(_ov && _ov.classList.contains('vr-open'));
-  const _inSplit  = !!(typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track');
-  const _visible  = _vrOpen || _inSplit;
-  console.warn('[4T-sync] id='+id+' vr-open='+_vrOpen+' inSplit='+_inSplit+' visible='+_visible+' _vrSongId='+_vrSongId);
-  if (!_visible) return;
-  _vrSongId = id;
-  const _sng = songs.find(s => s.id === id);
-  const _nm  = document.getElementById('vrDeckSongName');
-  if (_nm) _nm.textContent = _sng ? (_sng.title || _sng.workingTitle || 'Untitled') : '';
-  // Wipe stale buffers so vrLoadTakes re-fetches from scratch
-  if (Array.isArray(_mtTracks) && !_mtIsPlaying && !_vrRecording) {
-    _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
-  }
-  _mtPreloadedSongId = null;
-  console.warn('[4T-sync] firing vrLoadTakes for', id);
-  // Reload — defer one tick so currentId is fully committed first
-  setTimeout(vrLoadTakes, 0);
+  const _ov      = document.getElementById('vrOverlay');
+  const _vrOpen  = !!(_ov && _ov.classList.contains('vr-open'));
+  const _inSplit = !!(_splitActive && _splitCurrentTool === '4track');
+  if (!_vrOpen && !_inSplit) return;
+  window._vr4trackSetSongAndReload(id);
 }
 
 function openSong(id) {
@@ -24825,6 +24810,20 @@ window.vrClose = function() {
   _vuMaybeStop();
 };
 
+// Bridge called by _vr4TrackSyncToSong (different script block — can't touch let _vrSongId directly)
+window._vr4trackSetSongAndReload = function(id) {
+  _vrSongId = id;
+  const _sng = songs.find(s => s.id === id);
+  const _nm  = document.getElementById('vrDeckSongName');
+  if (_nm) _nm.textContent = _sng ? (_sng.title || _sng.workingTitle || 'Untitled') : '';
+  if (!_mtTracks.length) _mtEnsureTrackObjects();
+  if (!_mtIsPlaying && !_vrRecording) {
+    _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
+  }
+  _mtPreloadedSongId = null;
+  setTimeout(vrLoadTakes, 0);
+};
+
 window.vrOverlayClick = function(e) {
   if (e.target === _el('vrOverlay')) vrClose();
 };
@@ -25272,7 +25271,6 @@ async function _uploadTake(blob, duration, mimeType, trackIdx, source) {
 
 // ── Load takes — distribute to 4 tracks ───────────────────────
 window.vrLoadTakes = async function() {
-  console.warn('[4T-load] vrLoadTakes called, _vrSongId='+_vrSongId);
   if (!_vrSongId) return;
   showDrawerLoading('Loading takes…');
   try {
