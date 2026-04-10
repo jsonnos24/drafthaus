@@ -7086,7 +7086,7 @@ body.il-perf-active #ilScrollFloat { display: none; }
 /* track head: label + arm */
 .mt-track-head {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 4px; padding: 8px 10px;
+  gap: 4px; padding: 4px 10px;
   border-right: 1px solid #1e2130; min-width: 54px;
   background: #0a0c12;
 }
@@ -7118,6 +7118,7 @@ body.il-perf-active #ilScrollFloat { display: none; }
 /* waveform area — takes up remaining width */
 .mt-waveform-wrap {
   flex: 1; position: relative; overflow: hidden;
+  display: flex; align-items: center;
   background: #080a10; cursor: pointer;
   min-height: 60px;
 }
@@ -7149,7 +7150,7 @@ body.il-perf-active #ilScrollFloat { display: none; }
 /* track foot: vol + takes toggle — stacked vertically on right */
 .mt-track-foot {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 6px; padding: 8px 10px;
+  gap: 6px; padding: 4px 10px;
   border-left: 1px solid #1e2130; min-width: 64px;
   background: #0a0c12;
 }
@@ -7656,6 +7657,34 @@ body.il-perf-active #ilScrollFloat { display: none; }
 }
 .ks-sep { height: 1px; background: var(--border); margin: 6px 0; }
 /* .ks-btn hidden globally — keyboard shortcuts accessible via hamburger */
+
+/* ── Mobile swipe-dismiss + back button ─────────────────────────── */
+/* "← Drafts" sub-button in the bottom nav view group */
+.nav-sub-home {
+  color: var(--gold);
+}
+.nav-sub-home .nav-sub-icon {
+  filter: drop-shadow(0 0 3px rgba(245,166,35,0.6));
+}
+.nav-sub-home:hover,
+.nav-sub-home.active {
+  background: rgba(245,166,35,0.1);
+  border-color: rgba(245,166,35,0.5);
+  box-shadow: 0 0 8px rgba(245,166,35,0.2);
+}
+/* Only show ← Drafts when a song is open (detail view) */
+#navSubHomeBtn { display: none; }
+body.song-bar-visible #navSubHomeBtn { display: flex; }
+
+/* Swipe drag handle visual on all mobile drawers — animated hint on first open */
+@keyframes _swipeHintPulse {
+  0%   { opacity: 0.35; transform: scaleX(1);    }
+  50%  { opacity: 0.9;  transform: scaleX(0.55); }
+  100% { opacity: 0.35; transform: scaleX(1);    }
+}
+.drawer-swipe-hinting::before {
+  animation: _swipeHintPulse 0.9s ease-in-out 2 !important;
+}
 
 </style>
 </head>
@@ -26626,8 +26655,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
 <nav class="bottom-nav" id="bottomNav">
 
-  <!-- ── View mode group: Run Through | Editor | Backend ── -->
+  <!-- ── View mode group: ← Drafts | Run Through | Editor | Backend ── -->
   <div class="bottom-nav-group" id="bottomNavViewGroup">
+
+    <button class="nav-sub-btn nav-sub-home" id="navSubHomeBtn" onclick="showList()">
+      <span class="nav-sub-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="19" y1="12" x2="5" y2="12"/>
+          <polyline points="12 19 5 12 12 5"/>
+        </svg>
+      </span>
+      <span class="nav-sub-label">Drafts</span>
+    </button>
 
     <button class="nav-sub-btn nav-sub-run" id="navSubRunBtn" onclick="ilTogglePerfMode()">
       <span class="nav-sub-icon">
@@ -27020,6 +27059,187 @@ document.addEventListener('DOMContentLoaded', () => {
   <div class="dsb-dot"></div>
   <span id="drawerStatusText"></span>
 </div>
+
+<!-- ── Mobile swipe-to-dismiss drawers + detail-view back swipe ── -->
+<script>
+(function() {
+  // Only wire up on touch devices
+  if (!('ontouchstart' in window)) return;
+
+  // ── Core swipe-to-dismiss ─────────────────────────────────────────
+  // drawerId   : id of the drawer element
+  // closeFn    : function that closes the drawer (removes .open class etc.)
+  // bodyId     : id of the scrollable body inside the drawer (for scroll-conflict detection)
+  function _swipeToDismiss(drawerId, closeFn, bodyId) {
+    document.addEventListener('DOMContentLoaded', function() {
+      const drawer = document.getElementById(drawerId);
+      if (!drawer) return;
+
+      var x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+      var tracking = false, dismissed = false;
+      var THRESHOLD = 62; // px needed to trigger dismiss
+
+      function bodyScrollTop() {
+        if (!bodyId) return 0;
+        var b = document.getElementById(bodyId);
+        return b ? b.scrollTop : 0;
+      }
+
+      // Pulse the drag handle once on the first open to hint the gesture
+      var _hinted = false;
+      function _pulseHint() {
+        if (_hinted) return;
+        _hinted = true;
+        var header = drawer.querySelector('[class*="-header"]');
+        if (!header) return;
+        header.classList.add('drawer-swipe-hinting');
+        header.addEventListener('animationend', function() {
+          header.classList.remove('drawer-swipe-hinting');
+        }, { once: true });
+      }
+
+      drawer.addEventListener('touchstart', function(e) {
+        var t = e.touches[0];
+        x0 = x1 = t.clientX;
+        y0 = y1 = t.clientY;
+        tracking = true;
+        dismissed = false;
+        drawer.style.transition = 'none';
+        _pulseHint();
+      }, { passive: true });
+
+      drawer.addEventListener('touchmove', function(e) {
+        if (!tracking || dismissed) return;
+        var t = e.touches[0];
+        x1 = t.clientX;
+        y1 = t.clientY;
+        var dx = x1 - x0, dy = y1 - y0;
+        var adx = Math.abs(dx), ady = Math.abs(dy);
+
+        // Vertical gestures: let scroll win unless at top going down
+        if (ady > adx) {
+          if (dy < 0 || bodyScrollTop() > 3) {
+            // Scrolling up, or content scrolled — hand back to browser
+            tracking = false;
+            drawer.style.transition = '';
+            drawer.style.transform = '';
+            return;
+          }
+        }
+
+        e.preventDefault();
+
+        // Translate drawer with the finger
+        if (adx >= ady) {
+          drawer.style.transform = 'translateX(' + dx + 'px)';
+        } else {
+          drawer.style.transform = 'translateY(' + Math.max(0, dy) + 'px)';
+        }
+      }, { passive: false });
+
+      function onRelease() {
+        if (!tracking) return;
+        tracking = false;
+
+        var dx = x1 - x0, dy = y1 - y0;
+        var adx = Math.abs(dx), ady = Math.abs(dy);
+        var dist = Math.max(adx, ady);
+
+        if (dist >= THRESHOLD) {
+          // ── Dismiss: fling off in swipe direction ──
+          dismissed = true;
+          var isHoriz = adx >= ady;
+          drawer.style.transition = 'transform 0.24s cubic-bezier(0.4,0,1,1)';
+
+          if (isHoriz) {
+            drawer.style.transform = 'translateX(' + (dx > 0 ? 115 : -115) + 'vw)';
+          } else {
+            drawer.style.transform = 'translateY(' + (dy > 0 ? 115 : -115) + 'dvh)';
+          }
+
+          drawer.addEventListener('transitionend', function cleanup() {
+            drawer.removeEventListener('transitionend', cleanup);
+            // Freeze at off-screen position, call closeFn (removes .open class), then
+            // clear inline styles — CSS closed state takes over without animation
+            drawer.style.transition = 'none';
+            closeFn();
+            drawer.style.transform = '';
+            // Restore CSS transition on the next frame so future opens animate
+            requestAnimationFrame(function() { drawer.style.transition = ''; });
+          });
+
+        } else {
+          // ── Snap back to open position ──
+          drawer.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1)';
+          drawer.style.transform = 'translateX(0) translateY(0)';
+          drawer.addEventListener('transitionend', function cleanup() {
+            drawer.removeEventListener('transitionend', cleanup);
+            drawer.style.transition = '';
+            drawer.style.transform = '';
+          });
+        }
+      }
+
+      drawer.addEventListener('touchend',    onRelease, { passive: true });
+      drawer.addEventListener('touchcancel', function() {
+        tracking = false;
+        drawer.style.transition = '';
+        drawer.style.transform  = '';
+      }, { passive: true });
+    });
+  }
+
+  // ── Attach to every drawer ────────────────────────────────────────
+  // (body IDs used for scroll-conflict detection)
+  _swipeToDismiss('seqDrawer',      function(){ if(typeof closeSeqDrawer      === 'function') closeSeqDrawer();      }, 'seqDrawerBody');
+  _swipeToDismiss('looperDrawer',   function(){ if(typeof closeLooperDrawer   === 'function') closeLooperDrawer();   }, 'looperBody');
+  _swipeToDismiss('keyboardDrawer', function(){ if(typeof closeKeyboardDrawer === 'function') closeKeyboardDrawer(); }, 'keyboardDrawerBody');
+  _swipeToDismiss('mixDrawer',      function(){ if(typeof closeMixDrawer      === 'function') closeMixDrawer();      }, 'mixDrawerBody');
+  _swipeToDismiss('inspoDrawer',    function(){ if(typeof closeInspoDrawer    === 'function') closeInspoDrawer();    }, null);
+  _swipeToDismiss('practiceDrawer', function(){ if(typeof closePracticeDrawer === 'function') closePracticeDrawer(); }, 'practiceDrawerBody');
+
+  // ── Detail-view edge swipe → back to song list ────────────────────
+  // Swipe right (starting within 48px of the left edge, or any large rightward swipe
+  // with no drawers open) navigates back to the draft list.
+  document.addEventListener('DOMContentLoaded', function() {
+    var detail = document.getElementById('viewDetail');
+    if (!detail) return;
+
+    var sx = 0, sy = 0, ex = 0, ey = 0;
+    var DRAWERS = ['seqDrawer','looperDrawer','keyboardDrawer','mixDrawer','inspoDrawer','practiceDrawer'];
+
+    function anyDrawerOpen() {
+      return DRAWERS.some(function(id) {
+        var el = document.getElementById(id);
+        return el && el.classList.contains('open');
+      });
+    }
+
+    detail.addEventListener('touchstart', function(e) {
+      sx = ex = e.touches[0].clientX;
+      sy = ey = e.touches[0].clientY;
+    }, { passive: true });
+
+    detail.addEventListener('touchmove', function(e) {
+      ex = e.touches[0].clientX;
+      ey = e.touches[0].clientY;
+    }, { passive: true });
+
+    detail.addEventListener('touchend', function() {
+      var dx = ex - sx, dy = ey - sy;
+      // Must be clearly rightward, not too vertical
+      if (dx < 80)                  return;
+      if (Math.abs(dy) > dx * 0.7)  return;
+      // Only if started from the left edge (≤ 52px) OR a very wide swipe
+      if (sx > 52 && dx < 150)      return;
+      // Don't trigger when a drawer is open
+      if (anyDrawerOpen())          return;
+      if (typeof showList === 'function') showList();
+    }, { passive: true });
+  });
+
+})();
+</script>
 
 </body>
 </html>
