@@ -9257,16 +9257,17 @@ function _stopAllAudio() {
 // Bails silently if the 4-track has never been initialised or isn't visible.
 function _vr4TrackSyncToSong(id) {
   // Nothing to do if 4-track has never been opened
-  if (typeof _vrSongId === 'undefined' || typeof vrLoadTakes !== 'function') return;
+  if (typeof _vrSongId === 'undefined' || typeof vrLoadTakes !== 'function') {
+    console.warn('[4T-sync] bail: vrSongId undefined or vrLoadTakes missing');
+    return;
+  }
   // Nothing to do if the overlay isn't visible and isn't in the split panel
   const _ov = document.getElementById('vrOverlay');
-  const _visible = (_ov && _ov.classList.contains('vr-open'))
-                || (_splitActive && _splitCurrentTool === '4track');
+  const _vrOpen   = !!(_ov && _ov.classList.contains('vr-open'));
+  const _inSplit  = !!(typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track');
+  const _visible  = _vrOpen || _inSplit;
+  console.warn('[4T-sync] id='+id+' vr-open='+_vrOpen+' inSplit='+_inSplit+' visible='+_visible+' _vrSongId='+_vrSongId);
   if (!_visible) return;
-  // Always reload — do NOT early-exit if _vrSongId already equals id.
-  // vrOpen() sets _vrSongId = currentId when the panel opens, so by the time
-  // openSong calls us, _vrSongId already matches and the old guard caused a
-  // silent bail-out every single time. Always force a fresh load here.
   _vrSongId = id;
   const _sng = songs.find(s => s.id === id);
   const _nm  = document.getElementById('vrDeckSongName');
@@ -9276,6 +9277,7 @@ function _vr4TrackSyncToSong(id) {
     _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
   }
   _mtPreloadedSongId = null;
+  console.warn('[4T-sync] firing vrLoadTakes for', id);
   // Reload — defer one tick so currentId is fully committed first
   setTimeout(vrLoadTakes, 0);
 }
@@ -25270,6 +25272,7 @@ async function _uploadTake(blob, duration, mimeType, trackIdx, source) {
 
 // ── Load takes — distribute to 4 tracks ───────────────────────
 window.vrLoadTakes = async function() {
+  console.warn('[4T-load] vrLoadTakes called, _vrSongId='+_vrSongId);
   if (!_vrSongId) return;
   showDrawerLoading('Loading takes…');
   try {
