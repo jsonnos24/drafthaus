@@ -9185,7 +9185,27 @@ function _drawerQuickLoad(id, afterLoad) {
       _mtAudioCtx.resume().catch(() => {});
     }
   }
-  setTimeout(() => { if (typeof mtPreloadForSong === 'function') mtPreloadForSong(id); if (typeof loopPreloadForSong === 'function') loopPreloadForSong(id); }, 0);
+  const _dqlVrEl = document.getElementById('vrOverlay');
+  const _dqlVrSync = (_dqlVrEl && _dqlVrEl.classList.contains('vr-open'))
+                  || (typeof _splitActive !== 'undefined' && _splitActive && typeof _splitCurrentTool !== 'undefined' && _splitCurrentTool === '4track');
+  if (_dqlVrSync && typeof _vrSongId !== 'undefined') {
+    _vrSongId = id;
+    const _dqlSong = songs.find(s => s.id === id);
+    const _dqlNameEl = document.getElementById('vrDeckSongName');
+    if (_dqlNameEl) _dqlNameEl.textContent = _dqlSong ? (_dqlSong.title || _dqlSong.workingTitle || 'Untitled') : '';
+  }
+  setTimeout(() => {
+    if (typeof loopPreloadForSong === 'function') loopPreloadForSong(id);
+    if (_dqlVrSync) {
+      if (typeof _mtTracks !== 'undefined' && !_mtIsPlaying && !_vrRecording) {
+        _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
+      }
+      if (typeof _mtPreloadedSongId !== 'undefined') _mtPreloadedSongId = null;
+      if (typeof vrLoadTakes === 'function') vrLoadTakes();
+    } else {
+      if (typeof mtPreloadForSong === 'function') mtPreloadForSong(id);
+    }
+  }, 0);
 }
 
 // Create a new song silently without navigating away from any open drawer.
@@ -9315,8 +9335,12 @@ function openSong(id) {
   setTimeout(() => {
     if (typeof loopPreloadForSong === 'function') loopPreloadForSong(id);
     if (_vrNeedsSync) {
-      // 4-track is visible — vrLoadTakes handles the full Firestore query + buffer load.
-      // Skip mtPreloadForSong entirely to avoid a duplicate query and download race.
+      // 4-track is visible — clear stale buffers from the previous song first,
+      // then vrLoadTakes handles the full Firestore query + buffer load.
+      if (typeof _mtTracks !== 'undefined' && !_mtIsPlaying && !_vrRecording) {
+        _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
+      }
+      if (typeof _mtPreloadedSongId !== 'undefined') _mtPreloadedSongId = null;
       if (typeof vrLoadTakes === 'function') vrLoadTakes();
     } else {
       // 4-track is not visible — preload silently in background.
