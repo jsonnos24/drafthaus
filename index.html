@@ -25251,7 +25251,8 @@ window.vrLoadTakes = async function() {
       byTrack[ti].push({ id: doc.id, ...d });
     });
 
-    // For each track: update panel, load active take buffer
+    // For each track: update panel, then kick off all buffer loads in parallel
+    const _loadPromises = [];
     for (let i = 0; i < 4; i++) {
       const t = _mtTracks[i]; if (!t) continue;
       t.takes = byTrack[i];
@@ -25260,9 +25261,8 @@ window.vrLoadTakes = async function() {
       if (t.takes.length === 0) {
         // All takes deleted — clear buffer and waveform canvas
         t.buffer = null; t.duration = 0; t.activeTakeIdx = -1;
-        if (t.waveCtx && t.waveCanvas) {
-          t.waveCtx.clearRect(0, 0, t.waveCanvas.width, t.waveCanvas.height);
-        }
+        const _wc = _el('mt-wave-'+i);
+        if (_wc) { const _cx=_wc.getContext('2d'); _cx.clearRect(0,0,_wc.width,_wc.height); }
       } else {
         // Always keep active take in sync — re-load if missing or index shifted
         const validIdx = t.activeTakeIdx >= 0 && t.activeTakeIdx < t.takes.length
@@ -25270,14 +25270,16 @@ window.vrLoadTakes = async function() {
         const activeTake = t.takes[validIdx];
         if (!t.buffer || t.activeTakeIdx !== validIdx) {
           t.activeTakeIdx = validIdx;
-          await _mtLoadTakeBuffer(i, activeTake);
+          // Fire without await — collect into Promise.all below for parallel loading
+          _loadPromises.push(_mtLoadTakeBuffer(i, activeTake));
         } else {
-          // Buffer already loaded (preloaded in background) — re-draw waveform now
-          // that the canvas is visible and has correct dimensions
+          // Buffer already loaded (preloaded in background) — just redraw
           _mtDrawTrackWaveform(i, t.buffer, t.color);
         }
       }
     }
+    // Wait for all track buffers to load in parallel (not sequentially)
+    await Promise.all(_loadPromises);
     _el('mtPlayBtn').disabled = !_mtTracks.some(t=>t&&t.buffer);
     const { remaining } = await _vrGetQuota();
     _updateQuotaDisplay(remaining);
@@ -25315,16 +25317,19 @@ async function mtPreloadForSong(songId) {
       const ti = typeof d.trackNum === 'number' ? Math.min(3, Math.max(0, d.trackNum)) : 0;
       byTrack[ti].push({ id: doc.id, ...d });
     });
+    const _preloadPromises = [];
     for (let i = 0; i < 4; i++) {
       const t = _mtTracks[i]; if (!t) continue;
       t.takes = byTrack[i];
       if (t.takes.length > 0 && !t.buffer) {
         const validIdx = t.takes.length - 1;
         t.activeTakeIdx = validIdx;
-        await _mtLoadTakeBuffer(i, t.takes[validIdx], songId);
+        _preloadPromises.push(_mtLoadTakeBuffer(i, t.takes[validIdx], songId));
       }
     }
-    if (currentId !== songId) return; // check again after buffer loads
+    // Load all 4 tracks in parallel — much faster than sequential awaits
+    await Promise.all(_preloadPromises);
+    if (currentId !== songId) return; // check after all buffers load
     _mtPreloadedSongId = songId;
     console.log('[MT] preloaded takes for song', songId);
   } catch(e) {
