@@ -8895,13 +8895,16 @@ function renderGrid() {
     const isCollapsed = !_expandedProjs.has(expandKey);
     const safeName = folderName.replace(/'/g,"\\'");
     const subClass = depth > 0 ? ' proj-subgroup' : '';
-    return `<div class="proj-group proj-folder-group${subClass}${isCollapsed?' collapsed':''}" id="${fid}">
-      <div class="proj-group-header"
+    return `<div class="proj-group proj-folder-group${subClass}${isCollapsed?' collapsed':''}" id="${fid}" data-proj="${esc(folderName)}">
+      <div class="proj-group-header" data-proj="${esc(folderName)}"
         onclick="toggleFolderGroup('${safeName}')"
-        ondragover="if(window._slDraggingSongId){event.preventDefault();event.stopPropagation();this.classList.add('drag-over')}"
-        ondragleave="this.classList.remove('drag-over')"
-        ondrop="_slFolderDrop(this,event,'${safeName}')">
-        <span style="font-size:9px;opacity:0.5;margin-right:2px;">▸</span>
+        ondragover="_projHeaderDragOver(this,event);if(window._slDraggingSongId){event.preventDefault();event.stopPropagation();this.classList.add('drag-over')}"
+        ondragleave="_projHeaderDragLeave(this,event)"
+        ondrop="window._slDraggingSongId?_slFolderDrop(this,event,'${safeName}'):_projHeaderDrop(this,event)">
+        <span class="proj-drag-handle" draggable="true"
+          ondragstart="_projDragStart('${safeName}',event)"
+          ondragend="_projDragEnd('${safeName}',event)"
+          onclick="event.stopPropagation()" title="Drag to reorder">⠿</span>
         <span class="proj-group-name">${esc(folderName)}</span>
         <span class="proj-group-header-actions" onclick="event.stopPropagation()">
           <button class="proj-action-btn" onclick="startRenameProjFolder('${safeName}',this)">rename</button>
@@ -23941,14 +23944,24 @@ function _projHeaderDrop(headerEl, e) {
     const toKey   = headerEl.dataset.proj;
     _projDraggingKey = null;
     if (!fromKey || !toKey || fromKey === toKey || toKey === '__none__') return;
-    const fromIdx = userProjects.indexOf(fromKey);
-    let   toIdx   = userProjects.indexOf(toKey);
-    if (fromIdx === -1 || toIdx === -1) return;
-    userProjects.splice(fromIdx, 1);
-    // Re-find toIdx after the splice (index may have shifted)
-    toIdx = userProjects.indexOf(toKey);
-    if (toIdx === -1) return;
-    userProjects.splice(insertBefore ? toIdx : toIdx + 1, 0, fromKey);
+    // Collect the folder being dragged + all its children (e.g. "Ideas" + "Ideas/Callam")
+    const subtreeKeys = userProjects.filter(p => p === fromKey || p.startsWith(fromKey + '/'));
+    if (!subtreeKeys.length) return;
+    // Don't allow dropping a folder onto one of its own children
+    if (toKey.startsWith(fromKey + '/')) return;
+    // Remove all subtree keys from the array
+    subtreeKeys.forEach(k => {
+      const i = userProjects.indexOf(k);
+      if (i !== -1) userProjects.splice(i, 1);
+    });
+    // Find insertion point after removals
+    let toIdx = userProjects.indexOf(toKey);
+    if (toIdx === -1) {
+      // toKey was part of the subtree or gone — just append
+      userProjects.push(...subtreeKeys);
+    } else {
+      userProjects.splice(insertBefore ? toIdx : toIdx + 1, 0, ...subtreeKeys);
+    }
     saveUserProjects();
     renderGrid();
   } else {
