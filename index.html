@@ -9253,6 +9253,33 @@ function _stopAllAudio() {
   try { if (typeof loopMasterStop === 'function') loopMasterStop(); } catch(e) {}
 }
 
+// Hard-sync the 4-track to a new song. Called every time openSong fires.
+// Bails silently if the 4-track has never been initialised or isn't visible.
+function _vr4TrackSyncToSong(id) {
+  // Nothing to do if 4-track has never been opened
+  if (typeof _vrSongId === 'undefined' || typeof vrLoadTakes !== 'function') return;
+  // Nothing to do if the overlay isn't visible and isn't in the split panel
+  const _ov = document.getElementById('vrOverlay');
+  const _visible = (_ov && _ov.classList.contains('vr-open'))
+                || (_splitActive && _splitCurrentTool === '4track');
+  if (!_visible) return;
+  // Always reload — do NOT early-exit if _vrSongId already equals id.
+  // vrOpen() sets _vrSongId = currentId when the panel opens, so by the time
+  // openSong calls us, _vrSongId already matches and the old guard caused a
+  // silent bail-out every single time. Always force a fresh load here.
+  _vrSongId = id;
+  const _sng = songs.find(s => s.id === id);
+  const _nm  = document.getElementById('vrDeckSongName');
+  if (_nm) _nm.textContent = _sng ? (_sng.title || _sng.workingTitle || 'Untitled') : '';
+  // Wipe stale buffers so vrLoadTakes re-fetches from scratch
+  if (Array.isArray(_mtTracks) && !_mtIsPlaying && !_vrRecording) {
+    _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
+  }
+  _mtPreloadedSongId = null;
+  // Reload — defer one tick so currentId is fully committed first
+  setTimeout(vrLoadTakes, 0);
+}
+
 function openSong(id) {
   _stopAllAudio();
   document.getElementById('loadSheetBtn')?.classList.remove('load-btn-glow');
@@ -9274,8 +9301,10 @@ function openSong(id) {
   showDetail();
   // Refresh split panel right tool with the new song
   if (_splitActive && _splitCurrentTool && _splitDrawerMap[_splitCurrentTool]) {
-    try { _splitDrawerMap[_splitCurrentTool].openFn(); } catch(e) {}
+    try { _splitDrawerMap[_splitCurrentTool].openFn(); } catch(e) { console.warn('[split openFn error]', e); }
   }
+  // 4-track hard refresh — runs regardless of split state, catches overlay + split cases
+  _vr4TrackSyncToSong(id);
 
   // If stub, fetch full data silently in background — no spinner, no overlay
   if (song._fromSheet) {
@@ -18687,19 +18716,7 @@ var _splitDrawerMap = {
   keyboard:  { drawerId: 'keyboardDrawer',  overlayId: 'keyboardDrawerOverlay', openFn: openKeyboardDrawer,  closeFn: null },
   sequencer: { drawerId: 'seqDrawer',       overlayId: 'seqDrawerOverlay',      openFn: openSeqDrawer,      closeFn: null },
   looper:    { drawerId: 'looperDrawer',    overlayId: 'looperOverlay',         openFn: openLooperDrawer,   closeFn: null },
-  '4track':  { drawerId: 'vrOverlay',       overlayId: null,                    openFn: function() {
-    // Sync to the current song without re-initialising the full overlay
-    if (typeof _vrSongId !== 'undefined') _vrSongId = currentId || null;
-    const _s4 = songs.find(s => s.id === currentId);
-    const _n4 = document.getElementById('vrDeckSongName');
-    if (_n4) _n4.textContent = _s4 ? (_s4.title || _s4.workingTitle || 'Untitled') : '';
-    // Clear stale buffers from the previous song then reload
-    if (typeof _mtTracks !== 'undefined' && Array.isArray(_mtTracks) && !_mtIsPlaying && !_vrRecording) {
-      _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
-    }
-    if (typeof _mtPreloadedSongId !== 'undefined') _mtPreloadedSongId = null;
-    if (typeof vrLoadTakes === 'function') vrLoadTakes();
-  }, closeFn: null, is4track: true }
+  '4track':  { drawerId: 'vrOverlay',       overlayId: null,                    openFn: null,               closeFn: null, is4track: true }
 };
 
 function openSplitMode(tool) {
