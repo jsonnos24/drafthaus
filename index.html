@@ -8399,7 +8399,7 @@ function toggleFolderGroup(folderName) {
   else _expandedProjs.add(expandKey);
 }
 
-// Drop a dragged song onto a folder header (assigns it to no specific leaf — stays unassigned within the folder)
+// Drop a dragged song onto a folder header (assigns it to the folder path itself)
 function _slFolderDrop(headerEl, e, folderName) {
   e.preventDefault(); e.stopPropagation();
   headerEl.classList.remove('drag-over');
@@ -8408,14 +8408,22 @@ function _slFolderDrop(headerEl, e, folderName) {
   if (!songId) return;
   const song = songs.find(s => s.id === songId);
   if (!song) return;
-  // Dragging to a folder header assigns to that exact folder path (not a sub-path)
   const newProj = folderName || '';
   if ((song.project || '') === newProj) return;
+  // Remove from old project's manual order
+  const oldKey = (song.project || '').trim() || '__none__';
+  if (userSongOrders[oldKey]) {
+    userSongOrders[oldKey] = userSongOrders[oldKey].filter(id => id !== songId);
+  }
   song.project = newProj;
   song.updatedAt = Date.now();
+  // Expand both the folder container and the leaf proj group inside it
   _expandedProjs.add('__folder__' + folderName);
+  _expandedProjs.add(folderName);
+  _saveExpandedProjs();
   save();
   scheduleSyncToSheet(song);
+  saveUserProjects();
   renderGrid();
 }
 
