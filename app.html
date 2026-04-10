@@ -478,6 +478,9 @@ select.field-input option { background: var(--card); }
 .sp-btns { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
 .sp-btn { background: none; border: 1px solid transparent; color: var(--faint); cursor: pointer; font-size: 9px; font-family: 'IBM Plex Mono', monospace; padding: 1px 4px; border-radius: 3px; transition: all 0.1s; line-height: 1; white-space: nowrap; min-height: 18px; }
 .sp-btn:hover { border-color: var(--gold); color: var(--gold); }
+.sp-seq-btn { opacity: 0.5; }
+.sp-seq-btn.has-seq { opacity: 1; }
+.sp-seq-btn.has-seq:hover { border-color: var(--gold) !important; color: var(--gold) !important; }
 .sp-delete-btn:hover { border-color: var(--red) !important; color: var(--red) !important; }
 .sp-chords-area { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; margin-top: 4px; width: 100%; }
 .sp-chord-pill { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 1px 3px 1px 6px; border-radius: 3px; border: 1px solid; display: inline-flex; align-items: center; gap: 1px; }
@@ -9233,9 +9236,8 @@ async function loadUserProjects() {
     if (Array.isArray(data.projects) && data.projects.length) {
       userProjects = data.projects;
     } else {
-      // First login — seed default folders
-      userProjects = ['Ideas', 'Drafts', 'Finished'];
-      db.collection('users').doc(uid).set({ projects: userProjects }, { merge: true }).catch(() => {});
+      // First login — start with no default folders (status pills handle idea/drafting/finished)
+      userProjects = [];
     }
     if (data.songOrders && typeof data.songOrders === 'object') {
       userSongOrders = data.songOrders;
@@ -10262,6 +10264,7 @@ function saveField() {
     : document.getElementById('fProject').value.trim() || '';
   song.status       = document.getElementById('statusSelect').value;
   song.updatedAt    = Date.now();
+  _updateRowStatusBadge(song);
   updatePanelTitles(song);
   // Keep lyrics view title in sync
   const ilTitleEl = document.getElementById('ilSongTitleEl');
@@ -10357,6 +10360,7 @@ function ensureSectionOrder(song) {
 
 function renderStructure(song) {
   if (!song.chords) song.chords = {};
+  const seqs = (typeof getSongSequences === 'function') ? getSongSequences(song) : [];
   const container = document.getElementById('structureParts');
   const rootOpts = ROOTS.map(r=>`<option value="${r}">${r}</option>`).join('');
   const qualOpts = QUALITIES.map(q=>`<option value="${q.v}">${q.l}</option>`).join('');
@@ -10400,6 +10404,7 @@ function renderStructure(song) {
   container.innerHTML = active.map((p, i) => {
     const count = song.structure[p.id]?.count || 1;
     const chords = song.chords[p.id] || [];
+    const hasSeq = seqs.some(s => (s.partId || s.part) === p.id);
     const chordPillsHtml = chords.length
       ? chords.map((c, ci) => `<span class="sp-chord-pill" style="border-color:${p.color}55;color:${p.color};">${c.root}${c.quality && c.quality !== 'maj' ? `<small>${c.quality}</small>` : ''}<button class="sp-chord-dup" onclick="event.stopPropagation();duplicateSongPartChord('${p.id}',${ci})" title="Duplicate">⧉</button><button class="sp-chord-rm" onclick="event.stopPropagation();removeSongPartChord('${p.id}',${ci})">×</button></span>`).join('')
       : `<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);font-style:italic;">no chords yet</span>`;
@@ -10412,6 +10417,7 @@ function renderStructure(song) {
         <span class="part-name" style="color:${p.color};font-weight:600;">${p.label}</span>
         <div class="sp-btns" onclick="event.stopPropagation()">
           <button class="sp-btn sp-repeat-btn" onclick="sspCycleRepeat('${p.id}')" title="Cycle repeats (${count}×)">↺${count > 1 ? ' ×' + count : ''}</button>
+          <button class="sp-btn sp-seq-btn${hasSeq ? ' has-seq' : ''}" onclick="event.stopPropagation();seqGoToPartOrCreate('${p.id}')" title="${hasSeq ? 'Open sequencer for ' + p.label : 'Create sequencer part for ' + p.label}" style="color:${hasSeq ? p.color : 'var(--faint)'};border-color:${hasSeq ? p.color + '66' : 'var(--border)'};margin-left:4px;">${hasSeq ? '▤' : '+'} Seq</button>
           <button class="sp-btn" onclick="event.stopPropagation();deleteSongPart('${p.id}')" title="Remove section" style="color:#e05050;border-color:#7a3030;margin-left:4px;">×</button>
         </div>
       </div>
@@ -13019,6 +13025,24 @@ function seqAddSequence(partId) {
   showToast('New sequence added — ' + seqGetPartLabel(partId), 'success', 2500);
 }
 
+// Navigate to the existing sequence for a part, or create one if it doesn't exist.
+// Called from chord progression cards and melody to unify part-based editing.
+function seqGoToPartOrCreate(partId) {
+  const song = getCurrentSong();
+  if (!song) return;
+  const seqs = getSongSequences(song);
+  const idx = seqs.findIndex(s => (s.partId || s.part) === partId);
+  openSeqDrawer();
+  if (idx >= 0) {
+    seqSwitchToSequence(idx);
+    showToast('Sequencer → ' + seqGetPartLabel(partId), 'info', 1500);
+  } else {
+    seqAddSequence(partId);
+  }
+  // Re-render chord progression to update the button state (has-seq vs +Seq)
+  renderStructure(song);
+}
+
 function seqDeleteSequence(idx) {
   const song = getCurrentSong();
   if (!song) return;
@@ -13032,6 +13056,7 @@ function seqDeleteSequence(idx) {
   save();
   seqLoadSequenceIntoDOM(seqs[seqActiveIdx], song);
   seqRenderSequenceTabs();
+  if (typeof renderStructure === 'function') renderStructure(song);
 }
 
 function seqShowAddSequencePopup(evt) {
@@ -13288,8 +13313,9 @@ function seqSaveSettings() {
   const partVal = document.getElementById('seqPartAssign')?.value || '';
   song.sequencer.part  = partVal;
   song.sequencer.partId= partVal;
-  // Re-render tabs if part changed
+  // Re-render tabs and chord progression if part assignment changed
   seqRenderSequenceTabs();
+  if (typeof renderStructure === 'function') renderStructure(song);
   song.sequencer.grid  = document.getElementById('seqGrid')?.value || '2';
   song.sequencer.bpm   = document.getElementById('seqBpm')?.value || '100';
   song.bpm = song.sequencer.bpm; // keep song BPM in sync with sequencer
@@ -24564,7 +24590,30 @@ function setRowStatus(id, status) {
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
+  _updateRowStatusBadge(song);
   renderGrid();
+}
+function _updateRowStatusBadge(song) {
+  const statusMap = {
+    idea:     { label: 'Idea',     color: '#ffe84d',        border: 'rgba(255,232,77,0.45)',   bg: 'rgba(255,232,77,0.08)' },
+    drafting: { label: 'Drafting', color: 'var(--gold)',    border: 'rgba(245,166,35,0.4)',    bg: 'transparent' },
+    finished: { label: 'Finished', color: 'var(--teal)',    border: 'rgba(100,220,180,0.4)',   bg: 'transparent' },
+    song:     { label: 'Finished', color: 'var(--teal)',    border: 'rgba(100,220,180,0.4)',   bg: 'transparent' },
+  };
+  const st = statusMap[song.status] || statusMap['idea'];
+  const badge = document.getElementById('slsb-' + song.id);
+  if (badge) {
+    badge.style.color       = st.color;
+    badge.style.borderColor = st.border;
+    badge.style.background  = st.bg;
+    badge.textContent       = st.label;
+  }
+  // Sync the detail-panel status select if this song is the current one
+  if (song.id === currentId) {
+    const sel = document.getElementById('statusSelect');
+    const normalized = (song.status === 'song') ? 'finished' : (song.status || 'idea');
+    if (sel && sel.value !== normalized) sel.value = normalized;
+  }
 }
 function rowAssignProject(id) {
   _closeRowActions();
