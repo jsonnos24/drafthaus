@@ -9301,7 +9301,8 @@ function openSong(id) {
   showDetail();
   // Refresh split panel right tool with the new song
   if (_splitActive && _splitCurrentTool && _splitDrawerMap[_splitCurrentTool]) {
-    try { _splitDrawerMap[_splitCurrentTool].openFn(); } catch(e) { console.warn('[split openFn error]', e); }
+    const _sfn = _splitDrawerMap[_splitCurrentTool].openFn;
+    if (typeof _sfn === 'function') { try { _sfn(); } catch(e) { console.warn('[split openFn error]', e); } }
   }
   // 4-track hard refresh — runs regardless of split state, catches overlay + split cases
   _vr4TrackSyncToSong(id);
@@ -25097,8 +25098,14 @@ window.vrToggleRec = async function() {
     if (recBtn) { recBtn.innerHTML = ''; recBtn.textContent = 'Stop Recording'; recBtn.style.fontSize = '10px'; recBtn.style.letterSpacing = '0.04em'; recBtn.style.padding = '0 10px'; }
     _el('mtStopBtn').disabled = false;
     _el('mtPlayBtn').disabled = true;
-    _el('mtMiniBar', 'vrMiniBar'); // show mini bar
-    const mb = _el('vrMiniBar'); if(mb) mb.classList.add('vr-active');
+    _el('mtMiniBar', 'vrMiniBar'); // show mini bar only when 4-track isn't already visible
+    const mb = _el('vrMiniBar');
+    if (mb) {
+      const _ov4 = document.getElementById('vrOverlay');
+      const _4visible = (_ov4 && _ov4.classList.contains('vr-open'))
+                     || (typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track');
+      if (!_4visible) mb.classList.add('vr-active');
+    }
     _setStatus('● REC — Track '+MT_NAMES[_mtArmedTrack]);
     _mtUpdateMonPill('recording');
 
