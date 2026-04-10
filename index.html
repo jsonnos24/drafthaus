@@ -1567,6 +1567,20 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-chord-var-pill:hover { background: rgba(160,100,255,0.18); color: var(--text); border-color: rgba(160,100,255,0.5); }
   .seq-chord-var-pill:active { cursor: grabbing; }
   .seq-chord-var-pill.dragging { opacity: 0.45; }
+  /* Key trigger slots (1-8) */
+  .seq-key-slot {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    min-width: 46px; padding: 5px 8px; border-radius: 5px; cursor: pointer;
+    background: var(--card2); border: 1px dashed var(--border2);
+    font-family: 'IBM Plex Mono', monospace; flex-shrink: 0;
+    transition: all 0.12s; user-select: none;
+  }
+  .seq-key-slot.has-chord { border-style: solid; border-color: rgba(180,110,255,0.35); background: rgba(180,110,255,0.07); }
+  .seq-key-slot:hover { filter: brightness(1.3); }
+  .seq-key-slot.drag-over-slot { border-color: #f5a623 !important; background: rgba(245,166,35,0.14) !important; }
+  .seq-key-slot.key-flash { background: rgba(245,166,35,0.28) !important; border-color: #f5a623 !important; }
+  .seq-key-slot-num  { font-size: 8px; color: var(--faint); letter-spacing: 0.05em; }
+  .seq-key-slot-chord { font-size: 11px; color: var(--text); }
 
   .seq-grid-row { display: flex; align-items: center; gap: 0; margin-bottom: 4px; flex-wrap: nowrap; }
   .seq-sub-body { display: block; max-width: 100%; }
@@ -11549,6 +11563,7 @@ var _seqTriggeredLoopTracks = new Set(); // loop track indices started by sequen
 
 // ── Chord pill mode: 'compose' fills next grid slot, 'preview' just plays ──
 var seqChordMode = 'preview';
+var seqKeySlots  = ['','','','','','','','']; // user-assignable chords for keys 1-8
 
 // ── Humanize: per-element timing jitter + velocity variation ──────────────
 var seqHumanizeChords = true;  // default ON — chords sound most natural with subtle timing variation
@@ -12597,6 +12612,11 @@ function renderSequencerHtml(song) {
           <div class="seq-chords-row" id="seqChordPills" style="margin-bottom:4px;"></div>
           <div id="seqChordModeHint" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:0.08em;">Preview Mode — Click chord to preview · Drag into grid to compose</div>
         </div>
+        <!-- Key trigger bank: drag any chord here, fire with keys 1-8 -->
+        <div style="margin-top:8px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.05em;margin-bottom:5px;">Keys 1–8 &nbsp;·&nbsp; drag any chord to reassign</div>
+          <div class="seq-chords-row" id="seqKeyTriggerRow" style="margin-bottom:0;align-items:stretch;"></div>
+        </div>
         <div id="drumNotationWrap" style="display:none;margin-top:14px;overflow-x:auto;-webkit-overflow-scrolling:touch;">
           <canvas id="drumNotationCanvas" style="display:block;border-radius:6px;background:#1a1a1e;"></canvas>
         </div>
@@ -12641,7 +12661,7 @@ function initSequencer(song) {
   const apply = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
   apply('seqTime',  sd.time  || '4');
   apply('seqBars',  sd.bars  || '8');
-  apply('seqGrid',  sd.grid  || '1');
+  apply('seqGrid',  sd.grid  || '2');
   apply('seqBpm',   sd.bpm   || '100');
   apply('seqSwing', sd.swing !== undefined ? sd.swing : 0);
   apply('seqVel',   sd.vel   !== undefined ? sd.vel   : 0.8);
@@ -12659,6 +12679,11 @@ function initSequencer(song) {
   // Load humanize state
   seqLoadHumanize(fresh);
 
+  // Load key trigger slots (song-level, not per-sequence)
+  seqKeySlots = (fresh.keySlots && fresh.keySlots.length === 8)
+    ? [...fresh.keySlots]
+    : ['','','','','','','',''];
+
   // Render sequence tabs
   seqRenderSequenceTabs();
 
@@ -12666,7 +12691,7 @@ function initSequencer(song) {
   requestAnimationFrame(() => {
     seqBuildGrids(fresh);
     requestAnimationFrame(() => {
-      seqRenderChordPills(fresh);
+      seqRenderChordPills(fresh); // also calls seqRenderKeyTriggers
       seqRenderKeyboard();
       seqRenderMelodyRoll();
       // Verify and re-apply if anything is missing
@@ -12936,7 +12961,7 @@ function seqSaveAllToCurrent(song) {
   sd.bpm   = document.getElementById('seqBpm')?.value  || sd.bpm   || '100';
   sd.time  = document.getElementById('seqTime')?.value || sd.time  || '4';
   sd.bars  = document.getElementById('seqBars')?.value || sd.bars  || '8';
-  sd.grid  = document.getElementById('seqGrid')?.value || sd.grid  || '1';
+  sd.grid  = document.getElementById('seqGrid')?.value || sd.grid  || '2';
   sd.swing = document.getElementById('seqSwing')?.value|| sd.swing || '0';
   sd.vel   = document.getElementById('seqVel')?.value  || sd.vel   || '0.8';
   sd.part  = document.getElementById('seqPartAssign')?.value || sd.part || '';
@@ -12962,7 +12987,7 @@ function seqLoadSequenceIntoDOM(seq, song) {
   const bpmEl = document.getElementById('seqBpm');   if (bpmEl) bpmEl.value = seq.bpm || '100';
   const timeEl = document.getElementById('seqTime');  if (timeEl) timeEl.value = seq.time || '4';
   const barsEl = document.getElementById('seqBars');  if (barsEl) barsEl.value = seq.bars || '8';
-  const gridEl = document.getElementById('seqGrid');  if (gridEl) gridEl.value = seq.grid || '1';
+  const gridEl = document.getElementById('seqGrid');  if (gridEl) gridEl.value = seq.grid || '2';
   const swingEl = document.getElementById('seqSwing'); if (swingEl) swingEl.value = seq.swing || '0';
   const velEl = document.getElementById('seqVel');    if (velEl) velEl.value = seq.vel || '0.8';
   const partEl = document.getElementById('seqPartAssign'); if (partEl) partEl.value = seq.part || seq.partId || '';
@@ -13290,7 +13315,7 @@ function seqSaveSettings() {
   song.sequencer.partId= partVal;
   // Re-render tabs if part changed
   seqRenderSequenceTabs();
-  song.sequencer.grid  = document.getElementById('seqGrid')?.value || '1';
+  song.sequencer.grid  = document.getElementById('seqGrid')?.value || '2';
   song.sequencer.bpm   = document.getElementById('seqBpm')?.value || '100';
   song.bpm = song.sequencer.bpm; // keep song BPM in sync with sequencer
   syncBpmUI(song.sequencer.bpm);
@@ -13364,7 +13389,7 @@ function seqRebuild() {
 function seqGetStepCount(sd) {
   const time = parseInt(document.getElementById('seqTime')?.value || sd?.time || '4');
   const bars = parseInt(document.getElementById('seqBars')?.value || sd?.bars || '8');
-  const grid = parseInt(document.getElementById('seqGrid')?.value || sd?.grid || '1');
+  const grid = parseInt(document.getElementById('seqGrid')?.value || sd?.grid || '2');
   return time * bars * grid;
 }
 
@@ -13372,7 +13397,7 @@ function seqBuildGrids(song) {
   const sd = seqGetData(song);
   const totalSteps = seqGetStepCount(sd);
   const time = parseInt(document.getElementById('seqTime')?.value || sd.time || '4');
-  const grid = parseInt(document.getElementById('seqGrid')?.value || sd.grid || '1');
+  const grid = parseInt(document.getElementById('seqGrid')?.value || sd.grid || '2');
   const beatsPerBar = time * grid;
 
   // Chord grid
@@ -13570,8 +13595,69 @@ function seqRenderChordPills(song) {
       <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;flex-shrink:0;" onclick="seqClearAllChordSlots()">Clear</button>
     </div>`;
   seqUpdateHumanizeBtns();
+  seqRenderKeyTriggers(); // keep key bank in sync when key/mode changes
   // Render keyboard
   seqRenderKeyboard();
+}
+
+// ── Key trigger bank (keys 1-8) ────────────────────────────────────
+function seqRenderKeyTriggers() {
+  const el = document.getElementById('seqKeyTriggerRow');
+  if (!el) return;
+  // Pre-fill empty slots with current diatonic chords as defaults
+  const names = seqGetScaleChords(seqCurrentKey(), seqCurrentMode());
+  names.forEach((n, i) => {
+    if (!seqKeySlots[i]) seqKeySlots[i] = n.replace('_viii', '');
+  });
+  el.innerHTML = seqKeySlots.map((chord, i) =>
+    `<div class="seq-key-slot ${chord ? 'has-chord' : ''}" data-key-idx="${i}"
+      title="Key ${i+1}${chord ? ': ' + chord : ' — empty'} · Drop a chord here to reassign"
+      ondragover="event.preventDefault();this.classList.add('drag-over-slot')"
+      ondragleave="this.classList.remove('drag-over-slot')"
+      ondrop="seqDropOnKeySlot(event,${i})"
+      onclick="seqClickKeySlot(${i})">
+      <span class="seq-key-slot-num">${i+1}</span>
+      <span class="seq-key-slot-chord">${chord || '—'}</span>
+    </div>`
+  ).join('')
+  + `<button title="Reset to current scale chords" onclick="seqResetKeySlots()"
+      style="font-size:10px;padding:3px 7px;background:var(--card2);border:1px solid var(--border2);
+             color:var(--faint);border-radius:4px;cursor:pointer;flex-shrink:0;align-self:center;
+             font-family:'IBM Plex Mono',monospace;">↺</button>`;
+}
+
+function seqDropOnKeySlot(e, idx) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over-slot');
+  const raw = e.dataTransfer.getData('text/plain');
+  let chord = raw;
+  try { const p = JSON.parse(raw); chord = p.chord; } catch(_) {}
+  chord = (chord || '').replace('_viii', '').trim();
+  if (!chord) return;
+  seqKeySlots[idx] = chord;
+  seqSaveKeySlots();
+  seqRenderKeyTriggers();
+}
+
+function seqClickKeySlot(idx) {
+  const chord = seqKeySlots[idx];
+  if (!chord) return;
+  seqClickFillChord(chord, '');
+}
+
+function seqSaveKeySlots() {
+  const song = getCurrentSong();
+  if (!song) return;
+  song.keySlots = [...seqKeySlots];
+  song.updatedAt = Date.now();
+  save();
+}
+
+function seqResetKeySlots() {
+  const names = seqGetScaleChords(seqCurrentKey(), seqCurrentMode());
+  seqKeySlots = names.map(n => n.replace('_viii', ''));
+  seqSaveKeySlots();
+  seqRenderKeyTriggers();
 }
 
 // ── Audio ──────────────────────────────────────────────────────────
@@ -14017,7 +14103,7 @@ function seqScheduleNotes() {
 
   // ── LOOP MODE — reads from live DOM slots ──
   const bpm       = parseFloat(document.getElementById('seqBpm')?.value   || 100);
-  const grid      = parseInt(document.getElementById('seqGrid')?.value    || 1);
+  const grid      = parseInt(document.getElementById('seqGrid')?.value    || 2);
   const swing     = parseFloat(document.getElementById('seqSwing')?.value || 0);
   const vel       = parseFloat(document.getElementById('seqVel')?.value   || 0.8);
   const time_sig  = parseInt(document.getElementById('seqTime')?.value    || 4);
@@ -14643,7 +14729,7 @@ function melodyRecordNote(note, octave, isDown) {
 function melodyQuantizeNotes() {
   const song = getCurrentSong();
   const bpm  = parseFloat(song?.sequencer?.bpm || document.getElementById('seqBpm')?.value || 100);
-  const grid = parseInt(song?.sequencer?.grid  || document.getElementById('seqGrid')?.value  || 1);
+  const grid = parseInt(song?.sequencer?.grid  || document.getElementById('seqGrid')?.value  || 2);
   const stepMs = (60000 / bpm) / grid; // ms per grid step
 
   melodyNotes = melodyNotes.map(n => {
@@ -21353,7 +21439,7 @@ function applyDrumPattern(patternKey) {
 applyDrumPattern._redrawGrids = function(song) {
   const totalSteps = seqGetStepCount(song.sequencer);
   const beatsPerBar = parseInt(document.getElementById('seqTime')?.value || song.sequencer.time || '4') *
-                      parseInt(document.getElementById('seqGrid')?.value || song.sequencer.grid || '1');
+                      parseInt(document.getElementById('seqGrid')?.value || song.sequencer.grid || '2');
   [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqCrash','crash'],['seqClap','clap']].forEach(([elId, lane]) => {
     const el = document.getElementById(elId);
     if (!el) return;
@@ -21457,7 +21543,7 @@ function renderDrumNotation() {
   const song = getCurrentSong();
   const sd   = song?.sequencer || {};
   const timeSig = parseInt(document.getElementById('seqTime')?.value || sd.time || 4);
-  const grid    = parseInt(document.getElementById('seqGrid')?.value || sd.grid || 1);
+  const grid    = parseInt(document.getElementById('seqGrid')?.value || sd.grid || 2);
   const bars    = parseInt(document.getElementById('seqBars')?.value || sd.bars || 8);
   const totalSteps  = timeSig * bars * grid;
   const stepsPerBar = timeSig * grid;
@@ -25348,7 +25434,7 @@ document.addEventListener('keydown', function(e) {
   if (typeof seqUndoActive === 'function') seqUndoActive();
 });
 
-// ── Sequencer: keyboard 1-8 plays scale intervals ──────────────────
+// ── Sequencer: keyboard 1-8 plays/inserts from key trigger bank ─────
 document.addEventListener('keydown', function(e) {
   // Only fire when the sequencer drawer is open
   if (!document.getElementById('seqDrawer')?.classList.contains('open')) return;
@@ -25358,20 +25444,14 @@ document.addEventListener('keydown', function(e) {
   const n = parseInt(e.key);
   if (isNaN(n) || n < 1 || n > 8) return;
   e.preventDefault();
-  const key   = seqCurrentKey();
-  const mode  = seqCurrentMode();
-  const names = seqGetScaleChords(key, mode);
-  const name  = names[n - 1];
+  const name = seqKeySlots[n - 1];
   if (!name) return;
-  seqPlayChordByName(name);
-  // Visual flash on the corresponding chord pill
-  const pill = document.querySelectorAll('#seqChordPills .seq-chord-pill')[n - 1];
-  if (pill) {
-    const prev = pill.style.cssText;
-    pill.style.background = 'rgba(245,166,35,0.3)';
-    pill.style.borderColor = '#f5a623';
-    pill.style.color = '#f5a623';
-    setTimeout(() => { pill.style.cssText = prev; }, 180);
+  seqClickFillChord(name, ''); // preview: play only; compose: also fills next grid slot
+  // Visual flash on the key slot
+  const slot = document.querySelector(`#seqKeyTriggerRow .seq-key-slot[data-key-idx="${n - 1}"]`);
+  if (slot) {
+    slot.classList.add('key-flash');
+    setTimeout(() => slot.classList.remove('key-flash'), 180);
   }
 });
 
@@ -27821,7 +27901,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <span class="seq-label">Grid</span>
       <select class="seq-select" id="seqGrid" onchange="seqRebuild()">
         <option value="1">1/4</option>
-        <option value="2">1/8</option>
+        <option value="2" selected>1/8</option>
         <option value="4">1/16</option>
       </select>
     </div>
