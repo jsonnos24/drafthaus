@@ -12332,7 +12332,7 @@ function seqOnSongKeyChange() {
     document.querySelectorAll('#seqChordGrid .seq-slot.filled').forEach(slot => {
       const name = slot.textContent.trim();
       const degree = oldChords.indexOf(name);
-      if (degree >= 0) slot.textContent = newChords[degree];
+      if (degree >= 0) _seqSlotSetText(slot, newChords[degree]);
     });
     seqSaveChordSlots();
   } else {
@@ -13361,6 +13361,23 @@ function seqRebuild() {
   setTimeout(seqRenderKeyboard, 30);
 }
 
+// ── Chord slot text helper ──────────────────────────────────────────
+// Sets the chord name on a slot without destroying the resize handle child element.
+// Use this everywhere instead of `slot.textContent = chord`.
+function _seqSlotSetText(slot, text) {
+  const handle = slot.querySelector('.seq-resize-handle');
+  slot.textContent = text || ''; // replaces all children (including handle)
+  // Re-attach handle (or create one if missing)
+  if (handle) {
+    slot.appendChild(handle);
+  } else {
+    const h = document.createElement('div');
+    h.className = 'seq-resize-handle';
+    h.title = 'Drag to extend chord';
+    slot.appendChild(h);
+  }
+}
+
 function seqGetStepCount(sd) {
   const time = parseInt(document.getElementById('seqTime')?.value || sd?.time || '4');
   const bars = parseInt(document.getElementById('seqBars')?.value || sd?.bars || '8');
@@ -13389,13 +13406,14 @@ function seqBuildGrids(song) {
       slot.dataset.beat = (i % beatsPerBar) % 8;
       const val = savedSlots[i] || '';
       if (val) {
+        // Use _seqSlotSetText via direct approach: set text then append handle below
         slot.textContent = val;
         slot.classList.add('filled');
         if (savedContinued[i]) slot.classList.add('chord-tail');
         const deg = savedDegrees[i];
         if (deg !== undefined && deg !== '') slot.dataset.chordDegree = deg;
       }
-      // Resize handle — always present, only interactive/visible when slot is filled
+      // Resize handle — always appended last so textContent overwrites don't kill it
       const rHandle = document.createElement('div');
       rHandle.className = 'seq-resize-handle';
       rHandle.title = 'Drag to extend chord';
@@ -13416,13 +13434,13 @@ function seqBuildGrids(song) {
           const idx = parseInt(slot.dataset.idx);
           for (let j = idx; j < allSlots.length; j++) {
             if (j === idx || allSlots[j].classList.contains('chord-tail')) {
-              allSlots[j].textContent = '';
+              _seqSlotSetText(allSlots[j], '');
               allSlots[j].classList.remove('filled', 'chord-tail');
               delete allSlots[j].dataset.chordDegree;
             } else break;
           }
         }
-        slot.textContent = chord;
+        _seqSlotSetText(slot, chord);
         slot.classList.add('filled');
         slot.classList.remove('chord-tail');
         if (degree !== '') slot.dataset.chordDegree = degree;
@@ -13440,19 +13458,19 @@ function seqBuildGrids(song) {
             // Click on tail: shrink — clear from this slot onwards
             for (let j = idx; j < allSlots.length; j++) {
               if (j === idx || allSlots[j].classList.contains('chord-tail')) {
-                allSlots[j].textContent = '';
+                _seqSlotSetText(allSlots[j], '');
                 allSlots[j].classList.remove('filled', 'chord-tail');
                 delete allSlots[j].dataset.chordDegree;
               } else break;
             }
           } else {
             // Click on head: clear head and all following tails
-            slot.textContent = '';
+            _seqSlotSetText(slot, '');
             slot.classList.remove('filled');
             delete slot.dataset.chordDegree;
             for (let j = idx + 1; j < allSlots.length; j++) {
               if (allSlots[j].classList.contains('chord-tail')) {
-                allSlots[j].textContent = '';
+                _seqSlotSetText(allSlots[j], '');
                 allSlots[j].classList.remove('filled', 'chord-tail');
                 delete allSlots[j].dataset.chordDegree;
               } else break;
@@ -13502,7 +13520,7 @@ function seqSaveChordSlots() {
 
 function seqClearAllChordSlots() {
   document.querySelectorAll('#seqChordGrid .seq-slot.filled').forEach(slot => {
-    slot.textContent = '';
+    _seqSlotSetText(slot, '');
     slot.classList.remove('filled', 'chord-tail');
     delete slot.dataset.chordDegree;
   });
@@ -13538,7 +13556,7 @@ function seqClickFillChord(name, degree) {
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
   const emptySlot = slots.find(s => !s.classList.contains('filled'));
   if (emptySlot) {
-    emptySlot.textContent = name;
+    _seqSlotSetText(emptySlot, name);
     emptySlot.classList.add('filled');
     if (degree !== '') emptySlot.dataset.chordDegree = String(degree);
     else delete emptySlot.dataset.chordDegree;
@@ -14046,14 +14064,17 @@ function seqScheduleNotes() {
       const chordTime = seqHumanizeChords ? Math.max(0.001, baseTime + _hj(34)) : baseTime;
       const noteTime  = baseTime;
 
-      // Chord
-      const chordName = sec.chordSlots[i] || '';
-      if (chordName && loopChords[chordName]) {
-        const midiNotes = loopChordsMidi?.[chordName];
+      // Chord (skip continuation slots)
+      const chordName = (sec.chordContinued?.[i]) ? '' : (sec.chordSlots[i] || '');
+      if (chordName) {
+        const midiNotes = loopChordsMidi?.[chordName] || _chordVariantToMidi(chordName);
         let samplerPlayed = false;
-        if (_hasPiano  && _pianoLoaded  && midiNotes) { seqPlayChordPiano(midiNotes, chordTime, velocity);  samplerPlayed = true; }
-        if (_hasGuitar && _guitarLoaded && midiNotes) { seqPlayChordGuitar(midiNotes, chordTime, velocity); samplerPlayed = true; }
-        if (_hasSynth || !samplerPlayed) seqPlayChord(loopChords[chordName], chordTime, velocity);
+        if (_hasPiano  && _pianoLoaded  && midiNotes?.length) { seqPlayChordPiano(midiNotes, chordTime, velocity);  samplerPlayed = true; }
+        if (_hasGuitar && _guitarLoaded && midiNotes?.length) { seqPlayChordGuitar(midiNotes, chordTime, velocity); samplerPlayed = true; }
+        if (_hasSynth || !samplerPlayed) {
+          const freqs = loopChords[chordName] || (midiNotes?.length ? midiNotes.map(m => 440 * Math.pow(2, (m - 69) / 12)) : null);
+          if (freqs) seqPlayChord(freqs, chordTime, velocity);
+        }
       }
       // Drums — per-instrument jitter
       if (sec.kick[i])  seqPlayKick( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
@@ -14195,12 +14216,15 @@ function seqScheduleNotes() {
       ? (slot.classList.contains('filled') && !slot.classList.contains('chord-tail') ? slot.textContent.trim() : '')
       : ((getCurrentSong()?.sequencer?.chordSlots?.[i] && !getCurrentSong()?.sequencer?.chordContinued?.[i])
           ? (getCurrentSong()?.sequencer?.chordSlots?.[i]) : '');
-    if (_chordName && loopChords[_chordName]) {
-      const midiNotes = loopChordsMidi?.[_chordName];
+    if (_chordName) {
+      const midiNotes = loopChordsMidi?.[_chordName] || _chordVariantToMidi(_chordName);
       let samplerPlayed = false;
-      if (_hasPiano  && _pianoLoaded  && midiNotes) { seqPlayChordPiano(midiNotes, chordTime, velocity);  samplerPlayed = true; }
-      if (_hasGuitar && _guitarLoaded && midiNotes) { seqPlayChordGuitar(midiNotes, chordTime, velocity); samplerPlayed = true; }
-      if (_hasSynth || (!samplerPlayed && !_hasPiano && !_hasGuitar)) seqPlayChord(loopChords[_chordName], chordTime, velocity);
+      if (_hasPiano  && _pianoLoaded  && midiNotes?.length) { seqPlayChordPiano(midiNotes, chordTime, velocity);  samplerPlayed = true; }
+      if (_hasGuitar && _guitarLoaded && midiNotes?.length) { seqPlayChordGuitar(midiNotes, chordTime, velocity); samplerPlayed = true; }
+      if (_hasSynth || (!samplerPlayed && !_hasPiano && !_hasGuitar)) {
+        const freqs = loopChords[_chordName] || (midiNotes?.length ? midiNotes.map(m => 440 * Math.pow(2, (m - 69) / 12)) : null);
+        if (freqs) seqPlayChord(freqs, chordTime, velocity);
+      }
     }
     // Drums — each instrument gets its own jitter for a natural, imprecise feel
     if (kickSlots[i]?.classList.contains('drum-on'))  seqPlayKick( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
@@ -19716,7 +19740,8 @@ async function exportMidiZip() {
       slot.classList.remove('drag-over');
       // Only drop into chord grid slots (not drum slots)
       if (slot.closest('#seqChordGrid') || slot.id === 'seqChordGrid') {
-        slot.textContent = dragChord;
+        _seqSlotSetText(slot, dragChord);
+        slot.classList.remove('chord-tail');
         slot.classList.add('filled', 'just-dropped');
         if (dragDegree !== null) slot.dataset.chordDegree = String(dragDegree);
         else delete slot.dataset.chordDegree;
@@ -19791,14 +19816,14 @@ async function exportMidiZip() {
       if (i <= targetIdx) {
         // Ensure this is a tail of our chain
         if (s.classList.contains('filled') && !s.classList.contains('chord-tail')) break; // don't clobber another chord
-        s.textContent = chord;
+        _seqSlotSetText(s, chord);
         s.classList.add('filled', 'chord-tail');
         if (degree !== undefined && degree !== '') s.dataset.chordDegree = degree;
         else delete s.dataset.chordDegree;
       } else {
         // Clear tail slots beyond the new end
         if (s.classList.contains('chord-tail')) {
-          s.textContent = '';
+          _seqSlotSetText(s, '');
           s.classList.remove('filled', 'chord-tail');
           delete s.dataset.chordDegree;
         } else {
@@ -21287,7 +21312,7 @@ function seqKeySelectChanged() {
     const newChords = seqGetScaleChords(newKey, newMode);
     document.querySelectorAll('#seqChordGrid .seq-slot.filled').forEach(slot => {
       const degree = oldChords.indexOf(slot.textContent.trim());
-      if (degree >= 0) slot.textContent = newChords[degree];
+      if (degree >= 0) _seqSlotSetText(slot, newChords[degree]);
     });
     seqSaveChordSlots();
   }
