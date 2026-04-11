@@ -8930,27 +8930,62 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     display: none !important;
   }
 
-  /* ── Rehearse / compact mode: force full-width bottom-sheet on mobile ──
-     Desktop compact = 220px right sidebar. On mobile that sidebar layout breaks
-     everything — reset to the same full-screen bottom-sheet as regular mode. ── */
+  /* ── Rehearse / compact mode: half-width right sidebar ──────────────────
+     Shows the 4-track in the right 50% so lyrics remain readable on the left.
+     No dim, no blur — transport stays in-flow (not teleported to body).
+  ─────────────────────────────────────────────────────────────────────── */
   #vrOverlay.vr-rt-compact {
-    inset: 0 !important;
-    width: 100% !important;
-    background: rgba(0,0,0,0.55) !important;
+    inset: auto !important;
+    left: auto !important;
+    right: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    width: 50vw !important;
+    background: transparent !important;
     backdrop-filter: none !important;
-    align-items: flex-end !important;
-    justify-content: stretch !important;
+    align-items: stretch !important;
+    justify-content: flex-end !important;
   }
   #vrOverlay.vr-rt-compact #vrDeck {
     width: 100% !important;
     max-width: 100% !important;
-    max-height: 92dvh !important;
-    height: auto !important;
-    border-radius: 20px 20px 0 0 !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 12px 0 0 12px !important;
     border-right: none !important;
     overflow: hidden !important;
     overflow-y: hidden !important;
     padding-bottom: 0 !important;
+  }
+  /* Slide in from right instead of sliding up from bottom */
+  #vrOverlay.vr-rt-compact:not(.vr-open) #vrDeck {
+    transform: translateX(110%) !important;
+    transition: none !important;
+  }
+  #vrOverlay.vr-rt-compact.vr-open #vrDeck {
+    transform: translateX(0) !important;
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+  /* No swipe handle — this is a sidebar, not a bottom sheet */
+  #vrOverlay.vr-rt-compact #vrDeck::before { display: none !important; }
+  /* Transport: normal flow item — transport stays inside #vrDeck (not teleported),
+     so it scrolls into view and no fixed-inside-transform problem */
+  #vrOverlay.vr-rt-compact .mt-transport {
+    position: relative !important;
+    bottom: auto !important; left: auto !important; right: auto !important;
+    z-index: auto !important;
+    order: 8 !important;
+    flex-shrink: 0 !important;
+    padding: 6px 8px calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
+  }
+  /* No extra bottom padding on tracks — transport is in-flow */
+  #vrOverlay.vr-rt-compact .mt-tracks {
+    padding-bottom: 4px !important;
+  }
+  /* Compact countdown: tuck into the bottom of the sidebar */
+  #vrGlobalCountdown.vr-perf-countdown {
+    bottom: 120px !important;
+    right: 16px !important;
   }
 
   /* ── Right column: icons stacked above ARM button ── */
@@ -9274,25 +9309,49 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   .mt-takes-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9998; }
   .mt-takes-overlay.open { display: block; }
 
-  /* ── Rehearse / compact mode: force full-width bottom-sheet in landscape mobile too ── */
+  /* ── Rehearse / compact mode: right sidebar in landscape too ── */
   #vrOverlay.vr-rt-compact {
-    inset: 0 !important;
-    width: 100% !important;
-    background: rgba(0,0,0,0.55) !important;
+    inset: auto !important;
+    left: auto !important;
+    right: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    width: 40vw !important; /* slightly narrower in landscape — more room for lyrics */
+    background: transparent !important;
     backdrop-filter: none !important;
-    align-items: flex-end !important;
-    justify-content: stretch !important;
+    align-items: stretch !important;
+    justify-content: flex-end !important;
   }
   #vrOverlay.vr-rt-compact #vrDeck {
     width: 100% !important;
     max-width: 100% !important;
+    height: 100dvh !important;
     max-height: 100dvh !important;
-    height: auto !important;
-    border-radius: 10px 10px 0 0 !important;
+    border-radius: 10px 0 0 10px !important;
     border-right: none !important;
     overflow: hidden !important;
     overflow-y: hidden !important;
     padding-bottom: 0 !important;
+  }
+  #vrOverlay.vr-rt-compact:not(.vr-open) #vrDeck {
+    transform: translateX(110%) !important;
+    transition: none !important;
+  }
+  #vrOverlay.vr-rt-compact.vr-open #vrDeck {
+    transform: translateX(0) !important;
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+  #vrOverlay.vr-rt-compact #vrDeck::before { display: none !important; }
+  #vrOverlay.vr-rt-compact .mt-transport {
+    position: relative !important;
+    bottom: auto !important; left: auto !important; right: auto !important;
+    z-index: auto !important;
+    order: 8 !important;
+    flex-shrink: 0 !important;
+    padding: 4px 8px calc(env(safe-area-inset-bottom, 0px) + 4px) !important;
+  }
+  #vrOverlay.vr-rt-compact .mt-tracks {
+    padding-bottom: 4px !important;
   }
 }
 
@@ -27563,10 +27622,10 @@ window.vrOpen = function(autoRecord) {
   // transformed ancestor is relative to that ancestor, not the viewport.
   // Fix: teleport .mt-transport to <body> — zero transforms, zero overflow clipping,
   // nothing can interfere with fixed positioning from there.
-  // Use short-side detection so this works in BOTH portrait and landscape
-  // (in landscape our viewport meta sets width=1024 so innerWidth check would fail).
+  // EXCEPTION: rehearse/compact mode uses a sidebar (translateX, no overflow:hidden on
+  // tracks), so the transport stays as a normal flex item inside #vrDeck — no teleport needed.
   const _isMobile4T = Math.min(window.innerWidth, window.innerHeight) <= 600;
-  if (_isMobile4T) {
+  if (_isMobile4T && !_inRT) {
     const _tp = document.querySelector('.mt-transport');
     if (_tp && _tp.parentElement !== document.body) {
       document.body._mtTransportPrev = { parent: _tp.parentElement, next: _tp.nextSibling };
