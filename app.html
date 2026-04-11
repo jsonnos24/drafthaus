@@ -22872,7 +22872,7 @@ async function loopEnsureAudioCtx(){
 }
 async function loopEnsureMicStream(){
   if(loopSharedStream&&loopSharedStream.active)return loopSharedStream;
-  try{loopSharedStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});return loopSharedStream;}
+  try{loopSharedStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});_scheduleMicInactivityRelease();return loopSharedStream;}
   catch(e){showToast('Microphone access denied. Check your browser permissions.', 'error', 5000);return null;}
 }
 function loopStartMetronome(){
@@ -23023,6 +23023,7 @@ async function loopOnRecordStop(i){
   const dl=document.getElementById(`ldl-btn-${i}`);if(dl)dl.disabled=false;
   loopStartPlayback(i);
   loopAutoSave(i, blob, mime, out.duration);
+  _scheduleMicInactivityRelease(); // restart countdown — mic no longer actively recording
 }
 function loopStartPlayback(i){
   const t=loopTracks[i];if(!t.buffer)return;loopStopPlayback(i);
@@ -26717,6 +26718,7 @@ async function _vuStart() {
     if (!src) {
       if (!_vuStream || !_vuStream.active) {
         _vuStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        _scheduleMicInactivityRelease();
       }
       src = _vuStream;
     }
@@ -27094,6 +27096,7 @@ async function _mtEnsureStream() {
   try {
     _mtStream = await navigator.mediaDevices.getUserMedia({ audio: constraints, video: false });
     _vrEnumerateDevices();
+    _scheduleMicInactivityRelease();
     return _mtStream;
   } catch(err) {
     showToast('Microphone access denied.', 'error', 4000); return null;
@@ -27243,6 +27246,7 @@ function _mtStopRecording() {
   _el('mtStopBtn').disabled = true;
   _setStatus('Saving…');
   _mtUpdateMonPill('');
+  _scheduleMicInactivityRelease(); // restart countdown — mic no longer actively recording
 }
 
 async function _mtFinishRecording(trackIdx, mimeType) {
@@ -28152,8 +28156,45 @@ document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => { if (!_mtTracks.length) mtBuildUI(); }, 200);
 });
 
+// ── Mic inactivity auto-release ────────────────────────────────
+// Two mechanisms keep the OS mic indicator off when not recording:
+//   1. Page Visibility API — kills streams immediately when the user leaves the app
+//      (locks phone, goes to home screen, switches tabs). Streams re-acquire silently
+//      on the next record action since permission is already granted.
+//   2. Inactivity timer — kills streams after 2 minutes of no recording while the
+//      app is in the foreground.
+// All stream getters already check .active before reusing, so re-acquisition is safe.
+let _micInactivityTimer = null;
+const MIC_INACTIVITY_MS = 2 * 60 * 1000; // 2 minutes
+
+function _isAnyRecordingActive() {
+  if (typeof loopTracks !== 'undefined' && loopTracks.some(t => t.state === 'recording' || t.state === 'preroll')) return true;
+  if (typeof _mtTracks !== 'undefined' && _mtTracks.some(t => t.mediaRecorder?.state === 'recording')) return true;
+  return false;
+}
+
+function _scheduleMicInactivityRelease() {
+  clearTimeout(_micInactivityTimer);
+  _micInactivityTimer = setTimeout(() => {
+    if (_isAnyRecordingActive()) {
+      _scheduleMicInactivityRelease(); // still recording — postpone
+      return;
+    }
+    _releaseMicStreams();
+  }, MIC_INACTIVITY_MS);
+}
+
+// Page Visibility: kill mic the moment the user leaves the app
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && !_isAnyRecordingActive()) {
+    _releaseMicStreams();
+  }
+});
+
 // ── Release mic streams when the window closes ─────────────────
 function _releaseMicStreams() {
+  clearTimeout(_micInactivityTimer);
+  _micInactivityTimer = null;
   // 4-Track stream
   if (typeof _mtStream !== 'undefined' && _mtStream) {
     try { _mtStream.getTracks().forEach(t => t.stop()); } catch(e) {}
