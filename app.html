@@ -1891,6 +1891,43 @@ button, select, input, textarea { touch-action: manipulation; }
     position: sticky; left: 0; z-index: 2;
     background: var(--surface);
   }
+  /* Drum label as clickable dropdown button */
+  button.seq-row-label {
+    border: none; cursor: pointer; outline: none;
+    display: flex; align-items: center; justify-content: flex-end; gap: 2px;
+    transition: opacity 0.15s;
+    padding-right: 8px;
+  }
+  button.seq-row-label:hover { opacity: 0.75; }
+  .drum-label-arrow {
+    font-size: 8px; opacity: 0.6; flex-shrink: 0; margin-left: 1px;
+  }
+  /* Drum bank popup */
+  .drum-bank-popup {
+    position: fixed; z-index: 9999;
+    background: #1c1c23; border: 1px solid #3a3a4a;
+    border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,0.6);
+    min-width: 148px; padding: 4px 0;
+    display: none;
+  }
+  .drum-bank-popup.open { display: block; }
+  .dbp-item {
+    padding: 7px 12px; font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    display: flex; align-items: center; gap: 8px; white-space: nowrap;
+    cursor: pointer; transition: background 0.1s;
+  }
+  .dbp-item:hover:not(.dbp-unavail) { background: rgba(255,255,255,0.07); }
+  .dbp-item.dbp-active { font-weight: 700; }
+  .dbp-item.dbp-unavail { color: #555 !important; cursor: not-allowed; }
+  .dbp-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    background: #444;
+  }
+  .dbp-dot.dbp-dot-ok     { background: #00d26e; }
+  .dbp-dot.dbp-dot-error  { background: #555; }
+  .dbp-dot.dbp-dot-synth  { background: #f5a623; }
+  .dbp-dot.dbp-dot-loading { background: #888; animation: dbp-pulse 1s infinite; }
+  @keyframes dbp-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
   .seq-grid { display: flex; gap: 2px; flex-wrap: nowrap; }
   .seq-slot {
     width: clamp(20px, 3.5vw, 36px); height: clamp(20px, 3.5vw, 36px); border-radius: 4px; flex-shrink: 0;
@@ -12603,7 +12640,7 @@ const _ACOUSTIC_URLS = {
   kick:  'https://tonejs.github.io/audio/drum-samples/acoustic-kit/kick.mp3',
   snare: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/snare.mp3',
   hat:   'https://tonejs.github.io/audio/drum-samples/acoustic-kit/hihat.mp3',
-  crash: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/crash.mp3',
+  // crash.mp3 is 404 on this CDN — seqPlayCrash has a synth fallback
 };
 // Kit 2: HARGREAVES (Stark)
 var _acoustic2RawBytes  = {};
@@ -12613,11 +12650,191 @@ const _ACOUSTIC2_URLS = {
   kick:  'https://tonejs.github.io/audio/drum-samples/Stark/kick.mp3',
   snare: 'https://tonejs.github.io/audio/drum-samples/Stark/snare.mp3',
   hat:   'https://tonejs.github.io/audio/drum-samples/Stark/hihat.mp3',
-  crash: 'https://tonejs.github.io/audio/drum-samples/Stark/crash.mp3',
+  // crash.mp3 is 404 on this CDN — seqPlayCrash has a synth fallback
 };
 // Helpers: check active kit type, get active buffers
 function _drumIsAcoustic() { return seqDrumMode === 'lacer' || seqDrumMode === 'hargreaves'; }
 function _drumBufs()       { return seqDrumMode === 'hargreaves' ? _acoustic2MainBufs : _acousticMainBufs; }
+
+// ── Per-voice drum sample banks (5 options each, null URL = synth) ──────────
+const _DRUM_BANKS = {
+  kick: [
+    { label: 'Lacer',      url: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/kick.mp3' },
+    { label: 'Hargreaves', url: 'https://tonejs.github.io/audio/drum-samples/Stark/kick.mp3' },
+    { label: 'CR78',       url: 'https://tonejs.github.io/audio/drum-samples/CR78/kick.mp3' },
+    { label: 'Casio',      url: 'https://tonejs.github.io/audio/drum-samples/Casio/kick.mp3' },
+    { label: 'Synth',      url: null },
+  ],
+  snare: [
+    { label: 'Lacer',      url: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/snare.mp3' },
+    { label: 'Hargreaves', url: 'https://tonejs.github.io/audio/drum-samples/Stark/snare.mp3' },
+    { label: 'CR78',       url: 'https://tonejs.github.io/audio/drum-samples/CR78/snare.mp3' },
+    { label: 'Casio',      url: 'https://tonejs.github.io/audio/drum-samples/Casio/snare.mp3' },
+    { label: 'Synth',      url: null },
+  ],
+  hat: [
+    { label: 'Lacer',      url: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/hihat.mp3' },
+    { label: 'Hargreaves', url: 'https://tonejs.github.io/audio/drum-samples/Stark/hihat.mp3' },
+    { label: 'CR78',       url: 'https://tonejs.github.io/audio/drum-samples/CR78/hihat.mp3' },
+    { label: 'Casio',      url: 'https://tonejs.github.io/audio/drum-samples/Casio/hihat.mp3' },
+    { label: 'Synth',      url: null },
+  ],
+  crash: [
+    { label: 'Synth',      url: null },
+    { label: 'CR78',       url: 'https://tonejs.github.io/audio/drum-samples/CR78/crash.mp3' },
+    { label: 'Casio',      url: 'https://tonejs.github.io/audio/drum-samples/Casio/crash.mp3' },
+    { label: 'Hargreaves', url: 'https://tonejs.github.io/audio/drum-samples/Stark/crash.mp3' },
+    { label: 'Lacer',      url: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/crash.mp3' },
+  ],
+  clap: [
+    { label: 'Synth',      url: null },
+    { label: 'CR78',       url: 'https://tonejs.github.io/audio/drum-samples/CR78/clap.mp3' },
+    { label: 'Casio',      url: 'https://tonejs.github.io/audio/drum-samples/Casio/clap.mp3' },
+    { label: 'Hargreaves', url: 'https://tonejs.github.io/audio/drum-samples/Stark/clap.mp3' },
+    { label: 'Lacer',      url: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/clap.mp3' },
+  ],
+};
+// state: 'idle' | 'loading' | 'ok' | 'error'
+var _drumBankStates = {};
+var _drumBankBufs   = {};
+// which bank index is active per voice
+var _drumBankChoice = { kick: 0, snare: 0, hat: 0, crash: 0, clap: 0 };
+// Initialize state arrays
+(function() {
+  ['kick','snare','hat','crash','clap'].forEach(v => {
+    _drumBankStates[v] = _DRUM_BANKS[v].map(e => e.url === null ? 'ok' : 'idle');
+    _drumBankBufs[v]   = _DRUM_BANKS[v].map(() => null);
+  });
+})();
+
+async function _loadDrumBankSlot(voice, idx) {
+  const entry = _DRUM_BANKS[voice][idx];
+  if (!entry || entry.url === null) return; // synth slot — always available, no buffer to load
+  if (_drumBankStates[voice][idx] === 'loading' || _drumBankStates[voice][idx] === 'ok') return;
+  _drumBankStates[voice][idx] = 'loading';
+  _drumBankPopupRefresh(voice); // update dots while loading
+  try {
+    const cacheKey = 'drum_bank_' + entry.url;
+    let arrayBuf;
+    const cache = window._mtAudioCache;
+    if (cache) {
+      const cached = await cache.get(cacheKey);
+      if (cached) { arrayBuf = cached; }
+    }
+    if (!arrayBuf) {
+      const res = await fetch(entry.url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      arrayBuf = await res.arrayBuffer();
+      if (cache) cache.set(cacheKey, arrayBuf.slice(0)); // store a copy
+    }
+    const ctx = getSeqAudioCtx();
+    _drumBankBufs[voice][idx] = await ctx.decodeAudioData(arrayBuf.slice ? arrayBuf.slice(0) : arrayBuf);
+    _drumBankStates[voice][idx] = 'ok';
+  } catch(e) {
+    _drumBankStates[voice][idx] = 'error';
+  }
+  _drumBankPopupRefresh(voice); // update dots after load
+}
+
+function _loadAllDrumBankSlots() {
+  ['kick','snare','hat','crash','clap'].forEach(voice => {
+    _DRUM_BANKS[voice].forEach((_, idx) => {
+      _loadDrumBankSlot(voice, idx);
+    });
+  });
+}
+
+// Returns the active AudioBuffer for a voice, or null if synth should be used
+function _drumBankBuf(voice) {
+  const idx = _drumBankChoice[voice];
+  const entry = _DRUM_BANKS[voice][idx];
+  if (!entry || entry.url === null) return null; // use synth
+  return _drumBankBufs[voice][idx] || null;
+}
+
+function _drumBankSelect(voice, idx) {
+  const entry = _DRUM_BANKS[voice][idx];
+  if (!entry) return;
+  // Don't select unavailable (error) slots — but synth (null url) is always ok
+  if (entry.url !== null && _drumBankStates[voice][idx] === 'error') return;
+  _drumBankChoice[voice] = idx;
+  // If not loaded yet, kick off load
+  if (entry.url !== null && _drumBankStates[voice][idx] === 'idle') {
+    _loadDrumBankSlot(voice, idx);
+  }
+  // Update label text
+  _drumBankUpdateLabel(voice);
+  // Close popup
+  _drumBankPopupClose();
+  // Persist to song
+  const song = getCurrentSong();
+  if (song) {
+    const sd = song.sequencer || (song.sequencer = {});
+    if (!sd.drumBankChoices) sd.drumBankChoices = {};
+    sd.drumBankChoices[voice] = idx;
+    save();
+  }
+}
+
+function _drumBankUpdateLabel(voice) {
+  const btn = document.querySelector(`.seq-grid-row[data-row="${voice}"] button.seq-row-label`);
+  if (!btn) return;
+  const idx = _drumBankChoice[voice];
+  const entry = _DRUM_BANKS[voice][idx];
+  const shortLabel = entry ? entry.label : ['Kick','Snare','Hi-Hat','Crash','Clap'][['kick','snare','hat','crash','clap'].indexOf(voice)];
+  btn.innerHTML = shortLabel + '<span class="drum-label-arrow">▾</span>';
+}
+
+// ── Popup open/close ────────────────────────────────────────────────────────
+var _drumBankOpenVoice = null;
+function _drumLabelClick(e, voice) {
+  e.stopPropagation();
+  const popup = document.getElementById('drumBankPopup');
+  if (!popup) return;
+  if (_drumBankOpenVoice === voice && popup.classList.contains('open')) {
+    _drumBankPopupClose();
+    return;
+  }
+  _drumBankOpenVoice = voice;
+  _drumBankPopupRender(voice);
+  // Position below the button
+  const btn = e.currentTarget;
+  const rect = btn.getBoundingClientRect();
+  popup.style.left = Math.max(4, rect.left) + 'px';
+  popup.style.top  = (rect.bottom + 4) + 'px';
+  popup.classList.add('open');
+}
+
+function _drumBankPopupClose() {
+  const popup = document.getElementById('drumBankPopup');
+  if (popup) popup.classList.remove('open');
+  _drumBankOpenVoice = null;
+}
+
+function _drumBankPopupRender(voice) {
+  const popup = document.getElementById('drumBankPopup');
+  if (!popup) return;
+  const activeIdx = _drumBankChoice[voice];
+  const colors = { kick:'#e8304a', snare:'#87ceeb', hat:'#f5a623', crash:'#cc88ff', clap:'#00d26e' };
+  const rowColor = colors[voice] || '#fff';
+  popup.innerHTML = _DRUM_BANKS[voice].map((entry, idx) => {
+    const state   = _drumBankStates[voice][idx]; // 'idle'|'loading'|'ok'|'error'
+    const isSynth = entry.url === null;
+    const unavail = !isSynth && state === 'error';
+    const dotCls  = isSynth ? 'dbp-dot-synth' : (state === 'ok' ? 'dbp-dot-ok' : state === 'loading' ? 'dbp-dot-loading' : 'dbp-dot-error');
+    const itemCls = (unavail ? 'dbp-unavail ' : '') + (idx === activeIdx ? 'dbp-active' : '');
+    const colorStyle = unavail ? '' : `color:${rowColor}`;
+    const onclick = unavail ? '' : `onclick="_drumBankSelect('${voice}',${idx});event.stopPropagation()"`;
+    return `<div class="dbp-item ${itemCls}" style="${colorStyle}" ${onclick}>
+      <span class="dbp-dot ${dotCls}"></span>${entry.label}${isSynth ? ' <span style="opacity:0.45;font-size:9px">(always on)</span>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function _drumBankPopupRefresh(voice) {
+  // Re-render only if this voice's popup is currently open
+  if (_drumBankOpenVoice === voice) _drumBankPopupRender(voice);
+}
 var seqMetOn = false;
 var _seqTimer = null;
 var _seqNextNoteTime = 0;
@@ -12903,9 +13120,86 @@ function playPianoNote(midiNote, time, velocity, durationS) {
 
 function _pianoUpdateUI() {
   const lbl = document.getElementById('seqInstrumentLoading');
-  if (lbl) lbl.style.display = _pianoLoading ? 'inline' : 'none';
+  if (lbl) lbl.style.display = (_pianoLoading || _piano2Loading) ? 'inline' : 'none';
   if (_pianoLoading) showDrawerLoading('Loading piano samples…');
+  else if (_piano2Loading) showDrawerLoading('Loading upright piano samples…');
   else hideDrawerLoading();
+}
+
+// ── Upright Piano sampler (nbrosowsky/tonejs-instruments) ─────────
+// Same MIDI anchor points as Salamander — different recording character
+var _piano2Buffers = {};
+var _piano2Loaded  = false;
+var _piano2Loading = false;
+
+const PIANO2_SAMPLE_MAP = {
+  36:'C2', 42:'Fs2', 48:'C3', 54:'Fs3', 60:'C4',
+  66:'Fs4', 72:'C5', 78:'Fs5', 84:'C6', 90:'Fs6'
+};
+const PIANO2_BASE_URL = 'https://cdn.jsdelivr.net/gh/nbrosowsky/tonejs-instruments@master/samples/piano/';
+
+async function loadPiano2Samples() {
+  if (_piano2Loaded || _piano2Loading) return;
+  _piano2Loading = true;
+  _pianoUpdateUI();
+  const ctx = getSeqAudioCtx();
+  await Promise.all(Object.entries(PIANO2_SAMPLE_MAP).map(async ([midi, name]) => {
+    try {
+      let ab = await _mtAudioCache.get('piano2_' + name);
+      if (!ab) {
+        const resp = await fetch(PIANO2_BASE_URL + name + '.mp3');
+        if (!resp.ok) throw new Error(resp.status);
+        ab = await resp.arrayBuffer();
+        _mtAudioCache.set('piano2_' + name, ab.slice(0)).catch(() => {});
+      }
+      _piano2Buffers[Number(midi)] = await ctx.decodeAudioData(ab);
+    } catch(e) { console.warn('Upright piano sample load failed:', name, e); }
+  }));
+  _piano2Loaded  = Object.keys(_piano2Buffers).length > 0;
+  _piano2Loading = false;
+  _pianoUpdateUI();
+}
+
+function _piano2ClosestMidi(target) {
+  const keys = Object.keys(_piano2Buffers).map(Number);
+  if (!keys.length) return null;
+  return keys.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+}
+
+function playPiano2Note(midiNote, time, velocity, durationS) {
+  const ctx     = getSeqAudioCtx();
+  const closest = _piano2ClosestMidi(midiNote);
+  if (closest === null) return;
+  const buf  = _piano2Buffers[closest];
+  const src  = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  src.buffer = buf;
+  src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+  const dur = durationS || 1.4;
+  const vol = Math.min(1, (velocity || 0.8) * 0.85);
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.linearRampToValueAtTime(vol, time + 0.06);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  src.connect(gain);
+  gain.connect(seqGetChordsOut());
+  src.start(time);
+  src.stop(time + dur + 0.1);
+}
+
+function seqPlayChordPiano2(midiNotes, time, velocity) {
+  midiNotes.forEach((midi, i) => {
+    playPiano2Note(midi, time + i * 0.022, velocity, 2.8);
+  });
+}
+
+// ── Piano helpers: check active state across both piano types ─────
+function _instrHasAnyPiano()  { return _instrHas('piano') || _instrHas('piano2'); }
+function _melodyHasAnyPiano() { return _melodyInstrHas('piano') || _melodyInstrHas('piano2'); }
+function _anyPianoChordReady()  {
+  return (_instrHas('piano')  && _pianoLoaded) || (_instrHas('piano2') && _piano2Loaded);
+}
+function _anyPianoMelodyReady() {
+  return (_melodyInstrHas('piano')  && _pianoLoaded) || (_melodyInstrHas('piano2') && _piano2Loaded);
 }
 
 // ── MIDI ──────────────────────────────────────────────────────────
@@ -12943,7 +13237,8 @@ async function initMidi() {
       _midiUpdateUI();
     };
     _midiUpdateUI();
-    if (_instrHas('piano')) loadPianoSamples();
+    if (_instrHas('piano'))  loadPianoSamples();
+    if (_instrHas('piano2')) loadPiano2Samples();
     if (_instrHas('guitar')) loadGuitarSamples();
   } catch(e) {
     console.warn('MIDI access denied:', e);
@@ -13068,11 +13363,15 @@ function _midiNoteOn(midiNote, velocity) {
     playPianoNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
     samplerPlayed = true;
   }
+  if (_melodyInstrHas('piano2') && _piano2Loaded) {
+    playPiano2Note(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
+    samplerPlayed = true;
+  }
   if (_melodyInstrHas('guitar') && _guitarLoaded) {
     playGuitarNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
     samplerPlayed = true;
   }
-  if (_melodyInstrHas('synth') || (!samplerPlayed && (!_melodyInstrHas('piano') || !_pianoLoaded) && (!_melodyInstrHas('guitar') || !_guitarLoaded))) {
+  if (_melodyInstrHas('synth') || (!samplerPlayed && !_anyPianoMelodyReady() && (!_melodyInstrHas('guitar') || !_guitarLoaded))) {
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
     const ctx = getSeqAudioCtx();
     const o = ctx.createOscillator(), g = ctx.createGain();
@@ -13593,9 +13892,11 @@ function renderSequencerHtml(song) {
     <div class="seq-pattern-grid">
       ${[['Kick','seqKick','kick'],['Snare','seqSnare','snare'],['Hi-Hat','seqHat','hat'],['Crash','seqCrash','crash'],['Clap','seqClap','clap']].map(([label,id,row])=>`
       <div class="seq-grid-row" data-row="${row}">
-        <div class="seq-row-label">${label}</div>
+        <button class="seq-row-label" onclick="_drumLabelClick(event,'${row}')" title="Change ${label} sample">${label}<span class="drum-label-arrow">▾</span></button>
         <div class="seq-grid" id="${id}"></div>
       </div>`).join('')}
+      <!-- Shared drum bank popup (one reused for all voices) -->
+      <div id="drumBankPopup" class="drum-bank-popup"></div>
     </div>
 
     <div id="drumNotationWrap" style="display:none;margin-top:14px;overflow-x:auto;-webkit-overflow-scrolling:touch;">
@@ -13661,6 +13962,12 @@ function initSequencer(song) {
   } else if (seqDrumMode === 'hargreaves' && _acoustic2LoadState === 'idle') {
     loadAcoustic2Samples();
   }
+  // Restore per-voice bank choices from song, then probe all 25 slots in background
+  const savedChoices = (song.sequencer || {}).drumBankChoices || {};
+  ['kick','snare','hat','crash','clap'].forEach(v => {
+    if (savedChoices[v] !== undefined) _drumBankChoice[v] = savedChoices[v];
+  });
+  setTimeout(_loadAllDrumBankSlots, 0);
   _updateDrummerDropdown();
 
   // Always get freshest copy from songs array
@@ -13696,7 +14003,8 @@ function initSequencer(song) {
   if (instEl) instEl.value = savedInst;
   const waveGroup = document.getElementById('seqWaveGroup');
   if (waveGroup) waveGroup.style.display = _instrHas('synth') ? '' : 'none';
-  if (_instrHas('piano') && !_pianoLoaded && !_pianoLoading) loadPianoSamples();
+  if (_instrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  loadPianoSamples();
+  if (_instrHas('piano2') && !_piano2Loaded && !_piano2Loading) loadPiano2Samples();
   if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   setTimeout(seqApplyMixer, 0);
 
@@ -13714,6 +14022,8 @@ function initSequencer(song) {
   // Chain of rAFs to ensure DOM is ready at each stage
   requestAnimationFrame(() => {
     seqBuildGrids(fresh);
+    // Update drum label text to reflect restored bank choices
+    ['kick','snare','hat','crash','clap'].forEach(v => _drumBankUpdateLabel(v));
     requestAnimationFrame(() => {
       seqRenderChordPills(fresh); // also calls seqRenderKeyTriggers
       seqRenderKeyboard();
@@ -14341,7 +14651,8 @@ function seqInstrumentChanged() {
   }
   const waveGroup = document.getElementById('seqWaveGroup');
   if (waveGroup) waveGroup.style.display = _instrHas('synth') ? '' : 'none';
-  if (_instrHas('piano') && !_pianoLoaded && !_pianoLoading) loadPianoSamples();
+  if (_instrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  loadPianoSamples();
+  if (_instrHas('piano2') && !_piano2Loaded && !_piano2Loading) loadPiano2Samples();
   if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   seqSaveSettings();
 }
@@ -14862,12 +15173,11 @@ function seqPlayChordByName(name) {
   // Use diatonic map first; fall back to interval-based parsing for variation chords
   const midiNotes = midiMap[name] || _chordVariantToMidi(name);
   let samplerPlayed = false;
-  if (_instrHas('piano') && _pianoLoaded && midiNotes && midiNotes.length) { seqPlayChordPiano(midiNotes, t, 0.8); samplerPlayed = true; }
+  if (_instrHas('piano')  && _pianoLoaded  && midiNotes && midiNotes.length) { seqPlayChordPiano(midiNotes, t, 0.8);  samplerPlayed = true; }
+  if (_instrHas('piano2') && _piano2Loaded && midiNotes && midiNotes.length) { seqPlayChordPiano2(midiNotes, t, 0.8); samplerPlayed = true; }
   if (_instrHas('guitar') && _guitarLoaded && midiNotes && midiNotes.length) { seqPlayChordGuitar(midiNotes, t, 0.8); samplerPlayed = true; }
   // Fall back to synth if: synth is explicitly selected, OR no sampler played
-  // (which includes piano/guitar selected but not yet loaded). Uses same
-  // pattern as _midiNoteOn so all chord-play paths behave consistently.
-  if (_instrHas('synth') || (!samplerPlayed && (!_instrHas('piano') || !_pianoLoaded) && (!_instrHas('guitar') || !_guitarLoaded))) {
+  if (_instrHas('synth') || (!samplerPlayed && !_anyPianoChordReady() && (!_instrHas('guitar') || !_guitarLoaded))) {
     const chords = seqGenChords(key, mode);
     if (chords[name]) {
       seqPlayChord(chords[name], t, 0.8);
@@ -14892,7 +15202,15 @@ function seqClick(time, accent) {
 function seqPlayKick(time, vel) {
   const ctx = getSeqAudioCtx();
   const out = seqGetDrumsOut();
-  // ── Acoustic: use loaded sample ──
+  // ── Bank buffer takes priority ──
+  const bankBuf = _drumBankBuf('kick');
+  if (bankBuf) {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = bankBuf;
+    g.gain.setValueAtTime(vel, time);
+    src.connect(g); g.connect(out); src.start(time); return;
+  }
+  // ── Acoustic kit fallback ──
   const bufs = _drumBufs();
   if (_drumIsAcoustic() && bufs.kick) {
     const src = ctx.createBufferSource(), g = ctx.createGain();
@@ -14913,7 +15231,15 @@ function seqPlayKick(time, vel) {
 function seqPlaySnare(time, vel) {
   const ctx = getSeqAudioCtx();
   const out = seqGetDrumsOut();
-  // ── Acoustic: use loaded sample ──
+  // ── Bank buffer takes priority ──
+  const bankBuf = _drumBankBuf('snare');
+  if (bankBuf) {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = bankBuf;
+    g.gain.setValueAtTime(vel * 0.85, time);
+    src.connect(g); g.connect(out); src.start(time); return;
+  }
+  // ── Acoustic kit fallback ──
   const bufs = _drumBufs();
   if (_drumIsAcoustic() && bufs.snare) {
     const src = ctx.createBufferSource(), g = ctx.createGain();
@@ -14935,7 +15261,15 @@ function seqPlaySnare(time, vel) {
 function seqPlayHat(time, vel) {
   const ctx = getSeqAudioCtx();
   const out = seqGetDrumsOut();
-  // ── Acoustic: use loaded sample ──
+  // ── Bank buffer takes priority ──
+  const bankBuf = _drumBankBuf('hat');
+  if (bankBuf) {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = bankBuf;
+    g.gain.setValueAtTime(vel * 0.6, time);
+    src.connect(g); g.connect(out); src.start(time); return;
+  }
+  // ── Acoustic kit fallback ──
   const bufs = _drumBufs();
   if (_drumIsAcoustic() && bufs.hat) {
     const src = ctx.createBufferSource(), g = ctx.createGain();
@@ -14955,6 +15289,14 @@ function seqPlayHat(time, vel) {
 function seqPlayClap(time, vel) {
   const ctx = getSeqAudioCtx();
   const out = seqGetDrumsOut();
+  // ── Bank buffer takes priority ──
+  const bankBuf = _drumBankBuf('clap');
+  if (bankBuf) {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = bankBuf;
+    g.gain.setValueAtTime(vel * 0.9, time);
+    src.connect(g); g.connect(out); src.start(time); return;
+  }
   const acoustic = _drumIsAcoustic();
   const bursts = acoustic ? [0, 0.008, 0.018, 0.028, 0.040] : [0, 0.01, 0.02];
   const dur     = acoustic ? 0.25 : 0.1;
@@ -14976,7 +15318,15 @@ function seqPlayClap(time, vel) {
 function seqPlayCrash(time, vel) {
   const ctx = getSeqAudioCtx();
   const out = seqGetDrumsOut();
-  // ── LACER / HARGREAVES: use real crash sample ──
+  // ── Bank buffer takes priority ──
+  const bankBuf = _drumBankBuf('crash');
+  if (bankBuf) {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = bankBuf;
+    g.gain.setValueAtTime(vel * 0.7, time);
+    src.connect(g); g.connect(out); src.start(time); return;
+  }
+  // ── LACER / HARGREAVES: use real crash sample (if available) ──
   const _crashBuf = seqDrumMode === 'hargreaves' ? _acoustic2MainBufs.crash : _acousticMainBufs.crash;
   if (_drumIsAcoustic() && _crashBuf) {
     const src = ctx.createBufferSource(), g = ctx.createGain();
@@ -15051,6 +15401,11 @@ document.addEventListener('click', function(e) {
       if (_seqSettingsTriggerBtn) _seqSettingsTriggerBtn.classList.remove('open');
       _seqSettingsTriggerBtn = null;
     }
+  }
+  // Close drum bank popup when clicking outside
+  const dbp = document.getElementById('drumBankPopup');
+  if (dbp && dbp.classList.contains('open') && !dbp.contains(e.target)) {
+    _drumBankPopupClose();
   }
 });
 
@@ -15171,10 +15526,10 @@ function seqScheduleNotes() {
     const loopKey  = seqCurrentKey();
     const loopMode = seqCurrentMode();
     const loopChords = seqGenChords(loopKey, loopMode);
-    const _hasPiano  = _instrHas('piano');
+    const _hasPiano  = _instrHas('piano') || _instrHas('piano2');
     const _hasGuitar = _instrHas('guitar');
     const _hasSynth  = _instrHas('synth');
-    const _useSampler = (_hasPiano && _pianoLoaded) || (_hasGuitar && _guitarLoaded);
+    const _useSampler = _anyPianoChordReady() || (_hasGuitar && _guitarLoaded);
     const loopChordsMidi = _useSampler ? seqGenChordMidi(loopKey, loopMode) : null;
 
     while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
@@ -15196,7 +15551,8 @@ function seqScheduleNotes() {
       if (chordName) {
         const midiNotes = loopChordsMidi?.[chordName] || _chordVariantToMidi(chordName);
         let samplerPlayed = false;
-        if (_hasPiano  && _pianoLoaded  && midiNotes?.length) { seqPlayChordPiano(midiNotes, chordTime, velocity);  samplerPlayed = true; }
+        if (_instrHas('piano')  && _pianoLoaded  && midiNotes?.length) { seqPlayChordPiano(midiNotes, chordTime, velocity);  samplerPlayed = true; }
+        if (_instrHas('piano2') && _piano2Loaded && midiNotes?.length) { seqPlayChordPiano2(midiNotes, chordTime, velocity); samplerPlayed = true; }
         if (_hasGuitar && _guitarLoaded && midiNotes?.length) { seqPlayChordGuitar(midiNotes, chordTime, velocity); samplerPlayed = true; }
         if (_hasSynth || !samplerPlayed) {
           const freqs = loopChords[chordName] || (midiNotes?.length ? midiNotes.map(m => 440 * Math.pow(2, (m - 69) / 12)) : null);
@@ -15281,10 +15637,10 @@ function seqScheduleNotes() {
   const loopKey    = seqCurrentKey();
   const loopMode   = seqCurrentMode();
   const loopChords     = seqGenChords(loopKey, loopMode);
-  const _hasPiano  = _instrHas('piano');
+  const _hasPiano  = _instrHas('piano') || _instrHas('piano2');
   const _hasGuitar = _instrHas('guitar');
   const _hasSynth  = _instrHas('synth');
-  const _useSampler = (_hasPiano && _pianoLoaded) || (_hasGuitar && _guitarLoaded);
+  const _useSampler = _anyPianoChordReady() || (_hasGuitar && _guitarLoaded);
   const loopChordsMidi = _useSampler ? seqGenChordMidi(loopKey, loopMode) : null;
 
   const chordSlots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
@@ -15346,7 +15702,8 @@ function seqScheduleNotes() {
     if (_chordName) {
       const midiNotes = loopChordsMidi?.[_chordName] || _chordVariantToMidi(_chordName);
       let samplerPlayed = false;
-      if (_hasPiano  && _pianoLoaded  && midiNotes?.length) { seqPlayChordPiano(midiNotes, chordTime, velocity);  samplerPlayed = true; }
+      if (_instrHas('piano')  && _pianoLoaded  && midiNotes?.length) { seqPlayChordPiano(midiNotes, chordTime, velocity);  samplerPlayed = true; }
+      if (_instrHas('piano2') && _piano2Loaded && midiNotes?.length) { seqPlayChordPiano2(midiNotes, chordTime, velocity); samplerPlayed = true; }
       if (_hasGuitar && _guitarLoaded && midiNotes?.length) { seqPlayChordGuitar(midiNotes, chordTime, velocity); samplerPlayed = true; }
       if (_hasSynth || (!samplerPlayed && !_hasPiano && !_hasGuitar)) {
         const freqs = loopChords[_chordName] || (midiNotes?.length ? midiNotes.map(m => 440 * Math.pow(2, (m - 69) / 12)) : null);
@@ -15684,6 +16041,29 @@ function kbdPlayNote(note, octave, sustained = false) {
       samplerPlayed = true;
     }
   }
+  if (_melodyInstrHas('piano2') && _piano2Loaded) {
+    const closest = _piano2ClosestMidi(midiNote);
+    if (closest !== null) {
+      const buf = _piano2Buffers[closest];
+      const src = ctx.createBufferSource(), gain = ctx.createGain();
+      src.buffer = buf;
+      src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+      if (sustained) {
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.75, t + 0.06);
+        src.connect(gain); gain.connect(seqGetMelodyOut());
+        src.start(t);
+        if (!_melodyInstrHas('piano')) _kbdActiveSustain.set(sustKey, { src, gain });
+      } else {
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.75, t + 0.06);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
+        src.connect(gain); gain.connect(seqGetMelodyOut());
+        src.start(t); src.stop(t + 1.5);
+      }
+      samplerPlayed = true;
+    }
+  }
   if (_melodyInstrHas('guitar') && _guitarLoaded) {
     const closest = _guitarClosestMidi(midiNote);
     if (closest !== null) {
@@ -15707,7 +16087,7 @@ function kbdPlayNote(note, octave, sustained = false) {
       samplerPlayed = true;
     }
   }
-  if (_melodyInstrHas('synth') || (!samplerPlayed && (!_melodyInstrHas('piano') || !_pianoLoaded) && (!_melodyInstrHas('guitar') || !_guitarLoaded))) {
+  if (_melodyInstrHas('synth') || (!samplerPlayed && !_anyPianoMelodyReady() && (!_melodyInstrHas('guitar') || !_guitarLoaded))) {
     const baseFreq = seqFreq(note);
     const f = baseFreq * Math.pow(2, octave - 4);
     const wave = document.getElementById('seqWave')?.value || 'triangle';
@@ -15959,7 +16339,8 @@ function melodyInstrumentChanged() {
   // Trigger sample loading if needed
   const lbl = document.getElementById('melodyInstrumentLoading');
   let loading = false;
-  if (_melodyInstrHas('piano') && !_pianoLoaded && !_pianoLoading) { loadPianoSamples(); loading = true; }
+  if (_melodyInstrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  { loadPianoSamples();  loading = true; }
+  if (_melodyInstrHas('piano2') && !_piano2Loaded && !_piano2Loading) { loadPiano2Samples(); loading = true; }
   if (_melodyInstrHas('guitar') && !_guitarLoaded && !_guitarLoading) { loadGuitarSamples(); loading = true; }
   if (lbl) lbl.style.display = loading ? 'inline' : 'none';
   save();
@@ -16174,6 +16555,7 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
   const wave = document.getElementById('seqWave')?.value || 'triangle';
   const _inst = instrumentOverride || _kbdMelodyInstrument;
   const hasPiano  = _inst.split('+').includes('piano');
+  const hasPiano2 = _inst.split('+').includes('piano2');
   const hasGuitar = _inst.split('+').includes('guitar');
   const hasSynth  = _inst.split('+').includes('synth');
 
@@ -16190,6 +16572,21 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
       const closest = _pianoClosestMidi(midiNote);
       if (closest !== null) {
         const buf = _pianoBuffers[closest];
+        const src = ctx.createBufferSource(), gain = ctx.createGain();
+        src.buffer = buf;
+        src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+        gain.gain.setValueAtTime(amp, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur + 0.05);
+        src.connect(gain); gain.connect(seqGetMelodyOut());
+        src.start(t); src.stop(t + dur + 0.1);
+        melodyScheduledNodes.push(src);
+        samplerPlayed = true;
+      }
+    }
+    if (hasPiano2 && _piano2Loaded) {
+      const closest = _piano2ClosestMidi(midiNote);
+      if (closest !== null) {
+        const buf = _piano2Buffers[closest];
         const src = ctx.createBufferSource(), gain = ctx.createGain();
         src.buffer = buf;
         src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
@@ -21965,12 +22362,17 @@ function renderKeyboardDrawerHtml(song) {
           <span class="seq-label">Chords</span>
           <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()" style="width:auto;">
             <option value="synth"${chordInstrument==='synth'?' selected':''}>Synth</option>
-            <option value="piano"${chordInstrument==='piano'?' selected':''}>Piano</option>
+            <option value="piano"${chordInstrument==='piano'?' selected':''}>Grand Piano</option>
+            <option value="piano2"${chordInstrument==='piano2'?' selected':''}>Upright Piano</option>
+            <option value="piano+piano2"${chordInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
             <option value="guitar"${chordInstrument==='guitar'?' selected':''}>Guitar</option>
-            <option value="guitar+piano"${chordInstrument==='guitar+piano'?' selected':''}>Guitar + Piano</option>
+            <option value="guitar+piano"${chordInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
+            <option value="guitar+piano2"${chordInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
             <option value="guitar+synth"${chordInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
-            <option value="piano+synth"${chordInstrument==='piano+synth'?' selected':''}>Piano + Synth</option>
-            <option value="guitar+piano+synth"${chordInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Piano + Synth</option>
+            <option value="piano+synth"${chordInstrument==='piano+synth'?' selected':''}>Grand + Synth</option>
+            <option value="piano2+synth"${chordInstrument==='piano2+synth'?' selected':''}>Upright + Synth</option>
+            <option value="guitar+piano+synth"${chordInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Grand + Synth</option>
+            <option value="guitar+piano2+synth"${chordInstrument==='guitar+piano2+synth'?' selected':''}>Guitar + Upright + Synth</option>
           </select>
           <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
         </div>
@@ -21999,12 +22401,17 @@ function renderKeyboardDrawerHtml(song) {
         <span class="seq-label">Keyboard</span>
         <select class="seq-select" id="melodyInstrumentSelect" onchange="melodyInstrumentChanged()" style="width:auto;font-size:10px;">
           <option value="synth"${melodyInstrument==='synth'?' selected':''}>Synth</option>
-          <option value="piano"${melodyInstrument==='piano'?' selected':''}>Piano</option>
+          <option value="piano"${melodyInstrument==='piano'?' selected':''}>Grand Piano</option>
+          <option value="piano2"${melodyInstrument==='piano2'?' selected':''}>Upright Piano</option>
+          <option value="piano+piano2"${melodyInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
           <option value="guitar"${melodyInstrument==='guitar'?' selected':''}>Guitar</option>
-          <option value="guitar+piano"${melodyInstrument==='guitar+piano'?' selected':''}>Guitar + Piano</option>
+          <option value="guitar+piano"${melodyInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
+          <option value="guitar+piano2"${melodyInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
           <option value="guitar+synth"${melodyInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
-          <option value="piano+synth"${melodyInstrument==='piano+synth'?' selected':''}>Piano + Synth</option>
-          <option value="guitar+piano+synth"${melodyInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Piano + Synth</option>
+          <option value="piano+synth"${melodyInstrument==='piano+synth'?' selected':''}>Grand + Synth</option>
+          <option value="piano2+synth"${melodyInstrument==='piano2+synth'?' selected':''}>Upright + Synth</option>
+          <option value="guitar+piano+synth"${melodyInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Grand + Synth</option>
+          <option value="guitar+piano2+synth"${melodyInstrument==='guitar+piano2+synth'?' selected':''}>Guitar + Upright + Synth</option>
         </select>
         <span id="melodyInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
       </div>
@@ -22182,8 +22589,10 @@ function openKeyboardDrawer() {
     _activeInstrument    = activeSeq.instrument        || 'piano';
     // Kick off sample loading so keys play immediately on first open
     if (_melodyInstrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  loadPianoSamples();
+    if (_melodyInstrHas('piano2') && !_piano2Loaded && !_piano2Loading) loadPiano2Samples();
     if (_melodyInstrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
     if (_instrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  loadPianoSamples();
+    if (_instrHas('piano2') && !_piano2Loaded && !_piano2Loading) loadPiano2Samples();
     if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   }
 
