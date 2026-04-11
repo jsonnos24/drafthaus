@@ -27337,7 +27337,13 @@ window.mtPlay = async function(startOffset) {
   if (_vrRecording) return;
   if (_mtIsPlaying) { _mtStopAll(); return; }
   if (!_mtTracks.some(t=>t&&t.buffer)) return;
-  await _mtEnsureCtx();
+  // Kick AudioContext.resume() SYNCHRONOUSLY here, within the user gesture.
+  // iOS Safari loses the gesture flag after the first real 'await', so if the
+  // context is suspended, the resume call inside _mtEnsureCtx() will be blocked.
+  // Firing it synchronously first guarantees iOS accepts it.
+  _mtCreateCtxSync();
+  if (_mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(() => {});
+  await _mtEnsureCtx(); // belt-and-suspenders: waits if context still needs time
   const offset = startOffset !== undefined ? startOffset : _mtScrubOffset;
   _mtScrubOffset = 0;
   _mtStartPlayback(offset);
@@ -28330,6 +28336,10 @@ async function _mtLoadTakeBuffer(trackIdx, take, expectedSongId) {
     if (expectedSongId && currentId !== expectedSongId) return;
     t.buffer   = buf;
     t.duration = buf.duration;
+    // Enable the play button as soon as the FIRST track buffer is ready —
+    // don't make the user wait for all 4 tracks to load before they can press play.
+    const pb = _el('mtPlayBtn');
+    if (pb && pb.disabled) pb.disabled = false;
     // Update waveform canvas
     _mtDrawTrackWaveform(trackIdx, buf, t.color);
     // Update state label
