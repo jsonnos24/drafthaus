@@ -8910,18 +8910,18 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     max-width: 100vw !important;
     max-height: 60dvh !important;
     border-radius: 18px 18px 0 0 !important;
-    z-index: 9200 !important; /* above transport (9100) */
+    z-index: 10000 !important; /* above transport (9999) */
     box-shadow: 0 -8px 40px rgba(0,0,0,0.6) !important;
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
     overflow-y: auto !important;
   }
-  /* Dim overlay behind takes sheet */
+  /* Dim overlay behind takes sheet, above transport */
   .mt-takes-overlay {
     display: none;
     position: fixed;
     inset: 0;
     background: rgba(0,0,0,0.5);
-    z-index: 9190;
+    z-index: 9998;
   }
   .mt-takes-overlay.open { display: block; }
 
@@ -8930,10 +8930,27 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     display: none !important;
   }
 
-  /* Compact mode overrides — keep desktop compact mode off on mobile */
+  /* ── Rehearse / compact mode: force full-width bottom-sheet on mobile ──
+     Desktop compact = 220px right sidebar. On mobile that sidebar layout breaks
+     everything — reset to the same full-screen bottom-sheet as regular mode. ── */
+  #vrOverlay.vr-rt-compact {
+    inset: 0 !important;
+    width: 100% !important;
+    background: rgba(0,0,0,0.55) !important;
+    backdrop-filter: none !important;
+    align-items: flex-end !important;
+    justify-content: stretch !important;
+  }
   #vrOverlay.vr-rt-compact #vrDeck {
+    width: 100% !important;
+    max-width: 100% !important;
     max-height: 92dvh !important;
+    height: auto !important;
     border-radius: 20px 20px 0 0 !important;
+    border-right: none !important;
+    overflow: hidden !important;
+    overflow-y: hidden !important;
+    padding-bottom: 0 !important;
   }
 
   /* ── Right column: icons stacked above ARM button ── */
@@ -9249,18 +9266,33 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     width: 100vw !important; max-width: 100vw !important;
     max-height: 70dvh !important;
     border-radius: 12px 12px 0 0 !important;
-    z-index: 9200 !important;
+    z-index: 10000 !important; /* above transport (9999) */
     box-shadow: 0 -8px 40px rgba(0,0,0,0.6) !important;
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
     overflow-y: auto !important;
   }
-  .mt-takes-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9190; }
+  .mt-takes-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9998; }
   .mt-takes-overlay.open { display: block; }
 
-  /* Compact overrides */
+  /* ── Rehearse / compact mode: force full-width bottom-sheet in landscape mobile too ── */
+  #vrOverlay.vr-rt-compact {
+    inset: 0 !important;
+    width: 100% !important;
+    background: rgba(0,0,0,0.55) !important;
+    backdrop-filter: none !important;
+    align-items: flex-end !important;
+    justify-content: stretch !important;
+  }
   #vrOverlay.vr-rt-compact #vrDeck {
+    width: 100% !important;
+    max-width: 100% !important;
     max-height: 100dvh !important;
+    height: auto !important;
     border-radius: 10px 10px 0 0 !important;
+    border-right: none !important;
+    overflow: hidden !important;
+    overflow-y: hidden !important;
+    padding-bottom: 0 !important;
   }
 }
 
@@ -28234,7 +28266,14 @@ function _mtDrawTrackWaveform(trackIdx, buffer, color, _attempt) {
 
 // ── Takes panel — floating dropdown (desktop) / bottom sheet (mobile) ──
 window.mtCloseAllTakes = function() {
-  document.querySelectorAll('.mt-takes-panel.open').forEach(p => p.classList.remove('open'));
+  document.querySelectorAll('.mt-takes-panel.open').forEach(function(p) {
+    p.classList.remove('open');
+    // Restore any panel that was teleported to <body> (mobile fix)
+    if (p._takesOrigin && p.parentElement === document.body) {
+      p._takesOrigin.parent.insertBefore(p, p._takesOrigin.next || null);
+      p._takesOrigin = null;
+    }
+  });
   const ov = _el('mtTakesOverlay'); if (ov) ov.classList.remove('open');
 };
 
@@ -28245,10 +28284,17 @@ window.mtToggleTakes = function(i) {
   mtCloseAllTakes();
   if (isOpen) return; // was open → just closed it above
 
-  const isMobile = window.innerWidth <= 768;
+  // Use short-side detection so this works in both portrait and landscape
+  // (landscape viewport meta is width=1024 so innerWidth check would fail)
+  const isMobile = Math.min(window.innerWidth, window.innerHeight) <= 600;
 
   if (isMobile) {
-    // Mobile: bottom sheet — CSS handles positioning, just show dim overlay
+    // Teleport panel to <body> so position:fixed works correctly —
+    // #vrDeck has transform which breaks fixed positioning for children.
+    if (panel.parentElement !== document.body) {
+      panel._takesOrigin = { parent: panel.parentElement, next: panel.nextSibling };
+      document.body.appendChild(panel);
+    }
     const ov = _el('mtTakesOverlay'); if (ov) ov.classList.add('open');
     panel.classList.add('open');
     return;
