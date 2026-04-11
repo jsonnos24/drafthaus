@@ -972,6 +972,18 @@ button, select, input, textarea { touch-action: manipulation; }
     justify-content: center !important;
     flex-shrink: 0 !important;
   }
+  .seq-chord-var-pill {
+    font-size: 13px !important;
+    padding: 10px 10px !important;
+    min-height: 44px !important;
+    min-width: 60px !important;
+    border-radius: 8px !important;
+    text-align: center !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+  }
   /* Pills on their own row, buttons wrap underneath */
   #seqSubChords .seq-sub-body > div:first-child > div:first-child {
     flex-wrap: wrap !important;
@@ -3993,9 +4005,23 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .keyboard-drawer.open { transform: translateX(0); }
   .keyboard-drawer-header {
-    padding: 16px 20px; border-bottom: 1px solid rgba(255,209,102,0.2);
+    padding: 16px 20px 0; border-bottom: 1px solid rgba(255,209,102,0.2);
     display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0; flex-wrap: wrap;
+  }
+  .kbd-settings-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    padding: 8px 0 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
     flex-shrink: 0;
+  }
+  .kbd-settings-row::-webkit-scrollbar { display: none; }
+  .kbd-settings-row .kbd-settings-strip {
+    flex-wrap: nowrap;
+    overflow-x: visible;
   }
   .keyboard-drawer-title {
     font-family: 'IBM Plex Mono', monospace; font-size: 11px;
@@ -9152,7 +9178,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
         <div class="ks-sep"></div>
         <div class="ks-section-label">Drawers</div>
         <div class="ks-row"><kbd>T</kbd><span>4-Track recorder</span></div>
-        <div class="ks-row"><kbd>K</kbd><span>Keyboard &amp; Melody</span></div>
+        <div class="ks-row"><kbd>K</kbd><span>One Finger Chords &amp; Keyboard</span></div>
         <div class="ks-row"><kbd>S</kbd><span>Sequencer</span></div>
         <div class="ks-row"><kbd>O</kbd><span>Looper</span></div>
         <div class="ks-row"><kbd>M</kbd><span>Mix</span></div>
@@ -20332,7 +20358,7 @@ var _drawerHelpContent = {
     ]
   },
   'keyboard': {
-    title: '🎹 Keyboard & Melody',
+    title: '🎹 One Finger Chords & Keyboard',
     sections: [
       {
         label: 'What it does',
@@ -21085,11 +21111,8 @@ function renderKeyboardDrawerHtml(song) {
   const chordInstrument = sd.instrument || 'piano';
 
   return `
-    <!-- Toolbar -->
-    <div class="kbd-toolbar" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 0 10px;border-bottom:1px solid var(--border2);">
-
-      <!-- Settings strip (settings + config controls) -->
-      <div class="kbd-settings-strip" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;">
+      <!-- Settings strip — rendered into body, hoisted to kbdSettingsRow by openKeyboardDrawer() -->
+      <div class="kbd-settings-strip" style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;flex:1;overflow-x:auto;">
         <!-- Settings gear -->
         <button class="seq-btn seq-settings-btn" onclick="seqToggleSettings(event)" title="Settings">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -21149,9 +21172,16 @@ function renderKeyboardDrawerHtml(song) {
             <option value="16"${(sd.bars||'16')==='16'?' selected':''}>16</option>
           </select>
         </div>
+        <!-- Grid (promoted from settings popup) -->
+        <div class="seq-ctrl-group">
+          <span class="seq-label">Grid</span>
+          <select class="seq-select" id="kbdGrid" onchange="kbdGridChanged()" title="Note grid resolution">
+            <option value="1"${(sd.grid||'2')==='1'?' selected':''}>1/4</option>
+            <option value="2"${(sd.grid||'2')==='2'?' selected':''}>1/8</option>
+            <option value="4"${(sd.grid||'2')==='4'?' selected':''}>1/16</option>
+          </select>
+        </div>
       </div>
-
-    </div>
 
     <!-- ══ Chord Progression Section ══ -->
     <div style="border-bottom:1px solid var(--border2);margin-bottom:12px;padding-bottom:12px;">
@@ -21338,6 +21368,17 @@ function kbdBarsChanged() {
   if (song?.sequencer) { song.sequencer.bars = val; save(); scheduleSyncToSheet(song); }
 }
 
+function kbdGridChanged() {
+  const val = document.getElementById('kbdGrid')?.value;
+  if (!val) return;
+  // Sync the canonical seqGrid element so all existing sequencer code picks it up
+  const seqGridEl = document.getElementById('seqGrid');
+  if (seqGridEl && seqGridEl.value !== val) seqGridEl.value = val;
+  const song = getCurrentSong();
+  if (song?.sequencer) { song.sequencer.grid = val; save(); scheduleSyncToSheet(song); }
+  seqRebuild();
+}
+
 function openKeyboardDrawer() {
   _setNavOpen('nav-keyboard', true);
   document.getElementById('keyboardDrawer').classList.add('open');
@@ -21367,6 +21408,14 @@ function openKeyboardDrawer() {
   const body = document.getElementById('keyboardDrawerBody');
   if (!body) return;
   body.innerHTML = renderKeyboardDrawerHtml(song);
+
+  // Hoist the settings strip from the body up into the fixed header row
+  const settingsRow = document.getElementById('kbdSettingsRow');
+  const settingsStrip = body.querySelector('.kbd-settings-strip');
+  if (settingsRow && settingsStrip) {
+    settingsRow.innerHTML = '';
+    settingsRow.appendChild(settingsStrip);
+  }
 
   // Render keyboard, melody roll, tabs, MIDI status, chord grid + pills
   requestAnimationFrame(() => {
@@ -28556,13 +28605,14 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
       <button class="split-transport-btn split-met-btn" id="kbdMetBtn" onclick="seqToggleMet()" title="Toggle metronome">Metro</button>
     </div>
     <div style="flex-shrink:0;">
-      <div class="keyboard-drawer-title">🎹 Keyboard & Melody</div>
+      <div class="keyboard-drawer-title">🎹 One Finger Chords & Keyboard</div>
       <div class="keyboard-drawer-song" id="keyboardDrawerSongName">Open a draft to record melody</div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:8px;">
       <button class="drawer-help-btn" onclick="openDrawerHelp('keyboard')" title="How to use Keyboard">?</button>
     </div>
   </div>
+  <div class="kbd-settings-row" id="kbdSettingsRow"></div>
   <div class="keyboard-drawer-body" id="keyboardDrawerBody">
     <!-- Content rendered by openKeyboardDrawer() -->
   </div>
@@ -28628,7 +28678,8 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
         <option value="sawtooth">Sawtooth</option>
       </select>
     </div>
-    <div class="seq-ctrl-group">
+    <div class="seq-ctrl-group" id="seqGridPopupGroup">
+      <!-- Grid promoted to kbd settings strip; kept here for the drums drawer -->
       <span class="seq-label">Grid</span>
       <select class="seq-select" id="seqGrid" onchange="seqRebuild()">
         <option value="1">1/4</option>
