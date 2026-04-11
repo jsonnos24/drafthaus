@@ -1902,6 +1902,9 @@ button, select, input, textarea { touch-action: manipulation; }
   .drum-label-arrow {
     font-size: 8px; opacity: 0.6; flex-shrink: 0; margin-left: 1px;
   }
+  .drum-label-bank {
+    font-size: 8px; opacity: 0.5; letter-spacing: 0.03em;
+  }
   /* Drum bank popup */
   .drum-bank-popup {
     position: fixed; z-index: 9999;
@@ -9802,8 +9805,13 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
         <div class="ks-row"><kbd>O</kbd><span>Looper</span></div>
         <div class="ks-row"><kbd>M</kbd><span>Mix</span></div>
         <div class="ks-sep"></div>
+        <div class="ks-section-label">4-Track Recorder (when open)</div>
+        <div class="ks-row"><kbd>Space</kbd><span>Play / Stop</span></div>
+        <div class="ks-row"><kbd>⇧ Shift</kbd>+<kbd>Space</kbd><span>Play 4-track + Sequencer together</span></div>
+        <div class="ks-row"><kbd>R</kbd><span>Toggle record</span></div>
+        <div class="ks-sep"></div>
         <div class="ks-section-label">General</div>
-        <div class="ks-row"><kbd>Space</kbd><span>Play / Stop (metro, sequencer, keyboard, 4-track)</span></div>
+        <div class="ks-row"><kbd>Space</kbd><span>Play / Stop (metro, sequencer, keyboard)</span></div>
         <div class="ks-row"><kbd>↵ Enter</kbd><span>Expand active pane / Revert to split</span></div>
         <div class="ks-row"><kbd>Esc</kbd><span>Close open drawer</span></div>
         <div class="ks-row"><kbd>1</kbd>–<kbd>8</kbd><span>Play scale notes (Sequencer open)</span></div>
@@ -9979,7 +9987,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
           </div>
           <div class="field-group" style="flex:2">
             <div class="field-label">Key <span style="font-size:9px;color:var(--faint);font-weight:400;letter-spacing:0.05em;">— updates sequencer</span></div>
-            <select class="field-input" id="fKey" onchange="saveField(); seqOnSongKeyChange(); const sk=document.getElementById('seqKeySelect'); if(sk) sk.value=this.value;">
+            <select class="field-input" id="fKey" onchange="const _oldKey=getCurrentSong()?.key; saveField(); seqOnSongKeyChange(_oldKey); const sk=document.getElementById('seqKeySelect'); if(sk) sk.value=this.value;">
               <option value="">— Key —</option>
               <option>C major</option><option>C minor</option>
               <option>C# / Db major</option><option>C# / Db minor</option>
@@ -11083,7 +11091,7 @@ function newSong() {
   }
   const song = {
     id: genId(), workingTitle:'', title:'', bpm:'', key:'', tuning:'',
-    project:'', status:'idea', structure:{'verse-1':{checked:true},'chorus-1':{checked:true}}, sectionOrder:['verse-1','chorus-1'], chords:{}, instruments:{}, sequencer:{}, notes:'', moods:[],
+    project:'', status:'idea', structure:{}, sectionOrder:[], chords:{}, instruments:{}, sequencer:{}, notes:'', moods:[],
     createdAt: Date.now(), updatedAt: Date.now()
   };
   songs.unshift(song);
@@ -11143,8 +11151,8 @@ function _drawerQuickNewSong(afterLoad) {
   }
   const song = {
     id: genId(), workingTitle:'', title:'', bpm:'', key:'', tuning:'',
-    project:'', status:'idea', structure:{'verse-1':{checked:true},'chorus-1':{checked:true}},
-    sectionOrder:['verse-1','chorus-1'], chords:{}, instruments:{}, sequencer:{},
+    project:'', status:'idea', structure:{}, sectionOrder:[],
+    chords:{}, instruments:{}, sequencer:{},
     notes:'', moods:[], createdAt: Date.now(), updatedAt: Date.now()
   };
   songs.unshift(song);
@@ -12658,47 +12666,39 @@ function _drumBufs()       { return seqDrumMode === 'hargreaves' ? _acoustic2Mai
 
 // ── Per-voice drum sample banks (5 options each, null URL = synth) ──────────
 const _DRUM_BANKS = {
+  // Casio kit removed — all Casio URLs return 404
+  // Crash/clap real samples all return 404 across every kit; Synth-only for now
   kick: [
     { label: 'Lacer',      url: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/kick.mp3' },
     { label: 'Hargreaves', url: 'https://tonejs.github.io/audio/drum-samples/Stark/kick.mp3' },
     { label: 'CR78',       url: 'https://tonejs.github.io/audio/drum-samples/CR78/kick.mp3' },
-    { label: 'Casio',      url: 'https://tonejs.github.io/audio/drum-samples/Casio/kick.mp3' },
     { label: 'Synth',      url: null },
   ],
   snare: [
     { label: 'Lacer',      url: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/snare.mp3' },
     { label: 'Hargreaves', url: 'https://tonejs.github.io/audio/drum-samples/Stark/snare.mp3' },
     { label: 'CR78',       url: 'https://tonejs.github.io/audio/drum-samples/CR78/snare.mp3' },
-    { label: 'Casio',      url: 'https://tonejs.github.io/audio/drum-samples/Casio/snare.mp3' },
     { label: 'Synth',      url: null },
   ],
   hat: [
     { label: 'Lacer',      url: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/hihat.mp3' },
     { label: 'Hargreaves', url: 'https://tonejs.github.io/audio/drum-samples/Stark/hihat.mp3' },
     { label: 'CR78',       url: 'https://tonejs.github.io/audio/drum-samples/CR78/hihat.mp3' },
-    { label: 'Casio',      url: 'https://tonejs.github.io/audio/drum-samples/Casio/hihat.mp3' },
     { label: 'Synth',      url: null },
   ],
   crash: [
-    { label: 'Synth',      url: null },
-    { label: 'CR78',       url: 'https://tonejs.github.io/audio/drum-samples/CR78/crash.mp3' },
-    { label: 'Casio',      url: 'https://tonejs.github.io/audio/drum-samples/Casio/crash.mp3' },
-    { label: 'Hargreaves', url: 'https://tonejs.github.io/audio/drum-samples/Stark/crash.mp3' },
-    { label: 'Lacer',      url: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/crash.mp3' },
+    { label: 'Synth',      url: null }, // all CDN crash samples 404 — synth only
   ],
   clap: [
-    { label: 'Synth',      url: null },
-    { label: 'CR78',       url: 'https://tonejs.github.io/audio/drum-samples/CR78/clap.mp3' },
-    { label: 'Casio',      url: 'https://tonejs.github.io/audio/drum-samples/Casio/clap.mp3' },
-    { label: 'Hargreaves', url: 'https://tonejs.github.io/audio/drum-samples/Stark/clap.mp3' },
-    { label: 'Lacer',      url: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/clap.mp3' },
+    { label: 'Synth',      url: null }, // all CDN clap samples 404 — synth only
   ],
 };
 // state: 'idle' | 'loading' | 'ok' | 'error'
 var _drumBankStates = {};
 var _drumBankBufs   = {};
 // which bank index is active per voice
-var _drumBankChoice = { kick: 0, snare: 0, hat: 0, crash: 0, clap: 0 };
+var _drumBankChoice = { kick: 0, snare: 2, hat: 0, crash: 0, clap: 0 };
+// kick:0=Lacer, snare:2=CR78, hat:0=Lacer, crash:0=Synth, clap:0=Synth
 // Initialize state arrays
 (function() {
   ['kick','snare','hat','crash','clap'].forEach(v => {
@@ -12781,8 +12781,10 @@ function _drumBankUpdateLabel(voice) {
   if (!btn) return;
   const idx = _drumBankChoice[voice];
   const entry = _DRUM_BANKS[voice][idx];
-  const shortLabel = entry ? entry.label : ['Kick','Snare','Hi-Hat','Crash','Clap'][['kick','snare','hat','crash','clap'].indexOf(voice)];
-  btn.innerHTML = shortLabel + '<span class="drum-label-arrow">▾</span>';
+  const drumNames = { kick:'Kick', snare:'Snare', hat:'Hi-Hat', crash:'Crash', clap:'Clap' };
+  const drumName = drumNames[voice] || voice;
+  const bankLabel = entry ? entry.label : drumName;
+  btn.innerHTML = `${drumName} <span class="drum-label-bank">· ${bankLabel}</span><span class="drum-label-arrow">▾</span>`;
 }
 
 // ── Popup open/close ────────────────────────────────────────────────────────
@@ -13679,12 +13681,22 @@ function seqMixerChange(channel, type, value) {
 function seqFreq(n) { return 440 * Math.pow(2, (SEQ_NOTES.indexOf(n) - 9) / 12); }
 
 
-function seqOnSongKeyChange() {
+function seqOnSongKeyChange(rawOldKey) {
   const song = getCurrentSong();
   if (!song) return;
 
-  const oldKey  = song.sequencer?.key  || seqCurrentKey();
-  const oldMode = song.sequencer?.mode || seqCurrentMode();
+  // rawOldKey is the full song.key string captured BEFORE saveField ran.
+  // Fall back to song.sequencer.key (set by seqSaveSettings) or the new key if neither is available.
+  let oldKey, oldMode;
+  if (rawOldKey) {
+    const root = rawOldKey.split(' ')[0].split('/')[0].trim() || 'C';
+    const enh  = {'Db':'C#','Eb':'D#','Fb':'E','Gb':'F#','Ab':'G#','Bb':'A#','Cb':'B'};
+    oldKey  = enh[root] || root;
+    oldMode = rawOldKey.toLowerCase().includes('minor') ? 'minor' : 'major';
+  } else {
+    oldKey  = song.sequencer?.key  || seqCurrentKey();
+    oldMode = song.sequencer?.mode || seqCurrentMode();
+  }
   const newKey  = seqCurrentKey();
   const newMode = seqCurrentMode();
 
@@ -13892,7 +13904,7 @@ function renderSequencerHtml(song) {
     <div class="seq-pattern-grid">
       ${[['Kick','seqKick','kick'],['Snare','seqSnare','snare'],['Hi-Hat','seqHat','hat'],['Crash','seqCrash','crash'],['Clap','seqClap','clap']].map(([label,id,row])=>`
       <div class="seq-grid-row" data-row="${row}">
-        <button class="seq-row-label" onclick="_drumLabelClick(event,'${row}')" title="Change ${label} sample">${label}<span class="drum-label-arrow">▾</span></button>
+        <button class="seq-row-label" onclick="_drumLabelClick(event,'${row}')" title="Change ${label} sample">${label} <span class="drum-label-bank">· ${(_DRUM_BANKS[row]||[])[_drumBankChoice[row]]?.label||''}</span><span class="drum-label-arrow">▾</span></button>
         <div class="seq-grid" id="${id}"></div>
       </div>`).join('')}
       <!-- Shared drum bank popup (one reused for all voices) -->
@@ -13937,12 +13949,6 @@ function renderSequencerHtml(song) {
         <option value="random">🎲 Random</option>
       </select>
       <button class="seq-humanize-btn" id="seqHumanizeDrumsBtn" onclick="seqToggleHumanize('drums')" title="Humanize drums — each hit gets slight random timing so it feels like a real drummer">〜 Humanize</button>
-      <span style="font-size:9px;color:var(--faint);font-family:'IBM Plex Mono',monospace;flex-shrink:0;">Drummer:</span>
-      <select class="seq-drummer-select" id="seqDrummerSelect" onchange="seqSetDrummer(this.value)" title="Choose drummer kit">
-        <option value="lacer">🥁 LACER</option>
-        <option value="hargreaves">🥁 HARGREAVES</option>
-        <option value="valeika">◈ VALEIKA</option>
-      </select>
       <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="applyDrumPattern('clear')">Clear</button>
     </div>
 
@@ -15043,7 +15049,8 @@ function seqRenderChordPills(song) {
         ontouchstart="window._seqPt=Date.now();seqPillPress('${vname}','')"
         ontouchend="seqPillRelease()"
         onmousedown="if(Date.now()-(window._seqPt||0)>350)seqPillPress('${vname}','')"
-        onmouseup="seqPillRelease()" onmouseleave="seqPillRelease()">
+        onmouseup="seqPillRelease()" onmouseleave="if(!seqSweepMode)seqPillRelease()"
+        onmouseenter="if(seqSweepMode)seqPillPress('${vname}','')">
         ${vname}
       </div>`
     ).join('');
@@ -15076,20 +15083,20 @@ function seqRenderChordPills(song) {
 function seqRenderKeyTriggers() {
   const el = document.getElementById('seqKeyTriggerRow');
   if (!el) return;
-  // Pre-fill empty slots with current diatonic chords as defaults
+  // Pre-fill empty slots with current diatonic chords as defaults (preserve _viii for octave)
   const names = seqGetScaleChords(seqCurrentKey(), seqCurrentMode());
   names.forEach((n, i) => {
-    if (!seqKeySlots[i]) seqKeySlots[i] = n.replace('_viii', '');
+    if (!seqKeySlots[i]) seqKeySlots[i] = n;
   });
   el.innerHTML = seqKeySlots.map((chord, i) =>
     `<div class="seq-key-slot ${chord ? 'has-chord' : ''}" data-key-idx="${i}"
-      title="Key ${i+1}${chord ? ': ' + chord : ' — empty'} · Drop a chord here to reassign"
+      title="Key ${i+1}${chord ? ': ' + chord.replace('_viii','↑') : ' — empty'} · Drop a chord here to reassign"
       ondragover="event.preventDefault();this.classList.add('drag-over-slot')"
       ondragleave="this.classList.remove('drag-over-slot')"
       ondrop="seqDropOnKeySlot(event,${i})"
       onclick="seqClickKeySlot(${i})">
       <span class="seq-key-slot-num">${i+1}</span>
-      <span class="seq-key-slot-chord">${chord || '—'}</span>
+      <span class="seq-key-slot-chord">${(chord || '').replace('_viii','⁸') || '—'}</span>
     </div>`
   ).join('')
   + `<button title="Reset to current scale chords" onclick="seqResetKeySlots()"
@@ -15104,7 +15111,7 @@ function seqDropOnKeySlot(e, idx) {
   const raw = e.dataTransfer.getData('text/plain');
   let chord = raw;
   try { const p = JSON.parse(raw); chord = p.chord; } catch(_) {}
-  chord = (chord || '').replace('_viii', '').trim();
+  chord = (chord || '').trim();
   if (!chord) return;
   seqKeySlots[idx] = chord;
   seqSaveKeySlots();
@@ -15127,7 +15134,7 @@ function seqSaveKeySlots() {
 
 function seqResetKeySlots() {
   const names = seqGetScaleChords(seqCurrentKey(), seqCurrentMode());
-  seqKeySlots = names.map(n => n.replace('_viii', ''));
+  seqKeySlots = names.slice(); // preserve _viii so key slot 8 plays the correct octave
   seqSaveKeySlots();
   seqRenderKeyTriggers();
 }
@@ -21052,12 +21059,14 @@ function _midiChordTrack(chordSlots, grid) {
   const events = [{ tick: 0, bytes: [0xC0, 0] }]; // Grand Piano
 
   const filled = chordSlots
-    .map((name, i) => ({ name: (name || '').replace('_viii', ''), i }))
+    .map((name, i) => ({ name: name || '', i }))
     .filter(s => s.name);
 
   for (let fi = 0; fi < filled.length; fi++) {
     const { name, i } = filled[fi];
-    const notes = _chordToMidi(name);
+    // _chordToMidi strips _viii and anchors to C3; for VIII add one octave
+    const isViii = name.includes('_viii');
+    const notes = _chordToMidi(name).map(n => isViii ? n + 12 : n);
     const t0 = i * stepTicks;
     const nextI = fi + 1 < filled.length ? filled[fi + 1].i : chordSlots.length;
     const t1 = Math.max(t0 + stepTicks, nextI * stepTicks) - 1;
@@ -22388,7 +22397,15 @@ function renderKeyboardDrawerHtml(song) {
         <div class="seq-chords-row" id="seqChordPills"></div>
       </div>
 
-      <!-- Sequence tabs (moved here, below pills) -->
+      <!-- Chord sequence grid (above sequence tabs) -->
+      <div class="seq-pattern-grid" style="margin-bottom:8px;margin-top:0;">
+        <div class="seq-grid-row" data-row="chord">
+          <div class="seq-row-label">Chord</div>
+          <div class="seq-grid" id="seqChordGrid"></div>
+        </div>
+      </div>
+
+      <!-- Sequence tabs -->
       <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);margin:8px 0 4px;">Sequence</div>
       <div class="seq-tabs-strip" id="kbdMelodyTabsStrip" style="margin:0 0 4px;"></div>
 
@@ -22423,14 +22440,6 @@ function renderKeyboardDrawerHtml(song) {
 
     <!-- Keyboard (scrollable, 7 octaves) -->
     <div id="seqKeyboard" style="margin-bottom:6px;"></div>
-
-    <!-- Chord sequence grid (below keyboard) -->
-    <div class="seq-pattern-grid" style="margin-bottom:12px;margin-top:0;">
-      <div class="seq-grid-row" data-row="chord">
-        <div class="seq-row-label">Chord</div>
-        <div class="seq-grid" id="seqChordGrid"></div>
-      </div>
-    </div>
 
     <!-- Melody roll -->
     <div class="melody-roll" id="melodyRoll"></div>
@@ -23293,14 +23302,22 @@ document.addEventListener('keydown', function(e) {
 
   if (e.code === 'Space') {
     e.preventDefault();
-    if (_vrRecording) {
+    if (e.shiftKey) {
+      // Shift+Space: play 4-track + sequencer together (or stop if already playing)
+      if (typeof mtPlayWithSeq === 'function') mtPlayWithSeq();
+    } else if (_vrRecording) {
       vrToggleRec();   // stop recording
-    } else if (_mtIsPlaying) {
-      vrStop();        // stop playback
     } else {
-      mtPlay();        // start playback
+      // Space: stop everything if playing, or start 4-track only
+      const anyPlaying = _mtIsPlaying || (typeof seqIsPlaying !== 'undefined' && seqIsPlaying);
+      if (anyPlaying) {
+        vrStop();
+        if (typeof seqStop === 'function') try { seqStop(); } catch(ex) {}
+      } else {
+        mtPlay();
+      }
     }
-  } else if (e.key.toLowerCase() === 'r') {
+  } else if (e.key.toLowerCase() === 'r' && !e.shiftKey) {
     e.preventDefault();
     vrToggleRec();
   }
@@ -23904,6 +23921,15 @@ function openLooperDrawer() {
   loopOnSongChange(song);
   loopCheckFeedbackWarning();
   loopUpdateMonitorPill();
+  // If mic permission is already granted, warm up the stream now so record starts instantly
+  Promise.resolve().then(async () => {
+    try {
+      const perm = await navigator.permissions.query({ name: 'microphone' });
+      if (perm.state === 'granted' && !(loopSharedStream && loopSharedStream.active)) {
+        await loopEnsureMicStream();
+      }
+    } catch(e) { /* Permissions API unsupported — defer until record click */ }
+  });
   // VU meter starts only when record is clicked — not on open
 }
 function closeLooperDrawer() {
@@ -24388,15 +24414,28 @@ function loopUpdateMonitorPill() {
 }
 async function loopCheckFeedbackWarning() {
   const warn = document.getElementById('loopFeedbackWarn');
-  if (!warn) return;
+  if (!warn) { return; }
+  warn.style.display = 'none'; // safe default — only show if we can confirm same-device
   try {
+    // Device groupIds are only reliable after mic permission is granted.
+    // Without it, all devices return empty groupId which would cause false-positive matches.
+    let micGranted = false;
+    try {
+      const perm = await navigator.permissions.query({ name: 'microphone' });
+      micGranted = perm.state === 'granted';
+    } catch(e) {
+      // Permissions API unsupported (Firefox/Safari) — check via device labels
+      const probe = await navigator.mediaDevices.enumerateDevices();
+      micGranted = probe.some(d => d.label && d.label !== '');
+    }
+    if (!micGranted) return; // can't reliably detect same-device without permission
+
     const devices = await navigator.mediaDevices.enumerateDevices();
     const inputs  = devices.filter(d => d.kind === 'audioinput');
     const outputs = devices.filter(d => d.kind === 'audiooutput');
-    // Default input & output — find by deviceId 'default' or first in list
     const defIn  = inputs.find(d => d.deviceId === 'default') || inputs[0];
     const defOut = outputs.find(d => d.deviceId === 'default') || outputs[0];
-    const sameGroup = defIn && defOut && defIn.groupId && defIn.groupId === defOut.groupId;
+    const sameGroup = defIn && defOut && defIn.groupId && defIn.groupId !== '' && defIn.groupId === defOut.groupId;
     warn.style.display = sameGroup ? 'block' : 'none';
   } catch(e) {
     warn.style.display = 'none';
@@ -27576,7 +27615,7 @@ const MT_NAMES  = ['T1','T2','T3','T4'];
 
 // ── State ──────────────────────────────────────────────────────
 let _vrSongId       = null;
-let _vrRecording    = false;
+var _vrRecording    = false; // var so the keydown handler in an earlier script block can read it
 let _vrUploading    = false;
 let _vrSeqArmed     = false;
 let _vrInputDeviceId   = localStorage.getItem('vr_input_device')  || '';
