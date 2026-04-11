@@ -8832,6 +8832,16 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     padding-bottom: calc(140px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
+  /* Compact / rehearsal mode: transport is still teleported to body but sits on the
+     right edge only, matching the 50vw sidebar so lyrics remain visible on the left */
+  .mt-transport.mt-transport-rt {
+    left: auto !important;
+    right: 0 !important;
+    width: 50vw !important;
+    border-radius: 0 !important;
+    padding: 6px 10px calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
+  }
+
   /* Progress bar: taller hit area on mobile */
   .mt-progress-bar {
     height: 5px !important;
@@ -9008,20 +9018,11 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   }
   /* No swipe handle — this is a sidebar, not a bottom sheet */
   #vrOverlay.vr-rt-compact #vrDeck::before { display: none !important; }
-  /* Transport: absolutely pinned to deck bottom (deck has transform → containing block).
-     The deck already has position: relative from the base compact block above.  */
-  #vrOverlay.vr-rt-compact .mt-transport {
-    position: absolute !important;
-    bottom: 0 !important; left: 0 !important; right: 0 !important;
-    top: auto !important;
-    z-index: 10 !important;
-    padding: 6px 8px calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
-    background: #13151c !important;
-    border-top: 1px solid #2a2d38 !important;
-  }
-  /* Tracks scroll internally — bottom pad keeps last track above transport */
+  /* Transport is teleported to <body> on mobile — .mt-transport-rt CSS handles
+     right-edge positioning. No rules needed here for the transport itself. */
+  /* Tracks: no extra bottom pad — transport is outside the deck */
   #vrOverlay.vr-rt-compact .mt-tracks {
-    padding-bottom: 120px !important;
+    padding-bottom: 120px !important; /* reserve space where transport will float */
   }
   /* Compact countdown: tuck into the bottom of the sidebar */
   #vrGlobalCountdown.vr-perf-countdown {
@@ -9309,6 +9310,15 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     order: unset !important;
     flex-shrink: unset !important;
   }
+  /* Compact / rehearsal mode: transport pinned right to match 40vw sidebar */
+  .mt-transport.mt-transport-rt {
+    left: auto !important;
+    right: 0 !important;
+    width: 40vw !important;
+    border-radius: 0 !important;
+    padding: 4px 10px calc(env(safe-area-inset-bottom, 0px) + 6px) !important;
+  }
+
   /* Progress bar compact */
   .mt-progress-bar { height: 4px !important; }
   /* Status: single compact line */
@@ -9386,17 +9396,9 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
   }
   #vrOverlay.vr-rt-compact #vrDeck::before { display: none !important; }
-  #vrOverlay.vr-rt-compact .mt-transport {
-    position: absolute !important;
-    bottom: 0 !important; left: 0 !important; right: 0 !important;
-    top: auto !important;
-    z-index: 10 !important;
-    padding: 4px 8px calc(env(safe-area-inset-bottom, 0px) + 6px) !important;
-    background: #13151c !important;
-    border-top: 1px solid #2a2d38 !important;
-  }
+  /* Transport teleported to <body> — .mt-transport-rt handles right-edge positioning */
   #vrOverlay.vr-rt-compact .mt-tracks {
-    padding-bottom: 110px !important;
+    padding-bottom: 110px !important; /* reserve space where transport floats */
   }
 }
 
@@ -27666,19 +27668,22 @@ window.vrOpen = function(autoRecord) {
   const _inRT = !!window._ilPerfMode || !!document.getElementById('runThroughDrawer')?.classList.contains('open');
   _el('vrOverlay').classList.toggle('vr-rt-compact', _inRT);
   _el('vrOverlay').classList.add('vr-open');
-  // On mobile, #vrDeck has transform (slide-up animation). Any position:fixed inside a
-  // transformed ancestor is relative to that ancestor, not the viewport.
-  // Fix: teleport .mt-transport to <body> — zero transforms, zero overflow clipping,
-  // nothing can interfere with fixed positioning from there.
-  // EXCEPTION: rehearse/compact mode uses a sidebar (translateX, no overflow:hidden on
-  // tracks), so the transport stays as a normal flex item inside #vrDeck — no teleport needed.
+  // On mobile, #vrDeck has transform (slide-up / slide-in animation). Any position:fixed
+  // inside a transformed ancestor is relative to that ancestor — not the viewport.
+  // Fix: ALWAYS teleport .mt-transport to <body> on mobile — zero transforms, zero overflow
+  // clipping, nothing can interfere with fixed positioning from there.
+  // In compact/rehearsal mode the transport gets class mt-transport-rt so CSS positions it
+  // on the right edge matching the sidebar width instead of full-width.
   const _isMobile4T = Math.min(window.innerWidth, window.innerHeight) <= 600;
-  if (_isMobile4T && !_inRT) {
+  if (_isMobile4T) {
     const _tp = document.querySelector('.mt-transport');
     if (_tp && _tp.parentElement !== document.body) {
       document.body._mtTransportPrev = { parent: _tp.parentElement, next: _tp.nextSibling };
       document.body.appendChild(_tp);
     }
+    // Tag so CSS can narrow the transport to match the sidebar width in compact mode
+    const _tp2 = document.querySelector('.mt-transport');
+    if (_tp2) _tp2.classList.toggle('mt-transport-rt', _inRT);
   }
   const song = songs.find(s => s.id === _vrSongId);
   const nameEl = _el('vrDeckSongName');
@@ -27717,8 +27722,9 @@ window.vrClose = function() {
   _el('vrOverlay').classList.remove('vr-open', 'vr-rt-compact');
   _vuMaybeStop();
   // Restore .mt-transport back into #vrDeck (undo body teleport)
+  const _tp = document.querySelector('.mt-transport');
+  if (_tp) _tp.classList.remove('mt-transport-rt'); // always strip compact tag
   if (document.body._mtTransportPrev) {
-    const _tp = document.querySelector('.mt-transport');
     const { parent, next } = document.body._mtTransportPrev;
     if (_tp && parent && _tp.parentElement !== parent) {
       parent.insertBefore(_tp, next || null);
