@@ -10979,6 +10979,13 @@ function _drawerQuickLoad(id, afterLoad) {
     if (!(typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track')) {
       if (typeof mtPreloadForSong === 'function') mtPreloadForSong(id);
     }
+    // Preload all static instrument samples in the background.
+    // These are self-guarding (no-op if already loaded) and IDB-cached after first fetch,
+    // so every instrument is ready to play the moment the user opens any drawer.
+    if (typeof loadPianoSamples === 'function') loadPianoSamples();
+    if (typeof loadGuitarSamples === 'function') loadGuitarSamples();
+    if (typeof loadAcousticSamples === 'function') loadAcousticSamples();
+    if (typeof loadAcoustic2Samples === 'function') loadAcoustic2Samples();
   }, 0);
 }
 
@@ -11119,6 +11126,10 @@ function openSong(id) {
     if (!(_splitActive && _splitCurrentTool === '4track')) {
       if (typeof mtPreloadForSong === 'function') mtPreloadForSong(id);
     }
+    if (typeof loadPianoSamples === 'function') loadPianoSamples();
+    if (typeof loadGuitarSamples === 'function') loadGuitarSamples();
+    if (typeof loadAcousticSamples === 'function') loadAcousticSamples();
+    if (typeof loadAcoustic2Samples === 'function') loadAcoustic2Samples();
   }, 0);
 }
 
@@ -12679,9 +12690,13 @@ async function loadGuitarSamples() {
   const ctx = getSeqAudioCtx();
   await Promise.all(Object.entries(GUITAR_SAMPLE_MAP).map(async ([midi, name]) => {
     try {
-      const resp = await fetch(GUITAR_BASE_URL + name + '.mp3');
-      if (!resp.ok) throw new Error(resp.status);
-      const ab  = await resp.arrayBuffer();
+      let ab = await _mtAudioCache.get('guitar_' + name);
+      if (!ab) {
+        const resp = await fetch(GUITAR_BASE_URL + name + '.mp3');
+        if (!resp.ok) throw new Error(resp.status);
+        ab = await resp.arrayBuffer();
+        _mtAudioCache.set('guitar_' + name, ab.slice(0)).catch(() => {});
+      }
       _guitarBuffers[Number(midi)] = await ctx.decodeAudioData(ab);
     } catch(e) { console.warn('Guitar sample load failed:', name, e); }
   }));
@@ -12738,9 +12753,14 @@ async function loadPianoSamples() {
   const ctx = getSeqAudioCtx();
   await Promise.all(Object.entries(PIANO_SAMPLE_MAP).map(async ([midi, name]) => {
     try {
-      const resp = await fetch(PIANO_BASE_URL + name + '.mp3');
-      if (!resp.ok) throw new Error(resp.status);
-      const ab  = await resp.arrayBuffer();
+      // Check IDB cache first — piano samples are static/permanent, cache forever
+      let ab = await _mtAudioCache.get('piano_' + name);
+      if (!ab) {
+        const resp = await fetch(PIANO_BASE_URL + name + '.mp3');
+        if (!resp.ok) throw new Error(resp.status);
+        ab = await resp.arrayBuffer();
+        _mtAudioCache.set('piano_' + name, ab.slice(0)).catch(() => {});
+      }
       _pianoBuffers[Number(midi)] = await ctx.decodeAudioData(ab);
     } catch(e) { console.warn('Piano sample load failed:', name, e); }
   }));
@@ -13101,9 +13121,13 @@ async function loadAcousticSamples() {
   try {
     const fetched = await Promise.allSettled(
       Object.entries(_ACOUSTIC_URLS).map(async ([name, url]) => {
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${name}`);
-        const ab = await resp.arrayBuffer();
+        let ab = await _mtAudioCache.get('drum_lacer_' + name);
+        if (!ab) {
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${name}`);
+          ab = await resp.arrayBuffer();
+          _mtAudioCache.set('drum_lacer_' + name, ab.slice(0)).catch(() => {});
+        }
         _acousticRawBytes[name] = new Uint8Array(ab);
         return name;
       })
@@ -13130,9 +13154,13 @@ async function loadAcoustic2Samples() {
   try {
     const fetched = await Promise.allSettled(
       Object.entries(_ACOUSTIC2_URLS).map(async ([name, url]) => {
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${name}`);
-        const ab = await resp.arrayBuffer();
+        let ab = await _mtAudioCache.get('drum_harg_' + name);
+        if (!ab) {
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${name}`);
+          ab = await resp.arrayBuffer();
+          _mtAudioCache.set('drum_harg_' + name, ab.slice(0)).catch(() => {});
+        }
         _acoustic2RawBytes[name] = new Uint8Array(ab);
         return name;
       })
@@ -19906,6 +19934,7 @@ async function storageDeleteSelected() {
       if (loopData?.docs) {
         for (const { docId, storagePath } of loopData.docs) {
           if (storagePath) firebase.storage().ref(storagePath).delete().catch(() => {});
+          _mtAudioCache.del('loop_' + docId).catch(() => {}); // evict from local cache
           await db.collection('song_loops').doc(docId).delete();
         }
       }
@@ -23947,6 +23976,7 @@ async function loopDeleteSavedLoop(docId, storagePath) {
   try {
     if (storagePath) firebase.storage().ref(storagePath).delete().catch(() => {});
     await db.collection('song_loops').doc(docId).delete();
+    _mtAudioCache.del('loop_' + docId).catch(() => {}); // evict from local cache
     const row = document.getElementById('lsaved-' + docId);
     if (row) row.remove();
     const list = document.getElementById('loopSavedList');
@@ -23986,8 +24016,12 @@ async function loopPreloadForSong(songId) {
       const ti = parseInt(tiStr, 10);
       const t = loopTracks[ti]; if (!t || t.buffer) continue;
       try {
-        const resp = await fetch(loopDoc.downloadUrl);
-        const arrayBuf = await resp.arrayBuffer();
+        let arrayBuf = await _mtAudioCache.get('loop_' + loopDoc.id);
+        if (!arrayBuf) {
+          const resp = await fetch(loopDoc.downloadUrl);
+          arrayBuf = await resp.arrayBuffer();
+          _mtAudioCache.set('loop_' + loopDoc.id, arrayBuf.slice(0)).catch(() => {});
+        }
         const audioBuf = await loopAudioCtx.decodeAudioData(arrayBuf);
         t.buffer = audioBuf;
         t.recDuration = audioBuf.duration;
@@ -26833,6 +26867,7 @@ let _mtRecStartMs   = 0;
 let _mtStream       = null; // mic MediaStream (shared)
 let _mtTracks       = [];   // 4 track objects, built by mtBuildUI
 let _mtPreloadedSongId = null; // song ID whose takes have been background-loaded
+let _mtPendingPlay    = false; // true when user tapped play before buffers finished loading
 let _vrTakesUnsubscribe = null; // Firestore onSnapshot unsubscribe for real-time take sync
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -27350,8 +27385,19 @@ async function _mtEnsureCtx() {
 // ── Play all ──────────────────────────────────────────────────
 window.mtPlay = async function(startOffset) {
   if (_vrRecording) return;
-  if (_mtIsPlaying) { _mtStopAll(); return; }
-  if (!_mtTracks.some(t=>t&&t.buffer)) return;
+  if (_mtIsPlaying) { _mtStopAll(); _mtPendingPlay = false; return; }
+  // If takes exist but none are buffered yet, queue play and show loading indicator
+  const hasTakes = _mtTracks.some(t => t && t.takes && t.takes.length > 0);
+  const hasBuffer = _mtTracks.some(t => t && t.buffer);
+  if (hasTakes && !hasBuffer) {
+    _mtPendingPlay = true;
+    const pb = _el('mtPlayBtn');
+    if (pb) { pb.disabled = true; pb.title = 'Loading audio…'; }
+    _setStatus('Loading audio…');
+    return;
+  }
+  _mtPendingPlay = false;
+  if (!hasBuffer) return;
   // Kick AudioContext.resume() SYNCHRONOUSLY here, within the user gesture.
   // iOS Safari loses the gesture flag after the first real 'await', so if the
   // context is suspended, the resume call inside _mtEnsureCtx() will be blocked.
@@ -27738,6 +27784,7 @@ const btBtn = _el('vrBtBtn'); if (btBtn) btBtn.classList.toggle('vr-bt-active', 
 window.vrClose = function() {
   if (_vrRecording) { showToast('Stop recording before closing.', 'warn'); return; }
   _setNavOpen('nav-mic', false);
+  _mtPendingPlay = false; // cancel any queued play
   _mtStopAll();
   _vrStopTakesListener(); // clean up real-time listener
   _el('vrOverlay').classList.remove('vr-open', 'vr-rt-compact');
@@ -28366,10 +28413,18 @@ async function _mtLoadTakeBuffer(trackIdx, take, expectedSongId) {
     if (expectedSongId && currentId !== expectedSongId) return;
     t.buffer   = buf;
     t.duration = buf.duration;
-    // Enable the play button as soon as the FIRST track buffer is ready —
-    // don't make the user wait for all 4 tracks to load before they can press play.
+    // Enable the play button as soon as the FIRST track buffer is ready
     const pb = _el('mtPlayBtn');
-    if (pb && pb.disabled) pb.disabled = false;
+    if (pb && pb.disabled) { pb.disabled = false; pb.title = 'Play all (Space)'; }
+    // Auto-fire play if the user tapped the button while buffers were still loading
+    if (_mtPendingPlay) {
+      const stillWaiting = _mtTracks.some(t => t && t.takes && t.takes.length > 0 && !t.buffer);
+      if (!stillWaiting) {
+        _mtPendingPlay = false;
+        // Small rAF so the DOM settles before we kick audio
+        requestAnimationFrame(() => mtPlay());
+      }
+    }
     // Update waveform canvas
     _mtDrawTrackWaveform(trackIdx, buf, t.color);
     // Update state label
