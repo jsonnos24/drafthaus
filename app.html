@@ -8705,6 +8705,12 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     min-height: 36px !important;
   }
 
+  /* Transport: teleported to <body> on open — needs to be above the overlay (z:9000) */
+  .mt-transport {
+    z-index: 9999 !important;
+    pointer-events: auto !important;
+  }
+
   /* Waveform: grows to fill available track height (ResizeObserver redraws canvas) */
   .mt-waveform-wrap {
     flex: 1 1 0% !important;
@@ -8766,18 +8772,19 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     font-size: 20px !important;
   }
 
-  /* ── Transport: position:fixed at screen bottom — always reachable, never clipped ── */
+  /* ── Transport: teleported to <body> on open — always reachable, nothing can clip it ── */
   .mt-transport {
     position: fixed !important;
     bottom: 0 !important;
     left: 0 !important;
     right: 0 !important;
-    z-index: 9100 !important;
+    z-index: 9999 !important;
     padding: 6px 14px calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
     border-top: 1px solid #1e2130 !important;
     background: #13151c !important;
     border-radius: 0 !important;
-    /* Remove flex ordering — fixed positioning takes it out of flow */
+    pointer-events: auto !important;
+    /* Out of any flex flow once teleported */
     order: unset !important;
     flex-shrink: unset !important;
   }
@@ -27266,14 +27273,15 @@ window.vrOpen = function(autoRecord) {
   const _inRT = !!window._ilPerfMode || !!document.getElementById('runThroughDrawer')?.classList.contains('open');
   _el('vrOverlay').classList.toggle('vr-rt-compact', _inRT);
   _el('vrOverlay').classList.add('vr-open');
-  // On mobile, #vrDeck has transform (slide-up animation) which breaks position:fixed.
-  // Teleport .mt-transport to #vrOverlay (no transform) so the fixed bottom bar works.
+  // On mobile, #vrDeck has transform (slide-up animation). Any position:fixed inside a
+  // transformed ancestor is relative to that ancestor, not the viewport.
+  // Fix: teleport .mt-transport to <body> — zero transforms, zero overflow clipping,
+  // nothing can interfere with fixed positioning from there.
   if (window.innerWidth <= 768) {
     const _tp = document.querySelector('.mt-transport');
-    const _ov = _el('vrOverlay');
-    if (_tp && _ov && _tp.parentElement !== _ov) {
-      _ov._mtTransportPrev = { parent: _tp.parentElement, next: _tp.nextSibling };
-      _ov.appendChild(_tp);
+    if (_tp && _tp.parentElement !== document.body) {
+      document.body._mtTransportPrev = { parent: _tp.parentElement, next: _tp.nextSibling };
+      document.body.appendChild(_tp);
     }
   }
   const song = songs.find(s => s.id === _vrSongId);
@@ -27312,15 +27320,14 @@ window.vrClose = function() {
   _vrStopTakesListener(); // clean up real-time listener
   _el('vrOverlay').classList.remove('vr-open', 'vr-rt-compact');
   _vuMaybeStop();
-  // Restore .mt-transport back into #vrDeck (undo mobile teleport)
-  const _ov = _el('vrOverlay');
-  if (_ov && _ov._mtTransportPrev) {
+  // Restore .mt-transport back into #vrDeck (undo body teleport)
+  if (document.body._mtTransportPrev) {
     const _tp = document.querySelector('.mt-transport');
-    const { parent, next } = _ov._mtTransportPrev;
+    const { parent, next } = document.body._mtTransportPrev;
     if (_tp && parent && _tp.parentElement !== parent) {
       parent.insertBefore(_tp, next || null);
     }
-    _ov._mtTransportPrev = null;
+    document.body._mtTransportPrev = null;
   }
 };
 
