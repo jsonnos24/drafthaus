@@ -8765,12 +8765,24 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     font-size: 20px !important;
   }
 
-  /* ── Transport: flex child at bottom of sheet (no sticky needed — deck is flex column) ── */
+  /* ── Transport: position:fixed at screen bottom — always reachable, never clipped ── */
   .mt-transport {
-    flex-shrink: 0 !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 9100 !important;
     padding: 6px 14px calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
     border-top: 1px solid #1e2130 !important;
     background: #13151c !important;
+    border-radius: 0 !important;
+    /* Remove flex ordering — fixed positioning takes it out of flow */
+    order: unset !important;
+    flex-shrink: unset !important;
+  }
+  /* Add padding to track list so last track isn't hidden behind the fixed transport */
+  .mt-tracks {
+    padding-bottom: calc(140px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
   /* Progress bar: taller hit area on mobile */
@@ -8852,12 +8864,58 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     width: 6px !important;
   }
 
-  /* ── Takes panel: wider on narrow screens ── */
-  .mt-takes-panel {
-    width: calc(100vw - 32px) !important;
-    max-width: 360px !important;
-    max-height: 50dvh !important;
+  /* ── Takes rows: bigger tap targets on mobile ── */
+  .mt-takes-panel .vr-take-row {
+    padding: 10px 14px !important;
+    gap: 0 !important;
   }
+  .mt-takes-panel .vr-take-top {
+    gap: 10px !important;
+    flex-wrap: wrap !important;
+  }
+  .mt-takes-panel .vr-take-num  { font-size: 13px !important; min-width: 28px !important; }
+  .mt-takes-panel .vr-take-dur  { font-size: 12px !important; min-width: 36px !important; }
+  .mt-takes-panel .vr-take-play-btn,
+  .mt-takes-panel .vr-take-action-btn,
+  .mt-takes-panel .vr-take-lock-btn {
+    min-width: 44px !important;
+    min-height: 44px !important;
+    font-size: 13px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 8px !important;
+  }
+  .mt-takes-panel .vr-star-btn {
+    font-size: 18px !important;
+    padding: 4px !important;
+  }
+
+  /* ── Takes panel: full bottom-sheet on mobile ── */
+  .mt-takes-panel {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    max-height: 60dvh !important;
+    border-radius: 18px 18px 0 0 !important;
+    z-index: 9200 !important; /* above transport (9100) */
+    box-shadow: 0 -8px 40px rgba(0,0,0,0.6) !important;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
+    overflow-y: auto !important;
+  }
+  /* Dim overlay behind takes sheet */
+  .mt-takes-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 9190;
+  }
+  .mt-takes-overlay.open { display: block; }
 
   /* Hide spacer div at bottom of vrDeck (we handle padding in transport) */
   #vrDeck > div[style*="height:40px"] {
@@ -27852,30 +27910,40 @@ function _mtDrawTrackWaveform(trackIdx, buffer, color, _attempt) {
   }
 }
 
-// ── Takes panel (per-track) — fixed floating dropdown ─────────
+// ── Takes panel — floating dropdown (desktop) / bottom sheet (mobile) ──
+window.mtCloseAllTakes = function() {
+  document.querySelectorAll('.mt-takes-panel.open').forEach(p => p.classList.remove('open'));
+  const ov = _el('mtTakesOverlay'); if (ov) ov.classList.remove('open');
+};
+
 window.mtToggleTakes = function(i) {
   const panel = _el('mt-takes-panel-'+i);
   if (!panel) return;
   const isOpen = panel.classList.contains('open');
-  // Close all panels first
-  document.querySelectorAll('.mt-takes-panel.open').forEach(p => p.classList.remove('open'));
-  if (isOpen) return; // was open → just close
-  // Position the panel near the takes button.
-  // On mobile always open upward (transport pins to bottom so there's never room below).
+  mtCloseAllTakes();
+  if (isOpen) return; // was open → just closed it above
+
+  const isMobile = window.innerWidth <= 768;
+
+  if (isMobile) {
+    // Mobile: bottom sheet — CSS handles positioning, just show dim overlay
+    const ov = _el('mtTakesOverlay'); if (ov) ov.classList.add('open');
+    panel.classList.add('open');
+    return;
+  }
+
+  // Desktop: floating panel near the button
   const btn = _el('mt-takes-btn-'+i);
   if (btn) {
     const r = btn.getBoundingClientRect();
     const panelH = 340;
     const spaceBelow = window.innerHeight - r.bottom - 10;
-    const isMobile = window.innerWidth <= 768;
     panel.style.right = (window.innerWidth - r.right) + 'px';
     panel.style.left  = 'auto';
-    if (!isMobile && spaceBelow >= panelH) {
-      // Desktop: open downward when there's room
+    if (spaceBelow >= panelH) {
       panel.style.top    = (r.bottom + 6) + 'px';
       panel.style.bottom = 'auto';
     } else {
-      // Mobile (or not enough room): always open upward
       panel.style.bottom = (window.innerHeight - r.top + 6) + 'px';
       panel.style.top    = 'auto';
     }
@@ -29535,6 +29603,9 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
   </div><!-- /#vrDeck -->
 </div><!-- /#vrOverlay -->
 <!-- ── End Voice Recorder ─────────────────────────────────── -->
+
+<!-- Mobile takes sheet dim overlay -->
+<div class="mt-takes-overlay" id="mtTakesOverlay" onclick="mtCloseAllTakes()"></div>
 
 <!-- Device picker dropdown (portaled to body so it escapes overflow:hidden) -->
 <div class="vr-device-drop" id="vrDeviceDrop" style="display:none"></div>
