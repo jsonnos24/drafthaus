@@ -8768,7 +8768,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   /* ── Transport: flex child at bottom of sheet (no sticky needed — deck is flex column) ── */
   .mt-transport {
     flex-shrink: 0 !important;
-    padding: 7px 14px calc(env(safe-area-inset-bottom, 0px) + 10px) !important;
+    padding: 6px 14px calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
     border-top: 1px solid #1e2130 !important;
     background: #13151c !important;
   }
@@ -8778,11 +8778,35 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     height: 5px !important;
   }
 
+  /* Status + quota: one compact line on mobile */
+  .mt-status {
+    display: inline !important;
+    font-size: 11px !important;
+    min-height: unset !important;
+    margin-bottom: 0 !important;
+  }
+  .vr-time-limit {
+    display: inline !important;
+    font-size: 11px !important;
+    text-align: left !important;
+    padding-bottom: 0 !important;
+  }
+  /* Wrap both in a single line */
+  .mt-transport .mt-status + .vr-time-limit::before {
+    content: ' · ';
+    color: #444;
+  }
+  /* Shared wrapper line */
+  .mt-transport .mt-status,
+  .mt-transport .vr-time-limit {
+    line-height: 1.4 !important;
+  }
+
   /* Transport buttons: thumb-friendly on mobile */
   .mt-transport-btns {
-    gap: 14px !important;
-    margin-top: 10px !important;
-    margin-bottom: 6px !important;
+    gap: 12px !important;
+    margin-top: 6px !important;
+    margin-bottom: 0 !important;
   }
   .mt-transport-btn {
     width: 48px !important;
@@ -8793,24 +8817,12 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     height: 16px !important;
   }
   .mt-rec-btn {
-    width: 58px !important;
-    height: 58px !important;
+    width: 54px !important;
+    height: 54px !important;
   }
   .mt-rec-btn svg {
     width: 20px !important;
     height: 20px !important;
-  }
-
-  /* Status text */
-  .mt-status {
-    font-size: 13px !important;
-  }
-
-  /* Quota text */
-  .vr-time-limit {
-    font-size: 11px !important;
-    text-align: center !important;
-    padding-bottom: 2px !important;
   }
 
   /* ── Trash section: compact ── */
@@ -21660,44 +21672,10 @@ function closeSeqDrawer() {
   document.getElementById('seqDrawerTab').classList.remove('tab-active');
 }
 
-/* ── Mobile: swipe-down-to-close on the drag handle ── */
+/* ── Mobile: swipe-down-to-close — now handled by shared initDrawerSwipe in DOMContentLoaded ── */
+// _seqInitSwipeDown kept as no-op so existing openSeqDrawer call doesn't error
 let _seqSwipeInit = false;
-function _seqInitSwipeDown() {
-  if (_seqSwipeInit) return;
-  _seqSwipeInit = true;
-  const drawer = document.getElementById('seqDrawer');
-  const handle = document.getElementById('seqDragHandle');
-  if (!drawer || !handle) return;
-
-  let startY = 0, lastY = 0, dragging = false;
-
-  handle.addEventListener('touchstart', e => {
-    if (window.innerWidth > 700 || window.innerWidth < window.innerHeight === false) return; // portrait only
-    startY = e.touches[0].clientY;
-    lastY = startY;
-    dragging = true;
-    drawer.style.transition = 'none';
-  }, { passive: true });
-
-  document.addEventListener('touchmove', e => {
-    if (!dragging) return;
-    lastY = e.touches[0].clientY;
-    const delta = Math.max(0, lastY - startY);
-    drawer.style.transform = `translateY(${delta}px)`;
-  }, { passive: true });
-
-  document.addEventListener('touchend', () => {
-    if (!dragging) return;
-    dragging = false;
-    drawer.style.transition = '';
-    const delta = lastY - startY;
-    if (delta > 90) {
-      closeSeqDrawer();
-    } else {
-      drawer.style.transform = '';
-    }
-  });
-}
+function _seqInitSwipeDown() { /* swipe handled by shared initDrawerSwipe */ }
 
 /* ── Landscape hint ── */
 function _seqShowLandscapeHint() {
@@ -26532,7 +26510,7 @@ function mtBuildUI() {
               ondblclick="mtResetPan(${i})">
           </div>
         </div>
-        <button class="mt-takes-btn" id="mt-takes-btn-${i}" onclick="mtToggleTakes(${i})">Takes (0) ▾</button>
+        <button class="mt-takes-btn" id="mt-takes-btn-${i}" onclick="mtToggleTakes(${i})">📁 Takes (0)</button>
       </div>
       <div class="mt-takes-panel" id="mt-takes-panel-${i}">
         <div class="vr-no-takes">No recordings yet</div>
@@ -27211,11 +27189,14 @@ const btBtn = _el('vrBtBtn'); if (btBtn) btBtn.classList.toggle('vr-bt-active', 
   _vrStartTakesListener(_vrSongId);
   ensembleInitUI();
   // VU meter starts only when a track is armed — not on open
-  // After the slide-up animation settles, force a waveform redraw.
-  // 600ms gives iOS Safari enough time to finish layout after display:none→flex transitions.
+  // Waveform redraws: fire at 350ms (deck animation done) and 900ms (buffers likely loaded).
+  // vrLoadTakes also redraws after buffers are ready, but these cover fast-cache cases.
   setTimeout(() => {
     _mtTracks.forEach((t, i) => { if (t && t.buffer) _mtDrawTrackWaveform(i, t.buffer, t.color); });
-  }, 600);
+  }, 350);
+  setTimeout(() => {
+    _mtTracks.forEach((t, i) => { if (t && t.buffer) _mtDrawTrackWaveform(i, t.buffer, t.color); });
+  }, 900);
 };
 
 window.vrClose = function() {
@@ -27848,7 +27829,7 @@ function _mtDrawTrackWaveform(trackIdx, buffer, color, _attempt) {
   // If the element isn't laid out yet (e.g. overlay is mid-animation or still hidden),
   // defer with rAF so the browser has time to compute dimensions. Up to 40 retries
   // (iOS Safari needs more frames after display:none→flex transitions; 40×16ms ≈ 640ms).
-  if (W === 0 && (_attempt || 0) < 40) {
+  if (W === 0 && (_attempt || 0) < 80) {
     requestAnimationFrame(() => _mtDrawTrackWaveform(trackIdx, buffer, color, (_attempt || 0) + 1));
     return;
   }
@@ -27879,20 +27860,22 @@ window.mtToggleTakes = function(i) {
   // Close all panels first
   document.querySelectorAll('.mt-takes-panel.open').forEach(p => p.classList.remove('open'));
   if (isOpen) return; // was open → just close
-  // Position the panel near the takes button, flipping upward if near the bottom
+  // Position the panel near the takes button.
+  // On mobile always open upward (transport pins to bottom so there's never room below).
   const btn = _el('mt-takes-btn-'+i);
   if (btn) {
     const r = btn.getBoundingClientRect();
-    const panelH = 340; // max-height from CSS
+    const panelH = 340;
     const spaceBelow = window.innerHeight - r.bottom - 10;
+    const isMobile = window.innerWidth <= 768;
     panel.style.right = (window.innerWidth - r.right) + 'px';
     panel.style.left  = 'auto';
-    if (spaceBelow >= panelH || spaceBelow >= r.top - 10) {
-      // Enough room below (or less room above) — open downward
+    if (!isMobile && spaceBelow >= panelH) {
+      // Desktop: open downward when there's room
       panel.style.top    = (r.bottom + 6) + 'px';
       panel.style.bottom = 'auto';
     } else {
-      // Not enough room below — open upward
+      // Mobile (or not enough room): always open upward
       panel.style.bottom = (window.innerHeight - r.top + 6) + 'px';
       panel.style.top    = 'auto';
     }
@@ -27903,7 +27886,7 @@ window.mtToggleTakes = function(i) {
 function _mtUpdateTakesBtn(i) {
   const t = _mtTracks[i]; if (!t) return;
   const btn = _el('mt-takes-btn-'+i);
-  if (btn) btn.textContent = 'Takes ('+t.takes.length+') ▾';
+  if (btn) btn.textContent = '📁 Takes ('+t.takes.length+')';
 }
 
 function _mtRenderTakesPanel(trackIdx) {
@@ -29703,20 +29686,36 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
   _swipeToDismiss('practiceDrawer', function(){ if(typeof closePracticeDrawer === 'function') closePracticeDrawer(); }, 'practiceDrawerBody');
 
   // ── 4-Track bottom sheet: swipe-down to dismiss (mobile only) ────
+  // Swipe is only tracked when the touch STARTS in the header (above the tracks).
+  // This prevents the gesture handler from fighting with track-area scrolling.
   document.addEventListener('DOMContentLoaded', function() {
-    var ov   = document.getElementById('vrOverlay');
-    var deck = document.getElementById('vrDeck');
-    var tracks = document.getElementById('mtTracksContainer');
+    var ov     = document.getElementById('vrOverlay');
+    var deck   = document.getElementById('vrDeck');
+    var header = null; // resolved lazily on first touch
     if (!ov || !deck) return;
 
     var y0 = 0, y1 = 0, tracking = false, dismissed = false;
-    var THRESHOLD = 72; // px downward drag to dismiss
+    var THRESHOLD = 60; // px downward drag to dismiss
+
+    function getHeader() {
+      if (!header) header = deck.querySelector('.vr-deck-header');
+      return header;
+    }
+    function touchIsInHeader(e) {
+      var h = getHeader();
+      if (!h) return true; // fallback — allow dismiss from anywhere
+      var r = h.getBoundingClientRect();
+      var ty = e.touches[0].clientY;
+      // Allow from handle pill (above header) down to bottom of header + a little buffer
+      return ty < r.bottom + 20;
+    }
 
     deck.addEventListener('touchstart', function(e) {
-      if (window.innerWidth > 768) return; // desktop — skip
+      if (window.innerWidth > 768) return;
+      dismissed = false;
+      if (!touchIsInHeader(e)) { tracking = false; return; }
       y0 = y1 = e.touches[0].clientY;
       tracking = true;
-      dismissed = false;
       deck.style.transition = 'none';
     }, { passive: true });
 
@@ -29724,18 +29723,7 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
       if (!tracking || dismissed || window.innerWidth > 768) return;
       y1 = e.touches[0].clientY;
       var dy = y1 - y0;
-      if (dy <= 0) {
-        // Upward drag — let tracks scroll normally
-        deck.style.transform = '';
-        return;
-      }
-      // Dragging down from top of tracks (scrollTop = 0) → move deck
-      var tracksScrollTop = tracks ? tracks.scrollTop : 0;
-      if (tracksScrollTop > 4) {
-        // User is scrolling tracks, not dismissing
-        deck.style.transform = '';
-        return;
-      }
+      if (dy <= 0) { deck.style.transform = ''; return; }
       e.preventDefault();
       deck.style.transform = 'translateY(' + dy + 'px)';
     }, { passive: false });
@@ -29771,6 +29759,75 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
       deck.style.transition = '';
       deck.style.transform  = '';
     }, { passive: true });
+  });
+
+  // ── Drawer swipe-down-to-dismiss (looper, keyboard, seq) ─────────
+  // Shared: touch starting in the drawer header drags it downward.
+  // Crossing THRESHOLD commits a smooth slide-out then calls the close fn.
+  document.addEventListener('DOMContentLoaded', function() {
+    var THRESHOLD = 70;
+
+    function initDrawerSwipe(drawerId, headerSel, closeFn) {
+      var drawer = document.getElementById(drawerId);
+      if (!drawer) return;
+      var header = drawer.querySelector(headerSel);
+      if (!header) return;
+
+      var y0 = 0, y1 = 0, tracking = false, dismissed = false;
+
+      header.addEventListener('touchstart', function(e) {
+        if (window.innerWidth > 768) return;
+        y0 = y1 = e.touches[0].clientY;
+        tracking = true; dismissed = false;
+        drawer.style.transition = 'none';
+        drawer.style.transform  = 'translateX(0)'; // pin at open position before we take over
+      }, { passive: true });
+
+      header.addEventListener('touchmove', function(e) {
+        if (!tracking || dismissed) return;
+        y1 = e.touches[0].clientY;
+        var dy = Math.max(0, y1 - y0);
+        if (dy > 4) { e.preventDefault(); drawer.style.transform = 'translateY(' + dy + 'px)'; }
+      }, { passive: false });
+
+      function onRelease() {
+        if (!tracking) return;
+        tracking = false;
+        var dy = y1 - y0;
+        if (dy >= THRESHOLD) {
+          dismissed = true;
+          drawer.style.transition = 'transform 0.26s cubic-bezier(0.4,0,1,1)';
+          drawer.style.transform  = 'translateY(105dvh)';
+          drawer.addEventListener('transitionend', function cleanup() {
+            drawer.removeEventListener('transitionend', cleanup);
+            drawer.style.transition = '';
+            drawer.style.transform  = '';
+            closeFn();
+          }, { once: true });
+        } else {
+          drawer.style.transition = 'transform 0.28s cubic-bezier(0.4,0,0.2,1)';
+          drawer.style.transform  = 'translateX(0)';
+          drawer.addEventListener('transitionend', function cleanup() {
+            drawer.removeEventListener('transitionend', cleanup);
+            drawer.style.transition = '';
+            drawer.style.transform  = '';
+          }, { once: true });
+        }
+      }
+
+      header.addEventListener('touchend',    onRelease, { passive: true });
+      header.addEventListener('touchcancel', function() {
+        tracking = false;
+        drawer.style.transition = '';
+        drawer.style.transform  = '';
+      }, { passive: true });
+    }
+
+    // Init once — close functions are defined later, but since we call them
+    // inside the event callback they'll be resolved at call time, not init time.
+    initDrawerSwipe('looperDrawer',   '.looper-drawer-header',   function() { if (typeof closeLooperDrawer   === 'function') closeLooperDrawer();   });
+    initDrawerSwipe('keyboardDrawer', '.keyboard-drawer-header', function() { if (typeof closeKeyboardDrawer === 'function') closeKeyboardDrawer(); });
+    initDrawerSwipe('seqDrawer',      '.seq-drawer-header',      function() { if (typeof closeSeqDrawer      === 'function') closeSeqDrawer();      });
   });
 
   // ── Detail-view edge swipe → back to song list ────────────────────
