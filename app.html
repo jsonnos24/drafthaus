@@ -1562,12 +1562,12 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Variation chord pills */
   .seq-chord-var-pill {
     font-family: 'IBM Plex Mono', monospace; font-size: 10px;
-    padding: 4px 8px; background: var(--card2);
-    border: 1px solid var(--border2); border-radius: 4px;
-    cursor: grab; user-select: none; color: var(--text2);
+    padding: 4px 8px; background: rgba(235, 222, 190, 0.82);
+    border: 1px solid rgba(200, 182, 130, 0.7); border-radius: 4px;
+    cursor: grab; user-select: none; color: #1a1208;
     transition: all 0.12s; text-align: center; white-space: nowrap;
   }
-  .seq-chord-var-pill:hover { background: rgba(160,100,255,0.18); color: var(--text); border-color: rgba(160,100,255,0.5); }
+  .seq-chord-var-pill:hover { background: rgba(245, 232, 195, 1); border-color: rgba(160,100,255,0.6); color: #0a0804; }
   .seq-chord-var-pill:active { cursor: grabbing; }
   .seq-chord-var-pill.dragging { opacity: 0.45; }
   /* Key trigger slots (1-8) */
@@ -4574,26 +4574,20 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* ── Sequencer toolbar: mobile layout ───────────────────────── */
 
-  /* Transport strip: full-width 4-column grid, promoted above settings */
-  .seq-transport-strip {
-    order: -1 !important;
+  /* Transport strip in header: stays as flex row, compact */
+  .seq-drawer-header .seq-transport-strip {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 4px !important;
+    width: auto !important;
+    order: unset !important;
     margin-left: 0 !important;
-    display: grid !important;
-    grid-template-columns: repeat(4, 1fr) !important;
-    gap: 5px !important;
-    width: 100% !important;
   }
-  .seq-transport-strip .seq-btn {
-    min-height: 44px !important;
+  .seq-drawer-header .seq-transport-strip .seq-btn {
+    min-height: 36px !important;
     font-size: 10px !important;
-    padding: 0 3px !important;
-    letter-spacing: 0.03em !important;
-    text-align: center !important;
-    border-radius: 8px !important;
+    padding: 0 8px !important;
     white-space: nowrap !important;
-    overflow: hidden !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
   }
 
   /* Controls wrapper: stack strips vertically */
@@ -12524,22 +12518,7 @@ function renderSequencerHtml(song) {
           </select>
         </div>
 
-        <!-- Part assignment -->
-        <div class="seq-ctrl-group">
-          <span class="seq-label">Part</span>
-          <select class="seq-select" id="seqPartAssign" onchange="seqSaveSettings()" style="max-width:120px;">
-            <option value="">— None —</option>
-          </select>
-        </div>
 
-      </div>
-
-      <!-- Transport strip -->
-      <div class="seq-transport-strip" style="display:flex;align-items:center;gap:4px;margin-left:auto;">
-        <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:13px;padding:8px 20px;font-weight:700;">▶ Play</button>
-        <button class="seq-btn seq-btn-play" onclick="seqPlaySong()" style="font-size:13px;padding:8px 20px;font-weight:700;" title="Play full sequence (all parts in order)">▶▶ Full</button>
-        <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="font-size:13px;padding:8px 20px;font-weight:700;">■ Stop</button>
-        <button class="seq-btn seq-btn-met" id="seqMetBtn" onclick="seqToggleMet()">Metro</button>
       </div>
 
     </div>
@@ -18456,7 +18435,7 @@ async function generatePublicLink() {
   const btn = document.getElementById('genLinkBtn');
   if (btn) { btn.textContent = 'Generating…'; btn.disabled = true; }
   try {
-    const token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2,'0')).join('');
     await db.collection('songs').doc(song.id).update({ publicToken: token });
     song.publicToken = token;
     save();
@@ -20791,29 +20770,51 @@ function renderKeyboardDrawerHtml(song) {
             <option value="16"${(sd.bars||'16')==='16'?' selected':''}>16</option>
           </select>
         </div>
-        <!-- Part -->
-        <div class="seq-ctrl-group">
-          <span class="seq-label">Part</span>
-          <select id="kbdPartSelect" class="seq-select" style="font-size:10px;" onchange="kbdPartChanged()">
-            <option value="">— None —</option>
-            ${partOptions}
-          </select>
-        </div>
-      </div>
-
-      <!-- Transport strip (play/stop/rec — promoted to top row on mobile) -->
-      <div class="kbd-transport-strip" style="display:flex;align-items:center;gap:4px;margin-left:auto;">
-        <button class="melody-rec-btn" id="melodyRecBtn" onclick="melodyToggleRecord()">⏺ Rec</button>
-        <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:11px;padding:6px 12px;">▶ Play</button>
-        <button class="seq-btn seq-btn-play" onclick="seqPlaySong()" style="font-size:11px;padding:6px 12px;" title="Play full sequence (all parts in order)">▶▶ Full</button>
-        <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="font-size:11px;padding:6px 12px;">■ Stop</button>
-        <button class="seq-btn seq-btn-met" id="kbdMetBtn" onclick="seqToggleMet()" style="font-size:11px;padding:6px 10px;">Metro</button>
       </div>
 
     </div>
 
-    <!-- Melody sequence tabs (mirrors sequencer sequences) -->
-    <div class="seq-tabs-strip" id="kbdMelodyTabsStrip" style="margin:0 0 2px;"></div>
+    <!-- ══ Chord Progression Section ══ -->
+    <div style="border-bottom:1px solid var(--border2);margin-bottom:12px;padding-bottom:12px;">
+
+      <!-- Chord instrument row -->
+      <div class="seq-instrument-row" style="flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+        <span class="seq-label" style="color:var(--faint);font-size:9px;text-transform:uppercase;letter-spacing:0.08em;">Chords</span>
+        <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()" style="width:auto;">
+          <option value="synth"${chordInstrument==='synth'?' selected':''}>Synth</option>
+          <option value="piano"${chordInstrument==='piano'?' selected':''}>Piano</option>
+          <option value="guitar"${chordInstrument==='guitar'?' selected':''}>Guitar</option>
+          <option value="guitar+piano"${chordInstrument==='guitar+piano'?' selected':''}>Guitar + Piano</option>
+          <option value="guitar+synth"${chordInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
+          <option value="piano+synth"${chordInstrument==='piano+synth'?' selected':''}>Piano + Synth</option>
+          <option value="guitar+piano+synth"${chordInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Piano + Synth</option>
+        </select>
+        <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
+      </div>
+
+      <!-- Finger Chord Slots label + key trigger bank -->
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:700;letter-spacing:0.06em;color:var(--text);margin-bottom:8px;">Finger Chord Slots — Keyboard Keys 1–9</div>
+      <div class="seq-chords-row" id="seqKeyTriggerRow" style="margin-bottom:14px;align-items:stretch;"></div>
+
+      <!-- Chord intervals/pills -->
+      <div style="margin-bottom:6px;">
+        <div class="seq-chords-row" id="seqChordPills" style="margin-bottom:4px;"></div>
+        <div id="seqChordModeHint" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:0.08em;">Preview Mode — Click chord to preview · Drag into grid to compose</div>
+      </div>
+
+      <!-- Chord sequence grid -->
+      <div class="seq-pattern-grid" style="margin-bottom:0;margin-top:10px;">
+        <div class="seq-grid-row" data-row="chord">
+          <div class="seq-row-label">Chord</div>
+          <div class="seq-grid" id="seqChordGrid"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Sequence tabs (shared by melody keys and chords) -->
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);margin:10px 0 4px;">Sequence</div>
+    <div class="seq-tabs-strip" id="kbdMelodyTabsStrip" style="margin:0 0 8px;"></div>
 
     <!-- Melody instrument row -->
     <div class="seq-instrument-row kbd-instrument-row">
@@ -20839,46 +20840,6 @@ function renderKeyboardDrawerHtml(song) {
 
     <!-- Melody roll -->
     <div class="melody-roll" id="melodyRoll"></div>
-
-    <!-- ══ Chord Progression Section ══ -->
-    <div style="border-top:1px solid var(--border2);margin-top:12px;padding-top:12px;">
-
-      <!-- Chord instrument row -->
-      <div class="seq-instrument-row" style="flex-wrap:wrap;gap:8px;margin-bottom:10px;">
-        <span class="seq-label" style="color:var(--faint);font-size:9px;text-transform:uppercase;letter-spacing:0.08em;">Chords</span>
-        <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()" style="width:auto;">
-          <option value="synth"${chordInstrument==='synth'?' selected':''}>Synth</option>
-          <option value="piano"${chordInstrument==='piano'?' selected':''}>Piano</option>
-          <option value="guitar"${chordInstrument==='guitar'?' selected':''}>Guitar</option>
-          <option value="guitar+piano"${chordInstrument==='guitar+piano'?' selected':''}>Guitar + Piano</option>
-          <option value="guitar+synth"${chordInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
-          <option value="piano+synth"${chordInstrument==='piano+synth'?' selected':''}>Piano + Synth</option>
-          <option value="guitar+piano+synth"${chordInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Piano + Synth</option>
-        </select>
-        <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
-      </div>
-
-      <!-- Chord grid row -->
-      <div class="seq-pattern-grid" style="margin-bottom:8px;">
-        <div class="seq-grid-row" data-row="chord">
-          <div class="seq-row-label">Chord</div>
-          <div class="seq-grid" id="seqChordGrid"></div>
-        </div>
-      </div>
-
-      <!-- Chord pills (scale chords for the current key) -->
-      <div style="margin-bottom:10px;">
-        <div class="seq-chords-row" id="seqChordPills" style="margin-bottom:4px;"></div>
-        <div id="seqChordModeHint" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:0.08em;">Preview Mode — Click chord to preview · Drag into grid to compose</div>
-      </div>
-
-      <!-- Key trigger bank (keys 1–8) -->
-      <div>
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.05em;margin-bottom:5px;">Keys 1–8 &nbsp;·&nbsp; drag any chord to reassign</div>
-        <div class="seq-chords-row" id="seqKeyTriggerRow" style="margin-bottom:0;align-items:stretch;"></div>
-      </div>
-
-    </div>
 
 `;
 }
@@ -22455,7 +22416,7 @@ function loopBuildUI() {
         </div>
       </div>
       <div class="ring-wrap" id="lring-wrap-${i}" onclick="loopHandleTrackClick(${i})">
-        <canvas class="ring-canvas" id="lring-canvas-${i}" width="52" height="52"></canvas>
+        <canvas class="ring-canvas" id="lring-canvas-${i}" width="80" height="80"></canvas>
         <div class="ring-btn" id="lring-btn-${i}">
           <span class="ring-btn-icon" id="lring-icon-${i}">⏺</span>
           <span class="ring-btn-label" id="lring-label-${i}">Record</span>
@@ -25744,6 +25705,7 @@ let _mtRecStartMs   = 0;
 let _mtStream       = null; // mic MediaStream (shared)
 let _mtTracks       = [];   // 4 track objects, built by mtBuildUI
 let _mtPreloadedSongId = null; // song ID whose takes have been background-loaded
+let _vrTakesUnsubscribe = null; // Firestore onSnapshot unsubscribe for real-time take sync
 
 // ── Helpers ────────────────────────────────────────────────────
 function _el(id) { return document.getElementById(id); }
@@ -26483,6 +26445,42 @@ function _vuDrawBar(id, level, clipping) {
   }
 }
 
+// ── Real-time takes listener (keeps takes panel in sync while overlay is open) ──
+function _vrStartTakesListener(songId) {
+  _vrStopTakesListener(); // clear any previous listener first
+  let _isFirstSnapshot = true; // skip initial snapshot — vrLoadTakes() handles that
+  _vrTakesUnsubscribe = db.collection('voice_takes')
+    .where('songId', '==', songId)
+    .orderBy('createdAt', 'asc')
+    .onSnapshot(snap => {
+      if (_isFirstSnapshot) { _isFirstSnapshot = false; return; }
+      const byTrack = [[],[],[],[]];
+      snap.docs.forEach(doc => {
+        const d = doc.data();
+        const ti = typeof d.trackNum === 'number' ? Math.min(3, Math.max(0, d.trackNum)) : 0;
+        byTrack[ti].push({ id: doc.id, ...d });
+      });
+      for (let i = 0; i < 4; i++) {
+        const t = _mtTracks[i]; if (!t) continue;
+        const prevCount = t.takes.length;
+        t.takes = byTrack[i];
+        _mtRenderTakesPanel(i);
+        _mtUpdateTakesBtn(i);
+        // If a new take appeared on a track with no buffer, auto-load it so it shows immediately
+        if (t.takes.length > prevCount && !t.buffer && t.takes.length > 0) {
+          const latestIdx = t.takes.length - 1;
+          t.activeTakeIdx = latestIdx;
+          _mtLoadTakeBuffer(i, t.takes[latestIdx]).catch(() => {});
+        }
+      }
+    }, err => {
+      console.warn('[MT] takes listener error', err);
+    });
+}
+function _vrStopTakesListener() {
+  if (_vrTakesUnsubscribe) { _vrTakesUnsubscribe(); _vrTakesUnsubscribe = null; }
+}
+
 // ── Open / Close ───────────────────────────────────────────────
 window.vrOpen = function(autoRecord) {
   _setNavOpen('nav-mic', true);
@@ -26502,19 +26500,22 @@ const btBtn = _el('vrBtBtn'); if (btBtn) btBtn.classList.toggle('vr-bt-active', 
   if (_mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(() => {});
   _vrEnumerateDevices();
   vrLoadTakes();
+  // Start real-time listener so takes recorded on other devices appear without closing/reopening
+  _vrStartTakesListener(_vrSongId);
   ensembleInitUI();
   // VU meter starts only when a track is armed — not on open
-  // After the slide-up animation settles (~350ms), force a waveform redraw.
-  // This catches iOS Safari cases where offsetWidth is 0 during the transition.
+  // After the slide-up animation settles, force a waveform redraw.
+  // 600ms gives iOS Safari enough time to finish layout after display:none→flex transitions.
   setTimeout(() => {
     _mtTracks.forEach((t, i) => { if (t && t.buffer) _mtDrawTrackWaveform(i, t.buffer, t.color); });
-  }, 380);
+  }, 600);
 };
 
 window.vrClose = function() {
   if (_vrRecording) { showToast('Stop recording before closing.', 'warn'); return; }
   _setNavOpen('nav-mic', false);
   _mtStopAll();
+  _vrStopTakesListener(); // clean up real-time listener
   _el('vrOverlay').classList.remove('vr-open', 'vr-rt-compact');
   _vuMaybeStop();
 };
@@ -26530,6 +26531,8 @@ window._vr4trackSetSongAndReload = function(id) {
     _mtTracks.forEach(t => { if (t) { t.buffer = null; t.takes = []; t.activeTakeIdx = -1; } });
   }
   _mtPreloadedSongId = null;
+  // Restart the real-time listener for the new song
+  _vrStartTakesListener(id);
   setTimeout(vrLoadTakes, 0);
 };
 
@@ -27028,6 +27031,9 @@ window.vrLoadTakes = async function() {
     }
     // Wait for all track buffers to load in parallel (not sequentially)
     await Promise.all(_loadPromises);
+    // Definitive redraw pass — by the time all buffers are ready the overlay is
+    // fully visible, so offsetWidth is always reliable here (no rAF retries needed).
+    _mtTracks.forEach((t, i) => { if (t && t.buffer) _mtDrawTrackWaveform(i, t.buffer, t.color); });
     _el('mtPlayBtn').disabled = !_mtTracks.some(t=>t&&t.buffer);
     // Mark preload cache so mtPreloadForSong won't re-fetch if 4-track is closed and reopened
     _mtPreloadedSongId = _vrSongId;
@@ -27123,9 +27129,9 @@ function _mtDrawTrackWaveform(trackIdx, buffer, color, _attempt) {
   let W = wrap ? wrap.offsetWidth : 0;
   const H = wrap ? (wrap.offsetHeight || 60) : 60;
   // If the element isn't laid out yet (e.g. overlay is mid-animation or still hidden),
-  // defer with rAF so the browser has time to compute dimensions. Up to 20 retries
-  // (iOS Safari needs more frames after display:none→flex transitions).
-  if (W === 0 && (_attempt || 0) < 20) {
+  // defer with rAF so the browser has time to compute dimensions. Up to 40 retries
+  // (iOS Safari needs more frames after display:none→flex transitions; 40×16ms ≈ 640ms).
+  if (W === 0 && (_attempt || 0) < 40) {
     requestAnimationFrame(() => _mtDrawTrackWaveform(trackIdx, buffer, color, (_attempt || 0) + 1));
     return;
   }
@@ -28122,11 +28128,18 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
 
 <div class="keyboard-drawer" id="keyboardDrawer">
   <div class="keyboard-drawer-header">
-    <div>
+    <div class="kbd-transport-strip" style="display:flex;align-items:center;gap:4px;flex-shrink:0;margin-right:14px;">
+      <button class="melody-rec-btn" id="melodyRecBtn" onclick="melodyToggleRecord()">⏺ Rec</button>
+      <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:11px;padding:6px 12px;">▶ Play</button>
+      <button class="seq-btn seq-btn-play" onclick="seqPlaySong()" style="font-size:11px;padding:6px 12px;" title="Play full sequence (all parts in order)">▶▶ Full</button>
+      <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="font-size:11px;padding:6px 12px;">■ Stop</button>
+      <button class="seq-btn seq-btn-met" id="kbdMetBtn" onclick="seqToggleMet()" style="font-size:11px;padding:6px 10px;">Metro</button>
+    </div>
+    <div style="flex-shrink:0;">
       <div class="keyboard-drawer-title">🎹 Keyboard & Melody</div>
       <div class="keyboard-drawer-song" id="keyboardDrawerSongName">Open a draft to record melody</div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;">
+    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:8px;">
       <button class="drawer-help-btn" onclick="openDrawerHelp('keyboard')" title="How to use Keyboard">?</button>
     </div>
   </div>
@@ -28158,11 +28171,20 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
 <div class="seq-drawer" id="seqDrawer">
   <div class="seq-drawer-handle" id="seqDragHandle"></div>
   <div class="seq-drawer-header">
-    <div>
-      <div class="seq-drawer-title">🥁 Drums</div>
-      <div class="seq-drawer-song" id="seqDrawerSongName"></div>
+    <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
+      <div>
+        <div class="seq-drawer-title">🥁 Drums</div>
+        <div class="seq-drawer-song" id="seqDrawerSongName"></div>
+      </div>
+      <!-- Transport controls -->
+      <div class="seq-transport-strip" id="seqTransportStrip" style="display:flex;align-items:center;gap:4px;">
+        <button class="seq-btn seq-btn-play" onclick="seqPlay()" style="font-size:12px;padding:6px 14px;font-weight:700;">▶ Play</button>
+        <button class="seq-btn seq-btn-play" onclick="seqPlaySong()" style="font-size:12px;padding:6px 14px;font-weight:700;" title="Play full sequence (all parts in order)">▶▶ Full</button>
+        <button class="seq-btn seq-btn-stop" onclick="seqStop()" style="font-size:12px;padding:6px 14px;font-weight:700;">■ Stop</button>
+        <button class="seq-btn seq-btn-met" id="seqMetBtn" onclick="seqToggleMet()" style="font-size:12px;padding:6px 10px;">Metro</button>
+      </div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;">
+    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
       <button class="drawer-help-btn" onclick="openDrawerHelp('sequencer')" title="How to use Sequencer">?</button>
       <button class="seq-drawer-close seq-mobile-close" onclick="closeSeqDrawer()" title="Close" style="display:none;">✕</button>
     </div>
