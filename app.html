@@ -5185,6 +5185,28 @@ body.split-active #splitRightPanel { display: flex; }
   border-bottom: 1px solid var(--border);
   background: var(--card);
 }
+/* Compact transport strip inside split right header */
+.split-transport {
+  display: none; align-items: center; gap: 4px;
+}
+body.split-active .split-transport { display: flex; }
+.split-transport-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  font-weight: 700; letter-spacing: 0.06em;
+  padding: 4px 10px; border-radius: 5px; cursor: pointer;
+  border: 1px solid var(--border2); background: var(--card2);
+  color: var(--text); transition: all 0.12s; white-space: nowrap;
+}
+.split-transport-btn:hover { filter: brightness(1.2); }
+.split-play-btn  { border-color: rgba(74,222,128,0.4); color: #4ade80; }
+.split-play-btn:hover { background: rgba(74,222,128,0.12); }
+.split-stop-btn  { border-color: rgba(248,113,113,0.4); color: #f87171; }
+.split-stop-btn:hover { background: rgba(248,113,113,0.12); }
+.split-rec-btn   { border-color: rgba(248,113,113,0.5); color: var(--text); }
+.split-rec-btn.recording { background: var(--red); color: #fff; border-color: var(--red); animation: recPulse 1s ease-in-out infinite; }
+.split-met-btn.on { color: var(--gold); border-color: var(--gold); }
+/* Hide keyboard drawer header transport in split mode */
+body.split-active .keyboard-drawer .kbd-transport-strip { display: none !important; }
 #splitRightSelect {
   flex: 1;
   background: transparent; color: var(--text);
@@ -13890,8 +13912,8 @@ function seqPlayCrash(time, vel) {
 
 function seqToggleMet() {
   seqMetOn = !seqMetOn;
-  // Sync both the sequencer metro button and the keyboard drawer metro button
-  ['seqMetBtn', 'kbdMetBtn'].forEach(function(id) {
+  // Sync sequencer, keyboard drawer, and split header metro buttons
+  ['seqMetBtn', 'kbdMetBtn', 'splitMetBtn'].forEach(function(id) {
     const btn = document.getElementById(id);
     if (btn) btn.classList.toggle('on', seqMetOn);
   });
@@ -14629,6 +14651,8 @@ function melodyToggleRecord() {
     const btn    = document.getElementById('melodyRecBtn');
     const status = document.getElementById('melodyStatus');
     if (btn)    { btn.classList.remove('recording'); btn.textContent = '⏺ Rec'; }
+    const splitBtn = document.getElementById('splitRecBtn');
+    if (splitBtn) splitBtn.classList.remove('recording');
     if (status) status.textContent = '';
   } else {
     melodyStartRecord();
@@ -14646,7 +14670,8 @@ async function melodyStartRecord() {
   const totalCountInBeats = timeSig * 2; // 2 bars
 
   // Give the button a quick visual cue that recording is starting
-  { const b = document.getElementById('melodyRecBtn'); if (b) b.textContent = '…'; }
+  { const b = document.getElementById('melodyRecBtn'); if (b) b.textContent = '…';
+    const sb = document.getElementById('splitRecBtn'); if (sb) sb.classList.add('recording'); }
 
   const ctx = getSeqAudioCtx();
 
@@ -14688,6 +14713,7 @@ async function melodyStartRecord() {
   melodyActiveNotes.clear();
   melodyActiveNote = null;
   btn.classList.add('recording'); btn.textContent = '⏹ Stop Rec';
+  { const sb = document.getElementById('splitRecBtn'); if (sb) sb.classList.add('recording'); }
   if (status) status.textContent = '● RECORDING';
   seqRenderMelodyRoll();
 
@@ -14747,6 +14773,7 @@ function melodyStopRecord() {
   const btn = document.getElementById('melodyRecBtn');
   const status = document.getElementById('melodyStatus');
   if (btn) { btn.classList.remove('recording'); btn.textContent = '⏺ Rec'; }
+  { const sb = document.getElementById('splitRecBtn'); if (sb) sb.classList.remove('recording'); }
   if (status) status.textContent = '';
   seqRenderMelodyRoll();
 }
@@ -28560,6 +28587,13 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
 </div>
 <div id="splitRightPanel">
   <div id="splitRightHeader">
+    <div class="split-transport" id="splitTransport">
+      <button class="split-transport-btn split-rec-btn" id="splitRecBtn" onclick="melodyToggleRecord()" title="Record melody">⏺ Rec</button>
+      <button class="split-transport-btn split-play-btn" onclick="seqPlay()" title="Play section">▶ Play</button>
+      <button class="split-transport-btn split-play-btn" onclick="seqPlaySong()" title="Play full sequence">▶▶ Full</button>
+      <button class="split-transport-btn split-stop-btn" onclick="seqStop()" title="Stop">■ Stop</button>
+      <button class="split-transport-btn split-met-btn" id="splitMetBtn" onclick="seqToggleMet()" title="Metronome">Metro</button>
+    </div>
     <div style="flex:1"></div>
     <span id="splitRightExpandHint" class="split-expand-hint">Hit Enter to Expand</span>
     <button id="splitRightExpandBtn" class="split-expand-btn" onclick="splitExpandPane('right')" title="Expand right pane">⤢</button>
