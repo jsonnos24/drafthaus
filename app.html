@@ -4274,6 +4274,21 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   #loopMonPill .mon-icon { font-size: 13px; }
 
+  /* ── Mic status pill ── */
+  #loopMicPill {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 7px 20px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    color: #555; background: transparent;
+    transition: background 0.2s, color 0.2s;
+  }
+  #loopMicPill.mic-ready  { color: #00e87a; background: rgba(0,232,122,0.05); border-bottom-color: rgba(0,232,122,0.15); }
+  #loopMicPill.mic-denied { color: #ff5f5f; background: rgba(255,95,95,0.05); border-bottom-color: rgba(255,95,95,0.15); }
+  #loopMicPill.mic-prompt { color: #ffd166; background: rgba(255,209,102,0.05); border-bottom-color: rgba(255,209,102,0.15); cursor: pointer; }
+  #loopMicPill.mic-prompt:hover { background: rgba(255,209,102,0.10); }
+
   /* ── Same-device feedback warning ── */
   #loopFeedbackWarn {
     display: none; margin-bottom: 10px;
@@ -13702,14 +13717,26 @@ function seqOnSongKeyChange(rawOldKey) {
 
   if (oldKey === newKey && oldMode === newMode) return;
 
+  // Helper: resolve degree from slot (prefer stored degree, fall back to name lookup)
+  function _resolveDegree(rawName, storedDeg, chords) {
+    if (storedDeg !== undefined && storedDeg !== '') {
+      const d = parseInt(storedDeg, 10);
+      if (!isNaN(d) && d >= 0 && d < chords.length) return d;
+    }
+    return chords.indexOf(rawName);
+  }
+
   // Transpose chord slots if grid is visible
   if (document.getElementById('seqChordGrid')) {
     const oldChords = seqGetScaleChords(oldKey, oldMode);
     const newChords = seqGetScaleChords(newKey, newMode);
     document.querySelectorAll('#seqChordGrid .seq-slot.filled').forEach(slot => {
-      const name = slot.textContent.trim();
-      const degree = oldChords.indexOf(name);
-      if (degree >= 0) _seqSlotSetText(slot, newChords[degree]);
+      const rawName   = slot.dataset.seqChordRaw || slot.textContent.trim().replace('⁸','_viii');
+      const degree    = _resolveDegree(rawName, slot.dataset.chordDegree, oldChords);
+      if (degree >= 0 && degree < newChords.length) {
+        _seqSlotSetText(slot, newChords[degree]);
+        slot.dataset.chordDegree = String(degree);
+      }
     });
     seqSaveChordSlots();
   } else {
@@ -13717,9 +13744,10 @@ function seqOnSongKeyChange(rawOldKey) {
     if (song.sequencer?.chordSlots) {
       const oldChords = seqGetScaleChords(oldKey, oldMode);
       const newChords = seqGetScaleChords(newKey, newMode);
-      song.sequencer.chordSlots = song.sequencer.chordSlots.map(name => {
-        const degree = oldChords.indexOf(name);
-        return degree >= 0 ? newChords[degree] : name;
+      const degrees   = song.sequencer.chordDegrees || [];
+      song.sequencer.chordSlots = song.sequencer.chordSlots.map((name, i) => {
+        const degree = _resolveDegree(name, degrees[i], oldChords);
+        return (degree >= 0 && degree < newChords.length) ? newChords[degree] : name;
       });
     }
   }
@@ -14753,7 +14781,11 @@ function seqRebuild() {
 // Use this everywhere instead of `slot.textContent = chord`.
 function _seqSlotSetText(slot, text) {
   const handle = slot.querySelector('.seq-resize-handle');
-  slot.textContent = text || ''; // replaces all children (including handle)
+  const raw = text || '';
+  // Store the raw chord name (with _viii) in dataset for transposition + save
+  slot.dataset.seqChordRaw = raw;
+  // Display a clean version: _viii → ⁸
+  slot.textContent = raw.replace('_viii', '⁸');
   // Re-attach handle (or create one if missing)
   if (handle) {
     slot.appendChild(handle);
@@ -14793,8 +14825,9 @@ function seqBuildGrids(song) {
       slot.dataset.beat = (i % beatsPerBar) % 8;
       const val = savedSlots[i] || '';
       if (val) {
-        // Use _seqSlotSetText via direct approach: set text then append handle below
-        slot.textContent = val;
+        // Store raw name for transposition/save; display clean version
+        slot.dataset.seqChordRaw = val;
+        slot.textContent = val.replace('_viii', '⁸');
         slot.classList.add('filled');
         if (savedContinued[i]) slot.classList.add('chord-tail');
         const deg = savedDegrees[i];
@@ -14897,7 +14930,7 @@ function seqSaveChordSlots() {
   seqGetData(song); // ensure song.sequencer → active sequence
   seqPushUndo(); // snapshot BEFORE overwriting
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
-  song.sequencer.chordSlots     = slots.map(s => s.textContent.trim() || '');
+  song.sequencer.chordSlots     = slots.map(s => s.dataset.seqChordRaw || s.textContent.trim().replace('⁸','_viii') || '');
   song.sequencer.chordDegrees   = slots.map(s => s.dataset.chordDegree ?? '');
   song.sequencer.chordContinued = slots.map(s => s.classList.contains('chord-tail'));
   song.updatedAt = Date.now();
@@ -15851,10 +15884,16 @@ function seqRenderKeyboard() {
   const noteDegree = {};
   SEQ_SCALES[mode].steps.forEach((s, i) => { noteDegree[SEQ_NOTES[(rootIdx + s) % 12]] = i; });
 
-  // Purple palette matching interval pill colors — one shade per degree
-  const WHITE_DEG_BG  = ['#c084fc','#c48dff','#cd97ff','#d6a0ff','#deaaff','#e6b4ff','#edbeff'];
-  const WHITE_DEG_BDR = ['#7c3aed','#8540f0','#9048f2','#9a52f4','#a45cf5','#ae66f7','#b870f8'];
-  const BLACK_DEG_BG  = ['#3a1060','#4a1878','#5a2090','#6a28a8','#7a30c0','#8a38d8','#9a44e8'];
+  // Keyboard colour scheme: white/black + light purple for scale notes, darker for root
+  const WHITE_SCALE_BG  = '#ddc8ff'; // light purple — all in-scale white keys (same shade)
+  const WHITE_SCALE_BDR = '#9b6dff';
+  const WHITE_ROOT_BG   = '#a855f7'; // deeper purple — root white key
+  const WHITE_ROOT_BDR  = '#6d28d9';
+  const WHITE_DEFAULT_BG  = '#f9f7f4'; // near-white — out-of-scale white keys
+  const WHITE_DEFAULT_BDR = '#d0ccc8';
+  const BLACK_SCALE_BG  = '#5b21b6'; // medium purple — in-scale black keys
+  const BLACK_ROOT_BG   = '#3b0764'; // very dark purple — root black key
+  const BLACK_DEFAULT_BG = '#1a1a1a'; // near-black — out-of-scale black keys
 
   const blackDefs = [
     { note:'C#', offset: 0.67 },
@@ -15878,9 +15917,8 @@ function seqRenderKeyboard() {
     KBD_WHITE_NOTES.forEach((note, wi) => {
       const inScale = scaleNotes.has(note);
       const isRoot  = note === rootNote;
-      const deg = noteDegree[note] ?? -1;
-      const defaultBg  = deg >= 0 ? WHITE_DEG_BG[deg]  : '#f0ece0';
-      const borderColor= deg >= 0 ? WHITE_DEG_BDR[deg] : '#999';
+      const defaultBg   = isRoot ? WHITE_ROOT_BG  : (inScale ? WHITE_SCALE_BG  : WHITE_DEFAULT_BG);
+      const borderColor = isRoot ? WHITE_ROOT_BDR : (inScale ? WHITE_SCALE_BDR : WHITE_DEFAULT_BDR);
       const key = document.createElement('div');
       const x = octStartX + wi * W;
       key.style.cssText = `position:absolute;left:${x}px;top:0;width:${W-1}px;height:${WH}px;
@@ -15894,7 +15932,8 @@ function seqRenderKeyboard() {
       key._origBg = defaultBg;
       if (note === 'C' || isRoot) {
         const label = note + oct;
-        const labelColor = isRoot ? '#5b21b6' : '#888';
+        // Root on purple bg → white text; in-scale C → dark purple; non-scale C → grey
+        const labelColor = isRoot ? '#fff' : (inScale ? '#6d28d9' : '#999');
         key.innerHTML = `<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:${labelColor};font-weight:${isRoot?'700':'400'};">${label}</span>`;
       }
       const flash = () => {
@@ -15915,8 +15954,7 @@ function seqRenderKeyboard() {
     blackDefs.forEach(({ note, offset }) => {
       const inScale = scaleNotes.has(note);
       const isRoot  = note === rootNote;
-      const deg = noteDegree[note] ?? -1;
-      const defaultBg = deg >= 0 ? BLACK_DEG_BG[deg] : '#1a1a1a';
+      const defaultBg = isRoot ? BLACK_ROOT_BG : (inScale ? BLACK_SCALE_BG : BLACK_DEFAULT_BG);
       const bkey = document.createElement('div');
       const x = octStartX + offset * W - BW/2 + W/2;
       bkey.style.cssText = `position:absolute;left:${x}px;top:0;width:${BW}px;height:${BH}px;
@@ -22913,8 +22951,13 @@ function seqKeySelectChanged() {
     const oldChords = seqGetScaleChords(oldKey, oldMode);
     const newChords = seqGetScaleChords(newKey, newMode);
     document.querySelectorAll('#seqChordGrid .seq-slot.filled').forEach(slot => {
-      const degree = oldChords.indexOf(slot.textContent.trim());
-      if (degree >= 0) _seqSlotSetText(slot, newChords[degree]);
+      const rawName = slot.dataset.seqChordRaw || slot.textContent.trim().replace('⁸','_viii');
+      const storedDeg = slot.dataset.chordDegree;
+      let degree = (storedDeg !== undefined && storedDeg !== '') ? parseInt(storedDeg, 10) : oldChords.indexOf(rawName);
+      if (!isNaN(degree) && degree >= 0 && degree < newChords.length) {
+        _seqSlotSetText(slot, newChords[degree]);
+        slot.dataset.chordDegree = String(degree);
+      }
     });
     seqSaveChordSlots();
   }
@@ -23921,15 +23964,7 @@ function openLooperDrawer() {
   loopOnSongChange(song);
   loopCheckFeedbackWarning();
   loopUpdateMonitorPill();
-  // If mic permission is already granted, warm up the stream now so record starts instantly
-  Promise.resolve().then(async () => {
-    try {
-      const perm = await navigator.permissions.query({ name: 'microphone' });
-      if (perm.state === 'granted' && !(loopSharedStream && loopSharedStream.active)) {
-        await loopEnsureMicStream();
-      }
-    } catch(e) { /* Permissions API unsupported — defer until record click */ }
-  });
+  loopCheckMicStatus(); // update mic pill and warm up stream if already granted
   // VU meter starts only when record is clicked — not on open
 }
 function closeLooperDrawer() {
@@ -24385,6 +24420,12 @@ function loopUpdateTrackUI(i){
   if(icon)icon.textContent=m.icon;if(label)label.textContent=m.lbl;if(stl){stl.textContent=m.state;stl.style.display=m.state==='EMPTY'?'none':'';stl.style.color=t.state==='preroll'?'#ff9900':t.state==='recording'?'#ff2200':t.state==='playing'?'#00e87a':t.state==='muted'?'#888':_isReady?'#e8c84a':'#ffd166';}
   const hint=document.getElementById(`lloop-hint-${i}`);if(hint)hint.style.display=(t.state==='idle'&&!t.buffer)?'':'none';
   loopUpdateMonitorPill();
+  // Keep mic pill in sync — once stream is live, mark it ready
+  if (loopSharedStream && loopSharedStream.active) {
+    const mp = document.getElementById('loopMicPill');
+    const ml = document.getElementById('loopMicPillLabel');
+    if (mp && !mp.classList.contains('mic-ready')) { mp.className = 'mic-ready'; if (ml) ml.textContent = 'Mic: Ready'; }
+  }
 }
 function loopUpdateMonitorPill() {
   const pill  = document.getElementById('loopMonPill');
@@ -24442,6 +24483,73 @@ async function loopCheckFeedbackWarning() {
   }
 }
 function loopAnyTrackActive(){return loopTracks.some(t=>['recording','playing','preroll'].includes(t.state));}
+
+// ── Mic permission status pill ─────────────────────────────────────
+async function loopCheckMicStatus() {
+  const pill  = document.getElementById('loopMicPill');
+  const label = document.getElementById('loopMicPillLabel');
+  if (!pill || !label) return;
+
+  // If the stream is already live, we know we have access
+  if (loopSharedStream && loopSharedStream.active) {
+    pill.className = 'mic-ready';
+    label.textContent = 'Mic: Ready';
+    return;
+  }
+
+  try {
+    const perm = await navigator.permissions.query({ name: 'microphone' });
+    if (perm.state === 'granted') {
+      pill.className = 'mic-ready';
+      label.textContent = 'Mic: Ready';
+      // Warm up the stream quietly in the background
+      loopEnsureMicStream().catch(() => {});
+      // Listen for future changes (e.g. user revokes permission)
+      perm.onchange = () => loopCheckMicStatus();
+    } else if (perm.state === 'denied') {
+      pill.className = 'mic-denied';
+      label.textContent = 'Mic: Blocked — check browser settings';
+    } else {
+      // 'prompt' — not yet asked
+      pill.className = 'mic-prompt';
+      label.textContent = 'Tap to grant mic access';
+      perm.onchange = () => loopCheckMicStatus();
+    }
+  } catch(e) {
+    // Permissions API not supported (Firefox/Safari) — probe via enumerateDevices labels
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const hasLabel = devices.some(d => d.label && d.label !== '');
+      if (hasLabel) {
+        pill.className = 'mic-ready';
+        label.textContent = 'Mic: Ready';
+        loopEnsureMicStream().catch(() => {});
+      } else {
+        pill.className = 'mic-prompt';
+        label.textContent = 'Tap to grant mic access';
+      }
+    } catch(e2) {
+      pill.className = 'mic-denied';
+      label.textContent = 'Mic: Unavailable';
+    }
+  }
+}
+
+// Called when user taps the mic pill in 'prompt' state — this IS a user gesture
+async function loopMicPillClick() {
+  const pill = document.getElementById('loopMicPill');
+  if (!pill || !pill.classList.contains('mic-prompt')) return;
+  const label = document.getElementById('loopMicPillLabel');
+  if (label) label.textContent = 'Requesting…';
+  const stream = await loopEnsureMicStream();
+  if (stream) {
+    if (pill) pill.className = 'mic-ready';
+    if (label) label.textContent = 'Mic: Ready';
+  } else {
+    if (pill) pill.className = 'mic-denied';
+    if (label) label.textContent = 'Mic: Blocked — check browser settings';
+  }
+}
 
 // ── Loop Persistence ───────────────────────────────────────────────
 async function loopAutoSave(trackIdx, blob, mimeType, duration, source) {
@@ -30256,6 +30364,8 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
   </div>
   <!-- Monitor status strip — always visible below header -->
   <div id="loopMonPill" title="Monitor is auto-muted while recording to prevent feedback, and live during playback"><span class="mon-icon">🎧</span><span id="loopMonLabel">Monitor: Auto</span></div>
+  <!-- Mic permission status pill -->
+  <div id="loopMicPill" onclick="loopMicPillClick()"><span id="loopMicPillIcon">🎤</span><span id="loopMicPillLabel">Mic: Checking…</span></div>
   <div class="looper-drawer-body" id="looperBody">
     <!-- Song picker (shown when no song is loaded) -->
     <div id="loopDspPicker" style="display:none;"></div>
