@@ -4647,8 +4647,19 @@ button, select, input, textarea { touch-action: manipulation; }
     color: #bbb; background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.2);
   }
 
-  .bottom-nav-item.nav-sequencer .bottom-nav-icon { filter: drop-shadow(0 0 4px #4a9eff); }
-  .bottom-nav-item.nav-looper .bottom-nav-icon { filter: drop-shadow(0 0 4px #00ccff); }
+  .bottom-nav-item.nav-sequencer .bottom-nav-icon {
+    color: #7ec4ff;
+    filter: drop-shadow(0 0 3px #4a9eff) drop-shadow(0 0 10px rgba(74,158,255,0.55));
+  }
+  .bottom-nav-item.nav-looper .bottom-nav-icon {
+    color: #33ddff;
+    filter: drop-shadow(0 0 3px #00ccff) drop-shadow(0 0 10px rgba(0,204,255,0.55));
+  }
+  .bottom-nav-item.nav-mix .bottom-nav-label { color: #c8a0ff; }
+  .bottom-nav-item.nav-mix .bottom-nav-icon {
+    color: #c8a0ff;
+    filter: drop-shadow(0 0 3px #c8a0ff) drop-shadow(0 0 10px rgba(200,160,255,0.55));
+  }
   .bottom-nav-item.nav-inspo .bottom-nav-icon { filter: drop-shadow(0 0 4px var(--purple)); }
   .bottom-nav-item.nav-keyboard .bottom-nav-label { color: #ffd166; }
   .bottom-nav-item.nav-keyboard .bottom-nav-icon { filter: drop-shadow(0 0 4px #ffd166); }
@@ -4706,20 +4717,20 @@ button, select, input, textarea { touch-action: manipulation; }
     filter: drop-shadow(0 0 7px #ffd166) !important;
   }
   .bottom-nav-item.nav-sequencer.nav-open .bottom-nav-icon {
-    background: rgba(74,158,255,0.16) !important;
-    filter: drop-shadow(0 0 7px #4a9eff) !important;
+    background: rgba(74,158,255,0.18) !important;
+    filter: drop-shadow(0 0 4px #4a9eff) drop-shadow(0 0 14px rgba(74,158,255,0.7)) !important;
   }
   .bottom-nav-item.nav-looper.nav-open .bottom-nav-icon {
-    background: rgba(0,204,255,0.16) !important;
-    filter: drop-shadow(0 0 7px #00ccff) !important;
+    background: rgba(0,204,255,0.18) !important;
+    filter: drop-shadow(0 0 4px #00ccff) drop-shadow(0 0 14px rgba(0,204,255,0.7)) !important;
   }
   .bottom-nav-item.nav-mic.nav-open .bottom-nav-icon {
     background: rgba(255,184,216,0.16) !important;
     filter: drop-shadow(0 0 7px #ffb8d8) !important;
   }
   .bottom-nav-item.nav-mix.nav-open .bottom-nav-icon {
-    background: rgba(200,160,255,0.16) !important;
-    filter: drop-shadow(0 0 7px #c8a0ff) !important;
+    background: rgba(200,160,255,0.18) !important;
+    filter: drop-shadow(0 0 4px #c8a0ff) drop-shadow(0 0 14px rgba(200,160,255,0.7)) !important;
   }
 
 
@@ -24390,10 +24401,7 @@ function ilApplyRelabel(oldId, newId) {
     if (song.lyrics) song.lyrics[oldId] = '';
     showToast('Merged into ' + newPart.label, 'success', 2000);
   } else {
-    // Swap in place — preserve document position
-    const idx = rtActiveParts.findIndex(p => p.id === oldId);
-    if (idx === -1) return;
-    rtActiveParts[idx] = newPart;
+    // Reassign — move content to new part and reposition chronologically
     rtLyricEdits[newId]    = rtLyricEdits[oldId] || '';
     rtChordEdits[newId]    = rtChordEdits[oldId] || [];
     rtChordPositions[newId]= rtChordPositions[oldId] || [];
@@ -24405,12 +24413,17 @@ function ilApplyRelabel(oldId, newId) {
     song.lyrics[oldId] = '';
     if (!song.structure) song.structure = {};
     song.structure[newId] = { ...(song.structure[newId] || {}), checked: true, count: song.structure[oldId]?.count || 1 };
-    if (!song.sectionOrder) song.sectionOrder = [];
-    const soIdx = song.sectionOrder.indexOf(oldId);
-    if (soIdx !== -1) song.sectionOrder[soIdx] = newId;
-    else song.sectionOrder.push(newId);
     song.structure[oldId] = { checked: false };
-    song.sectionOrder = song.sectionOrder.filter(id => id !== oldId);
+    // Remove old id and insert new id at its natural chronological position
+    if (!song.sectionOrder) song.sectionOrder = [];
+    song.sectionOrder = song.sectionOrder.filter(id => id !== oldId && id !== newId);
+    const partRank = STRUCTURE_PARTS.map(p => p.id);
+    const newRank  = partRank.indexOf(newId);
+    const insertAt = song.sectionOrder.findIndex(id => partRank.indexOf(id) > newRank);
+    if (insertAt === -1) song.sectionOrder.push(newId);
+    else song.sectionOrder.splice(insertAt, 0, newId);
+    // Rebuild rtActiveParts in new order
+    rtActiveParts = getActiveParts(song);
     showToast('Reassigned to ' + newPart.label, 'success', 2000);
   }
   save();
@@ -24432,7 +24445,7 @@ function ilMakePartHtml(part, song) {
     <div class="il-part-side">
       <span class="il-part-dot" style="background:${part.color}"></span>
       <span class="il-part-name">${esc(part.label)}</span>
-      <button class="il-relabel-btn" onclick="ilRelabelPart('${part.id}')" title="Reassign section">⇄ Reassign</button>
+      <button class="il-relabel-btn" onclick="ilRelabelPart('${part.id}')" title="Reassign section">⇄</button>
     </div>
     <div class="il-part-main">
       <input class="il-part-notes" placeholder="Section notes…" value="${esc(notes)}"
