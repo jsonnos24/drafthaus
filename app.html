@@ -4,6 +4,26 @@
 <meta charset="UTF-8">
 <link rel="icon" type="image/x-icon" href="favicon.ico">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<script>
+// Landscape on mobile: widen virtual viewport so the browser scales content
+// down to fit the screen rather than rendering at 1:1 (which feels zoomed in).
+(function() {
+  var meta = document.querySelector('meta[name="viewport"]');
+  function applyViewport() {
+    var w = window.innerWidth, h = window.innerHeight;
+    var isLandscape = w > h;
+    var isMobile    = Math.min(w, h) < 500; // phone if short dimension < 500px
+    if (isLandscape && isMobile) {
+      // Render layout at 1024px wide — browser scales to fit actual screen width
+      meta.content = 'width=1024, viewport-fit=cover, user-scalable=yes';
+    } else {
+      meta.content = 'width=device-width, initial-scale=1.0, viewport-fit=cover';
+    }
+  }
+  applyViewport();
+  window.addEventListener('orientationchange', function() { setTimeout(applyViewport, 100); });
+})();
+</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -97,7 +117,12 @@ html.warm-mode .sub-header             { background: rgba(15,11,7,0.90); }
 html.warm-mode .bottom-nav             { background: rgba(15,11,7,0.98); }
 html.warm-mode .metro-bar              { background: rgba(15,11,7,0.98); }
 
-html { scroll-behavior: smooth; overflow-x: hidden; }
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 
 body {
   background: var(--bg);
@@ -12905,13 +12930,6 @@ function renderSequencerHtml(song) {
           </svg>
         </button>
 
-        <!-- BPM -->
-        <div class="seq-ctrl-group">
-          <span class="seq-label">BPM</span>
-          <input class="seq-input" type="number" id="seqBpm" value="${bpm}" min="40" max="240" style="width:60px" onchange="seqSaveSettings()">
-          <button class="seq-btn" id="seqTapBtn" onclick="seqTapTempo()" title="Tap to the beat to set BPM" style="font-size:10px;padding:4px 9px;letter-spacing:0.04em;transition:background 0.1s;">Tap</button>
-        </div>
-
         <!-- Time Signature -->
         <div class="seq-ctrl-group">
           <span class="seq-label">Time</span>
@@ -14365,8 +14383,8 @@ function seqPlayCrash(time, vel) {
 
 function seqToggleMet() {
   seqMetOn = !seqMetOn;
-  // Sync sequencer, keyboard drawer, and split header metro buttons
-  ['seqMetBtn', 'kbdMetBtn', 'splitMetBtn'].forEach(function(id) {
+  // Sync sequencer, keyboard drawer, split header, and looper metro buttons
+  ['seqMetBtn', 'kbdMetBtn', 'splitMetBtn', 'loopMetBtn'].forEach(function(id) {
     const btn = document.getElementById(id);
     if (btn) btn.classList.toggle('on', seqMetOn);
   });
@@ -28783,14 +28801,13 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
       </div>
       <!-- Global controls -->
       <div class="global-bar">
-        <div class="ctrl-group">
-          <span class="ctrl-label">BPM</span>
-          <div class="bpm-wrap">
-            <button class="bpm-btn" onclick="loopChangeBpm(-1)">−</button>
-            <span class="ctrl-value accent" id="loopBpmDisplay">120</span>
-            <button class="bpm-btn" onclick="loopChangeBpm(1)">+</button>
-            <button class="bpm-btn" id="loopTapBtn" onclick="loopTapTempo()" title="Tap to the beat to set BPM" style="font-size:9px;width:auto;padding:0 7px;letter-spacing:0.04em;font-family:'IBM Plex Mono',monospace;transition:background 0.1s;">Tap</button>
-          </div>
+        <!-- Transport -->
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+          <button class="melody-rec-btn" disabled style="opacity:0.35;cursor:not-allowed;" title="Recording not available here — use 4-Track">⏺ Rec</button>
+          <button class="split-transport-btn split-play-btn" onclick="seqPlay()" title="Play loop">▶ Play</button>
+          <button class="split-transport-btn split-play-btn" onclick="seqPlaySong()" title="Play full song">▶▶ Full</button>
+          <button class="split-transport-btn split-stop-btn" onclick="loopMasterStop()" title="Stop all loops">■ Stop</button>
+          <button class="split-transport-btn split-met-btn" id="loopMetBtn" onclick="seqToggleMet()" title="Toggle metronome">Metro</button>
         </div>
         <div class="ctrl-divider"></div>
         <div class="ctrl-group">
@@ -28802,7 +28819,6 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
             <button class="bar-btn" onclick="loopSetBars(8)">8</button>
           </div>
         </div>
-        <button class="master-stop" onclick="loopMasterStop()">■ Stop All</button>
       </div>
       <!-- Saved Loops -->
       <div class="loop-saved-panel" id="loopSavedPanel" style="display:none;">
@@ -28898,7 +28914,12 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
   <div class="seq-drawer-handle" id="seqDragHandle"></div>
   <div class="seq-drawer-header" style="flex-wrap:wrap;padding-bottom:0;">
     <div class="seq-settings-row" id="seqSettingsRow" style="display:flex;align-items:center;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;padding:0;"></div>
-    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto;">
+    <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;margin-left:8px;">
+      <button class="melody-rec-btn" disabled style="opacity:0.35;cursor:not-allowed;" title="Recording not available here — use 4-Track">⏺ Rec</button>
+      <button class="split-transport-btn split-play-btn" onclick="seqPlay()" title="Play loop">▶ Play</button>
+      <button class="split-transport-btn split-play-btn" onclick="seqPlaySong()" title="Play full song">▶▶ Full</button>
+      <button class="split-transport-btn split-stop-btn" onclick="seqStop()" title="Stop">■ Stop</button>
+      <button class="split-transport-btn split-met-btn" id="seqMetBtn" onclick="seqToggleMet()" title="Toggle metronome">Metro</button>
       <button class="seq-drawer-close seq-mobile-close" onclick="closeSeqDrawer()" title="Close" style="display:none;">✕</button>
     </div>
   </div>
