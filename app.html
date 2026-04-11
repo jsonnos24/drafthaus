@@ -18305,6 +18305,13 @@ function openRunThroughDrawer() {
   rtBuildDots();
 
   document.getElementById('runThroughDrawer').classList.add('open');
+
+  // Silently preload 4-track takes in the background so the transport play button
+  // works immediately when the user opens the 4-track in rehearsal mode.
+  // mtPreloadForSong is a no-op if buffers are already loaded for this song.
+  if (song.id && typeof mtPreloadForSong === 'function') {
+    setTimeout(() => mtPreloadForSong(song.id), 0);
+  }
 }
 
 function rtRenderBody() {
@@ -24436,6 +24443,12 @@ function ilSetPerfMode(on) {
       if (rtMetroRunning) rtMetroToggle();
     }
   }
+  // When entering perf mode, silently preload 4-track takes so the transport
+  // play button works immediately without needing to open the 4-track first.
+  if (on && typeof mtPreloadForSong === 'function' && typeof currentId !== 'undefined' && currentId) {
+    setTimeout(() => mtPreloadForSong(currentId), 0);
+  }
+
   // Sync rehearse bar state when entering/leaving perf mode
   if (on) {
     // Sync BPM display
@@ -28279,8 +28292,13 @@ window.vrLoadTakes = async function() {
 // ── Silent background preload — called on song open so Launch works immediately ──
 async function mtPreloadForSong(songId) {
   if (!songId) return;
-  // Skip if we already have buffers for this exact song
-  if (_mtPreloadedSongId === songId && _mtTracks.some(t => t && t.buffer)) return;
+  // Skip only if this song's preload already fully completed AND no track is
+  // missing a buffer it should have (e.g. a new take was recorded since last preload).
+  // If any track has takes but no buffer yet, fall through and load it.
+  if (_mtPreloadedSongId === songId) {
+    const allLoaded = _mtTracks.every(t => !t || t.takes.length === 0 || t.buffer);
+    if (allLoaded && _mtTracks.some(t => t && t.buffer)) return;
+  }
   // Build track objects if the 4-track overlay was never opened
   // Use DOM-free builder so this works even before the overlay is first opened
   if (!_mtTracks.length) _mtEnsureTrackObjects();
