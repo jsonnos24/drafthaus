@@ -4170,7 +4170,8 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .looper-overlay.open { display: block; }
   .looper-drawer {
-    position: fixed; top: 0; right: 0;
+    position: fixed;
+    top: 0; right: 0;
     width: 100vw; height: 100dvh;
     background: #111214;
     border-left: 1px solid rgba(0,204,255,0.3);
@@ -4911,20 +4912,23 @@ button, select, input, textarea { touch-action: manipulation; }
   }
 
 
-  /* All drawers slide up from bottom */
+  /* All drawers slide up from bottom, anchored flush below the nav bar.
+     Use explicit top+bottom instead of a dvh height calc — dvh can be
+     unreliable on iOS Safari (reports large viewport even when UI is visible),
+     which would cause the drawer to extend up behind the nav bar. */
   .seq-drawer,
   .practice-drawer,
   .looper-drawer,
   .inspo-drawer,
   .keyboard-drawer {
-    top: auto !important;
+    top: calc(96px + env(safe-area-inset-top, 0px)) !important;
     bottom: 0 !important;
     left: 0 !important;
     right: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
-    height: calc(100dvh - env(safe-area-inset-top, 0px) - 96px) !important;
-    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 96px) !important;
+    height: auto !important;
+    max-height: none !important;
     border-radius: 18px 18px 0 0 !important;
     border-left: none !important;
     border-right: none !important;
@@ -7884,6 +7888,15 @@ body.il-perf-active #ilScrollFloat { display: none; }
   max-height: calc(100dvh - 40px); overflow-y: auto;
   box-shadow: 0 8px 60px rgba(0,0,0,0.7);
   padding-bottom: 80px;
+}
+/* On mobile the nav bar sits at the top — push overlay content below it */
+@media (max-width: 768px) {
+  #vrOverlay:not(.vr-rt-compact) {
+    padding-top: calc(96px + env(safe-area-inset-top, 0px));
+  }
+  #vrOverlay:not(.vr-rt-compact) #vrDeck {
+    max-height: calc(100dvh - 116px - env(safe-area-inset-top, 0px));
+  }
 }
 .vr-deck-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -13757,6 +13770,19 @@ function seqOnSongKeyChange(rawOldKey) {
       });
       // sd === song.sequencer === song.sequences[activeIdx] (same reference after seqGetData)
     }
+  }
+
+  // Transpose keyboard trigger slots (seqKeySlots)
+  {
+    const ksOld = seqGetScaleChords(oldKey, oldMode);
+    const ksNew = seqGetScaleChords(newKey, newMode);
+    seqKeySlots = seqKeySlots.map(name => {
+      if (!name) return name;
+      const degree = ksOld.indexOf(name);
+      return (degree >= 0) ? ksNew[degree] : name;
+    });
+    seqSaveKeySlots();
+    if (document.getElementById('seqKeyTriggers')) seqRenderKeyTriggers();
   }
 
   // Update stored key/mode
@@ -22969,6 +22995,19 @@ function seqKeySelectChanged() {
     seqSaveChordSlots();
   }
 
+  // Transpose keyboard trigger slots (seqKeySlots)
+  {
+    const ksOld = seqGetScaleChords(oldKey, oldMode);
+    const ksNew = seqGetScaleChords(newKey, newMode);
+    seqKeySlots = seqKeySlots.map(name => {
+      if (!name) return name;
+      const degree = ksOld.indexOf(name);
+      return (degree >= 0) ? ksNew[degree] : name;
+    });
+    seqSaveKeySlots();
+    if (document.getElementById('seqKeyTriggers')) seqRenderKeyTriggers();
+  }
+
   // Update stored key/mode on sequencer
   if (!song.sequencer) song.sequencer = {};
   song.sequencer.key  = newKey;
@@ -30134,10 +30173,13 @@ function _releaseMicStreams() {
 window.addEventListener('beforeunload', _releaseMicStreams);
 window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallback
 
-// Expose VU meter functions globally so the looper (outside this IIFE) can call them.
-window._vuStart     = _vuStart;
-window._vuMaybeStop = _vuMaybeStop;
-window._vuStop      = _vuStop;
+// Expose VU meter + mic management functions globally so the looper
+// (outside this IIFE) can call them without ReferenceError.
+window._vuStart                    = _vuStart;
+window._vuMaybeStop                = _vuMaybeStop;
+window._vuStop                     = _vuStop;
+window._scheduleMicInactivityRelease = _scheduleMicInactivityRelease;
+window._releaseMicStreams          = _releaseMicStreams;
 
 })(); // end IIFE
 
