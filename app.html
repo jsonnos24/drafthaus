@@ -22344,7 +22344,7 @@ function openLooperDrawer() {
   loopOnSongChange(song);
   loopCheckFeedbackWarning();
   loopUpdateMonitorPill();
-  setTimeout(_vuStart, 80); // start VU meter after drawer is visible
+  // VU meter starts only when record is clicked — not on open
 }
 function closeLooperDrawer() {
   if (_splitActive && _splitCurrentTool === 'looper') { splitExpandPane('left'); return; }
@@ -22585,6 +22585,8 @@ async function loopStartRecording(i){
     return;
   }
   const t=loopTracks[i];const stream=await loopEnsureMicStream();if(!stream)return;
+  // Start VU meter now that mic is live (deferred to record click, not drawer open)
+  _vuStart();
   // One-time hint: explain monitor muting on first ever recording
   if (!localStorage.getItem('loop_rec_hint_shown')) {
     localStorage.setItem('loop_rec_hint_shown', '1');
@@ -26035,6 +26037,8 @@ window.mtArmTrack = function(i) {
   });
   _setStatus(_mtArmedTrack >= 0 ? 'Track '+MT_NAMES[_mtArmedTrack]+' armed — press ⏺ to record' : 'Arm a track to record');
   _el('mtRecBtn').classList.toggle('mt-active', _mtArmedTrack >= 0);
+  // Start VU meter (requests mic) only when a track is armed
+  if (_mtArmedTrack >= 0) { _vuStart(); } else { _vuMaybeStop(); }
 };
 
 // ── Mobile: clear track (trash all takes) ─────────────────────
@@ -26499,7 +26503,7 @@ const btBtn = _el('vrBtBtn'); if (btBtn) btBtn.classList.toggle('vr-bt-active', 
   _vrEnumerateDevices();
   vrLoadTakes();
   ensembleInitUI();
-  setTimeout(_vuStart, 80); // start VU meter after overlay is visible
+  // VU meter starts only when a track is armed — not on open
   // After the slide-up animation settles (~350ms), force a waveform redraw.
   // This catches iOS Safari cases where offsetWidth is 0 during the transition.
   setTimeout(() => {
@@ -27762,6 +27766,28 @@ document.addEventListener('DOMContentLoaded', () => {
   // Build track UI immediately so the overlay is ready even before opening
   setTimeout(() => { if (!_mtTracks.length) mtBuildUI(); }, 200);
 });
+
+// ── Release mic streams when the window closes ─────────────────
+function _releaseMicStreams() {
+  // 4-Track stream
+  if (typeof _mtStream !== 'undefined' && _mtStream) {
+    try { _mtStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+    _mtStream = null;
+  }
+  // Looper shared stream
+  if (typeof loopSharedStream !== 'undefined' && loopSharedStream) {
+    try { loopSharedStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+    loopSharedStream = null;
+  }
+  // VU meter private stream (if it obtained its own)
+  if (typeof _vuStream !== 'undefined' && _vuStream) {
+    try { _vuStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+    _vuStream = null;
+  }
+}
+window.addEventListener('beforeunload', _releaseMicStreams);
+window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallback
+
 })(); // end IIFE
 
 </script>
