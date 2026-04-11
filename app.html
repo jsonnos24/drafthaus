@@ -1029,7 +1029,7 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* Header — account for safe-area-inset-top (notch/Dynamic Island on iOS PWA) */
   .site-header { padding: env(safe-area-inset-top, 0px) 14px 0; height: calc(52px + env(safe-area-inset-top, 0px)); min-height: calc(52px + env(safe-area-inset-top, 0px)); }
-  .sticky-song-bar { top: calc(104px + env(safe-area-inset-top, 0px)); padding: 6px 14px; } /* below header + nav bar */
+  .sticky-song-bar { top: calc(96px + env(safe-area-inset-top, 0px)); padding: 6px 14px; } /* below header + nav bar */
   body.song-bar-visible #viewDetail .container { padding-top: 44px; }
   .header-logo { font-size: 13px; }
   .header-sub { display: none; }
@@ -4750,25 +4750,25 @@ button, select, input, textarea { touch-action: manipulation; }
       flex-direction: column;
       align-items: center;
       gap: 2px;
-      padding: 6px 5px 4px;
+      padding: 3px 5px 2px;
       cursor: pointer;
       flex: 1;
       border: none;
       background: none;
       -webkit-tap-highlight-color: transparent;
       transition: opacity 0.15s;
-      min-height: 52px;
+      min-height: 44px;
     }
     .bottom-nav-item:active { opacity: 0.6; }
     .bottom-nav-icon {
-      font-size: 22px;
+      font-size: 20px;
       line-height: 1;
-      height: 28px;
+      height: 24px;
       display: flex;
       align-items: center;
       justify-content: center;
     }
-    .bottom-nav-icon svg { width: 24px; height: 24px; }
+    .bottom-nav-icon svg { width: 22px; height: 22px; }
     .bottom-nav-label {
       font-family: 'IBM Plex Mono', monospace;
       font-size: 10px;
@@ -4842,7 +4842,7 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* Push content down so it isn't hidden behind the top nav bar */
   body { padding-bottom: 0; }
-  #viewList, #viewDetail { padding-top: 52px; }
+  #viewList, #viewDetail { padding-top: 44px; }
 
 
   /* ── Bottom nav: icons-only redesign ─────────────────────────── */
@@ -4854,7 +4854,7 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Nav bar: slightly tighter since no label row */
   .bottom-nav {
     padding: 4px !important;
-    min-height: 52px !important;
+    min-height: 44px !important;
   }
 
   /* Mode group: shrink since labels gone */
@@ -13351,9 +13351,11 @@ function midiSelectOutput(id) {
 
 function _midiHandleMessage(msg) {
   const [status, note, vel] = msg.data;
-  const cmd = status & 0xf0;
-  // Route all channels to melody — MIDI keyboards occasionally send on channel 10
-  // (GM drum channel) depending on their mode, which caused unintended drum sounds.
+  const cmd     = status & 0xf0;
+  const channel = status & 0x0f; // 0-indexed: 9 = MIDI channel 10 (GM drums)
+  // Ignore channel 10 (GM drum channel) — drum pads on MIDI keyboards send here
+  // and we don't want them triggering sounds in the melody keyboard.
+  if (channel === 9) return;
   if (cmd === 0x90 && vel > 0) {
     _midiNoteOn(note, vel / 127);
   } else if (cmd === 0x80 || (cmd === 0x90 && !vel)) {
@@ -13741,15 +13743,19 @@ function seqOnSongKeyChange(rawOldKey) {
     });
     seqSaveChordSlots();
   } else {
-    // Drawer closed — transpose saved data directly
-    if (song.sequencer?.chordSlots) {
+    // Drawer closed — transpose saved data directly.
+    // Use seqGetData() to ensure song.sequencer points to the active sequence
+    // (song.sequences[activeIdx]) rather than a stale deserialized copy.
+    const sd = seqGetData(song);
+    if (sd.chordSlots && sd.chordSlots.length) {
       const oldChords = seqGetScaleChords(oldKey, oldMode);
       const newChords = seqGetScaleChords(newKey, newMode);
-      const degrees   = song.sequencer.chordDegrees || [];
-      song.sequencer.chordSlots = song.sequencer.chordSlots.map((name, i) => {
+      const degrees   = sd.chordDegrees || [];
+      sd.chordSlots = sd.chordSlots.map((name, i) => {
         const degree = _resolveDegree(name, degrees[i], oldChords);
         return (degree >= 0 && degree < newChords.length) ? newChords[degree] : name;
       });
+      // sd === song.sequencer === song.sequences[activeIdx] (same reference after seqGetData)
     }
   }
 
@@ -30127,6 +30133,11 @@ function _releaseMicStreams() {
 }
 window.addEventListener('beforeunload', _releaseMicStreams);
 window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallback
+
+// Expose VU meter functions globally so the looper (outside this IIFE) can call them.
+window._vuStart     = _vuStart;
+window._vuMaybeStop = _vuMaybeStop;
+window._vuStop      = _vuStop;
 
 })(); // end IIFE
 
