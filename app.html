@@ -19885,6 +19885,7 @@ async function storageDeleteSelected() {
       for (const doc of snap.docs) {
         const d = doc.data();
         if (d.storagePath) firebase.storage().ref(d.storagePath).delete().catch(() => {});
+        _mtAudioCache.del(doc.id).catch(() => {}); // evict from local cache
         await doc.ref.delete();
       }
     } catch(e) { console.error('Delete takes error:', e); }
@@ -27184,6 +27185,7 @@ window.mtMobileTrashTrack = async function(i) {
       if (d.source) trashDoc.source = d.source;
       await db.collection('voice_trash').add(trashDoc);
       await db.collection('voice_takes').doc(take.id).delete();
+      _mtAudioCache.del(take.id).catch(() => {}); // evict from local cache
     }
     showDrawerStatus('saved', '✓  Track cleared');
     hideDrawerStatus(2000);
@@ -28343,8 +28345,18 @@ async function mtPreloadForSong(songId) {
 async function _mtLoadTakeBuffer(trackIdx, take, expectedSongId) {
   const t = _mtTracks[trackIdx]; if (!t) return;
   try {
-    const resp   = await fetch(take.downloadUrl);
-    const arrBuf = await resp.arrayBuffer();
+    // ── Check IndexedDB first — instant on subsequent loads (no network) ──
+    let arrBuf = await _mtAudioCache.get(take.id);
+    if (arrBuf) {
+      console.log('[MT] cache hit for take', take.id);
+    } else {
+      // Not cached — fetch from Firebase Storage
+      const resp = await fetch(take.downloadUrl);
+      arrBuf = await resp.arrayBuffer();
+      // Store a copy in IDB asynchronously so next load is instant
+      // (slice creates an independent copy — decodeAudioData may detach the original)
+      _mtAudioCache.set(take.id, arrBuf.slice(0)).catch(() => {});
+    }
     // Use sync helper — decodeAudioData works without the context running,
     // so we never await resume() here (would hang on mobile outside a user gesture)
     _mtCreateCtxSync();
@@ -28520,6 +28532,60 @@ window.mtUseTake = async function(trackIdx, takeIdx) {
   _setStatus('T' + (takeIdx + 1) + ' loaded ✓');
 };
 
+// ── IndexedDB audio buffer cache — survives page reloads ───────
+// Keyed by take.id → raw ArrayBuffer so subsequent loads are instant (no network)
+const _mtAudioCache = (() => {
+  const DB_NAME  = 'drafthaus_audio_v1';
+  const STORE    = 'takes';
+  let   _idb     = null;
+  async function _open() {
+    if (_idb) return _idb;
+    return new Promise((res, rej) => {
+      const r = indexedDB.open(DB_NAME, 1);
+      r.onupgradeneeded = e => {
+        if (!e.target.result.objectStoreNames.contains(STORE))
+          e.target.result.createObjectStore(STORE);
+      };
+      r.onsuccess = e => { _idb = e.target.result; res(_idb); };
+      r.onerror   = ()  => rej(r.error);
+    });
+  }
+  return {
+    async get(takeId) {
+      try {
+        const db = await _open();
+        return new Promise(res => {
+          const req = db.transaction(STORE,'readonly').objectStore(STORE).get(takeId);
+          req.onsuccess = () => res(req.result || null);
+          req.onerror   = () => res(null);
+        });
+      } catch(e) { return null; }
+    },
+    async set(takeId, buf) {
+      try {
+        const db = await _open();
+        return new Promise(res => {
+          const tx  = db.transaction(STORE,'readwrite');
+          const req = tx.objectStore(STORE).put(buf, takeId);
+          tx.oncomplete = () => res(true);
+          tx.onerror    = () => res(false);
+        });
+      } catch(e) { return false; }
+    },
+    async del(takeId) {
+      try {
+        const db = await _open();
+        return new Promise(res => {
+          const tx = db.transaction(STORE,'readwrite');
+          tx.objectStore(STORE).delete(takeId);
+          tx.oncomplete = () => res(true);
+          tx.onerror    = () => res(false);
+        });
+      } catch(e) { return false; }
+    }
+  };
+})();
+
 // ── Per-take waveform cache (for takes panels) ─────────────────
 const _vrWaveformCache = new Map();
 
@@ -28660,6 +28726,8 @@ window.vrDeleteTake = async function(takeId, storagePath) {
     if (d.source) trashDoc.source = d.source;
     await db.collection('voice_trash').add(trashDoc);
     await db.collection('voice_takes').doc(takeId).delete();
+    // Evict from local audio cache so deleted takes don't linger on disk
+    _mtAudioCache.del(takeId).catch(() => {});
     vrLoadTakes();
   } catch(e) { console.error('[MT] delete error', e); }
 };
