@@ -8145,6 +8145,9 @@ body.il-perf-active #ilScrollFloat { display: none; }
 .mt-transport-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .mt-stop-btn:not(:disabled):hover { background: #252830; border-color: #4a4e60; }
 .mt-play-btn:not(:disabled):hover { background: #1a2820; border-color: #4a8060; color: #6ac890; }
+.mt-play-seq-btn { width: auto !important; padding: 0 10px; border-radius: 22px !important; font-size: 11px !important; border-color: #4a3060; background: #1a1428; }
+.mt-play-seq-btn:not(:disabled):hover { background: #251838; border-color: #8060c0; color: #c090ff; }
+.mt-play-seq-btn.mt-active { background: #251838; border-color: #8060c0; box-shadow: 0 0 10px rgba(160,100,255,0.35); color: #c090ff; }
 .mt-rec-btn { border-color: #703030; background: #1e1010; }
 .mt-rec-btn:hover, .mt-rec-btn.mt-active {
   background: #4a0e0e; border-color: #c04040;
@@ -9570,6 +9573,7 @@ let currentId = null;
 let saveTimer = null;
 let userProjects  = []; // user-defined folder names, persisted in users/{uid}.projects
 let userSongOrders = {}; // { projKey: [songId,...] } — manual song order per project
+let userProjColors = {}; // { projPath: '#rrggbb' } — title color per project
 let userTier = 'free'; // 'free' | 'songwriter' | 'studio' — loaded from Firestore on login
 
 // ── Tier helpers ───────────────────────────────────────────────────
@@ -9629,6 +9633,9 @@ async function loadUserProjects() {
     if (data.songOrders && typeof data.songOrders === 'object') {
       userSongOrders = data.songOrders;
     }
+    if (data.projColors && typeof data.projColors === 'object') {
+      userProjColors = data.projColors;
+    }
     renderGrid();
   } catch(e) { console.warn('loadUserProjects error', e); }
 }
@@ -9636,7 +9643,7 @@ async function loadUserProjects() {
 function saveUserProjects() {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
-  db.collection('users').doc(uid).set({ projects: userProjects, songOrders: userSongOrders }, { merge: true }).catch(() => {});
+  db.collection('users').doc(uid).set({ projects: userProjects, songOrders: userSongOrders, projColors: userProjColors }, { merge: true }).catch(() => {});
 }
 
 // ── Project tree builder ────────────────────────────────────────────
@@ -9730,6 +9737,38 @@ function createProject(name) {
   renderGrid();
 }
 
+// ── Project title colour picker ─────────────────────────────────────
+function pickProjColor(proj, btn) {
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.value = userProjColors[proj] || '#f5a623';
+  input.style.cssText = 'position:fixed;opacity:0;width:0;height:0;pointer-events:none;';
+  document.body.appendChild(input);
+  input.addEventListener('change', () => {
+    setProjColor(proj, input.value);
+    if (document.body.contains(input)) document.body.removeChild(input);
+  });
+  input.addEventListener('blur', () => {
+    setTimeout(() => { if (document.body.contains(input)) document.body.removeChild(input); }, 300);
+  });
+  input.click();
+}
+
+function setProjColor(proj, color) {
+  if (color) userProjColors[proj] = color;
+  else delete userProjColors[proj];
+  saveUserProjects();
+  // Update the name span colour in-place (no full re-render needed)
+  const span = document.getElementById('pgn-' + CSS.escape(proj));
+  if (span) span.style.color = color || '';
+  // Update the swatch dot on the colour button
+  const header = document.querySelector(`.proj-group-header[data-proj="${proj.replace(/"/g,'&quot;')}"]`);
+  if (header) {
+    const colorBtn = header.querySelector('.proj-color-btn');
+    if (colorBtn) colorBtn.style.color = color || 'var(--faint)';
+  }
+}
+
 // ── Rename a leaf project (full path) ──────────────────────────────
 function startRenameProject(fullPath, triggerBtn) {
   // Find the name span inside the same header as the button
@@ -9769,6 +9808,11 @@ function finishRenameProject(oldPath, newPath) {
   const idx = userProjects.indexOf(oldPath);
   if (idx !== -1) userProjects[idx] = newPath;
   else userProjects.push(newPath);
+  // Migrate colour key
+  if (userProjColors[oldPath]) {
+    userProjColors[newPath] = userProjColors[oldPath];
+    delete userProjColors[oldPath];
+  }
   // Update all songs using this exact project path
   let changed = false;
   songs.forEach(s => {
@@ -10115,15 +10159,15 @@ function renderGrid() {
     const heading = (depth > 0 && !isUnassigned) ? fullLabel.split('/').pop().trim() : fullLabel;
     const isEmpty = list.length === 0;
     const rows = list.map(song => buildSongRow(song, true, false)).join('');
-    const colsHeader = isEmpty ? '' : `<div class="song-list-cols-header">
-      <span>${esc(heading)}</span><span>Status</span><span>Actions</span>
-    </div>`;
+    const colsHeader = '';
     const emptyHint = isEmpty ? `<div style="padding:14px 16px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);font-style:italic;">No drafts yet — <button onclick="event.stopPropagation();newSong()" style="background:none;border:none;color:var(--gold);font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;">+ create one</button></div>` : '';
     const isCollapsed = !isEmpty && !_expandedProjs.has(proj); // empty folders start expanded
     // Rename/delete action buttons (not shown for Unassigned)
     const safeProj = isUnassigned ? '' : proj;
+    const _pcolor = userProjColors[proj] || '';
     const headerActions = isUnassigned ? '' : `<span class="proj-group-header-actions" onclick="event.stopPropagation()">
         <button class="proj-action-btn" onclick="startRenameProject('${safeProj.replace(/'/g,"\\'")}',this)">rename</button>
+        <button class="proj-action-btn proj-color-btn" onclick="pickProjColor('${safeProj.replace(/'/g,"\\'")}',this)" title="Set title colour" style="color:${_pcolor||'var(--faint)'};font-size:12px;">⬤</button>
         <button class="proj-action-btn danger" onclick="promptDeleteProject('${safeProj.replace(/'/g,"\\'")}')">delete</button>
       </span>`;
     const subClass = depth > 0 ? ' proj-subgroup' : '';
@@ -10138,7 +10182,7 @@ function renderGrid() {
         ondragleave="_projHeaderDragLeave(this,event)"
         ondrop="_projHeaderDrop(this,event)">
         ${dragHandle}
-        <span class="proj-group-name" id="pgn-${esc(proj)}">${esc(heading)}</span>
+        <span class="proj-group-name" id="pgn-${esc(proj)}"${_pcolor ? ` style="color:${_pcolor}"` : ''}>${esc(heading)}</span>
         <span class="proj-group-count">${isEmpty ? 'Empty' : (()=>{
           const counts = { idea:0, drafting:0, finished:0 };
           list.forEach(s => { const k = s.status==='song'?'finished':(s.status||'idea'); if(counts[k]!==undefined) counts[k]++; else counts.idea++; });
@@ -10255,9 +10299,7 @@ function renderGrid() {
   const displayShared = q ? filteredShared : sharedSongs;
   let sharedHtml = '';
   if (displayShared.length) {
-    const colsHeader = `<div class="song-list-cols-header">
-      <span>Shared With Me</span><span>Status</span><span>Actions</span>
-    </div>`;
+    const colsHeader = '';
     const sharedRows = displayShared
       .sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0))
       .map(song => buildSongRow(song, true, true))
@@ -11963,9 +12005,9 @@ var _acousticMainBufs  = {};
 var _acousticLoadState = 'idle'; // 'idle' | 'loading' | 'ready' | 'failed'
 const _ACOUSTIC_URLS = {
   kick:  'https://tonejs.github.io/audio/drum-samples/acoustic-kit/kick.mp3',
-  snare: 'https://tonejs.github.io/audio/drum-samples/breakbeat13/snare0.mp3',
+  snare: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/snare.mp3',
   hat:   'https://tonejs.github.io/audio/drum-samples/acoustic-kit/hihat.mp3',
-  crash: 'https://tonejs.github.io/audio/drum-samples/CR78/cymbal.mp3',
+  crash: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/crash.mp3',
 };
 // Kit 2: HARGREAVES (Stark)
 var _acoustic2RawBytes  = {};
@@ -11973,9 +12015,9 @@ var _acoustic2MainBufs  = {};
 var _acoustic2LoadState = 'idle';
 const _ACOUSTIC2_URLS = {
   kick:  'https://tonejs.github.io/audio/drum-samples/Stark/kick.mp3',
-  snare: 'https://tonejs.github.io/audio/drum-samples/breakbeat8/snare0.mp3',
+  snare: 'https://tonejs.github.io/audio/drum-samples/Stark/snare.mp3',
   hat:   'https://tonejs.github.io/audio/drum-samples/Stark/hihat.mp3',
-  crash: 'https://tonejs.github.io/audio/drum-samples/CR78/cymbal.mp3',
+  crash: 'https://tonejs.github.io/audio/drum-samples/Stark/crash.mp3',
 };
 // Helpers: check active kit type, get active buffers
 function _drumIsAcoustic() { return seqDrumMode === 'lacer' || seqDrumMode === 'hargreaves'; }
@@ -20601,6 +20643,8 @@ function setSplitRightTool(tool) {
     _splitCurrentTool = null;
     var rSel = document.getElementById('splitRightSelect');
     if (rSel) rSel.value = '';
+    var _hb = document.getElementById('splitRightHelpBtn');
+    if (_hb) _hb.style.display = 'none';
     _showSplitRightDefault();
     return;
   }
@@ -20668,6 +20712,18 @@ function setSplitRightTool(tool) {
   // Sync dropdown
   var sel = document.getElementById('splitRightSelect');
   if (sel) sel.value = tool;
+  // Update contextual help button
+  var helpBtn = document.getElementById('splitRightHelpBtn');
+  if (helpBtn) {
+    var _helpTopics = { keyboard: 'keyboard', sequencer: 'sequencer', looper: 'looper', '4track': '4track' };
+    var _helpTopic = _helpTopics[tool];
+    if (_helpTopic) {
+      helpBtn.onclick = function() { openDrawerHelp(_helpTopic); };
+      helpBtn.style.display = '';
+    } else {
+      helpBtn.style.display = 'none';
+    }
+  }
   // State persistence for paid users
   if (typeof userTier !== 'undefined' && userTier !== 'free') {
     try { localStorage.setItem('dh_split_right', tool); } catch(e) {}
@@ -22858,13 +22914,14 @@ function loopBuildUI() {
           <canvas class="loop-vu-canvas" id="lvu-l-${i}" width="6" height="72"></canvas>
           <canvas class="loop-vu-canvas" id="lvu-r-${i}" width="6" height="72"></canvas>
         </div>
-        <div class="track-vol-wrap">
-          <input type="range" class="track-vol" min="0" max="100" value="85"
-            oninput="loopSetTrackVolume(${i}, this.value)" style="--vol:85%">
-          <span class="track-vol-label">VOL</span>
-        </div>
-      </div>
-      <div class="ring-wrap" id="lring-wrap-${i}" onclick="loopHandleTrackClick(${i})">
+        <!-- Fader + record button stacked so the button centres under the fader -->
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+          <div class="track-vol-wrap">
+            <input type="range" class="track-vol" min="0" max="100" value="85"
+              oninput="loopSetTrackVolume(${i}, this.value)" style="--vol:85%">
+            <span class="track-vol-label">VOL</span>
+          </div>
+          <div class="ring-wrap" id="lring-wrap-${i}" onclick="loopHandleTrackClick(${i})">
         <canvas class="ring-canvas" id="lring-canvas-${i}" width="80" height="80"></canvas>
         <div class="ring-btn" id="lring-btn-${i}">
           <span class="ring-btn-icon" id="lring-icon-${i}">⏺</span>
@@ -25006,12 +25063,28 @@ function setRowStatus(id, status) {
   _closeRowStatus();
   const song = songs.find(s => s.id === id);
   if (!song || song._viewOnly) return;
-  song.status    = status;
-  song.updatedAt = Date.now();
+  song.status = status;
+  // Intentionally not updating song.updatedAt — a status change shouldn't
+  // bump the song to the top of the list (list sorts by updatedAt desc).
   save();
   scheduleSyncToSheet(song);
   _updateRowStatusBadge(song);
-  renderGrid();
+  // Update the active state on the dropdown menu items in place
+  // so the correct item is highlighted next time the menu opens.
+  const menu = document.getElementById('slsm-' + id);
+  if (menu) {
+    menu.querySelectorAll('.sl-status-item').forEach(btn => {
+      const onclick = btn.getAttribute('onclick') || '';
+      const m = onclick.match(/'([^']+)'\s*\)\s*$/);
+      if (m) {
+        const btnStatus = m[1];
+        const isActive = btnStatus === status || (status === 'song' && btnStatus === 'song') || (status === 'finished' && btnStatus === 'song');
+        btn.classList.toggle('sl-status-active', isActive);
+      }
+    });
+  }
+  // No renderGrid() call — badge is already updated in place and we don't
+  // want the song to reorder. The Firestore snapshot will re-render when ready.
 }
 function _updateRowStatusBadge(song) {
   const statusMap = {
@@ -26396,9 +26469,18 @@ async function mtDropAudioFile(trackIdx, file) {
     if (dd) dd.textContent = _fmtDur(_mtMaxDuration());
     const pb = _el('mtPlayBtn');
     if (pb) pb.disabled = !_mtTracks.some(t => t && t.buffer);
+    const psb = _el('mtPlaySeqBtn');
+    if (psb) psb.disabled = !_mtTracks.some(t => t && t.buffer);
     // Upload to Firebase as a take in the background
     if (!_vrSongId) _vrSongId = currentId || null;
     if (_vrSongId && auth.currentUser) {
+      // Enforce 2-take limit per track (reload takes count first to be safe)
+      await vrLoadTakes();
+      if (t.takes && t.takes.length >= 2) {
+        showDrawerStatus('error', '⚠  Max 2 takes per track — delete a take first');
+        hideDrawerStatus(4000);
+        return;
+      }
       showDrawerStatus('saving', '💾  Saving take to cloud…');
       const blob = new Blob([arrBuf], { type: file.type });
       const newTake = await _uploadTake(blob, buffer.duration, file.type, trackIdx, 'upload');
@@ -26436,6 +26518,11 @@ window.mtArmTrack = function(i) {
     const lockBtn = _el('mt-mob-lock-'+i);
     if (lockBtn) { lockBtn.classList.add('mt-shake'); setTimeout(() => lockBtn.classList.remove('mt-shake'), 400); }
     showToast('Track is locked — tap 🔒 to unlock', 'warn', 2000);
+    return;
+  }
+  // Max 2 takes per track
+  if (tLock && tLock.takes && tLock.takes.length >= 2) {
+    showToast('Max 2 takes per track — delete a take first', 'warn', 2500);
     return;
   }
   const wasArmed = (_mtArmedTrack === i);
@@ -26646,6 +26733,33 @@ window.mtPlay = async function(startOffset) {
   _mtStartPlayback(offset);
 };
 
+// ── Play with Sequencer (syncs 4-track + drums + looper) ──────
+window.mtPlayWithSeq = async function() {
+  const isPlaying = _mtIsPlaying || (typeof seqIsPlaying !== 'undefined' && seqIsPlaying);
+  if (isPlaying) {
+    // Stop everything
+    if (_mtIsPlaying) { try { _mtStopAll(); } catch(e) {} }
+    if (typeof seqStop === 'function' && typeof seqIsPlaying !== 'undefined' && seqIsPlaying) seqStop();
+    const btn = document.getElementById('mtPlaySeqBtn');
+    if (btn) btn.classList.remove('mt-active');
+    return;
+  }
+  // Start 4-track if it has content
+  const has4track = _mtTracks.some(t => t && t.buffer);
+  if (has4track) {
+    await _mtEnsureCtx();
+    const offset = _mtScrubOffset || 0;
+    _mtScrubOffset = 0;
+    _mtStartPlayback(offset);
+  }
+  // Start sequencer
+  if (typeof seqPlay === 'function') {
+    try { seqPlay(); } catch(e) {}
+  }
+  const btn = document.getElementById('mtPlaySeqBtn');
+  if (btn) btn.classList.add('mt-active');
+};
+
 function _mtStartPlayback(offsetSec) {
   _mtIsPlaying = true;
   _mtPlayStartCtx = _mtAudioCtx.currentTime;
@@ -26679,6 +26793,7 @@ function _mtStartPlayback(offsetSec) {
   if (typeof _mtApplyAllGains === 'function') _mtApplyAllGains();
   const _sb = _el('mtStopBtn'); if (_sb) _sb.disabled = false;
   const _pb = _el('mtPlayBtn'); if (_pb) _pb.disabled = false;
+  const _psb = _el('mtPlaySeqBtn'); if (_psb) _psb.disabled = false;
   _mtUpdateMonPill('playing');
   _setStatus('▶ Playing…');
   _mtAnimatePlayhead(offset);
@@ -26714,6 +26829,7 @@ function _mtStopAll() {
   const td = _el('mtTimeDisplay');   if(td)   td.textContent='0:00';
   const _sb2 = _el('mtStopBtn'); if (_sb2) _sb2.disabled = true;
   const _pb2 = _el('mtPlayBtn'); if (_pb2) _pb2.disabled = !_mtTracks.some(t=>t&&t.buffer);
+  const _psb2 = _el('mtPlaySeqBtn'); if (_psb2) { _psb2.disabled = !_mtTracks.some(t=>t&&t.buffer); _psb2.classList.remove('mt-active'); }
   _mtUpdateMonPill('');
   if (!_vrRecording) _setStatus(_mtArmedTrack >= 0 ? 'Track '+MT_NAMES[_mtArmedTrack]+' armed — press ⏺ to record' : 'Arm a track to record');
 }
@@ -27345,6 +27461,14 @@ async function _mtFinishRecording(trackIdx, mimeType) {
     } catch(err) { console.warn('[MT] BT trim failed:', err); }
   }
 
+  // Enforce 2-take limit per track before uploading
+  const _tck = _mtTracks[trackIdx];
+  if (_tck && _tck.takes && _tck.takes.length >= 2) {
+    showDrawerStatus('error', '⚠  Max 2 takes per track — delete a take first');
+    hideDrawerStatus(4000);
+    _vrUploading = false;
+    return;
+  }
   _vrUploading = true;
   showDrawerStatus('saving', '💾  Saving take to cloud…');
   const newTake = await _uploadTake(blob, durSec, mimeType, trackIdx);
@@ -28518,13 +28642,6 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
 
 <div class="looper-drawer" id="looperDrawer">
   <div class="looper-drawer-header">
-    <div>
-      <div class="looper-drawer-title">⏺ Looper</div>
-      <div id="looperDrawerSongName" class="seq-drawer-song"></div>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <button class="drawer-help-btn" onclick="openDrawerHelp('looper')" title="How to use Looper">?</button>
-    </div>
   </div>
   <!-- Monitor status strip — always visible below header -->
   <div id="loopMonPill" title="Monitor is auto-muted while recording to prevent feedback, and live during playback"><span class="mon-icon">🎧</span><span id="loopMonLabel">Monitor: Auto</span></div>
@@ -28625,13 +28742,6 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
       <button class="split-transport-btn split-stop-btn" onclick="seqStop()" title="Stop">■ Stop</button>
       <button class="split-transport-btn split-met-btn" id="kbdMetBtn" onclick="seqToggleMet()" title="Toggle metronome">Metro</button>
     </div>
-    <div style="flex-shrink:0;">
-      <div class="keyboard-drawer-title">🎹 One Finger Chords & Keyboard</div>
-      <div class="keyboard-drawer-song" id="keyboardDrawerSongName">Open a draft to record melody</div>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:8px;">
-      <button class="drawer-help-btn" onclick="openDrawerHelp('keyboard')" title="How to use Keyboard">?</button>
-    </div>
   </div>
   <div class="kbd-settings-row" id="kbdSettingsRow"></div>
   <div class="keyboard-drawer-body" id="keyboardDrawerBody">
@@ -28664,11 +28774,6 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
   <div class="seq-drawer-header" style="flex-wrap:wrap;padding-bottom:0;">
     <div class="seq-settings-row" id="seqSettingsRow" style="display:flex;align-items:center;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;padding:0;"></div>
     <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto;">
-      <div style="text-align:right;">
-        <div class="seq-drawer-title">🥁 Drums</div>
-        <div class="seq-drawer-song" id="seqDrawerSongName"></div>
-      </div>
-      <button class="drawer-help-btn" onclick="openDrawerHelp('sequencer')" title="How to use Sequencer">?</button>
       <button class="seq-drawer-close seq-mobile-close" onclick="closeSeqDrawer()" title="Close" style="display:none;">✕</button>
     </div>
   </div>
@@ -29052,6 +29157,7 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
       <button class="split-transport-btn split-met-btn" id="splitMetBtn" onclick="seqToggleMet()" title="Toggle metronome">Metro</button>
     </div>
     <div style="flex:1"></div>
+    <button id="splitRightHelpBtn" class="drawer-help-btn" style="display:none" title="Help">?</button>
     <span id="splitRightExpandHint" class="split-expand-hint">Hit Enter to Expand</span>
     <button id="splitRightExpandBtn" class="split-expand-btn" onclick="splitExpandPane('right')" title="Expand right pane">⤢</button>
   </div>
@@ -29214,16 +29320,7 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
 <div id="vrOverlay" onclick="vrOverlayClick(event)">
   <div id="vrDeck">
 
-    <!-- Header -->
-    <div class="vr-deck-header">
-      <div>
-        <span class="vr-deck-title">▬▬ 4-TRACK</span>
-        <div class="vr-deck-song" id="vrDeckSongName"></div>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <button class="drawer-help-btn" onclick="openDrawerHelp('4track')" title="How to use 4-Track">?</button>
-      </div>
-    </div>
+    <!-- Header hidden — title/? moved to splitRightHeader -->
 
     <!-- Device / settings bar -->
     <div class="vr-device-bar">
@@ -29280,6 +29377,9 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
         </button>
         <button class="mt-transport-btn mt-play-btn" id="mtPlayBtn" onclick="mtPlay()" disabled title="Play all (Space)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+        </button>
+        <button class="mt-transport-btn mt-play-seq-btn" id="mtPlaySeqBtn" onclick="mtPlayWithSeq()" disabled title="Play with Sequencer — syncs 4-track + drums + looper">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg><span style="font-size:9px;margin-left:2px;">+🥁</span>
         </button>
       </div>
       <div class="mt-status" id="mtStatus" style="text-align:center;width:100%;">Arm a track to record</div>
