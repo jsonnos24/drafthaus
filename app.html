@@ -8705,19 +8705,20 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     min-height: 36px !important;
   }
 
-  /* Waveform: pinned height so offsetHeight is always reliable for canvas draw */
+  /* Waveform: grows to fill available track height (ResizeObserver redraws canvas) */
   .mt-waveform-wrap {
-    height: 56px !important;
-    min-height: 56px !important;
-    flex-shrink: 0 !important;
-    flex-grow: 0 !important;
-    flex-basis: 56px !important;
+    flex: 1 1 0% !important;
+    min-height: 50px !important;
+    height: auto !important;
+    flex-basis: 0% !important;
     border-radius: 0 !important;
   }
   .mt-waveform-canvas {
     width: 100% !important;
-    height: 56px !important;
+    height: 100% !important;
     display: block !important;
+    position: absolute !important;
+    inset: 0 !important;
   }
 
   /* Track state badge */
@@ -8979,6 +8980,26 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   }
   .mt-track.mt-track-locked .mt-waveform-wrap {
     opacity: 0.55 !important;
+  }
+}
+
+/* ── 4-Track: portrait mode — 3 visible tracks, each fills 1/3 of space ── */
+@media (max-width: 768px) and (orientation: portrait) {
+  /* Hide track 4 — it's available in landscape */
+  #mt-track-3 { display: none !important; }
+
+  /* Each track grows equally to fill the track list height */
+  #vrDeck .mt-track {
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+  }
+}
+
+/* ── 4-Track: landscape on mobile — show all 4, tracks scroll ── */
+@media (max-width: 768px) and (orientation: landscape) {
+  #mt-track-3 { display: flex !important; }
+  #vrDeck .mt-tracks {
+    overflow-y: auto !important;
   }
 }
 
@@ -26600,6 +26621,23 @@ function mtBuildUI() {
     t.waveCanvas = _el('mt-wave-'+i);
     t.waveCtx    = t.waveCanvas ? t.waveCanvas.getContext('2d') : null;
 
+    // ResizeObserver: redraw waveform whenever the wrap changes size (orientation change,
+    // track height flex reflow, etc.) — debounced so rapid resizes don't thrash.
+    (function(trackIdx) {
+      if (!window.ResizeObserver) return;
+      const ww = _el('mt-wave-wrap-'+trackIdx);
+      if (!ww) return;
+      let _roTimer = null;
+      const ro = new ResizeObserver(() => {
+        clearTimeout(_roTimer);
+        _roTimer = setTimeout(() => {
+          const t = _mtTracks[trackIdx];
+          if (t && t.buffer) _mtDrawTrackWaveform(trackIdx, t.buffer, t.color);
+        }, 60);
+      });
+      ro.observe(ww);
+    })(i);
+
     // Restore waveform + takes UI if buffer was preloaded before overlay opened
     if (t.buffer) {
       _mtDrawTrackWaveform(i, t.buffer, t.color);
@@ -27228,6 +27266,16 @@ window.vrOpen = function(autoRecord) {
   const _inRT = !!window._ilPerfMode || !!document.getElementById('runThroughDrawer')?.classList.contains('open');
   _el('vrOverlay').classList.toggle('vr-rt-compact', _inRT);
   _el('vrOverlay').classList.add('vr-open');
+  // On mobile, #vrDeck has transform (slide-up animation) which breaks position:fixed.
+  // Teleport .mt-transport to #vrOverlay (no transform) so the fixed bottom bar works.
+  if (window.innerWidth <= 768) {
+    const _tp = document.querySelector('.mt-transport');
+    const _ov = _el('vrOverlay');
+    if (_tp && _ov && _tp.parentElement !== _ov) {
+      _ov._mtTransportPrev = { parent: _tp.parentElement, next: _tp.nextSibling };
+      _ov.appendChild(_tp);
+    }
+  }
   const song = songs.find(s => s.id === _vrSongId);
   const nameEl = _el('vrDeckSongName');
   if (nameEl) nameEl.textContent = song ? (song.title || song.workingTitle || 'Untitled') : '';
@@ -27264,6 +27312,16 @@ window.vrClose = function() {
   _vrStopTakesListener(); // clean up real-time listener
   _el('vrOverlay').classList.remove('vr-open', 'vr-rt-compact');
   _vuMaybeStop();
+  // Restore .mt-transport back into #vrDeck (undo mobile teleport)
+  const _ov = _el('vrOverlay');
+  if (_ov && _ov._mtTransportPrev) {
+    const _tp = document.querySelector('.mt-transport');
+    const { parent, next } = _ov._mtTransportPrev;
+    if (_tp && parent && _tp.parentElement !== parent) {
+      parent.insertBefore(_tp, next || null);
+    }
+    _ov._mtTransportPrev = null;
+  }
 };
 
 // Bridge called by _vr4TrackSyncToSong (different script block — can't touch let _vrSongId directly)
@@ -27883,15 +27941,15 @@ function _mtDrawTrackWaveform(trackIdx, buffer, color, _attempt) {
   const canvas = _el('mt-wave-'+trackIdx); if (!canvas) return;
   const wrap   = _el('mt-wave-wrap-'+trackIdx);
   let W = wrap ? wrap.offsetWidth : 0;
-  const H = wrap ? (wrap.offsetHeight || 60) : 60;
+  let H = wrap ? wrap.offsetHeight : 0;
   // If the element isn't laid out yet (e.g. overlay is mid-animation or still hidden),
-  // defer with rAF so the browser has time to compute dimensions. Up to 40 retries
-  // (iOS Safari needs more frames after display:none→flex transitions; 40×16ms ≈ 640ms).
-  if (W === 0 && (_attempt || 0) < 80) {
+  // defer with rAF so the browser has time to compute dimensions. Up to 80 retries
+  // (iOS Safari needs more frames after display:none→flex transitions).
+  if ((W === 0 || H === 0) && (_attempt || 0) < 80) {
     requestAnimationFrame(() => _mtDrawTrackWaveform(trackIdx, buffer, color, (_attempt || 0) + 1));
     return;
   }
-  W = W || 300; // final fallback
+  W = W || 300; H = H || 60; // final fallback
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
@@ -28542,6 +28600,19 @@ document.addEventListener('DOMContentLoaded', () => {
     var _mtC = document.getElementById('mtTracksContainer');
     if (!_mtC || _mtC.children.length === 0) mtBuildUI();
   }, 200);
+});
+
+// ── Orientation change: redraw 4-track waveforms ────────────────
+// When the user rotates the phone, the track heights and widths change (portrait shows 3
+// tracks, landscape shows 4). We wait for the layout to settle then redraw all waveforms.
+window.addEventListener('orientationchange', function() {
+  setTimeout(function() {
+    if (typeof _mtTracks !== 'undefined') {
+      _mtTracks.forEach(function(t, i) {
+        if (t && t.buffer) _mtDrawTrackWaveform(i, t.buffer, t.color);
+      });
+    }
+  }, 350); // wait for CSS transition + new flex sizes to settle
 });
 
 // ── Mic inactivity auto-release ────────────────────────────────
@@ -29551,7 +29622,7 @@ window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallba
     </div>
 
     <!-- ── Master transport ── -->
-    <div class="mt-transport">
+    <div class="mt-transport" onclick="event.stopPropagation()">
       <div class="mt-progress-wrap">
         <div class="mt-progress-bar" id="mtProgressBar" onclick="mtProgressSeek(event)">
           <div class="mt-progress-fill" id="mtProgressFill"></div>
