@@ -5987,6 +5987,10 @@ body.split-4track-active .vr-device-bar { display: none !important; }
   display: none; align-items: center; gap: 4px;
 }
 body.split-active .split-transport { display: flex; }
+/* 4-track transport — replaces sequencer transport when 4-track is in split right */
+.split-4t-transport { display: none; align-items: center; gap: 4px; }
+body.split-4track-active .split-4t-transport { display: flex; }
+body.split-4track-active .split-transport { display: none !important; }
 .split-transport-btn {
   font-family: 'IBM Plex Mono', monospace; font-size: 10px;
   font-weight: 700; letter-spacing: 0.06em;
@@ -10427,7 +10431,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
       </select>
       <!-- TAP -->
       <div class="ht-sep"></div>
-      <button class="ht-mbtn ht-tap" id="htTapBtn" onclick="rtTapTempo()" title="Tap Tempo (Tab)">TAP</button>
+      <button class="ht-mbtn ht-tap" id="htTapBtn" onclick="rtTapTempo()" ondblclick="event.stopPropagation()" title="Tap Tempo (Tab)">TAP</button>
       <!-- Bars -->
       <div class="ht-sep"></div>
       <span class="ht-lbl">Bars</span>
@@ -25644,7 +25648,7 @@ function collapseTab(tabId) {
 // ── Looper ─────────────────────────────────────
 // ═══════════════════════════════════════════════════════
 const LOOP_TRACK_COLORS = ['#ff4422','#ff9900','#00ccff','#cc44ff'];
-const LOOP_TRACK_NAMES  = ['TRACK 1','TRACK 2','TRACK 3','TRACK 4'];
+const LOOP_TRACK_NAMES  = ['LOOP A','LOOP B','LOOP C','LOOP D'];
 const LOOP_NUM_LEDS = 48;
 var loopBpm = 120; var loopBars = 1;
 var loopAudioCtx = null;
@@ -29945,9 +29949,9 @@ function _mtZoom12Bars() {
   const bpm  = parseInt(song && song.bpm ? song.bpm : 120) || 120;
   const dur  = (typeof VR_MAX_DURATION !== 'undefined') ? VR_MAX_DURATION : 300;
   const barSec = (60 / bpm) * 4;
-  return Math.min(20, Math.max(0.5, parseFloat((dur / (12 * barSec)).toFixed(2))));
+  return Math.min(20, Math.max(0.5, parseFloat((dur / (32 * barSec)).toFixed(2))));
 }
-let _mtZoomH = _mtZoom12Bars();   // horizontal scale — set so 12 bars fill view by default
+let _mtZoomH = _mtZoom12Bars();   // horizontal scale — set so 32 bars fill view by default
 let _mtZoomV = 1.0;   // vertical lane height scale
 let _mtSnapMode = 'bar'; // 'beat' | 'bar' | 'off'
 let _mtClipboard = null; // {buffer, duration, trackIdx}
@@ -30018,7 +30022,7 @@ window.mtZoomHIn  = function() { _mtZoomH = Math.min(20, parseFloat((_mtZoomH + 
 window.mtZoomHOut = function() { _mtZoomH = Math.max(0.5, parseFloat((_mtZoomH - 0.5).toFixed(1))); mtUpdateRuler(); _mtRedrawAllWv(); };
 window.mtZoomVIn  = function() { _mtZoomV = Math.min(3, parseFloat((_mtZoomV + 0.5).toFixed(1))); _mtApplyVZoom(); };
 window.mtZoomVOut = function() { _mtZoomV = Math.max(0.5, parseFloat((_mtZoomV - 0.5).toFixed(1))); _mtApplyVZoom(); };
-window.mtZoomReset = function() { _mtZoomH = _mtZoom12Bars(); _mtZoomV = 1; _mtApplyVZoom(); mtUpdateRuler(); _mtRedrawAllWv(); }; // reset to 12-bar view
+window.mtZoomReset = function() { _mtZoomH = _mtZoom12Bars(); _mtZoomV = 1; _mtApplyVZoom(); mtUpdateRuler(); _mtRedrawAllWv(); }; // reset to 32-bar view
 
 function _mtApplyVZoom() {
   const h = Math.round(90 * _mtZoomV);
@@ -30407,7 +30411,7 @@ window.mtArmTrack = function(i) {
     if (btn)  btn.textContent = armed ? 'ARMED' : 'ARM';
   });
   _setStatus(_mtArmedTrack >= 0 ? 'Track '+MT_NAMES[_mtArmedTrack]+' armed — press ⏺ to record' : 'Arm a track to record');
-  _el('mtRecBtn').classList.toggle('mt-active', _mtArmedTrack >= 0);
+  _el('mtRecBtn')?.classList.toggle('mt-active', _mtArmedTrack >= 0);
   // Start VU meter (requests mic) only when a track is armed
   if (_mtArmedTrack >= 0) { _vuStart(); } else { _vuMaybeStop(); }
   // Keep shared transport Rec button in sync
@@ -31274,7 +31278,7 @@ window.vrCancelRecording = function() {
   if (_mtCountTimer) { clearTimeout(_mtCountTimer); _mtCountTimer = null; }
   const go = _el('vrGlobalCountdown');
   if (go) go.classList.remove('vr-active', 'vr-perf-countdown');
-  _el('mtRecBtn').classList.remove('mt-active');
+  _el('mtRecBtn')?.classList.remove('mt-active');
   _setStatus(_mtArmedTrack >= 0 ? 'Track '+MT_NAMES[_mtArmedTrack]+' armed — press ⏺ to record' : 'Arm a track to record');
 };
 
@@ -31311,12 +31315,12 @@ window.vrToggleRec = async function() {
     return;
   }
 
-  _el('mtRecBtn').classList.add('mt-active');
+  _el('mtRecBtn')?.classList.add('mt-active');
   _setStatus('Get ready…');
 
   await _mtRunCountdown(async () => {
     const stream = await _mtEnsureStream();
-    if (!stream) { _el('mtRecBtn').classList.remove('mt-active'); return; }
+    if (!stream) { _el('mtRecBtn')?.classList.remove('mt-active'); return; }
     await _mtEnsureCtx();
 
     // Start overdub playback for all other loaded tracks
@@ -31358,8 +31362,8 @@ window.vrToggleRec = async function() {
 
     const recBtn = _el('mtRecBtn');
     if (recBtn) { recBtn.innerHTML = ''; recBtn.textContent = 'Stop Recording'; recBtn.style.fontSize = '10px'; recBtn.style.letterSpacing = '0.04em'; recBtn.style.padding = '0 10px'; }
-    _el('mtStopBtn').disabled = false;
-    _el('mtPlayBtn').disabled = true;
+    const _sb = _el('mtStopBtn'); if (_sb) _sb.disabled = false;
+    const _pb2 = _el('mtPlayBtn'); if (_pb2) _pb2.disabled = true;
     _el('mtMiniBar', 'vrMiniBar'); // show mini bar only when 4-track isn't already visible
     const mb = _el('vrMiniBar');
     if (mb) {
@@ -31412,7 +31416,7 @@ function _mtStopRecording() {
   const recBtn = _el('mtRecBtn');
   if (recBtn) { recBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>'; recBtn.style.fontSize = ''; recBtn.style.letterSpacing = ''; recBtn.style.padding = ''; }
   recBtn?.classList.remove('mt-active');
-  _el('mtStopBtn').disabled = true;
+  const _sb2 = _el('mtStopBtn'); if (_sb2) _sb2.disabled = true;
   _setStatus('Saving…');
   _mtUpdateMonPill('');
   _scheduleMicInactivityRelease(); // restart countdown — mic no longer actively recording
@@ -31478,7 +31482,7 @@ async function _mtFinishRecording(trackIdx, mimeType) {
     // This works cross-device: a mobile overdub creates a new take; when the user returns to
     // desktop they'll see the new take loaded with the old take still available in the takes list.
   }
-  _el('mtPlayBtn').disabled = !_mtTracks.some(t=>t&&t.buffer);
+  const _pb3 = _el('mtPlayBtn'); if (_pb3) _pb3.disabled = !_mtTracks.some(t=>t&&t.buffer);
 }
 
 // ── Quota ──────────────────────────────────────────────────────
@@ -31594,7 +31598,7 @@ window.vrLoadTakes = async function() {
     // Definitive redraw pass — by the time all buffers are ready the overlay is
     // fully visible, so offsetWidth is always reliable here (no rAF retries needed).
     _mtTracks.forEach((t, i) => { if (t && t.buffer) _mtDrawTrackWaveform(i, t.buffer, t.color); });
-    _el('mtPlayBtn').disabled = !_mtTracks.some(t=>t&&t.buffer);
+    const _pb = _el('mtPlayBtn'); if (_pb) _pb.disabled = !_mtTracks.some(t=>t&&t.buffer);
     // Mark preload cache so mtPreloadForSong won't re-fetch if 4-track is closed and reopened
     _mtPreloadedSongId = _vrSongId;
     const { remaining } = await _vrGetQuota();
@@ -33330,6 +33334,13 @@ window._releaseMicStreams          = _releaseMicStreams;
       <button class="split-transport-btn split-play-btn" onclick="seqPlaySong()" title="Play full song">▶▶ Full</button>
       <button class="split-transport-btn split-stop-btn" onclick="seqStop()" title="Stop">■ Stop</button>
       <button class="split-transport-btn split-met-btn" id="splitMetBtn" onclick="seqToggleMet()" title="Toggle metronome">Metro</button>
+    </div>
+    <!-- 4-track transport — only visible when 4-track occupies split right -->
+    <div class="split-4t-transport" id="split4tTransport">
+      <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="vrStop()" disabled title="Stop (Space)">■ Stop</button>
+      <button class="split-transport-btn split-rec-btn" id="mtRecBtn" onclick="vrToggleRec()" title="Record armed track (R)">⏺ Rec</button>
+      <button class="split-transport-btn split-play-btn" id="mtPlayBtn" onclick="mtPlay()" disabled title="Play (Space)">▶ Play</button>
+      <button class="split-transport-btn" id="mtPlaySeqBtn" onclick="mtPlayWithSeq()" title="Play with Sequencer">▶+🥁</button>
     </div>
     <div style="flex:1"></div>
     <button id="splitRightHelpBtn" class="drawer-help-btn" style="display:none" title="Help">?</button>
