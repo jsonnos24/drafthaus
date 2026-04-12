@@ -4257,13 +4257,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .float-drag-title {
     font-family: 'IBM Plex Mono', monospace; font-size: 9px;
     letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--muted); flex-shrink: 0; margin-right: 8px;
-  }
-  .float-expand-hint {
-    font-family: 'IBM Plex Mono', monospace; font-size: 9px;
-    letter-spacing: 0.05em; color: var(--gold);
-    flex-shrink: 0; white-space: nowrap; margin-right: 6px;
-    opacity: 0.9;
+    color: var(--muted); flex: 1;
   }
   .float-collapse-btn {
     background: transparent; border: none; cursor: pointer;
@@ -4296,6 +4290,17 @@ button, select, input, textarea { touch-action: manipulation; }
   .shared-settings-row.hidden { display: none; }
   .shared-settings-row::-webkit-scrollbar { display: none; }
   .shared-settings-row > * { flex-shrink: 0; }
+  /* Vertical resize mode — rows wrap and stack instead of scroll */
+  .shared-drawer-header.is-resized-v {
+    display: flex; flex-direction: column;
+  }
+  .shared-drawer-header.is-resized-v .shared-settings-row {
+    flex-wrap: wrap; overflow-x: visible; align-items: flex-start; height: auto;
+    padding-bottom: 6px;
+  }
+  .shared-drawer-header.is-resized-v .drawer-transport-strip {
+    flex-wrap: wrap; justify-content: flex-start; flex-shrink: 0;
+  }
 
   .shared-drawer-header .drawer-transport-strip {
     padding: 7px 12px 9px;
@@ -5037,11 +5042,11 @@ button, select, input, textarea { touch-action: manipulation; }
   body { padding-bottom: 0; }
   #viewList, #viewDetail { padding-top: 52px; }
   /* Seq tab strips are the first child of full-screen drawers —
-     push them below the fixed header + nav bar */
+     push them below the fixed header only */
   .seq-drawer .seq-tabs-strip,
   .looper-drawer .seq-tabs-strip,
   .keyboard-drawer .seq-tabs-strip {
-    padding-top: calc(env(safe-area-inset-top, 0px) + 52px + 38px) !important;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 54px) !important;
   }
 
 
@@ -9958,7 +9963,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   <div class="header-left" style="gap:10px;">
     <div style="display:flex;flex-direction:column;gap:1px;cursor:pointer;" onclick="showList()" title="Back to drafts">
       <span class="header-logo">Drafthaus<span class="header-beta">Beta</span></span>
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:0.75;">Build 0.95.2</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:0.75;">Build 0.96</span>
     </div>
     <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start;">
       <div class="header-status-wrap" id="headerStatusWrap">
@@ -14501,6 +14506,8 @@ function _seqSyncUndoBtn() {
 function _kbdSyncUndoBtn() {
   const btn = document.getElementById('kbdUndoBtn');
   if (btn) btn.style.opacity = _seqUndoStack.length ? '0.8' : '0.3';
+  const lbtn = document.getElementById('loopUndoBtn');
+  if (lbtn) lbtn.style.opacity = _seqUndoStack.length ? '0.8' : '0.3';
 }
 
 window.seqUndoActive = function() {
@@ -15900,39 +15907,53 @@ function _transportRestoreCollapse() {
     }, { passive: false });
     handle.addEventListener('touchend', endDrag, { passive: true });
 
-    // ── Resize grip ──────────────────────────────────────────────────
-    var resizing = false, rStartX = 0, rStartW = 0;
+    // ── Resize grip (horizontal + vertical) ─────────────────────────
+    var resizing = false, rStartX = 0, rStartY = 0, rStartW = 0, rStartH = 0;
     var grip = document.getElementById('sharedResizeGrip');
     if (grip) {
-      // Restore saved width
+      // Restore saved size
       try {
         var savedW = localStorage.getItem('drafthaus_transport_width');
         if (savedW) { panel.style.width = savedW + 'px'; panel.style.maxWidth = 'none'; }
+        var savedH = localStorage.getItem('drafthaus_transport_height');
+        if (savedH) {
+          panel.style.height = savedH + 'px';
+          panel.style.overflow = 'hidden';
+          panel.classList.add('is-resized-v');
+        }
       } catch(e) {}
 
-      function startResize(cx) {
-        rStartX = cx; rStartW = panel.offsetWidth;
+      function startResize(cx, cy) {
+        rStartX = cx; rStartY = cy;
+        rStartW = panel.offsetWidth; rStartH = panel.offsetHeight;
         resizing = true;
         panel.style.transition = 'none';
         panel.style.userSelect = 'none';
       }
-      function doResize(cx) {
+      function doResize(cx, cy) {
         if (!resizing) return;
         var nw = Math.max(260, Math.min(window.innerWidth * 0.98, rStartW + (cx - rStartX)));
+        var nh = Math.max(60, Math.min(window.innerHeight * 0.8, rStartH + (cy - rStartY)));
         panel.style.width = nw + 'px';
         panel.style.maxWidth = 'none';
+        panel.style.height = nh + 'px';
+        panel.style.overflow = 'hidden';
+        panel.classList.add('is-resized-v');
       }
       function endResize() {
         if (!resizing) return;
         resizing = false;
         panel.style.transition = '';
         panel.style.userSelect = '';
-        try { localStorage.setItem('drafthaus_transport_width', Math.round(panel.offsetWidth)); } catch(e) {}
+        try {
+          localStorage.setItem('drafthaus_transport_width',  Math.round(panel.offsetWidth));
+          localStorage.setItem('drafthaus_transport_height', Math.round(panel.offsetHeight));
+        } catch(e) {}
       }
-      grip.addEventListener('mousedown', function(e) { e.preventDefault(); startResize(e.clientX); });
-      grip.addEventListener('touchstart', function(e) { startResize(e.touches[0].clientX); }, { passive: true });
-      document.addEventListener('mousemove', function(e) { doResize(e.clientX); });
-      document.addEventListener('touchmove', function(e) { if (resizing) { e.preventDefault(); doResize(e.touches[0].clientX); } }, { passive: false });
+      grip.addEventListener('mousedown', function(e) { e.preventDefault(); startResize(e.clientX, e.clientY); });
+      grip.addEventListener('touchstart', function(e) { startResize(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+      document.addEventListener('mousemove', function(e) { doResize(e.clientX, e.clientY); });
+      document.addEventListener('touchmove', function(e) { if (resizing) { e.preventDefault(); doResize(e.touches[0].clientX, e.touches[0].clientY); } }, { passive: false });
       document.addEventListener('mouseup', endResize);
       document.addEventListener('touchend', endResize, { passive: true });
     }
@@ -15942,9 +15963,23 @@ function _transportRestoreCollapse() {
 function sharedRevertSize() {
   var panel = document.getElementById('sharedDrawerHeader');
   if (!panel) return;
+  // Reset size
   panel.style.width = '';
   panel.style.maxWidth = '';
-  try { localStorage.removeItem('drafthaus_transport_width'); } catch(e) {}
+  panel.style.height = '';
+  panel.style.overflow = '';
+  panel.classList.remove('is-resized-v');
+  try {
+    localStorage.removeItem('drafthaus_transport_width');
+    localStorage.removeItem('drafthaus_transport_height');
+  } catch(e) {}
+  // Reset position — snap back to default centre-bottom
+  panel.classList.remove('is-dragged');
+  panel.style.left = '';
+  panel.style.top  = '';
+  panel.style.bottom = '';
+  panel.style.transform = '';
+  try { localStorage.removeItem('drafthaus_transport_pos'); } catch(e) {}
 }
 
 // Unified stop: delegates based on which drawer is open
@@ -17104,6 +17139,7 @@ function kbdRenderMelodyTabs(song) {
       <span class="seq-tab-dot" style="background:${color};"></span>
       ${label}${noteCount ? `<span style="font-size:9px;opacity:0.55;margin-left:3px;">${noteCount}♪</span>` : ''}
       <span class="seq-tab-edit" onclick="event.stopPropagation();seqShowTabEditPopup(event,${i})" title="Reassign or reorder">✎</span>
+      ${seqs.length > 1 ? `<span class="seq-tab-del" onclick="event.stopPropagation();seqDeleteSequence(${i})" title="Delete this sequence">✕</span>` : ''}
     </button>`;
   }).join('');
   const undoOpacity = _seqUndoStack.length ? '0.8' : '0.3';
@@ -24851,17 +24887,20 @@ function loopRenderPartsStrip() {
   const loopNowPlayingPartId = (_seqPlayMode === 'song' && seqIsPlaying && _seqSongSections && _seqSongSectionIdx < _seqSongSections.length)
     ? (_seqSongSections[_seqSongSectionIdx]?.partId || null)
     : null;
+  const undoOpacity = (typeof _seqUndoStack !== 'undefined' && _seqUndoStack.length) ? '0.8' : '0.3';
   strip.innerHTML = '<span class="seq-tabs-label">Seq:</span>' +
     parts.map(function(p) {
       const count = loopTracks.filter(function(t) { return t.parts && t.parts.includes(p.id); }).length;
-      const borderColor = count > 0 ? p.color : 'rgba(255,255,255,0.2)';
       const playing = p.id === loopNowPlayingPartId ? ' seq-tab-playing' : '';
-      return `<button class="loop-part-tab${playing}" style="color:${p.color};border-color:${borderColor};"
+      return `<button class="seq-tab${playing}" style="color:${p.color};"
         onclick="loopShowPartAssignPopup('${p.id}',this)" title="Assign tracks to ${p.label}">
+        <span class="seq-tab-dot" style="background:${p.color};"></span>
         ${p.label}
         ${count > 0 ? `<span class="loop-part-badge" style="background:${p.color};">${count}</span>` : ''}
+        <span class="seq-tab-edit" onclick="event.stopPropagation();loopShowPartAssignPopup('${p.id}',this)" title="Assign tracks">✎</span>
       </button>`;
-    }).join('');
+    }).join('') +
+    `<button class="seq-tab-add" id="loopUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:${undoOpacity};">↩</button>`;
 }
 
 // ── Part assignment popup ────────────────────────────────────────────────────
@@ -32557,8 +32596,6 @@ window._releaseMicStreams          = _releaseMicStreams;
       <span></span><span></span><span></span>
     </div>
     <span class="float-drag-title">Transport</span>
-    <span class="float-expand-hint">↵ Enter = expand pane</span>
-    <span style="flex:1;"></span>
     <button class="float-revert-btn" id="sharedRevertBtn" onclick="sharedRevertSize()" title="Reset transport to default size">Revert</button>
     <button class="float-collapse-btn" id="sharedCollapseBtn"
       onclick="sharedToggleControls()" title="Toggle controls bar">▲ Controls</button>
