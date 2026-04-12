@@ -17905,19 +17905,21 @@ function melodyWaveChanged() {
 }
 
 function melodyInstrumentChanged() {
-  const song = getCurrentSong();
-  if (!song) return;
-  if (!song.sequencer) song.sequencer = {};
+  // Always update the playback variable first — even if no song is currently open
   const val = document.getElementById('melodyInstrumentSelect')?.value || 'piano';
   _kbdMelodyInstrument = val;
-  song.sequencer.melodyInstrument = val;
-  // Trigger sample loading if needed
+  // Trigger sample loading if needed (works regardless of song state)
   const lbl = document.getElementById('melodyInstrumentLoading');
   let loading = false;
   if (_melodyInstrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  { loadPianoSamples();  loading = true; }
   if (_melodyInstrHas('piano2') && !_piano2Loaded && !_piano2Loading) { loadPiano2Samples(); loading = true; }
   if (_melodyInstrHas('guitar') && !_guitarLoaded && !_guitarLoading) { loadGuitarSamples(); loading = true; }
   if (lbl) lbl.style.display = loading ? 'inline' : 'none';
+  // Persist to song — prefer the keyboard drawer's loaded song (seqSongId) over the detail view's currentId
+  const song = (seqSongId && songs.find(s => s.id === seqSongId)) || getCurrentSong();
+  if (!song) return;
+  if (!song.sequencer) song.sequencer = {};
+  song.sequencer.melodyInstrument = val;
   save();
   scheduleSyncToSheet(song);
 }
@@ -19010,16 +19012,6 @@ function setSyncStatus(state, label) {
   } else {
     lbl.textContent = label;
     if (lbl2) lbl2.textContent = label;
-  }
-  // Mirror to the prominent drawer status bar
-  if (state === 'syncing') {
-    showDrawerStatus('saving', '💾  Saving…');
-  } else if (state === 'saved') {
-    showDrawerStatus('saved', '✓  Saved');
-    hideDrawerStatus(1800);
-  } else if (state === 'error') {
-    showDrawerStatus('error', '⚠  Save failed — check connection');
-    hideDrawerStatus(4000);
   }
 }
 
@@ -26414,7 +26406,6 @@ async function loopAutoSave(trackIdx, blob, mimeType, duration, source) {
   const ext = mimeType.includes('webm') ? 'webm' : (mimeType.includes('mp3') || mimeType.includes('mpeg')) ? 'mp3' : 'ogg';
   const fname = 'loop_' + Date.now() + '.' + ext;
   const path = 'loop_tracks/' + songId + '/' + fname;
-  showDrawerStatus('saving', '💾  Saving loop to cloud…');
   try {
     const storageRef = firebase.storage().ref(path);
     const snap = await storageRef.put(blob, { contentType: mimeType });
@@ -26436,8 +26427,7 @@ async function loopAutoSave(trackIdx, blob, mimeType, duration, source) {
       ...(source ? { source } : {}),
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-    showDrawerStatus('saved', '✓  Loop saved');
-    hideDrawerStatus(2000);
+    showToast('Loop saved ✓', 'success', 2000);
     // Persist the download URL on the song's loopTrack slot so the sequencer
     // can reload the buffer automatically when triggering loops for a part.
     if (song) {
@@ -26448,8 +26438,7 @@ async function loopAutoSave(trackIdx, blob, mimeType, duration, source) {
     loopLoadSavedLoops();
   } catch(err) {
     console.error('[Looper] save error', err);
-    showDrawerStatus('error', '⚠  Loop save failed');
-    hideDrawerStatus(4000);
+    showToast('Loop save failed — check connection', 'error', 4000);
   }
 }
 
@@ -26648,8 +26637,7 @@ async function loopDropAudioFile(trackIdx, file) {
   } catch(err) {
     console.error('[Looper] drop decode failed', err);
     if (stl) { stl.textContent = ''; stl.style.display = 'none'; }
-    showDrawerStatus('error', '⚠ Could not decode audio — try a different file');
-    hideDrawerStatus(4000);
+    showToast('Could not decode audio — try a different file', 'error', 4000);
   }
 }
 
@@ -30362,30 +30350,25 @@ async function mtDropAudioFile(trackIdx, file) {
       // Enforce 2-take limit per track (reload takes count first to be safe)
       await vrLoadTakes();
       if (t.takes && t.takes.length >= 2) {
-        showDrawerStatus('error', '⚠  Max 2 takes per track — delete a take first');
-        hideDrawerStatus(4000);
+        showToast('Max 2 takes per track — delete a take first', 'error', 4000);
         return;
       }
-      showDrawerStatus('saving', '💾  Saving take to cloud…');
       const blob = new Blob([arrBuf], { type: file.type });
       const newTake = await _uploadTake(blob, buffer.duration, file.type, trackIdx, 'upload');
       if (newTake) {
-        showDrawerStatus('saved', '✓  Take saved');
-        hideDrawerStatus(2000);
+        showToast('Take saved ✓', 'success', 2000);
         await vrLoadTakes();
         const idx = t.takes.findIndex(tk => tk.id === newTake.id);
         if (idx >= 0) { t.activeTakeIdx = idx; _mtRenderTakesPanel(trackIdx); _mtUpdateTakesBtn(trackIdx); }
       } else {
-        showDrawerStatus('error', '⚠  Save failed — check connection');
-        hideDrawerStatus(4000);
+        showToast('Save failed — check connection', 'error', 4000);
       }
     }
   } catch(err) {
     console.error('[MT] drop decode failed', err);
     if (sl) sl.textContent = '';
     if (hint) hint.style.display = '';
-    showDrawerStatus('error', '⚠ Could not decode audio — try a different file');
-    hideDrawerStatus(4000);
+    showToast('Could not decode audio — try a different file', 'error', 4000);
   }
 }
 
@@ -30432,7 +30415,6 @@ window.mtMobileTrashTrack = async function(i) {
   const t = _mtTracks[i]; if (!t) return;
   if (!t.takes || t.takes.length === 0) { showToast('Track is already empty', 'info', 1800); return; }
   if (!confirm('Clear track ' + (MT_NAMES[i] || (i+1)) + '? The recording will be moved to trash.')) return;
-  showDrawerStatus('saving', 'Clearing track…');
   try {
     for (const take of t.takes) {
       const doc = await db.collection('voice_takes').doc(take.id).get();
@@ -30450,13 +30432,11 @@ window.mtMobileTrashTrack = async function(i) {
       await db.collection('voice_takes').doc(take.id).delete();
       _mtAudioCache.del(take.id).catch(() => {}); // evict from local cache
     }
-    showDrawerStatus('saved', '✓  Track cleared');
-    hideDrawerStatus(2000);
+    showToast('Track cleared ✓', 'success', 2000);
     await vrLoadTakes();
   } catch(e) {
     console.error('[MT] mobileTrash error', e);
-    showDrawerStatus('error', '⚠  Could not clear track');
-    hideDrawerStatus(3000);
+    showToast('Could not clear track', 'error', 3000);
   }
 };
 
@@ -31460,21 +31440,17 @@ async function _mtFinishRecording(trackIdx, mimeType) {
   // Enforce 2-take limit per track before uploading
   const _tck = _mtTracks[trackIdx];
   if (_tck && _tck.takes && _tck.takes.length >= 2) {
-    showDrawerStatus('error', '⚠  Max 2 takes per track — delete a take first');
-    hideDrawerStatus(4000);
+    showToast('Max 2 takes per track — delete a take first', 'error', 4000);
     _vrUploading = false;
     return;
   }
   _vrUploading = true;
-  showDrawerStatus('saving', '💾  Saving take to cloud…');
   const newTake = await _uploadTake(blob, durSec, mimeType, trackIdx);
   _vrUploading = false;
   if (newTake) {
-    showDrawerStatus('saved', '✓  Take saved');
-    hideDrawerStatus(2000);
+    showToast('Take saved ✓', 'success', 2000);
   } else {
-    showDrawerStatus('error', '⚠  Save failed — check connection');
-    hideDrawerStatus(4000);
+    showToast('Save failed — check connection', 'error', 4000);
   }
   _setStatus(newTake ? 'Saved ✓' : 'Save failed');
   // Reload the takes list, then load the newly recorded take directly by ID
