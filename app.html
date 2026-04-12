@@ -2078,6 +2078,21 @@ button, select, input, textarea { touch-action: manipulation; }
   [data-row="chord"] .seq-slot.chord-tail:hover .seq-resize-handle::after {
     background: var(--gold);
   }
+  /* ── Mobile: bigger touch target + always-visible indicator on filled slots ── */
+  @media (max-width: 768px) {
+    [data-row="chord"] .seq-slot .seq-resize-handle {
+      width: 28px;
+    }
+    [data-row="chord"] .seq-slot.filled .seq-resize-handle,
+    [data-row="chord"] .seq-slot.chord-tail .seq-resize-handle {
+      opacity: 1;
+    }
+    [data-row="chord"] .seq-slot.filled .seq-resize-handle::after,
+    [data-row="chord"] .seq-slot.chord-tail .seq-resize-handle::after {
+      background: var(--gold);
+      width: 4px;
+    }
+  }
 
 
   /* Loading button animation */
@@ -4184,6 +4199,7 @@ button, select, input, textarea { touch-action: manipulation; }
     background: #13141a;
     border: 1px solid rgba(255,255,255,0.85);
     border-radius: 12px;
+    overflow: hidden;
     box-shadow: 0 8px 32px rgba(0,0,0,0.65), 0 2px 8px rgba(0,0,0,0.4);
     display: none; flex-direction: column;
     width: auto; min-width: 260px; max-width: min(640px, 96vw);
@@ -4224,7 +4240,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .float-collapse-btn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
 
   .shared-settings-row {
-    display: flex; align-items: center; padding: 5px 8px 4px;
+    display: flex; align-items: center; padding: 5px 12px 4px;
     overflow-x: auto; scrollbar-width: none; flex-shrink: 0; gap: 4px;
     border-bottom: 1px solid rgba(255,255,255,0.06);
   }
@@ -4969,7 +4985,14 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* Push content down so it isn't hidden behind the top nav bar */
   body { padding-bottom: 0; }
-  #viewList, #viewDetail { padding-top: 44px; }
+  #viewList, #viewDetail { padding-top: 52px; }
+  /* Seq tab strips are the first child of full-screen drawers —
+     push them below the fixed header + nav bar */
+  .seq-drawer .seq-tabs-strip,
+  .looper-drawer .seq-tabs-strip,
+  .keyboard-drawer .seq-tabs-strip {
+    padding-top: calc(10px + 52px + env(safe-area-inset-top, 0px) + 48px) !important;
+  }
 
 
   /* ── Bottom nav: icons-only redesign ─────────────────────────── */
@@ -5185,11 +5208,30 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ── Sequencer toolbar: mobile layout ───────────────────────── */
 
   /* Floating transport panel — compact buttons on mobile */
-  .shared-drawer-header .drawer-transport-strip .split-transport-btn {
-    min-height: 34px !important;
+  .shared-drawer-header .drawer-transport-strip .split-transport-btn,
+  .shared-drawer-header .drawer-transport-strip .melody-rec-btn {
+    min-height: 38px !important;
     font-size: 10px !important;
-    padding: 0 8px !important;
+    padding: 3px 8px !important;
     white-space: nowrap !important;
+    display: inline-flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 1px !important;
+    line-height: 1.2 !important;
+  }
+  .shared-drawer-header .t-btn-label {
+    font-size: 10px;
+    line-height: 1;
+  }
+  .shared-drawer-header .t-btn-hint {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 7px;
+    letter-spacing: 0.04em;
+    opacity: 0.45;
+    line-height: 1;
+    text-transform: lowercase;
   }
 
   /* Controls wrapper: stack strips vertically */
@@ -14500,7 +14542,7 @@ function seqRenderSequenceTabs() {
     : '';
 
   strip.innerHTML = `
-    <span class="seq-tabs-label">Sequences</span>
+    <span class="seq-tabs-label">Seq:</span>
     ${tabsHtml}
     <button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button>
     <button class="seq-tab-add" onclick="seqDuplicateActive()" title="Duplicate current sequence" style="font-size:13px;padding:2px 7px;">⧉</button>
@@ -15660,18 +15702,36 @@ function seqPlayCrash(time, vel) {
 
 // ── Floating transport panel helpers ─────────────────────────────────────────
 
+// Sync the shared Rec button enabled/appearance state based on what's currently open.
+// Called whenever a drawer opens/closes or 4-track arm state changes.
+function _syncSharedRecBtnState() {
+  const recBtn = document.getElementById('sharedRecBtn');
+  if (!recBtn) return;
+  const kbdOpen   = document.getElementById('keyboardDrawer')?.classList.contains('open');
+  const vrOpen    = document.getElementById('vrOverlay')?.classList.contains('vr-open');
+  const miniBar   = document.getElementById('vrMiniBar');
+  const miniVis   = miniBar && miniBar.style.display !== 'none' && miniBar.offsetParent !== null;
+  const trackArmed = document.getElementById('mtRecBtn')?.classList.contains('mt-active');
+  const fourTrackReady = (vrOpen || miniVis) && trackArmed;
+  const enabled = kbdOpen || fourTrackReady;
+  recBtn.disabled = !enabled;
+  recBtn.style.opacity    = enabled ? '' : '0.35';
+  recBtn.style.cursor     = enabled ? '' : 'not-allowed';
+  // Show what mode will trigger: 4-track takes priority over keyboard
+  if (fourTrackReady) {
+    recBtn.title = 'Record to armed 4-track (R)';
+  } else if (kbdOpen) {
+    recBtn.title = 'Record melody (keyboard mode)';
+  } else {
+    recBtn.title = 'Rec — arm a 4-track or open Keyboard';
+  }
+}
+
 function _sharedHeaderOpen(mode) {
   const el = document.getElementById('sharedDrawerHeader');
   if (!el) return;
   el.classList.add('visible');
-  // Configure Rec button (only active in keyboard mode)
-  const recBtn = document.getElementById('sharedRecBtn');
-  if (recBtn) {
-    const kbdMode = mode === 'keyboard';
-    recBtn.disabled = !kbdMode;
-    recBtn.style.opacity = kbdMode ? '' : '0.35';
-    recBtn.style.cursor  = kbdMode ? '' : 'not-allowed';
-  }
+  _syncSharedRecBtnState();
   // Restore saved position if available
   if (!el.classList.contains('is-dragged')) {
     requestAnimationFrame(function() {
@@ -15800,14 +15860,65 @@ function _transportRestoreCollapse() {
 })();
 
 // Unified stop: delegates based on which drawer is open
+// Play — routes to SEQ toggle, also unmutes any muted looper tracks and
+// plays 4-track if it's visible and has content.
+function sharedPlay() {
+  // SEQ toggle: if playing → stop everything; if stopped → start
+  if (seqIsPlaying) {
+    sharedStop();
+    return;
+  }
+  seqPlay();
+  // If the looper drawer is open and has muted tracks with buffers, unmute them
+  const loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
+  if (loopOpen && typeof loopTracks !== 'undefined') {
+    loopTracks.forEach(function(t, i) {
+      if (t && t.state === 'muted' && t.buffer) loopUnmuteTrack(i);
+    });
+  }
+  // If 4-track is visible and has content, play it too
+  const vrOpen = document.getElementById('vrOverlay')?.classList.contains('vr-open');
+  const miniVisible = (function() {
+    const mb = document.getElementById('vrMiniBar');
+    return mb && mb.style.display !== 'none' && mb.offsetParent !== null;
+  })();
+  if ((vrOpen || miniVisible) && typeof mtPlay === 'function') mtPlay();
+}
+
+// Full song play — SEQ full-song mode; also coordinates 4-track if visible
+function sharedPlaySong() {
+  if (seqIsPlaying) { sharedStop(); return; }
+  seqPlaySong();
+  const vrOpen = document.getElementById('vrOverlay')?.classList.contains('vr-open');
+  const miniVisible = (function() {
+    const mb = document.getElementById('vrMiniBar');
+    return mb && mb.style.display !== 'none' && mb.offsetParent !== null;
+  })();
+  if ((vrOpen || miniVisible) && typeof mtPlay === 'function') mtPlay();
+}
+
 function sharedStop() {
   const loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
   if (loopOpen) loopMasterStop();
   seqStop(); // always stop sequencer playback too
+  // Also stop 4-track if playing
+  if (typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying && typeof _mtStopAll === 'function') {
+    try { _mtStopAll(); } catch(e) {}
+  }
 }
 
 // Rec: only active in keyboard mode
 function sharedRec() {
+  // 4-track takes priority if it's visible and a track is armed
+  const vrOpen    = document.getElementById('vrOverlay')?.classList.contains('vr-open');
+  const miniBar   = document.getElementById('vrMiniBar');
+  const miniVis   = miniBar && miniBar.style.display !== 'none' && miniBar.offsetParent !== null;
+  const trackArmed = document.getElementById('mtRecBtn')?.classList.contains('mt-active');
+  if ((vrOpen || miniVis) && trackArmed) {
+    if (typeof vrToggleRec === 'function') vrToggleRec();
+    return;
+  }
+  // Otherwise, record keyboard melody if keyboard drawer is open
   const kbdOpen = document.getElementById('keyboardDrawer')?.classList.contains('open');
   if (kbdOpen) melodyToggleRecord();
 }
@@ -16895,7 +17006,7 @@ function kbdRenderMelodyTabs(song) {
     </button>`;
   }).join('');
   const undoOpacity = _seqUndoStack.length ? '0.8' : '0.3';
-  strip.innerHTML = `<span class="seq-tabs-label">Melody for</span>${tabsHtml}<button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button><button class="seq-tab-add" onclick="kbdDuplicateMelodySeq()" title="Duplicate this sequence's melody" style="font-size:13px;padding:2px 7px;">⧉</button><button class="seq-tab-add" id="kbdUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:${undoOpacity};">↩</button>`;
+  strip.innerHTML = `<span class="seq-tabs-label">Seq:</span>${tabsHtml}<button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button><button class="seq-tab-add" onclick="kbdDuplicateMelodySeq()" title="Duplicate this sequence's melody" style="font-size:13px;padding:2px 7px;">⧉</button><button class="seq-tab-add" id="kbdUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:${undoOpacity};">↩</button>`;
 }
 
 window.kbdDuplicateMelodySeq = function() {
@@ -21888,6 +21999,72 @@ async function exportMidiZip() {
     document.body.style.userSelect = '';
     seqSaveChordSlots();
   });
+
+  // ── Touch equivalents for mobile resize ──────────────────────────
+  function _rStartFromElement(handle) {
+    const slot = handle.closest('#seqChordGrid .seq-slot');
+    if (!slot || !slot.classList.contains('filled')) return;
+    const grid = document.getElementById('seqChordGrid');
+    if (!grid) return;
+    const allSlots = [...grid.querySelectorAll('.seq-slot')];
+    let slotIdx = parseInt(slot.dataset.idx);
+    if (isNaN(slotIdx)) return;
+    let headIdx = slotIdx;
+    while (headIdx > 0 && allSlots[headIdx]?.classList.contains('chord-tail')) headIdx--;
+    const head = allSlots[headIdx];
+    if (!head?.classList.contains('filled')) return;
+    _rDrag = { headIdx, allSlots, chord: head.textContent.trim(), degree: head.dataset.chordDegree };
+  }
+
+  function _rMoveToPoint(clientX, clientY) {
+    if (!_rDrag) return;
+    const { headIdx, allSlots, chord, degree } = _rDrag;
+    const els = document.elementsFromPoint(clientX, clientY);
+    let targetSlot = null;
+    for (const el of els) {
+      if (el.classList?.contains('seq-slot') && el.closest('#seqChordGrid')) { targetSlot = el; break; }
+    }
+    if (!targetSlot) return;
+    const targetIdx = parseInt(targetSlot.dataset.idx);
+    if (isNaN(targetIdx) || targetIdx < headIdx) return;
+    for (let i = headIdx + 1; i < allSlots.length; i++) {
+      const s = allSlots[i];
+      if (i > targetIdx && s.classList.contains('filled') && !s.classList.contains('chord-tail')) break;
+      if (i <= targetIdx) {
+        if (s.classList.contains('filled') && !s.classList.contains('chord-tail')) break;
+        _seqSlotSetText(s, chord);
+        s.classList.add('filled', 'chord-tail');
+        if (degree !== undefined && degree !== '') s.dataset.chordDegree = degree;
+        else delete s.dataset.chordDegree;
+      } else {
+        if (s.classList.contains('chord-tail')) {
+          _seqSlotSetText(s, '');
+          s.classList.remove('filled', 'chord-tail');
+          delete s.dataset.chordDegree;
+        } else { break; }
+      }
+    }
+  }
+
+  document.addEventListener('touchstart', e => {
+    const handle = e.target.closest('.seq-resize-handle');
+    if (!handle) return;
+    e.preventDefault(); // prevent scroll while resizing
+    _rStartFromElement(handle);
+  }, { passive: false });
+
+  document.addEventListener('touchmove', e => {
+    if (!_rDrag) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    _rMoveToPoint(t.clientX, t.clientY);
+  }, { passive: false });
+
+  document.addEventListener('touchend', () => {
+    if (!_rDrag) return;
+    _rDrag = null;
+    seqSaveChordSlots();
+  });
 })();
 
 
@@ -22831,6 +23008,36 @@ function renderKeyboardDrawerHtml(song) {
         </div>
       </div>
 
+    <!-- Chord sequence grid — sits between tabs and chord section -->
+    <div class="seq-pattern-grid" style="margin-bottom:4px;margin-top:0;">
+      <div class="seq-grid-row" data-row="chord">
+        <div class="seq-row-label">Chord</div>
+        <div class="seq-grid" id="seqChordGrid"></div>
+      </div>
+    </div>
+
+    <!-- Chord instrument dropdown — below grid, above chord slots -->
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
+      <div class="seq-ctrl-group">
+        <span class="seq-label">Chords</span>
+        <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()" style="width:auto;">
+          <option value="synth"${chordInstrument==='synth'?' selected':''}>Synth</option>
+          <option value="piano"${chordInstrument==='piano'?' selected':''}>Grand Piano</option>
+          <option value="piano2"${chordInstrument==='piano2'?' selected':''}>Upright Piano</option>
+          <option value="piano+piano2"${chordInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
+          <option value="guitar"${chordInstrument==='guitar'?' selected':''}>Guitar</option>
+          <option value="guitar+piano"${chordInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
+          <option value="guitar+piano2"${chordInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
+          <option value="guitar+synth"${chordInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
+          <option value="piano+synth"${chordInstrument==='piano+synth'?' selected':''}>Grand + Synth</option>
+          <option value="piano2+synth"${chordInstrument==='piano2+synth'?' selected':''}>Upright + Synth</option>
+          <option value="guitar+piano+synth"${chordInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Grand + Synth</option>
+          <option value="guitar+piano2+synth"${chordInstrument==='guitar+piano2+synth'?' selected':''}>Guitar + Upright + Synth</option>
+        </select>
+        <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
+      </div>
+    </div>
+
     <!-- ══ Chord Progression Section ══ -->
     <div style="border-bottom:1px solid var(--border2);margin-bottom:12px;padding-bottom:12px;">
 
@@ -22840,25 +23047,6 @@ function renderKeyboardDrawerHtml(song) {
         <button class="seq-chord-mode-btn${seqChordMode==='preview'?' active':''}" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Preview mode — clicking a chord just plays it, nothing is added to the grid">▶ Preview</button>
         <button class="seq-humanize-btn${seqHumanizeChords?' active':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords — adds subtle timing variation so they feel less robotic">〜 Humanize</button>
         <button class="seq-chord-mode-btn" id="seqSweepBtn" onclick="seqToggleSweepMode()" title="Sweep mode — hover over chord pills to auto-play (desktop only)" style="display:none;">⟿ Sweep</button>
-        <!-- Chord instrument — beside Sweep in the chord section header -->
-        <div class="seq-ctrl-group" style="margin-left:auto;">
-          <span class="seq-label">Chords</span>
-          <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()" style="width:auto;">
-            <option value="synth"${chordInstrument==='synth'?' selected':''}>Synth</option>
-            <option value="piano"${chordInstrument==='piano'?' selected':''}>Grand Piano</option>
-            <option value="piano2"${chordInstrument==='piano2'?' selected':''}>Upright Piano</option>
-            <option value="piano+piano2"${chordInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
-            <option value="guitar"${chordInstrument==='guitar'?' selected':''}>Guitar</option>
-            <option value="guitar+piano"${chordInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
-            <option value="guitar+piano2"${chordInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
-            <option value="guitar+synth"${chordInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
-            <option value="piano+synth"${chordInstrument==='piano+synth'?' selected':''}>Grand + Synth</option>
-            <option value="piano2+synth"${chordInstrument==='piano2+synth'?' selected':''}>Upright + Synth</option>
-            <option value="guitar+piano+synth"${chordInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Grand + Synth</option>
-            <option value="guitar+piano2+synth"${chordInstrument==='guitar+piano2+synth'?' selected':''}>Guitar + Upright + Synth</option>
-          </select>
-          <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
-        </div>
       </div>
       <!-- Mode hint below title -->
       <div id="seqChordModeHint" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:0.08em;margin-bottom:10px;">Preview Mode — Click chord to preview · Drag into grid to compose</div>
@@ -22869,14 +23057,6 @@ function renderKeyboardDrawerHtml(song) {
       <!-- Chord interval pills (Clear btn rendered inside by seqRenderChordPills) -->
       <div style="margin-bottom:6px;">
         <div class="seq-chords-row" id="seqChordPills"></div>
-      </div>
-
-      <!-- Chord sequence grid (above sequence tabs) -->
-      <div class="seq-pattern-grid" style="margin-bottom:8px;margin-top:0;">
-        <div class="seq-grid-row" data-row="chord">
-          <div class="seq-row-label">Chord</div>
-          <div class="seq-grid" id="seqChordGrid"></div>
-        </div>
       </div>
 
     </div>
@@ -23780,11 +23960,7 @@ document.addEventListener('keydown', function(e) {
   if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
   if (document.activeElement?.isContentEditable) return;
   e.preventDefault();
-  if (seqIsPlaying) {
-    seqStop();
-  } else {
-    seqPlay();
-  }
+  if (e.shiftKey) { sharedPlaySong(); } else { sharedPlay(); }
 });
 
 
@@ -23800,7 +23976,7 @@ document.addEventListener('keydown', function(e) {
   if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
   if (document.activeElement?.isContentEditable) return;
   e.preventDefault();
-  if (seqIsPlaying) { seqStop(); } else { seqPlay(); }
+  if (e.shiftKey) { sharedPlaySong(); } else { sharedPlay(); }
 });
 
 // ── Spacebar + R shortcut for tape deck ──────────────────────────
@@ -24530,7 +24706,7 @@ function loopRenderPartsStrip() {
   const parts = (STRUCTURE_PARTS || []).filter(function(p) { return usedPartIds.has(p.id); });
   if (parts.length === 0) { strip.innerHTML = ''; strip.style.display = 'none'; return; }
   strip.style.display = '';
-  strip.innerHTML = '<span class="seq-tabs-label">Parts</span>' +
+  strip.innerHTML = '<span class="seq-tabs-label">Seq:</span>' +
     parts.map(function(p) {
       const count = loopTracks.filter(function(t) { return t.parts && t.parts.includes(p.id); }).length;
       const borderColor = count > 0 ? p.color : 'rgba(255,255,255,0.2)';
@@ -27948,10 +28124,7 @@ document.addEventListener('keydown', function(e) {
       break;
     }
     case 'r': {
-      // R is reserved for tape record when tape is open
-      if (document.getElementById('vrOverlay')?.classList.contains('vr-open')) break;
-      e.preventDefault();
-      ilTogglePerfMode();
+      // R is reserved for tape record (handled by the tape deck's own keydown listener)
       break;
     }
     case 'l': {
@@ -28680,6 +28853,8 @@ window.mtArmTrack = function(i) {
   _el('mtRecBtn').classList.toggle('mt-active', _mtArmedTrack >= 0);
   // Start VU meter (requests mic) only when a track is armed
   if (_mtArmedTrack >= 0) { _vuStart(); } else { _vuMaybeStop(); }
+  // Keep shared transport Rec button in sync
+  if (typeof _syncSharedRecBtnState === 'function') _syncSharedRecBtnState();
 };
 
 // ── Mobile: clear track (trash all takes) ─────────────────────
@@ -31068,27 +31243,32 @@ window._releaseMicStreams          = _releaseMicStreams;
   <div class="drawer-transport-strip">
     <button id="sharedRecBtn" class="melody-rec-btn" onclick="sharedRec()"
       disabled style="opacity:0.35;cursor:not-allowed;"
-      title="Record melody (keyboard mode only)">⏺ Rec</button>
-    <button class="split-transport-btn split-play-btn" onclick="seqPlay()" title="Play">▶ Play</button>
-    <button class="split-transport-btn split-play-btn" onclick="seqPlaySong()" title="Play full song">▶▶ Full</button>
-    <button class="split-transport-btn split-stop-btn" onclick="sharedStop()" title="Stop">■ Stop</button>
-    <button id="sharedMetBtn" class="split-transport-btn split-met-btn" onclick="seqToggleMet()" title="Toggle metronome">Metro</button>
+      title="Record melody (keyboard mode only)">
+      <span class="t-btn-label">⏺ Rec</span>
+      <span class="t-btn-hint">r</span>
+    </button>
+    <button class="split-transport-btn split-play-btn" onclick="sharedPlay()" title="Play (Space)">
+      <span class="t-btn-label">▶ Play</span>
+      <span class="t-btn-hint">␣</span>
+    </button>
+    <button class="split-transport-btn split-play-btn" onclick="sharedPlaySong()" title="Play full song (Shift+Space)">
+      <span class="t-btn-label">▶▶ Full</span>
+      <span class="t-btn-hint">⇧ ␣</span>
+    </button>
+    <button class="split-transport-btn split-stop-btn" onclick="sharedStop()" title="Stop (Esc)">
+      <span class="t-btn-label">■ Stop</span>
+      <span class="t-btn-hint">esc</span>
+    </button>
+    <button id="sharedMetBtn" class="split-transport-btn split-met-btn" onclick="seqToggleMet()" title="Toggle metronome (M)">
+      <span class="t-btn-label">Metro</span>
+      <span class="t-btn-hint">m</span>
+    </button>
   </div>
 </div>
 
 <div class="looper-drawer" id="looperDrawer">
   <!-- Sequence/parts tabs — top of drawer, matches SEQ drawer pattern -->
   <div class="seq-tabs-strip loop-parts-strip" id="loopPartsStrip" style="display:none;"></div>
-  <!-- Bars row — looper-specific recording length, stays in drawer body area -->
-  <div class="loop-settings-row">
-    <span class="ctrl-label">Bars</span>
-    <div class="bars-row" id="loopBarsRow">
-      <button class="bar-btn active" onclick="loopSetBars(1)">1</button>
-      <button class="bar-btn" onclick="loopSetBars(2)">2</button>
-      <button class="bar-btn" onclick="loopSetBars(4)">4</button>
-      <button class="bar-btn" onclick="loopSetBars(8)">8</button>
-    </div>
-  </div>
   <!-- Monitor status strip — always visible below header -->
   <div id="loopMonPill" title="Monitor is auto-muted while recording to prevent feedback, and live during playback"><span class="mon-icon">🎧</span><span id="loopMonLabel">Monitor: Auto</span></div>
   <!-- Mic permission status pill -->
@@ -31111,6 +31291,16 @@ window._releaseMicStreams          = _releaseMicStreams;
           <span class="loop-saved-hint">Click ↩ Load to drop into first open track</span>
         </div>
         <div class="loop-saved-list" id="loopSavedList"></div>
+      </div>
+      <!-- Bars row — directly above the tracks -->
+      <div class="loop-settings-row">
+        <span class="ctrl-label">Bars</span>
+        <div class="bars-row" id="loopBarsRow">
+          <button class="bar-btn active" onclick="loopSetBars(1)">1</button>
+          <button class="bar-btn" onclick="loopSetBars(2)">2</button>
+          <button class="bar-btn" onclick="loopSetBars(4)">4</button>
+          <button class="bar-btn" onclick="loopSetBars(8)">8</button>
+        </div>
       </div>
       <!-- Tracks grid -->
       <div class="tracks-grid" id="loopTracksGrid"></div>
@@ -32139,6 +32329,83 @@ window._releaseMicStreams          = _releaseMicStreams;
       if (anyDrawerOpen())          return;
       if (typeof showList === 'function') showList();
     }, { passive: true });
+  });
+
+  // ── Mobile: horizontal swipe inside a drawer → switch to adjacent drawer ─
+  // Swipe LEFT  → next drawer in order (SEQ → Keys → Looper → wraps)
+  // Swipe RIGHT → prev drawer in order (avoids left-edge to not fight browser back)
+  document.addEventListener('DOMContentLoaded', function() {
+    var DRAWER_ORDER = [
+      { id: 'seqDrawer',      openFn: function() { openSeqDrawer(); },      closeFn: function() { closeSeqDrawer(); }      },
+      { id: 'keyboardDrawer', openFn: function() { openKeyboardDrawer(); }, closeFn: function() { closeKeyboardDrawer(); } },
+      { id: 'looperDrawer',   openFn: function() { openLooperDrawer(); },   closeFn: function() { closeLooperDrawer(); }   }
+    ];
+
+    function getOpenIdx() {
+      for (var i = 0; i < DRAWER_ORDER.length; i++) {
+        var el = document.getElementById(DRAWER_ORDER[i].id);
+        if (el && el.classList.contains('open')) return i;
+      }
+      return -1;
+    }
+
+    function switchDrawer(targetIdx) {
+      var curIdx = getOpenIdx();
+      if (curIdx < 0 || curIdx === targetIdx) return;
+      DRAWER_ORDER[curIdx].closeFn();
+      // Wait for the 0.32s close transition before opening the next drawer
+      setTimeout(function() { DRAWER_ORDER[targetIdx].openFn(); }, 340);
+    }
+
+    // Walk up from a touch target to check if it (or an ancestor) is
+    // a horizontally scrollable container with actual overflow content.
+    function _touchInHScrollable(target) {
+      var node = target;
+      while (node && node !== document.body) {
+        if (node.scrollWidth > node.clientWidth + 4) {
+          var style = window.getComputedStyle(node);
+          var ox = style.overflowX;
+          if (ox === 'auto' || ox === 'scroll') return true;
+        }
+        node = node.parentElement;
+      }
+      return false;
+    }
+
+    DRAWER_ORDER.forEach(function(d, idx) {
+      var el = document.getElementById(d.id);
+      if (!el) return;
+      var sx = 0, sy = 0, _skipSwipe = false;
+
+      el.addEventListener('touchstart', function(e) {
+        if (window.innerWidth > 768) return;
+        sx = e.touches[0].clientX;
+        sy = e.touches[0].clientY;
+        // Don't hijack scroll if touch started inside a horizontally scrollable element
+        _skipSwipe = _touchInHScrollable(e.target);
+      }, { passive: true });
+
+      el.addEventListener('touchend', function(e) {
+        if (window.innerWidth > 768) return;
+        if (_skipSwipe) return;
+        var ex = e.changedTouches[0].clientX;
+        var ey = e.changedTouches[0].clientY;
+        var dx = ex - sx, dy = ey - sy;
+        var adx = Math.abs(dx), ady = Math.abs(dy);
+        // Must be clearly horizontal: min 70px, and horizontal > 2× vertical
+        if (adx < 70) return;
+        if (ady > adx * 0.5) return;
+        if (dx < 0) {
+          // Swipe left → next drawer (wraps)
+          switchDrawer((idx + 1) % DRAWER_ORDER.length);
+        } else {
+          // Swipe right → prev drawer, but ignore if started within 44px of left
+          // edge so we don't compete with the browser's back gesture
+          if (sx < 44) return;
+          switchDrawer((idx - 1 + DRAWER_ORDER.length) % DRAWER_ORDER.length);
+        }
+      }, { passive: true });
+    });
   });
 
 })();
