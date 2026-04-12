@@ -30474,29 +30474,12 @@ window.mtLoadTake = async function(trackIdx, takeIdx) {
 // ── Delete a take from the takes list ────────────────────────────
 window.mtDeleteTake = function(trackIdx, takeIdx) {
   const t = _mtTracks[trackIdx]; if (!t || !t.takes || !t.takes[takeIdx]) return;
-  if (!confirm('Delete Take ' + (takeIdx + 1) + '?')) return;
-  t.takes.splice(takeIdx, 1);
-  if (t.activeTakeIdx === takeIdx) {
-    t.activeTakeIdx = t.takes.length > 0 ? 0 : -1;
-    if (t.takes.length > 0) {
-      t.buffer = t.takes[0].buffer;
-      t.duration = t.takes[0].duration || 0;
-      const color = ['#ff6b9d','#6bb5ff','#6bffb5','#ffb56b'][trackIdx % 4];
-      _mtDrawTrackWaveform(trackIdx, t.buffer, color);
-    } else {
-      t.buffer = null;
-      const canvas = _el('mt-wave-'+trackIdx);
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-    }
-  } else if (t.activeTakeIdx > takeIdx) {
-    t.activeTakeIdx--;
-  }
-  _mtUpdateTakesBtn(trackIdx);
-  _mtRenderInlineTakes(trackIdx);
-  showToast('Take deleted', 'success', 1500);
+  const take = t.takes[takeIdx];
+  if (!confirm('Move Take ' + (takeIdx + 1) + ' to trash?')) return;
+  // Delegate to vrDeleteTake — handles Firestore delete, trash, IDB eviction,
+  // and vrLoadTakes() to refresh UI. Client-side-only splice would leave the take
+  // in voice_takes and it would reappear on next session open.
+  vrDeleteTake(take.id, take.storagePath || '');
 };
 
 // ── Volume ─────────────────────────────────────────────────────
