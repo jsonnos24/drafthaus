@@ -2882,6 +2882,15 @@ button, select, input, textarea { touch-action: manipulation; }
     transition: background 0.1s;
   }
   .lyrics-warn-cancel:hover { background: var(--surface); }
+  /* Alt action button — used in 4-option delete modal */
+  .lyrics-warn-btn-alt {
+    padding: 8px 12px; border-radius: 7px;
+    border: 1px solid var(--border2); background: var(--card2);
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+    color: #4a9eff; cursor: pointer; letter-spacing: 0.06em; text-transform: uppercase;
+    white-space: nowrap; transition: background 0.1s;
+  }
+  .lyrics-warn-btn-alt:hover { background: rgba(74,158,255,0.1); }
 
   /* ── Import/Convert button ── */
   .il-import-btn {
@@ -5038,16 +5047,31 @@ button, select, input, textarea { touch-action: manipulation; }
   .bottom-nav-item.nav-keyboard .bottom-nav-label { color: #ffd166; }
   .bottom-nav-item.nav-keyboard .bottom-nav-icon { filter: drop-shadow(0 0 4px #ffd166); }
 
-  /* Push content down so it isn't hidden behind the top nav bar */
+  /* Push content down so it isn't hidden behind the top nav bar + global strip */
   body { padding-bottom: 0; }
-  #viewList, #viewDetail { padding-top: 52px; }
-  /* Seq tab strips are the first child of full-screen drawers —
-     push them below the fixed header only */
-  .seq-drawer .seq-tabs-strip,
-  .looper-drawer .seq-tabs-strip,
-  .keyboard-drawer .seq-tabs-strip {
-    padding-top: calc(env(safe-area-inset-top, 0px) + 54px) !important;
+  #viewList, #viewDetail { padding-top: 122px; }
+
+  /* ── Global sequence strip — persistent bar below nav bar ── */
+  .global-seq-strip {
+    position: fixed;
+    top: calc(88px + env(safe-area-inset-top, 0px));
+    left: 0; right: 0;
+    z-index: 9940;
+    height: 34px;
+    background: rgba(10,10,12,0.97);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding: 0 4px;
+    gap: 0;
   }
+  .global-seq-strip::-webkit-scrollbar { display: none; }
 
 
   /* ── Bottom nav: icons-only redesign ─────────────────────────── */
@@ -5125,7 +5149,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .looper-drawer,
   .inspo-drawer,
   .keyboard-drawer {
-    top: calc(96px + env(safe-area-inset-top, 0px)) !important;
+    top: calc(122px + env(safe-area-inset-top, 0px)) !important;
     bottom: 0 !important;
     left: 0 !important;
     right: 0 !important;
@@ -14228,11 +14252,6 @@ function renderSequencerHtml(song) {
 
     </div>
 
-    <!-- ── Sequence tabs (above grid) ── -->
-    <div class="seq-tabs-strip" id="seqTabsStrip">
-      <!-- Rendered by seqRenderSequenceTabs() after init -->
-    </div>
-
     <!-- ── Drum controls (below tabs, above grid) ── -->
     <div class="seq-instrument-row" style="flex-wrap:wrap;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border2);">
       <select class="seq-select" onchange="if(this.value){applyDrumPattern(this.value);this.value=''}" style="width:auto;">
@@ -14501,14 +14520,14 @@ function seqPushUndo(song) {
 }
 
 function _seqSyncUndoBtn() {
-  const btn = document.getElementById('seqUndoBtn');
-  if (btn) btn.style.opacity = _seqUndoStack.length ? '0.8' : '0.3';
+  // All undo buttons now live in the single global strip
+  ['seqUndoBtn','kbdUndoBtn','loopUndoBtn'].forEach(function(id) {
+    const btn = document.getElementById(id);
+    if (btn) btn.style.opacity = _seqUndoStack.length ? '0.8' : '0.3';
+  });
 }
 function _kbdSyncUndoBtn() {
-  const btn = document.getElementById('kbdUndoBtn');
-  if (btn) btn.style.opacity = _seqUndoStack.length ? '0.8' : '0.3';
-  const lbtn = document.getElementById('loopUndoBtn');
-  if (lbtn) lbtn.style.opacity = _seqUndoStack.length ? '0.8' : '0.3';
+  _seqSyncUndoBtn(); // delegate to shared implementation
 }
 
 window.seqUndoActive = function() {
@@ -14563,10 +14582,11 @@ window.seqDuplicateActive = function() {
 };
 
 function seqRenderSequenceTabs() {
-  const strip = document.getElementById('seqTabsStrip');
+  // Render into the global persistent strip (replaces all three per-drawer strips)
+  const strip = document.getElementById('globalSeqStrip');
   if (!strip) return;
   const song = getCurrentSong();
-  if (!song) return;
+  if (!song) { strip.innerHTML = ''; return; }
   const seqs = getSongSequences(song);
   const nowPlayingIdx = (_seqPlayMode === 'song' && seqIsPlaying) ? _seqSongSectionIdx : -1;
 
@@ -14857,7 +14877,10 @@ function seqDeleteSequence(idx) {
   const lyrics = partId ? (song.lyrics?.[partId] || '').trim() : '';
   const label  = seqGetPartLabel(partId);
 
-  const doDelete = () => {
+  const doDelete = (alsoDeleteLyrics) => {
+    if (alsoDeleteLyrics && partId && song.lyrics) {
+      delete song.lyrics[partId];
+    }
     seqs.splice(idx, 1);
     // Adjust active index: if we deleted before it, shift down; if we deleted it, clamp
     if (idx < seqActiveIdx) seqActiveIdx--;
@@ -14873,28 +14896,101 @@ function seqDeleteSequence(idx) {
     showToast('Sequence deleted', 'info', 2000);
   };
 
-  if (lyrics) {
-    // Show lyrics warning modal
-    const modal = document.createElement('div');
-    modal.className = 'lyrics-warn-modal';
-    const preview = lyrics.length > 120 ? lyrics.slice(0, 120) + '…' : lyrics;
-    modal.innerHTML = `
-      <div class="lyrics-warn-box">
-        <div class="lyrics-warn-title">⚠ Delete "${label}" sequence?</div>
-        <div class="lyrics-warn-body">This sequence has lyrics that will be lost if you delete it.</div>
-        <div class="lyrics-warn-preview">${preview.replace(/</g,'&lt;')}</div>
-        <div class="lyrics-warn-btns">
-          <button class="lyrics-warn-confirm" id="_seqDelConfirm">Delete anyway</button>
-          <button class="lyrics-warn-cancel" id="_seqDelCancel">Keep it</button>
-        </div>
-      </div>`;
-    document.body.appendChild(modal);
-    modal.querySelector('#_seqDelConfirm').onclick = () => { modal.remove(); doDelete(); };
-    modal.querySelector('#_seqDelCancel').onclick  = () => modal.remove();
-    modal.onclick = e => { if (e.target === modal) modal.remove(); };
-  } else {
-    doDelete();
+  if (!lyrics) {
+    doDelete(false);
+    return;
   }
+
+  // ── Lyrics present: 4-option modal ──────────────────────────────
+  // Build a list of other parts that have lyrics (for move/replace destination picker)
+  const otherParts = (STRUCTURE_PARTS || []).filter(p => {
+    if (p.id === partId) return false;
+    return true; // allow any destination
+  });
+
+  const preview = lyrics.length > 100 ? lyrics.slice(0, 100) + '…' : lyrics;
+
+  const modal = document.createElement('div');
+  modal.className = 'lyrics-warn-modal';
+  modal.innerHTML = `
+    <div class="lyrics-warn-box" style="max-width:400px;">
+      <div class="lyrics-warn-title">⚠ Delete "${label}" sequence?</div>
+      <div class="lyrics-warn-body">This sequence has lyrics. What should happen to them?</div>
+      <div class="lyrics-warn-preview">${preview.replace(/</g,'&lt;')}</div>
+
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
+
+        <!-- Option 1: Cancel -->
+        <button class="lyrics-warn-cancel" id="_sdOpt1" style="order:4;">↩ Cancel — keep this sequence</button>
+
+        <!-- Option 2: Delete sequence + lyrics -->
+        <button class="lyrics-warn-confirm" id="_sdOpt2" style="order:1;">✕ Delete sequence &amp; lyrics</button>
+
+        <!-- Option 3: Move lyrics (append to chosen section) -->
+        <div style="order:2;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <button class="lyrics-warn-btn-alt" id="_sdOpt3">📋 Move lyrics → append to:</button>
+          <select id="_sdMoveTarget" class="seq-select" style="flex:1;min-width:100px;">
+            ${otherParts.map(p => `<option value="${p.id}" style="color:${p.color};">${p.label}</option>`).join('')}
+            <option value="__new__">New section…</option>
+          </select>
+        </div>
+
+        <!-- Option 4: Replace lyrics in chosen section -->
+        <div style="order:3;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <button class="lyrics-warn-btn-alt" id="_sdOpt4" style="color:#ff9900;border-color:rgba(255,153,0,0.4);">🔄 Replace lyrics in:</button>
+          <select id="_sdReplaceTarget" class="seq-select" style="flex:1;min-width:100px;">
+            ${otherParts.map(p => `<option value="${p.id}" style="color:${p.color};">${p.label}</option>`).join('')}
+            <option value="__new__">New section…</option>
+          </select>
+        </div>
+
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  // Option 1: Cancel
+  modal.querySelector('#_sdOpt1').onclick = () => modal.remove();
+
+  // Option 2: Delete sequence + lyrics
+  modal.querySelector('#_sdOpt2').onclick = () => {
+    modal.remove();
+    doDelete(true);
+  };
+
+  // Option 3: Move lyrics (append)
+  modal.querySelector('#_sdOpt3').onclick = () => {
+    const targetPartId = modal.querySelector('#_sdMoveTarget').value;
+    modal.remove();
+    if (!song.lyrics) song.lyrics = {};
+    if (targetPartId === '__new__') {
+      // Just keep the lyrics on the original part (can't create new section here)
+      showToast('Lyrics kept — assign the sequence to a section first', 'info', 3000);
+      doDelete(false);
+    } else {
+      const existing = (song.lyrics[targetPartId] || '').trim();
+      song.lyrics[targetPartId] = existing ? existing + '\n\n' + lyrics : lyrics;
+      doDelete(true); // delete original lyrics from source part
+      showToast('Lyrics moved to ' + seqGetPartLabel(targetPartId), 'success', 2500);
+    }
+  };
+
+  // Option 4: Replace lyrics in target
+  modal.querySelector('#_sdOpt4').onclick = () => {
+    const targetPartId = modal.querySelector('#_sdReplaceTarget').value;
+    modal.remove();
+    if (!song.lyrics) song.lyrics = {};
+    if (targetPartId === '__new__') {
+      showToast('Lyrics kept — assign the sequence to a section first', 'info', 3000);
+      doDelete(false);
+    } else {
+      song.lyrics[targetPartId] = lyrics; // replace
+      doDelete(true);
+      showToast('Lyrics replaced in ' + seqGetPartLabel(targetPartId), 'success', 2500);
+    }
+  };
+
+  // Close on backdrop click
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
 }
 
 // Reassign a sequence to a new part — handles conflicts
@@ -17201,31 +17297,8 @@ function saveMelody() {
 }
 
 function kbdRenderMelodyTabs(song) {
-  const strip = document.getElementById('kbdMelodyTabsStrip');
-  if (!strip || !song) return;
-  const seqs = getSongSequences(song);
-  const kbdNowPlayingIdx = (_seqPlayMode === 'song' && seqIsPlaying) ? _seqSongSectionIdx : -1;
-  const tabsHtml = seqs.map((seq, i) => {
-    const label = seqGetPartLabel(seq.partId || seq.part);
-    const color = seqGetPartColor(seq.partId || seq.part);
-    const active = i === kbdMelodySeqIdx ? ' active' : '';
-    const playing = i === kbdNowPlayingIdx ? ' seq-tab-playing' : '';
-    const noteCount = (seq.melody || []).length;
-    return `<button class="seq-tab${active}${playing}" style="color:${color};"
-      onclick="kbdSwitchMelodyTab(${i})" title="Edit melody for: ${label}"
-      draggable="true"
-      ondragstart="seqTabDragStart(event,${i})"
-      ondragover="seqTabDragOver(event,${i})"
-      ondrop="seqTabDrop(event,${i})"
-      ondragend="seqTabDragEnd()">
-      <span class="seq-tab-dot" style="background:${color};"></span>
-      ${label}${noteCount ? `<span style="font-size:9px;opacity:0.55;margin-left:3px;">${noteCount}♪</span>` : ''}
-      <span class="seq-tab-edit" onclick="event.stopPropagation();seqShowTabEditPopup(event,${i})" title="Reassign or reorder">✎</span>
-      ${seqs.length > 1 ? `<span class="seq-tab-del" onclick="event.stopPropagation();seqDeleteSequence(${i})" title="Delete this sequence">✕</span>` : ''}
-    </button>`;
-  }).join('');
-  const undoOpacity = _seqUndoStack.length ? '0.8' : '0.3';
-  strip.innerHTML = `<span class="seq-tabs-label">Seq:</span>${tabsHtml}<button class="seq-tab-add" onclick="kbdDuplicateMelodySeq()" title="Duplicate this sequence's melody" style="font-size:13px;padding:2px 7px;">⧉</button><button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button><span class="seq-tab-spacer"></span><button class="seq-tab-add" id="kbdUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:${undoOpacity};">↩</button><button class="seq-tab-add" onclick="seqClearActiveSequence()" title="Clear sequence" style="color:#ff5f5f;border-color:rgba(255,95,95,0.35);">✕ Clear</button>`;
+  // Delegate to unified global strip renderer
+  seqRenderSequenceTabs();
 }
 
 window.kbdDuplicateMelodySeq = function() {
@@ -23193,9 +23266,6 @@ function renderKeyboardDrawerHtml(song) {
   const chordInstrument = sd.instrument || 'piano';
 
   return `
-      <!-- Sequence tabs — top of drawer, matches SEQ drawer pattern -->
-      <div class="seq-tabs-strip" id="kbdMelodyTabsStrip"></div>
-
       <!-- Settings strip — rendered into body, removed by openKeyboardDrawer() -->
       <div class="kbd-settings-strip" style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;flex:1;overflow-x:auto;">
         <!-- Settings gear -->
@@ -24942,32 +25012,8 @@ function loopSyncPartSelects() {
 }
 // ── Render song parts tabs strip in the looper body ─────────────────────────
 function loopRenderPartsStrip() {
-  const strip = document.getElementById('loopPartsStrip');
-  if (!strip) return;
-  const song = getCurrentSong();
-  if (!song) { strip.innerHTML = ''; strip.style.display = 'none'; return; }
-  // Get parts that appear in the song's section order
-  const usedPartIds = new Set((song.sectionOrder || []).map(function(s) { return s.partId || s; }));
-  const parts = (STRUCTURE_PARTS || []).filter(function(p) { return usedPartIds.has(p.id); });
-  if (parts.length === 0) { strip.innerHTML = ''; strip.style.display = 'none'; return; }
-  strip.style.display = '';
-  const loopNowPlayingPartId = (_seqPlayMode === 'song' && seqIsPlaying && _seqSongSections && _seqSongSectionIdx < _seqSongSections.length)
-    ? (_seqSongSections[_seqSongSectionIdx]?.partId || null)
-    : null;
-  const undoOpacity = (typeof _seqUndoStack !== 'undefined' && _seqUndoStack.length) ? '0.8' : '0.3';
-  strip.innerHTML = '<span class="seq-tabs-label">Seq:</span>' +
-    parts.map(function(p) {
-      const count = loopTracks.filter(function(t) { return t.parts && t.parts.includes(p.id); }).length;
-      const playing = p.id === loopNowPlayingPartId ? ' seq-tab-playing' : '';
-      return `<button class="seq-tab${playing}" style="color:${p.color};"
-        onclick="loopShowPartAssignPopup('${p.id}',this)" title="Assign tracks to ${p.label}">
-        <span class="seq-tab-dot" style="background:${p.color};"></span>
-        ${p.label}
-        ${count > 0 ? `<span class="loop-part-badge" style="background:${p.color};">${count}</span>` : ''}
-        <span class="seq-tab-edit" onclick="event.stopPropagation();loopShowPartAssignPopup('${p.id}',this)" title="Assign tracks">✎</span>
-      </button>`;
-    }).join('') +
-    `<span class="seq-tab-spacer"></span><button class="seq-tab-add" id="loopUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:${undoOpacity};">↩</button><button class="seq-tab-add" onclick="seqClearActiveSequence()" title="Clear sequence" style="color:#ff5f5f;border-color:rgba(255,95,95,0.35);">✕ Clear</button>`;
+  // Delegate to unified global strip renderer
+  seqRenderSequenceTabs();
 }
 
 // ── Part assignment popup ────────────────────────────────────────────────────
@@ -31404,8 +31450,6 @@ window._releaseMicStreams          = _releaseMicStreams;
 
 <!-- ══ Floating transport panel — SEQ + Keys + Looper all use this one ══ -->
 <div class="looper-drawer" id="looperDrawer">
-  <!-- Sequence/parts tabs — top of drawer, matches SEQ drawer pattern -->
-  <div class="seq-tabs-strip loop-parts-strip" id="loopPartsStrip" style="display:none;"></div>
   <!-- Monitor status strip — always visible below header -->
   <div id="loopMonPill" title="Monitor is auto-muted while recording to prevent feedback, and live during playback"><span class="mon-icon">🎧</span><span id="loopMonLabel">Monitor: Auto</span></div>
   <!-- Mic permission status pill -->
@@ -31817,6 +31861,9 @@ window._releaseMicStreams          = _releaseMicStreams;
     <span class="bottom-nav-label">Mix</span>
   </button>
 </nav>
+
+<!-- ── Global sequence strip — one unified tab strip below nav bar ── -->
+<div id="globalSeqStrip" class="global-seq-strip"></div>
 
 <!-- ── No-song modal prompt ── -->
 <!-- ── Drawer tutorial modal ─────────────────────────────────────── -->
