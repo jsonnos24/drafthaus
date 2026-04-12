@@ -15043,25 +15043,33 @@ function seqSaveSettings() {
   const song = getCurrentSong();
   if (!song) return;
   seqGetData(song); // ensure song.sequencer → active sequence
+  const sd = song.sequencer;
   song.sequencer.key   = seqCurrentKey();
   song.sequencer.mode  = seqCurrentMode();
-  song.sequencer.time  = document.getElementById('seqTime')?.value || '4';
-  song.sequencer.bars  = document.getElementById('seqBars')?.value || '8';
-  const partVal = document.getElementById('seqPartAssign')?.value || '';
+  // For each field: use the DOM element if it exists (seq drawer is open),
+  // otherwise fall back to the transport-bar element, then to the current saved value.
+  // Never overwrite a saved value with a hardcoded default just because a drawer is closed.
+  const _v = (seqId, kbdId, fallback) =>
+    document.getElementById(seqId)?.value ||
+    document.getElementById(kbdId)?.value ||
+    fallback;
+  song.sequencer.time  = _v('seqTime',  'kbdTimeSig', sd.time  || '4');
+  song.sequencer.bars  = _v('seqBars',  'kbdBars',    sd.bars  || '4');
+  song.sequencer.grid  = _v('seqGrid',  null,          sd.grid  || '2');
+  song.sequencer.bpm   = _v('seqBpm',   'kbdBpm',     sd.bpm   || '100');
+  const partVal = document.getElementById('seqPartAssign')?.value || sd.part || '';
   song.sequencer.part  = partVal;
   song.sequencer.partId= partVal;
   // Re-render tabs and chord progression if part assignment changed
   seqRenderSequenceTabs();
   if (typeof renderStructure === 'function') renderStructure(song);
-  song.sequencer.grid  = document.getElementById('seqGrid')?.value || '2';
-  song.sequencer.bpm   = document.getElementById('seqBpm')?.value || '100';
   song.bpm = song.sequencer.bpm; // keep song BPM in sync with sequencer
   syncBpmUI(song.sequencer.bpm);
   syncTimeSigUI();
-  song.sequencer.swing = document.getElementById('seqSwing')?.value || '0';
-  song.sequencer.vel   = document.getElementById('seqVel')?.value || '0.8';
-  song.sequencer.wave       = document.getElementById('seqWave')?.value || 'triangle';
-  song.sequencer.instrument = _activeInstrument || 'piano';
+  song.sequencer.swing = document.getElementById('seqSwing')?.value || sd.swing || '0';
+  song.sequencer.vel   = document.getElementById('seqVel')?.value   || sd.vel   || '0.8';
+  song.sequencer.wave       = document.getElementById('seqWave')?.value || sd.wave || 'triangle';
+  song.sequencer.instrument = _activeInstrument || sd.instrument || 'piano';
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
@@ -23371,39 +23379,24 @@ function kbdPartChanged() {
 function kbdTimeSigChanged() {
   const val = document.getElementById('kbdTimeSig')?.value;
   if (!val) return;
-  // Always save to song data directly (seqTime element may not exist yet)
+  // Save to song data
   const song = getCurrentSong();
-  if (song) {
-    seqGetData(song);
-    song.sequencer.time = val;
-    save();
-    scheduleSyncToSheet(song);
-  }
-  // Also sync the seqTime DOM element and rebuild grid if SEQ drawer is rendered
+  if (song) { seqGetData(song); song.sequencer.time = val; save(); scheduleSyncToSheet(song); }
+  // Sync seqTime element if the seq drawer is also rendered
   const seqTimeEl = document.getElementById('seqTime');
-  if (seqTimeEl) {
-    seqTimeEl.value = val;
-    seqRebuild();
-  }
+  if (seqTimeEl) seqTimeEl.value = val;
+  // Always rebuild — seqBuildGrids falls back to song.sequencer.time when seqTime is absent
+  seqRebuild();
 }
 
 function kbdBarsChanged() {
   const val = document.getElementById('kbdBars')?.value;
   if (!val) return;
-  // Always save to song data directly
   const song = getCurrentSong();
-  if (song) {
-    seqGetData(song);
-    song.sequencer.bars = val;
-    save();
-    scheduleSyncToSheet(song);
-  }
-  // Also sync seqBars DOM element and rebuild grid if SEQ drawer is rendered
+  if (song) { seqGetData(song); song.sequencer.bars = val; save(); scheduleSyncToSheet(song); }
   const seqBarsEl = document.getElementById('seqBars');
-  if (seqBarsEl) {
-    seqBarsEl.value = val;
-    seqRebuild();
-  }
+  if (seqBarsEl) seqBarsEl.value = val;
+  seqRebuild();
 }
 
 function kbdGridChanged() {
