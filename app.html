@@ -11336,9 +11336,10 @@ function newSong() {
     showUpgradeModal(`You've reached your ${limits.songs}-song limit on the free plan. Upgrade to create unlimited songs.`);
     return;
   }
+  const _defSeq = { id: 'seq_' + Date.now(), bpm:'120', time:'4', bars:'4', grid:'1', swing:'0', vel:'0.8', wave:'triangle', instrument:'piano+synth', chordSlots:[], chordDegrees:[], kick:[], snare:[], hat:[], crash:[], clap:[], melody:[] };
   const song = {
-    id: genId(), workingTitle:'', title:'', bpm:'', key:'', tuning:'',
-    project:'', status:'idea', structure:{}, sectionOrder:[], chords:{}, instruments:{}, sequencer:{}, notes:'', moods:[],
+    id: genId(), workingTitle:'', title:'', bpm:'120', key:'C major', tuning:'',
+    project:'', status:'idea', structure:{}, sectionOrder:[], chords:{}, instruments:{}, sequencer: _defSeq, sequences: [_defSeq], notes:'', moods:[],
     createdAt: Date.now(), updatedAt: Date.now()
   };
   songs.unshift(song);
@@ -11817,8 +11818,8 @@ function addSectionToSong(partId) {
     seqs.push({
       id: 'seq_' + Date.now(),
       partId: partId, part: partId,
-      bpm: cur.bpm || '100', time: cur.time || '4',
-      bars: cur.bars || '16', grid: cur.grid || '1',
+      bpm: cur.bpm || '120', time: cur.time || '4',
+      bars: cur.bars || '4', grid: cur.grid || '1',
       swing: cur.swing || '0', vel: cur.vel || '0.8',
       wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
       chordSlots: [], chordDegrees: [],
@@ -14592,14 +14593,16 @@ function seqRenderSequenceTabs() {
     ? `<span class="seq-now-playing-badge visible">▶ ${seqGetPartLabel(_seqSongSections[_seqSongSectionIdx]?.partId)}</span>`
     : '';
 
+  const _seqUndoOp = _seqUndoStack.length ? '0.8' : '0.3';
   strip.innerHTML = `
     <span class="seq-tabs-label">Seq:</span>
     ${tabsHtml}
-    <button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button>
     <button class="seq-tab-add" onclick="seqDuplicateActive()" title="Duplicate current sequence" style="font-size:13px;padding:2px 7px;">⧉</button>
-    <button class="seq-tab-add" id="seqUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:0.3;">↩</button>
+    <button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button>
     <span class="seq-tab-spacer"></span>
-    ${nowPlayingHtml}`;
+    ${nowPlayingHtml}
+    <button class="seq-tab-add" id="seqUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:${_seqUndoOp};">↩</button>
+    <button class="seq-tab-add" onclick="seqClearActiveSequence()" title="Clear sequence" style="color:#ff5f5f;border-color:rgba(255,95,95,0.35);">✕ Clear</button>`;
   _seqSyncUndoBtn();
 }
 
@@ -14636,10 +14639,10 @@ function seqSaveAllToCurrent(song) {
   seqGetData(song); // ensure song.sequencer points to active seq
   // Save settings from DOM
   const sd = song.sequencer;
-  sd.bpm   = document.getElementById('seqBpm')?.value  || sd.bpm   || '100';
+  sd.bpm   = document.getElementById('seqBpm')?.value  || sd.bpm   || '120';
   sd.time  = document.getElementById('seqTime')?.value || sd.time  || '4';
-  sd.bars  = document.getElementById('seqBars')?.value || sd.bars  || '8';
-  sd.grid  = document.getElementById('seqGrid')?.value || sd.grid  || '2';
+  sd.bars  = document.getElementById('seqBars')?.value || sd.bars  || '4';
+  sd.grid  = document.getElementById('seqGrid')?.value || sd.grid  || '1';
   sd.swing = document.getElementById('seqSwing')?.value|| sd.swing || '0';
   sd.vel   = document.getElementById('seqVel')?.value  || sd.vel   || '0.8';
   sd.part  = document.getElementById('seqPartAssign')?.value || sd.part || '';
@@ -14687,9 +14690,9 @@ function seqAddSequence(partId) {
     id: 'seq_' + Date.now(),
     partId: partId || null,
     part:   partId || '',
-    bpm:    cur.bpm   || '100',
+    bpm:    cur.bpm   || '120',
     time:   cur.time  || '4',
-    bars:   cur.bars  || '16',
+    bars:   cur.bars  || '4',
     grid:   cur.grid  || '1',
     swing:  cur.swing || '0',
     vel:    cur.vel   || '0.8',
@@ -15055,8 +15058,8 @@ function seqSaveSettings() {
     fallback;
   song.sequencer.time  = _v('seqTime',  'kbdTimeSig', sd.time  || '4');
   song.sequencer.bars  = _v('seqBars',  'kbdBars',    sd.bars  || '4');
-  song.sequencer.grid  = _v('seqGrid',  null,          sd.grid  || '2');
-  song.sequencer.bpm   = _v('seqBpm',   'kbdBpm',     sd.bpm   || '100');
+  song.sequencer.grid  = _v('seqGrid',  null,          sd.grid  || '1');
+  song.sequencer.bpm   = _v('seqBpm',   'kbdBpm',     sd.bpm   || '120');
   const partVal = document.getElementById('seqPartAssign')?.value || sd.part || '';
   song.sequencer.part  = partVal;
   song.sequencer.partId= partVal;
@@ -15262,22 +15265,59 @@ function seqBuildGrids(song) {
     }
   }
 
-  // Drum grids
+  // Drum grids — with drag-to-paint support
+  // A shared paint state: when the pointer goes down on a slot we record whether
+  // we're painting ON or OFF, then every slot entered during the drag gets the
+  // same treatment.  Works for both mouse and touch (via pointermove + elementFromPoint).
+  const _drumPaint = { active: false, paintOn: true, lane: null, elId: null, visited: new Set() };
+
+  function _drumSlotPaint(slot, paintLane, paintElId) {
+    const key = paintLane + ':' + slot.dataset.idx;
+    if (_drumPaint.visited.has(key)) return;
+    _drumPaint.visited.add(key);
+    if (_drumPaint.paintOn) slot.classList.add('drum-on');
+    else slot.classList.remove('drum-on');
+    seqSaveDrumLane(paintLane, paintElId);
+  }
+
   [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqCrash','crash'],['seqClap','clap']].forEach(([elId, lane]) => {
     const el = document.getElementById(elId);
     if (!el) return;
     const savedLane = sd[lane] || [];
     el.innerHTML = '';
+    // Prevent native scroll while drag-painting on touch
+    el.style.touchAction = 'none';
+
     for (let i = 0; i < totalSteps; i++) {
       const slot = document.createElement('div');
       slot.className = 'seq-slot' + (i % beatsPerBar === 0 && i > 0 ? ' bar-start' : '');
       slot.dataset.idx  = i;
       slot.dataset.beat = (i % beatsPerBar) % 8;
       if (savedLane[i]) slot.classList.add('drum-on');
-      slot.addEventListener('click', () => {
-        slot.classList.toggle('drum-on');
-        seqSaveDrumLane(lane, elId);
+
+      slot.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        slot.setPointerCapture(e.pointerId);
+        _drumPaint.active  = true;
+        _drumPaint.paintOn = !slot.classList.contains('drum-on'); // toggle direction from first touch
+        _drumPaint.lane    = lane;
+        _drumPaint.elId    = elId;
+        _drumPaint.visited = new Set();
+        _drumSlotPaint(slot, lane, elId);
       });
+
+      slot.addEventListener('pointermove', e => {
+        if (!_drumPaint.active || _drumPaint.lane !== lane) return;
+        // Find which slot is currently under the pointer (works for touch too)
+        const target = document.elementFromPoint(e.clientX, e.clientY);
+        if (target && target.classList.contains('seq-slot') && target.closest('#' + elId)) {
+          _drumSlotPaint(target, lane, elId);
+        }
+      });
+
+      slot.addEventListener('pointerup',     () => { _drumPaint.active = false; });
+      slot.addEventListener('pointercancel', () => { _drumPaint.active = false; });
+
       el.appendChild(slot);
     }
   });
@@ -15295,6 +15335,40 @@ function seqSaveChordSlots() {
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
+}
+
+// ── Clear entire active sequence (chord slots + all drum lanes) with confirmation ──
+function seqClearActiveSequence() {
+  const modal = document.createElement('div');
+  modal.className = 'lyrics-warn-modal';
+  modal.innerHTML = `
+    <div class="lyrics-warn-box">
+      <div class="lyrics-warn-title">⚠ Clear this sequence?</div>
+      <div class="lyrics-warn-body">This will clear all chord slots and drum hits in the current sequence. Melody notes are kept.</div>
+      <div class="lyrics-warn-btns">
+        <button class="lyrics-warn-confirm" id="_seqClearConfirm">Clear</button>
+        <button class="lyrics-warn-cancel" id="_seqClearCancel">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector('#_seqClearConfirm').onclick = () => {
+    modal.remove();
+    seqPushUndo(); // make it undoable
+    // Clear chord grid
+    document.querySelectorAll('#seqChordGrid .seq-slot').forEach(slot => {
+      _seqSlotSetText(slot, ''); slot.classList.remove('filled', 'chord-tail'); delete slot.dataset.chordDegree;
+    });
+    seqSaveChordSlots();
+    // Clear all drum lanes
+    ['seqKick','seqSnare','seqHat','seqCrash','seqClap'].forEach((elId, k) => {
+      const lane = ['kick','snare','hat','crash','clap'][k];
+      document.querySelectorAll('#' + elId + ' .seq-slot').forEach(s => s.classList.remove('drum-on'));
+      seqSaveDrumLane(lane, elId);
+    });
+    showToast('Sequence cleared', 'info', 1800);
+  };
+  modal.querySelector('#_seqClearCancel').onclick = () => modal.remove();
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
 }
 
 function seqClearAllChordSlots() {
@@ -17151,7 +17225,7 @@ function kbdRenderMelodyTabs(song) {
     </button>`;
   }).join('');
   const undoOpacity = _seqUndoStack.length ? '0.8' : '0.3';
-  strip.innerHTML = `<span class="seq-tabs-label">Seq:</span>${tabsHtml}<button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button><button class="seq-tab-add" onclick="kbdDuplicateMelodySeq()" title="Duplicate this sequence's melody" style="font-size:13px;padding:2px 7px;">⧉</button><button class="seq-tab-add" id="kbdUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:${undoOpacity};">↩</button>`;
+  strip.innerHTML = `<span class="seq-tabs-label">Seq:</span>${tabsHtml}<button class="seq-tab-add" onclick="kbdDuplicateMelodySeq()" title="Duplicate this sequence's melody" style="font-size:13px;padding:2px 7px;">⧉</button><button class="seq-tab-add" onclick="seqShowAddSequencePopup(event)" title="Add sequence">+ Add</button><span class="seq-tab-spacer"></span><button class="seq-tab-add" id="kbdUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:${undoOpacity};">↩</button><button class="seq-tab-add" onclick="seqClearActiveSequence()" title="Clear sequence" style="color:#ff5f5f;border-color:rgba(255,95,95,0.35);">✕ Clear</button>`;
 }
 
 window.kbdDuplicateMelodySeq = function() {
@@ -24893,7 +24967,7 @@ function loopRenderPartsStrip() {
         <span class="seq-tab-edit" onclick="event.stopPropagation();loopShowPartAssignPopup('${p.id}',this)" title="Assign tracks">✎</span>
       </button>`;
     }).join('') +
-    `<button class="seq-tab-add" id="loopUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:${undoOpacity};">↩</button>`;
+    `<span class="seq-tab-spacer"></span><button class="seq-tab-add" id="loopUndoBtn" onclick="seqUndoActive()" title="Undo last change" style="font-size:12px;padding:2px 7px;opacity:${undoOpacity};">↩</button><button class="seq-tab-add" onclick="seqClearActiveSequence()" title="Clear sequence" style="color:#ff5f5f;border-color:rgba(255,95,95,0.35);">✕ Clear</button>`;
 }
 
 // ── Part assignment popup ────────────────────────────────────────────────────
@@ -32394,82 +32468,7 @@ window._releaseMicStreams          = _releaseMicStreams;
     }, { passive: true });
   });
 
-  // ── Mobile: horizontal swipe inside a drawer → switch to adjacent drawer ─
-  // Swipe LEFT  → next drawer in order (SEQ → Keys → Looper → wraps)
-  // Swipe RIGHT → prev drawer in order (avoids left-edge to not fight browser back)
-  document.addEventListener('DOMContentLoaded', function() {
-    var DRAWER_ORDER = [
-      { id: 'seqDrawer',      openFn: function() { openSeqDrawer(); },      closeFn: function() { closeSeqDrawer(); }      },
-      { id: 'keyboardDrawer', openFn: function() { openKeyboardDrawer(); }, closeFn: function() { closeKeyboardDrawer(); } },
-      { id: 'looperDrawer',   openFn: function() { openLooperDrawer(); },   closeFn: function() { closeLooperDrawer(); }   }
-    ];
-
-    function getOpenIdx() {
-      for (var i = 0; i < DRAWER_ORDER.length; i++) {
-        var el = document.getElementById(DRAWER_ORDER[i].id);
-        if (el && el.classList.contains('open')) return i;
-      }
-      return -1;
-    }
-
-    function switchDrawer(targetIdx) {
-      var curIdx = getOpenIdx();
-      if (curIdx < 0 || curIdx === targetIdx) return;
-      DRAWER_ORDER[curIdx].closeFn();
-      // Wait for the 0.32s close transition before opening the next drawer
-      setTimeout(function() { DRAWER_ORDER[targetIdx].openFn(); }, 340);
-    }
-
-    // Walk up from a touch target to check if it (or an ancestor) is
-    // a horizontally scrollable container with actual overflow content.
-    function _touchInHScrollable(target) {
-      var node = target;
-      while (node && node !== document.body) {
-        if (node.scrollWidth > node.clientWidth + 4) {
-          var style = window.getComputedStyle(node);
-          var ox = style.overflowX;
-          if (ox === 'auto' || ox === 'scroll') return true;
-        }
-        node = node.parentElement;
-      }
-      return false;
-    }
-
-    DRAWER_ORDER.forEach(function(d, idx) {
-      var el = document.getElementById(d.id);
-      if (!el) return;
-      var sx = 0, sy = 0, _skipSwipe = false;
-
-      el.addEventListener('touchstart', function(e) {
-        if (window.innerWidth > 768) return;
-        sx = e.touches[0].clientX;
-        sy = e.touches[0].clientY;
-        // Don't hijack scroll if touch started inside a horizontally scrollable element
-        _skipSwipe = _touchInHScrollable(e.target);
-      }, { passive: true });
-
-      el.addEventListener('touchend', function(e) {
-        if (window.innerWidth > 768) return;
-        if (_skipSwipe) return;
-        var ex = e.changedTouches[0].clientX;
-        var ey = e.changedTouches[0].clientY;
-        var dx = ex - sx, dy = ey - sy;
-        var adx = Math.abs(dx), ady = Math.abs(dy);
-        // Must be clearly horizontal: min 70px, and horizontal > 2× vertical
-        if (adx < 70) return;
-        if (ady > adx * 0.5) return;
-        if (dx < 0) {
-          // Swipe left → next drawer (wraps)
-          switchDrawer((idx + 1) % DRAWER_ORDER.length);
-        } else {
-          // Swipe right → prev drawer, but ignore if started within 44px of left
-          // edge so we don't compete with the browser's back gesture
-          if (sx < 44) return;
-          switchDrawer((idx - 1 + DRAWER_ORDER.length) % DRAWER_ORDER.length);
-        }
-      }, { passive: true });
-    });
-  });
+  // Horizontal swipe-between-drawers removed — was unreliable on touch.
 
 })();
 
