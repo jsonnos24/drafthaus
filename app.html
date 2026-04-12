@@ -31658,8 +31658,11 @@ async function _mtLoadTakeBuffer(trackIdx, take, expectedSongId) {
     }
     // Use sync helper — decodeAudioData works without the context running,
     // so we never await resume() here (would hang on mobile outside a user gesture)
+    // Always slice before decode: Chrome's IDB in-memory cache can return the same
+    // ArrayBuffer reference, and decodeAudioData transfers (detaches) its argument —
+    // slicing creates an independent copy so the IDB entry stays intact for future reads.
     _mtCreateCtxSync();
-    const buf = await _mtAudioCtx.decodeAudioData(arrBuf);
+    const buf = await _mtAudioCtx.decodeAudioData(arrBuf.slice(0));
     // If a songId was passed, make sure we're still on that song before writing.
     // Rapid song switching can leave stale fetches in flight.
     if (expectedSongId && currentId !== expectedSongId) return;
