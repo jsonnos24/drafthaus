@@ -14989,7 +14989,10 @@ function syncBpmUI(rawBpm) {
 
 // Sync time signature select in keyboard drawer whenever sequencer time changes.
 function syncTimeSigUI() {
-  const timeSig = document.getElementById('seqTime')?.value || '4';
+  // Prefer seqTime DOM element (when SEQ drawer is rendered); fall back to song data
+  const seqTimeEl = document.getElementById('seqTime');
+  const song = getCurrentSong();
+  const timeSig = seqTimeEl?.value || song?.sequencer?.time || '4';
   const kEl = document.getElementById('kbdTimeSig');
   if (kEl && kEl.tagName === 'SELECT' && kEl.value !== timeSig) kEl.value = timeSig;
 }
@@ -22753,7 +22756,10 @@ function renderKeyboardDrawerHtml(song) {
   const chordInstrument = sd.instrument || 'piano';
 
   return `
-      <!-- Settings strip — rendered into body, hoisted to kbdSettingsRow by openKeyboardDrawer() -->
+      <!-- Sequence tabs — top of drawer, matches SEQ drawer pattern -->
+      <div class="seq-tabs-strip" id="kbdMelodyTabsStrip"></div>
+
+      <!-- Settings strip — rendered into body, removed by openKeyboardDrawer() -->
       <div class="kbd-settings-strip" style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;flex:1;overflow-x:auto;">
         <!-- Settings gear -->
         <button class="seq-btn seq-settings-btn" onclick="seqToggleSettings(event)" title="Settings">
@@ -22872,10 +22878,6 @@ function renderKeyboardDrawerHtml(song) {
           <div class="seq-grid" id="seqChordGrid"></div>
         </div>
       </div>
-
-      <!-- Sequence tabs -->
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);margin:8px 0 4px;">Sequence</div>
-      <div class="seq-tabs-strip" id="kbdMelodyTabsStrip" style="margin:0 0 4px;"></div>
 
     </div>
 
@@ -23011,9 +23013,17 @@ function kbdPartChanged() {
 function kbdTimeSigChanged() {
   const val = document.getElementById('kbdTimeSig')?.value;
   if (!val) return;
-  // Sync into sequencer seqTime select and trigger rebuild
+  // Always save to song data directly (seqTime element may not exist yet)
+  const song = getCurrentSong();
+  if (song) {
+    seqGetData(song);
+    song.sequencer.time = val;
+    save();
+    scheduleSyncToSheet(song);
+  }
+  // Also sync the seqTime DOM element and rebuild grid if SEQ drawer is rendered
   const seqTimeEl = document.getElementById('seqTime');
-  if (seqTimeEl && seqTimeEl.value !== val) {
+  if (seqTimeEl) {
     seqTimeEl.value = val;
     seqRebuild();
   }
@@ -23022,13 +23032,20 @@ function kbdTimeSigChanged() {
 function kbdBarsChanged() {
   const val = document.getElementById('kbdBars')?.value;
   if (!val) return;
+  // Always save to song data directly
+  const song = getCurrentSong();
+  if (song) {
+    seqGetData(song);
+    song.sequencer.bars = val;
+    save();
+    scheduleSyncToSheet(song);
+  }
+  // Also sync seqBars DOM element and rebuild grid if SEQ drawer is rendered
   const seqBarsEl = document.getElementById('seqBars');
-  if (seqBarsEl && seqBarsEl.value !== val) {
+  if (seqBarsEl) {
     seqBarsEl.value = val;
     seqRebuild();
   }
-  const song = getCurrentSong();
-  if (song?.sequencer) { song.sequencer.bars = val; save(); scheduleSyncToSheet(song); }
 }
 
 function kbdGridChanged() {
@@ -24513,15 +24530,16 @@ function loopRenderPartsStrip() {
   const parts = (STRUCTURE_PARTS || []).filter(function(p) { return usedPartIds.has(p.id); });
   if (parts.length === 0) { strip.innerHTML = ''; strip.style.display = 'none'; return; }
   strip.style.display = '';
-  strip.innerHTML = parts.map(function(p) {
-    const count = loopTracks.filter(function(t) { return t.parts && t.parts.includes(p.id); }).length;
-    const borderColor = count > 0 ? p.color : 'rgba(255,255,255,0.2)';
-    return `<button class="loop-part-tab" style="color:${p.color};border-color:${borderColor};"
-      onclick="loopShowPartAssignPopup('${p.id}',this)" title="Assign tracks to ${p.label}">
-      ${p.label}
-      ${count > 0 ? `<span class="loop-part-badge" style="background:${p.color};">${count}</span>` : ''}
-    </button>`;
-  }).join('');
+  strip.innerHTML = '<span class="seq-tabs-label">Parts</span>' +
+    parts.map(function(p) {
+      const count = loopTracks.filter(function(t) { return t.parts && t.parts.includes(p.id); }).length;
+      const borderColor = count > 0 ? p.color : 'rgba(255,255,255,0.2)';
+      return `<button class="loop-part-tab" style="color:${p.color};border-color:${borderColor};"
+        onclick="loopShowPartAssignPopup('${p.id}',this)" title="Assign tracks to ${p.label}">
+        ${p.label}
+        ${count > 0 ? `<span class="loop-part-badge" style="background:${p.color};">${count}</span>` : ''}
+      </button>`;
+    }).join('');
 }
 
 // ── Part assignment popup ────────────────────────────────────────────────────
@@ -31055,6 +31073,8 @@ window._releaseMicStreams          = _releaseMicStreams;
 </div>
 
 <div class="looper-drawer" id="looperDrawer">
+  <!-- Sequence/parts tabs — top of drawer, matches SEQ drawer pattern -->
+  <div class="seq-tabs-strip loop-parts-strip" id="loopPartsStrip" style="display:none;"></div>
   <!-- Bars row — looper-specific recording length, stays in drawer body area -->
   <div class="loop-settings-row">
     <span class="ctrl-label">Bars</span>
@@ -31088,8 +31108,6 @@ window._releaseMicStreams          = _releaseMicStreams;
         </div>
         <div class="loop-saved-list" id="loopSavedList"></div>
       </div>
-      <!-- Song parts assignment strip -->
-      <div class="loop-parts-strip" id="loopPartsStrip" style="display:none;"></div>
       <!-- Tracks grid -->
       <div class="tracks-grid" id="loopTracksGrid"></div>
     </div>
