@@ -2211,7 +2211,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-drawer-header {
     display: flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: flex-end;
     gap: 6px;
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
@@ -4126,7 +4126,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .keyboard-drawer.open { transform: translateX(0); }
   .keyboard-drawer-header {
     padding: 10px 12px; border-bottom: 1px solid rgba(255,209,102,0.2);
-    display: flex; align-items: center; justify-content: flex-start; gap: 6px;
+    display: flex; align-items: center; justify-content: flex-end; gap: 6px;
     flex-shrink: 0;
   }
   .kbd-settings-row {
@@ -4204,7 +4204,7 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .looper-drawer.open { transform: translateX(0); }
   .looper-drawer-header {
-    display: flex; align-items: center; justify-content: flex-start; gap: 6px;
+    display: flex; align-items: center; justify-content: flex-end; gap: 6px;
     padding: 10px 12px; border-bottom: 1px solid rgba(0,204,255,0.2);
     flex-shrink: 0; background: #191b1f;
   }
@@ -13297,6 +13297,7 @@ var _midiEnabled     = false;
 var _midiInputId     = null; // selected input device id
 var _midiOutputId    = null; // selected output device id
 var _midiMelodyChannel = -1; // -1 = all channels (minus ch10); 0-15 = specific MIDI channel (0-indexed)
+var _midiLearning = false;   // true while waiting to auto-detect channel from next incoming note
 
 async function initMidi() {
   if (!navigator.requestMIDIAccess) {
@@ -13424,6 +13425,22 @@ function midiSelectOutput(id) {
 function midiSelectChannel(val) {
   // val: '' or '-1' = all channels; '0'-'15' = specific channel (0-indexed)
   _midiMelodyChannel = (val === '' || val === '-1') ? -1 : parseInt(val, 10);
+  _midiLearning = false;
+  _midiSyncLearnBtn();
+}
+
+function midiLearnChannel() {
+  _midiLearning = !_midiLearning;
+  _midiSyncLearnBtn();
+  if (_midiLearning) showToast('Play a note on your melody keyboard…', 'info', 3000);
+}
+
+function _midiSyncLearnBtn() {
+  document.querySelectorAll('#midiLearnBtn').forEach(btn => {
+    btn.textContent = _midiLearning ? '● Listening…' : 'Learn Ch';
+    btn.style.color = _midiLearning ? '#f5c842' : '';
+    btn.style.borderColor = _midiLearning ? '#f5c842' : '';
+  });
 }
 
 function _midiHandleMessage(msg) {
@@ -13432,6 +13449,14 @@ function _midiHandleMessage(msg) {
   const channel = status & 0x0f; // 0-indexed: 9 = MIDI channel 10 (GM drums)
   // Always ignore MIDI channel 10 (GM drums, 0-indexed: 9)
   if (channel === 9) return;
+  // Learn mode: capture channel from first incoming note-on, then play it
+  if (_midiLearning && cmd === 0x90 && vel > 0) {
+    _midiMelodyChannel = channel;
+    _midiLearning = false;
+    _midiUpdateUI(); // syncs select + learn btn
+    showToast('MIDI locked to Ch ' + (channel + 1), 'success', 2500);
+    // fall through so the note that triggered learn still plays
+  }
   // If user has locked to a specific melody channel, ignore everything else
   if (_midiMelodyChannel >= 0 && channel !== _midiMelodyChannel) return;
   if (cmd === 0x90 && vel > 0) {
@@ -13558,12 +13583,16 @@ function _midiUpdateUI() {
     outSel.innerHTML = '<option value="">— none —</option>' +
       outputs.map(d => `<option value="${d.id}"${d.id === _midiOutputId ? ' selected' : ''}>${d.name}</option>`).join('');
   }
-  // Show channel selector when MIDI is connected; sync its value
-  const chSel = document.getElementById('midiChannelSelect');
-  if (chSel) {
-    chSel.style.display = (_midiEnabled && inCount > 0) ? '' : 'none';
+  // Show channel selector + learn btn when MIDI is connected; sync values
+  const connected = _midiEnabled && inCount > 0;
+  document.querySelectorAll('#midiChannelSelect').forEach(chSel => {
+    chSel.style.display = connected ? '' : 'none';
     chSel.value = String(_midiMelodyChannel);
-  }
+  });
+  document.querySelectorAll('#midiLearnBtn').forEach(btn => {
+    btn.style.display = connected ? '' : 'none';
+  });
+  _midiSyncLearnBtn();
 }
 
 
@@ -22480,7 +22509,7 @@ function renderKeyboardDrawerHtml(song) {
           <div id="midiStatusDot"></div>
           <span id="midiStatusLabel">MIDI</span>
           <button id="midiConnectBtn" onclick="initMidi()" title="Connect MIDI device">Connect</button>
-          <select id="midiChannelSelect" class="midi-bar-select" title="MIDI melody channel — set this to your keyboard's channel to silence drum pads on other channels" onchange="midiSelectChannel(this.value)" style="display:none;font-size:10px;padding:2px 4px;height:22px;">
+          <select id="midiChannelSelect" class="midi-bar-select" title="Filter: only notes on this channel trigger the keyboard. Use Learn Ch to auto-detect." onchange="midiSelectChannel(this.value)" style="display:none;font-size:10px;padding:2px 4px;height:22px;">
             <option value="-1">All Ch</option>
             <option value="0">Ch 1</option><option value="1">Ch 2</option><option value="2">Ch 3</option>
             <option value="3">Ch 4</option><option value="4">Ch 5</option><option value="5">Ch 6</option>
@@ -22488,6 +22517,7 @@ function renderKeyboardDrawerHtml(song) {
             <option value="10">Ch 11</option><option value="11">Ch 12</option><option value="12">Ch 13</option>
             <option value="13">Ch 14</option><option value="14">Ch 15</option><option value="15">Ch 16</option>
           </select>
+          <button id="midiLearnBtn" onclick="midiLearnChannel()" title="Play a note to auto-detect your keyboard's MIDI channel" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:10px;background:transparent;border:1px solid var(--border2);color:var(--muted);border-radius:4px;padding:3px 7px;cursor:pointer;transition:all 0.15s;white-space:nowrap;">Learn Ch</button>
         </div>
         <!-- Key (editable — syncs song key and chord pills) -->
         <div class="seq-ctrl-group">
@@ -22533,15 +22563,6 @@ function renderKeyboardDrawerHtml(song) {
             <option value="4"${(sd.bars||'16')==='4'?' selected':''}>4</option>
             <option value="8"${(sd.bars||'16')==='8'?' selected':''}>8</option>
             <option value="16"${(sd.bars||'16')==='16'?' selected':''}>16</option>
-          </select>
-        </div>
-        <!-- Grid (promoted from settings popup) -->
-        <div class="seq-ctrl-group">
-          <span class="seq-label">Grid</span>
-          <select class="seq-select" id="kbdGrid" onchange="kbdGridChanged()" title="Note grid resolution">
-            <option value="1"${(sd.grid||'2')==='1'?' selected':''}>1/4</option>
-            <option value="2"${(sd.grid||'2')==='2'?' selected':''}>1/8</option>
-            <option value="4"${(sd.grid||'2')==='4'?' selected':''}>1/16</option>
           </select>
         </div>
       </div>
