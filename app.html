@@ -14736,7 +14736,13 @@ function seqAddSequence(partId) {
       song.structure[partId] = { ...(song.structure[partId] || {}), checked: true, count: song.structure[partId]?.count || 1 };
       if (!song.sectionOrder.includes(partId)) song.sectionOrder.push(partId);
       if (typeof renderStructure === 'function') renderStructure(song);
+      if (typeof renderSectionOrderSidebar === 'function') renderSectionOrderSidebar(song);
     }
+    // Always refresh Edit Lyrics view so the new section appears there too
+    if (typeof getActiveParts === 'function' && typeof rtActiveParts !== 'undefined') {
+      rtActiveParts = getActiveParts(song);
+    }
+    if (typeof ilRenderBody === 'function') ilRenderBody(song);
   }
 
   save();
@@ -15019,6 +15025,23 @@ function seqReassignSequence(idx, newPartId) {
     const partEl = document.getElementById('seqPartAssign');
     if (partEl) partEl.value = newPartId;
   }
+
+  // Two-way sync: ensure this part exists in the song structure + Edit Lyrics
+  if (newPartId) {
+    if (!song.structure) song.structure = {};
+    if (!song.sectionOrder) song.sectionOrder = [];
+    if (!song.structure[newPartId]?.checked) {
+      song.structure[newPartId] = { ...(song.structure[newPartId] || {}), checked: true, count: song.structure[newPartId]?.count || 1 };
+      if (!song.sectionOrder.includes(newPartId)) song.sectionOrder.push(newPartId);
+      if (typeof renderStructure === 'function') renderStructure(song);
+      if (typeof renderSectionOrderSidebar === 'function') renderSectionOrderSidebar(song);
+    }
+    if (typeof getActiveParts === 'function' && typeof rtActiveParts !== 'undefined') {
+      rtActiveParts = getActiveParts(song);
+    }
+    if (typeof ilRenderBody === 'function') ilRenderBody(song);
+  }
+
   save();
   seqRenderSequenceTabs();
   showToast('Reassigned to ' + seqGetPartLabel(newPartId), 'success', 2200);
