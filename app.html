@@ -4178,28 +4178,72 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .looper-drawer.open { transform: translateX(0); }
   /* ── Shared drawer header (SEQ + Keys + Looper share one fixed header) ── */
+  /* ── Floating transport panel ─────────────────────────────────── */
   .shared-drawer-header {
-    position: fixed; bottom: 0; right: 0; width: 100vw; z-index: 980;
-    background: #0d0e13; display: none; flex-direction: column;
-    border-top: 1px solid rgba(255,255,255,0.08);
+    position: fixed; z-index: 980;
+    background: #13141a;
+    border: 1px solid rgba(255,255,255,0.13);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.65), 0 2px 8px rgba(0,0,0,0.4);
+    display: none; flex-direction: column;
+    width: auto; min-width: 260px; max-width: min(640px, 96vw);
+    /* default position — overridden by JS once visible */
+    bottom: 20px; left: 50%; transform: translateX(-50%);
+    user-select: none; touch-action: none;
   }
   .shared-drawer-header.visible { display: flex; }
-  .shared-drawer-header.keyboard-mode { width: min(560px, 100vw); }
-  .shared-drawer-header .drawer-transport-strip {
-    padding: 8px 12px 10px; border-top: 1px solid rgba(255,255,255,0.06);
-    justify-content: center;
+  .shared-drawer-header.is-dragged { bottom: auto; transform: none; }
+
+  /* Drag handle bar */
+  .float-drag-handle {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px 4px;
+    cursor: grab; border-radius: 12px 12px 0 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
   }
+  .float-drag-handle:active { cursor: grabbing; }
+  .float-drag-grip {
+    display: flex; flex-direction: column; gap: 2.5px;
+    flex-shrink: 0; opacity: 0.35; padding: 2px;
+  }
+  .float-drag-grip span {
+    display: block; width: 18px; height: 2px;
+    background: var(--text); border-radius: 1px;
+  }
+  .float-drag-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); flex: 1;
+  }
+  .float-collapse-btn {
+    background: transparent; border: none; cursor: pointer;
+    color: var(--muted); font-size: 11px; padding: 2px 6px;
+    border-radius: 4px; transition: color 0.15s, background 0.15s;
+    flex-shrink: 0; line-height: 1;
+  }
+  .float-collapse-btn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
   .shared-settings-row {
-    display: flex; align-items: center; padding: 6px 8px 5px;
+    display: flex; align-items: center; padding: 5px 8px 4px;
     overflow-x: auto; scrollbar-width: none; flex-shrink: 0; gap: 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
   }
+  .shared-settings-row.hidden { display: none; }
   .shared-settings-row::-webkit-scrollbar { display: none; }
   .shared-settings-row > * { flex-shrink: 0; }
-  .shared-header-spacer { flex-shrink: 0; height: var(--shared-header-h, 82px); pointer-events: none; }
-  /* Drawer-specific accent borders on spacer bottom */
-  .looper-drawer .shared-header-spacer { border-bottom: 2px solid rgba(0,204,255,0.25); }
-  .keyboard-drawer .shared-header-spacer { border-bottom: 2px solid rgba(255,209,102,0.25); }
-  .seq-drawer .shared-header-spacer { border-bottom: 2px solid rgba(255,255,255,0.08); }
+
+  .shared-drawer-header .drawer-transport-strip {
+    padding: 7px 12px 9px;
+    justify-content: center;
+    border-radius: 0 0 12px 12px;
+  }
+  /* When controls hidden, transport strip gets full border-radius */
+  .shared-settings-row.hidden ~ .drawer-transport-strip {
+    border-radius: 0 0 12px 12px;
+  }
+
+  /* Spacers no longer needed (floating panel) */
+  .shared-header-spacer { display: none; }
   /* Looper bars row — now lives at top of looper body */
   .loop-settings-row {
     display: flex; align-items: center; gap: 8px;
@@ -5140,19 +5184,9 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* ── Sequencer toolbar: mobile layout ───────────────────────── */
 
-  /* Transport strip in shared footer: centered row, compact */
-  .shared-drawer-header .drawer-transport-strip {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    justify-content: center !important;
-    gap: 4px !important;
-    width: auto !important;
-    order: unset !important;
-    margin-left: 0 !important;
-  }
-  .shared-drawer-header .drawer-transport-strip .seq-btn,
+  /* Floating transport panel — compact buttons on mobile */
   .shared-drawer-header .drawer-transport-strip .split-transport-btn {
-    min-height: 36px !important;
+    min-height: 34px !important;
     font-size: 10px !important;
     padding: 0 8px !important;
     white-space: nowrap !important;
@@ -15621,13 +15655,13 @@ function seqPlayCrash(time, vel) {
   }
 }
 
-// ── Shared drawer header helpers ─────────────────────────────────────────────
+// ── Floating transport panel helpers ─────────────────────────────────────────
+
 function _sharedHeaderOpen(mode) {
   const el = document.getElementById('sharedDrawerHeader');
   if (!el) return;
   el.classList.add('visible');
-  el.classList.toggle('keyboard-mode', mode === 'keyboard');
-  // Configure Rec button
+  // Configure Rec button (only active in keyboard mode)
   const recBtn = document.getElementById('sharedRecBtn');
   if (recBtn) {
     const kbdMode = mode === 'keyboard';
@@ -15635,12 +15669,19 @@ function _sharedHeaderOpen(mode) {
     recBtn.style.opacity = kbdMode ? '' : '0.35';
     recBtn.style.cursor  = kbdMode ? '' : 'not-allowed';
   }
-  // Measure header height and set spacer heights
-  requestAnimationFrame(function() {
-    const h = el.offsetHeight;
-    document.documentElement.style.setProperty('--shared-header-h', h + 'px');
-    document.querySelectorAll('.shared-header-spacer').forEach(function(s) { s.style.height = h + 'px'; });
-  });
+  // Restore saved position if available
+  if (!el.classList.contains('is-dragged')) {
+    requestAnimationFrame(function() {
+      const saved = _transportLoadPos();
+      if (saved) {
+        el.style.left      = saved.x + 'px';
+        el.style.top       = saved.y + 'px';
+        el.style.bottom    = 'auto';
+        el.style.transform = 'none';
+        el.classList.add('is-dragged');
+      }
+    });
+  }
 }
 
 function _sharedHeaderClose() {
@@ -15650,9 +15691,110 @@ function _sharedHeaderClose() {
   const loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
   if (!seqOpen && !kbdOpen && !loopOpen) {
     const el = document.getElementById('sharedDrawerHeader');
-    if (el) { el.classList.remove('visible'); el.classList.remove('keyboard-mode'); }
+    if (el) el.classList.remove('visible');
   }
 }
+
+// ── Transport panel: position persistence ────────────────────────────────────
+function _transportSavePos(x, y) {
+  try { localStorage.setItem('drafthaus_transport_pos', JSON.stringify({ x: Math.round(x), y: Math.round(y) })); } catch(e) {}
+}
+function _transportLoadPos() {
+  try {
+    const v = localStorage.getItem('drafthaus_transport_pos');
+    if (!v) return null;
+    const p = JSON.parse(v);
+    const el = document.getElementById('sharedDrawerHeader');
+    const pw = el ? (el.offsetWidth  || 300) : 300;
+    const ph = el ? (el.offsetHeight || 80)  : 80;
+    return {
+      x: Math.max(0, Math.min(window.innerWidth  - pw, p.x)),
+      y: Math.max(0, Math.min(window.innerHeight - ph, p.y))
+    };
+  } catch(e) { return null; }
+}
+
+// ── Transport panel: collapse / expand controls bar ──────────────────────────
+function sharedToggleControls() {
+  const row = document.getElementById('sharedSettingsRow');
+  const btn = document.getElementById('sharedCollapseBtn');
+  if (!row) return;
+  const hidden = row.classList.toggle('hidden');
+  if (btn) btn.textContent = hidden ? '▼ Controls' : '▲ Controls';
+  try { localStorage.setItem('drafthaus_transport_collapsed', hidden ? '1' : '0'); } catch(e) {}
+}
+function _transportRestoreCollapse() {
+  try {
+    if (localStorage.getItem('drafthaus_transport_collapsed') === '1') {
+      const row = document.getElementById('sharedSettingsRow');
+      const btn = document.getElementById('sharedCollapseBtn');
+      if (row) row.classList.add('hidden');
+      if (btn) btn.textContent = '▼ Controls';
+    }
+  } catch(e) {}
+}
+
+// ── Transport panel: drag to reposition ──────────────────────────────────────
+(function _initTransportDrag() {
+  document.addEventListener('DOMContentLoaded', function() {
+    const panel  = document.getElementById('sharedDrawerHeader');
+    const handle = document.getElementById('sharedDragHandle');
+    if (!panel || !handle) return;
+
+    _transportRestoreCollapse();
+
+    var dragging = false, ox = 0, oy = 0;
+
+    function startDrag(cx, cy) {
+      const rect    = panel.getBoundingClientRect();
+      panel.style.left      = rect.left + 'px';
+      panel.style.top       = rect.top  + 'px';
+      panel.style.bottom    = 'auto';
+      panel.style.transform = 'none';
+      panel.classList.add('is-dragged');
+      ox = cx - rect.left;
+      oy = cy - rect.top;
+      dragging = true;
+      panel.style.transition = 'none';
+    }
+
+    function moveDrag(cx, cy) {
+      if (!dragging) return;
+      var nx = Math.max(0, Math.min(window.innerWidth  - panel.offsetWidth,  cx - ox));
+      var ny = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, cy - oy));
+      panel.style.left = nx + 'px';
+      panel.style.top  = ny + 'px';
+    }
+
+    function endDrag() {
+      if (!dragging) return;
+      dragging = false;
+      panel.style.transition = '';
+      _transportSavePos(parseFloat(panel.style.left), parseFloat(panel.style.top));
+    }
+
+    // Mouse
+    handle.addEventListener('mousedown', function(e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      startDrag(e.clientX, e.clientY);
+    });
+    document.addEventListener('mousemove', function(e) { if (dragging) moveDrag(e.clientX, e.clientY); });
+    document.addEventListener('mouseup',   endDrag);
+
+    // Touch
+    handle.addEventListener('touchstart', function(e) {
+      if (e.touches.length !== 1) return;
+      startDrag(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+    handle.addEventListener('touchmove', function(e) {
+      if (!dragging || e.touches.length !== 1) return;
+      e.preventDefault();
+      moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: false });
+    handle.addEventListener('touchend', endDrag, { passive: true });
+  });
+})();
 
 // Unified stop: delegates based on which drawer is open
 function sharedStop() {
@@ -30812,8 +30954,16 @@ window._releaseMicStreams          = _releaseMicStreams;
   <span class="looper-tab-label">Looper</span>
 </div>
 
-<!-- ══ Shared drawer footer — SEQ + Keys + Looper all use this one ══ -->
+<!-- ══ Floating transport panel — SEQ + Keys + Looper all use this one ══ -->
 <div id="sharedDrawerHeader" class="shared-drawer-header">
+  <div class="float-drag-handle" id="sharedDragHandle">
+    <div class="float-drag-grip" aria-hidden="true">
+      <span></span><span></span><span></span>
+    </div>
+    <span class="float-drag-title">Transport</span>
+    <button class="float-collapse-btn" id="sharedCollapseBtn"
+      onclick="sharedToggleControls()" title="Toggle controls bar">▲ Controls</button>
+  </div>
   <div id="sharedSettingsRow" class="shared-settings-row">
     <!-- ⚙ Settings -->
     <button class="seq-btn seq-settings-btn" id="seqSettingsBtn" onclick="seqToggleSettings(event)" title="Settings">
@@ -30944,7 +31094,6 @@ window._releaseMicStreams          = _releaseMicStreams;
       <div class="tracks-grid" id="loopTracksGrid"></div>
     </div>
   </div>
-  <div class="shared-header-spacer"></div>
 </div>
 
 <div class="practice-drawer-overlay" id="practiceOverlay" onclick="closePracticeDrawer()"></div>
@@ -30991,7 +31140,6 @@ window._releaseMicStreams          = _releaseMicStreams;
   <div class="keyboard-drawer-body" id="keyboardDrawerBody">
     <!-- Content rendered by openKeyboardDrawer() -->
   </div>
-  <div class="shared-header-spacer"></div>
 </div>
 
 <div class="seq-drawer-overlay" id="seqDrawerOverlay" onclick="closeSeqDrawer()"></div>
@@ -31021,7 +31169,6 @@ window._releaseMicStreams          = _releaseMicStreams;
       Open a draft to use the sequencer
     </div>
   </div>
-  <div class="shared-header-spacer"></div>
 </div>
 
 
@@ -31929,81 +32076,7 @@ window._releaseMicStreams          = _releaseMicStreams;
       }, { passive: true });
     }
 
-    // Shared header swipe-down-to-dismiss — handles all three drawers.
-    // The individual drawer headers are gone; the shared fixed header is the drag target.
-    (function() {
-      var sharedHdr = document.getElementById('sharedDrawerHeader');
-      if (!sharedHdr) return;
-      var y0 = 0, y1 = 0, tracking = false, dismissed = false, activeDrawer = null;
-
-      function getOpenDrawer() {
-        var ids = ['looperDrawer', 'keyboardDrawer', 'seqDrawer'];
-        for (var i = 0; i < ids.length; i++) {
-          var d = document.getElementById(ids[i]);
-          if (d && d.classList.contains('open')) return d;
-        }
-        return null;
-      }
-
-      function closeFnFor(drawer) {
-        if (!drawer) return null;
-        if (drawer.id === 'looperDrawer')   return function() { if (typeof closeLooperDrawer   === 'function') closeLooperDrawer();   };
-        if (drawer.id === 'keyboardDrawer') return function() { if (typeof closeKeyboardDrawer === 'function') closeKeyboardDrawer(); };
-        if (drawer.id === 'seqDrawer')      return function() { if (typeof closeSeqDrawer      === 'function') closeSeqDrawer();      };
-        return null;
-      }
-
-      sharedHdr.addEventListener('touchstart', function(e) {
-        if (window.innerWidth > 768) return;
-        activeDrawer = getOpenDrawer();
-        if (!activeDrawer) return;
-        y0 = y1 = e.touches[0].clientY;
-        tracking = true; dismissed = false;
-        activeDrawer.style.transition = 'none';
-        activeDrawer.style.transform  = 'translateX(0)';
-      }, { passive: true });
-
-      sharedHdr.addEventListener('touchmove', function(e) {
-        if (!tracking || dismissed || !activeDrawer) return;
-        y1 = e.touches[0].clientY;
-        var dy = Math.max(0, y0 - y1); // upward drag (footer is at bottom)
-        if (dy > 4) { e.preventDefault(); activeDrawer.style.transform = 'translateY(-' + dy + 'px)'; }
-      }, { passive: false });
-
-      function onRelease() {
-        if (!tracking || !activeDrawer) return;
-        tracking = false;
-        var dy = y0 - y1; // positive = swiped up
-        var closeFn = closeFnFor(activeDrawer);
-        var drawer = activeDrawer;
-        activeDrawer = null;
-        if (dy >= THRESHOLD) {
-          dismissed = true;
-          drawer.style.transition = 'transform 0.26s cubic-bezier(0.4,0,1,1)';
-          drawer.style.transform  = 'translateY(-105dvh)';
-          drawer.addEventListener('transitionend', function cleanup() {
-            drawer.removeEventListener('transitionend', cleanup);
-            drawer.style.transition = '';
-            drawer.style.transform  = '';
-            if (closeFn) closeFn();
-          }, { once: true });
-        } else {
-          drawer.style.transition = 'transform 0.28s cubic-bezier(0.4,0,0.2,1)';
-          drawer.style.transform  = 'translateX(0)';
-          drawer.addEventListener('transitionend', function cleanup() {
-            drawer.removeEventListener('transitionend', cleanup);
-            drawer.style.transition = '';
-            drawer.style.transform  = '';
-          }, { once: true });
-        }
-      }
-
-      sharedHdr.addEventListener('touchend',    onRelease, { passive: true });
-      sharedHdr.addEventListener('touchcancel', function() {
-        if (activeDrawer) { activeDrawer.style.transition = ''; activeDrawer.style.transform = ''; activeDrawer = null; }
-        tracking = false;
-      }, { passive: true });
-    })();
+    // Transport panel drag is handled by _initTransportDrag() (DOMContentLoaded above)
   });
 
   // ── Detail-view edge swipe → back to song list ────────────────────
