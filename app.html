@@ -6144,6 +6144,10 @@ body.split-expanded-right #viewDetail { opacity: 0; pointer-events: none; }
 #sharedDrawerHeader {
   border-radius: 0 !important;
 }
+/* Floating transport is only for mobile — hide on desktop */
+@media (min-width: 769px) {
+  #sharedDrawerHeader { display: none !important; }
+}
 /* Dim overlays hidden in split mode */
 body.split-active #keyboardDrawerOverlay,
 body.split-active #seqDrawerOverlay,
@@ -13769,8 +13773,7 @@ function playGuitarNote(midiNote, time, velocity, durationS) {
 function _guitarUpdateUI() {
   const lbl = document.getElementById('seqInstrumentLoading');
   if (lbl) lbl.style.display = _guitarLoading ? 'inline' : 'none';
-  if (_guitarLoading) showDrawerLoading('Loading guitar samples…');
-  else hideDrawerLoading();
+  // Guitar samples load silently in the background — no top-of-screen banner needed.
 }
 
 // Salamander Grand Piano — one sample every 6 semitones.
@@ -13832,10 +13835,10 @@ function playPianoNote(midiNote, time, velocity, durationS) {
 
 function _pianoUpdateUI() {
   const lbl = document.getElementById('seqInstrumentLoading');
-  if (lbl) lbl.style.display = (_pianoLoading || _piano2Loading) ? 'inline' : 'none';
-  if (_pianoLoading) showDrawerLoading('Loading piano samples…');
-  else if (_piano2Loading) showDrawerLoading('Loading upright piano samples…');
-  else hideDrawerLoading();
+  if (!lbl) return;
+  if (_pianoLoading)       { lbl.textContent = 'loading piano…';   lbl.style.display = 'inline'; }
+  else if (_piano2Loading) { lbl.textContent = 'loading upright…'; lbl.style.display = 'inline'; }
+  else                     { lbl.style.display = 'none'; }
 }
 
 // ── Upright Piano sampler (nbrosowsky/tonejs-instruments) ─────────
@@ -24439,9 +24442,7 @@ function openSeqDrawer() {
       <div class="loader-bar" style="width:200px;margin:0 auto 12px;"><div class="loader-fill"></div></div>
       <div class="loader-label" style="color:#d0d0e8;font-size:12px;font-weight:500;">Loading sequencer data…</div>
     </div>`;
-    showDrawerLoading('Loading sequencer…');
     fetchFullSongFromSheet(song.id).then(full => {
-      hideDrawerLoading();
       if (full) {
         const nameEl2 = document.getElementById('seqDrawerSongName');
         if (nameEl2) nameEl2.textContent = full.title || full.workingTitle || 'Untitled';
@@ -26457,17 +26458,14 @@ async function loopLoadSavedLoops() {
   panel.style.display = 'block';
   const list = document.getElementById('loopSavedList');
   list.innerHTML = '<div class="loop-saved-loading">Loading…</div>';
-  showDrawerLoading('Loading saved loops…');
   try {
     const snap = await db.collection('song_loops')
       .where('songId', '==', songId)
       .orderBy('createdAt', 'asc')
       .get();
-    hideDrawerLoading();
     loopRenderSavedLoops(snap);
   } catch(e) {
     console.error('[Looper] load saved loops error', e);
-    hideDrawerLoading();
     list.innerHTML = '<div class="loop-saved-loading">Could not load saves.</div>';
   }
 }
@@ -26579,12 +26577,10 @@ async function loopLoadFromSaved(docId, downloadUrl, duration) {
   // Find the first idle track, or use track 0 if none
   let targetIdx = loopTracks.findIndex(t => t.state === 'idle');
   if (targetIdx === -1) targetIdx = 0;
-  showDrawerLoading('Loading loop audio…');
   try {
     const resp = await fetch(downloadUrl);
     const arrayBuf = await resp.arrayBuffer();
     const audioBuf = await loopAudioCtx.decodeAudioData(arrayBuf);
-    hideDrawerLoading();
     const t = loopTracks[targetIdx];
     loopStopPlayback(targetIdx);
     cancelAnimationFrame(t.rafId);
@@ -26602,7 +26598,6 @@ async function loopLoadFromSaved(docId, downloadUrl, duration) {
     loopStartMetronome();
   } catch(e) {
     console.error('[Looper] load from saved error', e);
-    hideDrawerLoading();
     showToast('Could not load loop — try again.', 'error');
   }
 }
@@ -29927,7 +29922,15 @@ function mtBuildUI() {
     }, true);
   }
 
-  setTimeout(mtUpdateRuler, 80);
+  // Wait until the ruler canvas has a real layout width before drawing,
+  // otherwise it renders into a 0px (or fallback 200px) canvas and gets
+  // stretched/blurry by CSS. Retry up to ~500ms.
+  (function _waitRuler(n) {
+    const c = document.getElementById('mtRulerCanvas');
+    if (c && c.offsetWidth > 300) { mtUpdateRuler(); }
+    else if (n < 10) { setTimeout(() => _waitRuler(n + 1), 50); }
+    else { mtUpdateRuler(); } // give up and draw whatever we have
+  })(0);
 
   // ── Redraw waveforms after layout is stable ──
   _mtTracks.forEach((t, i) => {
@@ -31551,7 +31554,8 @@ async function _uploadTake(blob, duration, mimeType, trackIdx, source) {
 // ── Load takes — distribute to 4 tracks ───────────────────────
 window.vrLoadTakes = async function() {
   if (!_vrSongId) return;
-  showDrawerLoading('Loading takes…');
+  const _lbl = document.getElementById('seqInstrumentLoading');
+  if (_lbl) { _lbl.textContent = 'loading takes…'; _lbl.style.display = 'inline'; }
   try {
     const snap = await db.collection('voice_takes')
       .where('songId', '==', _vrSongId)
@@ -31603,11 +31607,11 @@ window.vrLoadTakes = async function() {
     _mtPreloadedSongId = _vrSongId;
     const { remaining } = await _vrGetQuota();
     _updateQuotaDisplay(remaining);
-    hideDrawerLoading();
+    if (_lbl) _lbl.style.display = 'none';
     vrLoadTrash();
   } catch(err) {
     console.error('[MT] loadTakes error', err);
-    hideDrawerLoading();
+    if (_lbl) _lbl.style.display = 'none';
   }
 };
 
