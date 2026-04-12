@@ -4182,7 +4182,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .shared-drawer-header {
     position: fixed; z-index: 980;
     background: #13141a;
-    border: 1px solid rgba(255,255,255,0.13);
+    border: 1px solid rgba(255,255,255,0.85);
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.65), 0 2px 8px rgba(0,0,0,0.4);
     display: none; flex-direction: column;
@@ -4524,7 +4524,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .looper-drawer-body .track-controls { display: flex; gap: 5px; align-items: center; justify-content: center; width: 100%; }
   /* ── Vertical fader container ── */
   .looper-drawer-body .track-vol-wrap {
-    position: relative; width: 20px; height: 72px; flex-shrink: 0;
+    position: relative; width: 20px; height: 52px; flex-shrink: 0;
     display: flex; flex-direction: column; align-items: center;
   }
   .looper-drawer-body .track-vol-label {
@@ -4536,7 +4536,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .looper-drawer-body input[type=range].track-vol {
     -webkit-appearance: none; appearance: none;
     position: absolute; top: 50%; left: 50%;
-    width: 72px; height: 20px;
+    width: 52px; height: 16px;
     transform: translate(-50%, -50%) rotate(-90deg);
     transform-origin: center;
     border-radius: 3px; outline: none; cursor: pointer; padding: 0;
@@ -4651,10 +4651,10 @@ button, select, input, textarea { touch-action: manipulation; }
     .looper-drawer-body input[type=range].track-vol::-webkit-slider-thumb {
       width: 18px !important; height: 18px !important;
     }
-    /* ── Fader section: taller on mobile for easier grab ── */
-    .looper-drawer-body .track-vol-wrap { width: 24px; height: 90px; }
-    .looper-drawer-body input[type=range].track-vol { width: 90px; height: 24px; }
-    .looper-drawer-body .loop-vu-canvas { height: 90px; }
+    /* ── Fader section: sized to match ring button on mobile ── */
+    .looper-drawer-body .track-vol-wrap { width: 24px; height: 80px; }
+    .looper-drawer-body input[type=range].track-vol { width: 80px; height: 24px; }
+    .looper-drawer-body .loop-vu-canvas { height: 80px; }
 
     /* ── Saved loops: bigger tap targets ── */
     .loop-saved-row { padding: 12px 14px; gap: 12px; }
@@ -22972,7 +22972,9 @@ function kbdBpmChanged() {
   song.sequencer.bpm = val;
   song.bpm = val;
   save();
-  // Sync into sequencer DOM if open
+  // Sync all BPM displays (looper, fBpm, seqBpm, etc.)
+  syncBpmUI(val);
+  // Also write directly to seqBpm element in case syncBpmUI skips it mid-keystroke
   const seqBpmEl = document.getElementById('seqBpm');
   if (seqBpmEl) seqBpmEl.value = val;
 }
@@ -22985,7 +22987,7 @@ function kbdTapTempo() {
   _tapTempoTimes.push(now);
   if (_tapTempoTimes.length > 8) _tapTempoTimes.shift();
   const btn = document.getElementById('kbdTapBtn');
-  if (btn) { btn.style.background = 'rgba(245,166,35,0.3)'; setTimeout(() => { btn.style.background = ''; }, 120); }
+  if (btn) { btn.style.background = 'rgba(245,166,35,0.3)'; setTimeout(function() { btn.style.background = ''; }, 120); }
   if (_tapTempoTimes.length < 2) return;
   const intervals = [];
   for (let i = 1; i < _tapTempoTimes.length; i++) intervals.push(_tapTempoTimes[i] - _tapTempoTimes[i-1]);
@@ -22993,9 +22995,7 @@ function kbdTapTempo() {
   const bpm = Math.min(240, Math.max(40, Math.round(60000 / avg)));
   const kbdEl = document.getElementById('kbdBpm');
   if (kbdEl) { kbdEl.value = bpm; kbdBpmChanged(); }
-  // Also keep sequencer tap button in sync
-  const seqBtn = document.getElementById('seqTapBtn');
-  if (seqBtn) { seqBtn.style.background = 'rgba(245,166,35,0.3)'; setTimeout(() => { seqBtn.style.background = ''; }, 120); }
+  _flashAllTapBtns('kbdTapBtn');
 }
 
 function kbdPartChanged() {
@@ -24671,24 +24671,23 @@ function loopBuildUI() {
         <span class="track-state-label" id="lstate-label-${i}" style="display:none">EMPTY</span>
       </div>
       <div class="ltrack-parts-pills" id="ltrack-pills-${i}"></div>
-      <!-- Channel fader section: VU meters + vertical fader side-by-side -->
+      <!-- Channel fader section: VU meters + fader + record button all in a row -->
       <div class="channel-fader-section">
         <div class="loop-vu-row" id="lvu-wrap-${i}" title="Mic input level">
-          <canvas class="loop-vu-canvas" id="lvu-l-${i}" width="6" height="72"></canvas>
-          <canvas class="loop-vu-canvas" id="lvu-r-${i}" width="6" height="72"></canvas>
+          <canvas class="loop-vu-canvas" id="lvu-l-${i}" width="6" height="52"></canvas>
+          <canvas class="loop-vu-canvas" id="lvu-r-${i}" width="6" height="52"></canvas>
         </div>
-        <!-- Fader + record button stacked so the button centres under the fader -->
-        <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
-          <div class="track-vol-wrap">
-            <input type="range" class="track-vol" min="0" max="100" value="85"
-              oninput="loopSetTrackVolume(${i}, this.value)" style="--vol:85%">
-            <span class="track-vol-label">VOL</span>
+        <div class="track-vol-wrap">
+          <input type="range" class="track-vol" min="0" max="100" value="85"
+            oninput="loopSetTrackVolume(${i}, this.value)" style="--vol:85%">
+          <span class="track-vol-label">VOL</span>
+        </div>
+        <div class="ring-wrap" id="lring-wrap-${i}" onclick="loopHandleTrackClick(${i})">
+          <canvas class="ring-canvas" id="lring-canvas-${i}" width="80" height="80"></canvas>
+          <div class="ring-btn" id="lring-btn-${i}">
+            <span class="ring-btn-icon" id="lring-icon-${i}">⏺</span>
+            <span class="ring-btn-label" id="lring-label-${i}">Record</span>
           </div>
-          <div class="ring-wrap" id="lring-wrap-${i}" onclick="loopHandleTrackClick(${i})">
-        <canvas class="ring-canvas" id="lring-canvas-${i}" width="80" height="80"></canvas>
-        <div class="ring-btn" id="lring-btn-${i}">
-          <span class="ring-btn-icon" id="lring-icon-${i}">⏺</span>
-          <span class="ring-btn-label" id="lring-label-${i}">Record</span>
         </div>
       </div>
       <div class="preroll-dots" id="lpreroll-dots-${i}">
@@ -24991,7 +24990,7 @@ function loopTapTempo() {
   _tapTempoTimes.push(now);
   if (_tapTempoTimes.length > 8) _tapTempoTimes.shift();
   const btn = document.getElementById('loopTapBtn');
-  if (btn) { btn.style.background = 'rgba(255,153,0,0.35)'; setTimeout(() => { btn.style.background = ''; }, 120); }
+  if (btn) { btn.style.background = 'rgba(245,166,35,0.3)'; setTimeout(function() { btn.style.background = ''; }, 120); }
   if (_tapTempoTimes.length < 2) return;
   const intervals = [];
   for (let i = 1; i < _tapTempoTimes.length; i++) intervals.push(_tapTempoTimes[i] - _tapTempoTimes[i-1]);
@@ -25001,6 +25000,7 @@ function loopTapTempo() {
   const song = getCurrentSong();
   if (song) { song.bpm = String(bpm); if (!song.sequencer) song.sequencer = {}; song.sequencer.bpm = String(bpm); save(); scheduleSyncToSheet(song); }
   syncBpmUI(bpm);
+  _flashAllTapBtns('loopTapBtn');
 }
 function loopSetBars(n){loopBars=n;document.querySelectorAll('#loopBarsRow .bar-btn').forEach(b=>b.classList.toggle('active',parseInt(b.textContent)===n));}
 function loopSetTrackVolume(i,val){
@@ -26157,11 +26157,11 @@ function ilRenderBody(song) {
       </ol>
     </div>
     ${partsHtml}
+    <div style="padding-left:22px; margin-top:8px; margin-bottom:8px;">
+      <button class="il-import-btn" onclick="ilOpenImportModal()">⇩ Write Freely, Paste Lyrics</button>
+    </div>
     <div class="il-add-wrap" id="ilAddWrap">
       <select class="il-add-sel" id="ilAddSel" onchange="ilAddSection(this)">${addSelHtml}</select>
-    </div>
-    <div style="padding-left:22px; margin-top:8px;">
-      <button class="il-import-btn" onclick="ilOpenImportModal()">⇩ Import / Convert</button>
     </div>`;
 
   const addWrap = document.getElementById('ilAddWrap');
@@ -26845,7 +26845,7 @@ function ilOpenImportModal() {
   modal.className = 'il-import-modal';
   modal.innerHTML = `
     <div class="il-import-box">
-      <div class="il-import-title">⇩ Import / Convert Lyrics</div>
+      <div class="il-import-title">⇩ Write Freely, Paste Lyrics</div>
       <div class="il-import-desc">Paste your full song lyrics below. Sections will be split automatically — every blank line (preceded by 4+ lines) becomes a new section. If there are no blank lines, every 4 lines becomes a section.</div>
       <textarea class="il-import-textarea" id="ilImportTextarea" placeholder="Paste your lyrics here…" spellcheck="false"></textarea>
       <div class="il-import-btns">
@@ -28256,6 +28256,13 @@ function _slRowDrop(rowEl, e) {
 
 var _tapTempoTimes = [];
 var _tapTempoResetTimer = null;
+function _flashAllTapBtns(excludeId) {
+  ['kbdTapBtn', 'seqTapBtn', 'loopTapBtn'].forEach(function(id) {
+    if (id === excludeId) return;
+    const btn = document.getElementById(id);
+    if (btn) { btn.style.background = 'rgba(245,166,35,0.3)'; setTimeout(function() { btn.style.background = ''; }, 120); }
+  });
+}
 
 function seqTapTempo() {
   const now = Date.now();
@@ -28263,20 +28270,16 @@ function seqTapTempo() {
   _tapTempoResetTimer = setTimeout(function() { _tapTempoTimes = []; }, 2500);
   _tapTempoTimes.push(now);
   if (_tapTempoTimes.length > 8) _tapTempoTimes.shift();
-  if (_tapTempoTimes.length < 2) {
-    // Flash the button to acknowledge the first tap
-    const btn = document.getElementById('seqTapBtn');
-    if (btn) { btn.style.background = 'rgba(245,166,35,0.25)'; setTimeout(() => { btn.style.background = ''; }, 120); }
-    return;
-  }
+  const btn = document.getElementById('seqTapBtn');
+  if (btn) { btn.style.background = 'rgba(245,166,35,0.3)'; setTimeout(function() { btn.style.background = ''; }, 120); }
+  if (_tapTempoTimes.length < 2) return;
   const intervals = [];
   for (let i = 1; i < _tapTempoTimes.length; i++) intervals.push(_tapTempoTimes[i] - _tapTempoTimes[i-1]);
   const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
   const bpm = Math.min(240, Math.max(40, Math.round(60000 / avg)));
   const bpmEl = document.getElementById('seqBpm');
   if (bpmEl) { bpmEl.value = bpm; seqSaveSettings(); }
-  const btn = document.getElementById('seqTapBtn');
-  if (btn) { btn.style.background = 'rgba(245,166,35,0.3)'; setTimeout(() => { btn.style.background = ''; }, 120); }
+  _flashAllTapBtns('seqTapBtn');
 }
 
 // ── Global Cmd/Ctrl+Z undo ─────────────────────────────────────────
@@ -31051,6 +31054,15 @@ window._releaseMicStreams          = _releaseMicStreams;
         <option value="16">16</option>
       </select>
     </div>
+    <!-- Grid -->
+    <div class="seq-ctrl-group">
+      <span class="seq-label">Grid</span>
+      <select class="seq-select" id="seqGrid" onchange="seqRebuild()" title="Grid resolution" style="font-size:10px;">
+        <option value="1">1/4</option>
+        <option value="2" selected>1/8</option>
+        <option value="4">1/16</option>
+      </select>
+    </div>
   </div>
   <!-- Transport — pinned to bottom of footer, centered -->
   <div class="drawer-transport-strip">
@@ -31061,14 +31073,6 @@ window._releaseMicStreams          = _releaseMicStreams;
     <button class="split-transport-btn split-play-btn" onclick="seqPlaySong()" title="Play full song">▶▶ Full</button>
     <button class="split-transport-btn split-stop-btn" onclick="sharedStop()" title="Stop">■ Stop</button>
     <button id="sharedMetBtn" class="split-transport-btn split-met-btn" onclick="seqToggleMet()" title="Toggle metronome">Metro</button>
-    <div style="display:flex;align-items:center;gap:3px;margin-left:4px;">
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;">Grid</span>
-      <select class="seq-select" id="seqGrid" onchange="seqRebuild()" title="Grid resolution" style="font-size:10px;padding:2px 5px;">
-        <option value="1">1/4</option>
-        <option value="2" selected>1/8</option>
-        <option value="4">1/16</option>
-      </select>
-    </div>
   </div>
 </div>
 
