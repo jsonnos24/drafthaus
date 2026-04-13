@@ -17209,20 +17209,24 @@ function seqPlaySong() {
 
   const seqs = getSongSequences(song);
 
-  // Sort sequences in STRUCTURE_PARTS order; skip unassigned (no part)
-  // so stray empty sequences don't replay the previous part by accident.
+  // Build the set of valid part IDs so we can filter positively
   const partOrder = STRUCTURE_PARTS.map(p => p.id);
+  const validPartIds = new Set(partOrder);
+
+  // Keep only sequences whose partId is a real STRUCTURE_PARTS value —
+  // this reliably skips unassigned, empty-string, null, and any stale garbage values.
   const sorted = [...seqs]
-    .filter(s => !!(s.partId || s.part))   // only sequences with a part assigned
+    .filter(s => {
+      const pid = s.partId || s.part || '';
+      return validPartIds.has(pid);
+    })
     .sort((a, b) => {
       const ai = partOrder.indexOf(a.partId || a.part || '');
       const bi = partOrder.indexOf(b.partId || b.part || '');
-      const av = ai === -1 ? 999 : ai;
-      const bv = bi === -1 ? 999 : bi;
-      return av - bv;
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
 
-  if (sorted.length < 2) { showToast('Assign parts to at least 2 sequences to play the full draft.', 'info', 3000); return; }
+  if (sorted.length < 1) { showToast('Assign at least one sequence to a song part to use Play Seq.', 'info', 3000); return; }
 
   // Pre-load all section data (not from DOM — avoids DOM reads during playback)
   const key  = seqCurrentKey();
@@ -24465,25 +24469,25 @@ function kbdChangeSong() {
 }
 
 function kbdBpmChanged(callerVal) {
+  const val = (callerVal != null && callerVal !== '') ? String(callerVal)
+              : document.getElementById('kbdBpm')?.value;
+  if (!val) return;
+  // ── Always sync every BPM display/input immediately ──
+  document.querySelectorAll('[id="kbdBpm"]').forEach(el => { if (el.value !== val) el.value = val; });
+  syncBpmUI(val);
+  const seqBpmEl = document.getElementById('seqBpm');
+  if (seqBpmEl && seqBpmEl.value !== val) seqBpmEl.value = val;
+  // ── Persist to song if one is open ──
   const song = getCurrentSong();
   if (!song) return;
-  const val = callerVal || document.getElementById('kbdBpm')?.value;
-  if (!val) return;
-  // Keep all kbdBpm inputs in sync (duplicate IDs in DOM)
-  document.querySelectorAll('[id="kbdBpm"]').forEach(el => { if (el.value !== val) el.value = val; });
   seqGetData(song);
   song.sequencer.bpm = val;
   song.bpm = val;
   save();
-  // Sync all BPM displays (looper, fBpm, seqBpm, etc.)
-  syncBpmUI(val);
-  // Also write directly to seqBpm element in case syncBpmUI skips it mid-keystroke
-  const seqBpmEl = document.getElementById('seqBpm');
-  if (seqBpmEl) seqBpmEl.value = val;
 }
 
 function kbdTapTempo() {
-  // Reuse the same tap times array as the sequencer so both stay in sync
+  // Shared tap-times array so all tap buttons stay in sync
   const now = Date.now();
   clearTimeout(_tapTempoResetTimer);
   _tapTempoResetTimer = setTimeout(function() { _tapTempoTimes = []; }, 2500);
@@ -24496,8 +24500,11 @@ function kbdTapTempo() {
   for (let i = 1; i < _tapTempoTimes.length; i++) intervals.push(_tapTempoTimes[i] - _tapTempoTimes[i-1]);
   const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
   const bpm = Math.min(240, Math.max(40, Math.round(60000 / avg)));
-  const kbdEl = document.getElementById('kbdBpm');
-  if (kbdEl) { kbdEl.value = bpm; kbdBpmChanged(); }
+  // Pass bpm directly — kbdBpmChanged now always syncs UI before checking for a song
+  kbdBpmChanged(bpm);
+  // Also update seqBpm input and save sequencer settings (keeps seq drawer in sync)
+  const seqBpmEl = document.getElementById('seqBpm');
+  if (seqBpmEl) { seqBpmEl.value = bpm; if (typeof seqSaveSettings === 'function') seqSaveSettings(); }
   _flashAllTapBtns('kbdTapBtn');
 }
 
