@@ -32562,23 +32562,27 @@ window.mtToggleTakes = function(i) {
   mtCloseAllTakes();
   if (isOpen) return; // was open → just closed it above
 
+  // ALWAYS teleport panel to <body>. #vrDeck has transform:translateY(0) for the
+  // slide-up animation, which (per CSS spec) makes it a containing block for
+  // position:fixed children — anchoring them to the deck, not the viewport, and
+  // subjecting them to its overflow clipping. On body there are no transforms,
+  // so fixed positioning and z-index work correctly everywhere.
+  if (panel.parentElement !== document.body) {
+    panel._takesOrigin = { parent: panel.parentElement, next: panel.nextSibling };
+    document.body.appendChild(panel);
+  }
+
   // Use short-side detection so this works in both portrait and landscape
-  // (landscape viewport meta is width=1024 so innerWidth check would fail)
   const isMobile = Math.min(window.innerWidth, window.innerHeight) <= 600;
 
   if (isMobile) {
-    // Teleport panel to <body> so position:fixed works correctly —
-    // #vrDeck has transform which breaks fixed positioning for children.
-    if (panel.parentElement !== document.body) {
-      panel._takesOrigin = { parent: panel.parentElement, next: panel.nextSibling };
-      document.body.appendChild(panel);
-    }
+    // Mobile: bottom-sheet style — CSS handles sizing/position, just show overlay
     const ov = _el('mtTakesOverlay'); if (ov) ov.classList.add('open');
     panel.classList.add('open');
     return;
   }
 
-  // Desktop: floating panel near the button
+  // Desktop: floating panel near the Takes button
   const btn = _el('mt-takes-btn-'+i);
   if (btn) {
     const r = btn.getBoundingClientRect();
