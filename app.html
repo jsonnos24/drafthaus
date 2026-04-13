@@ -2142,6 +2142,65 @@ button, select, input, textarea { touch-action: manipulation; }
     }
   }
 
+  /* ── Mobile portrait: chord wheel ────────────────────────────────── */
+  @media (max-width: 600px) and (orientation: portrait) {
+    .seq-chords-row.wheel-mode {
+      display: block;
+      overflow: visible;
+      margin-bottom: 0;
+    }
+    .seq-chord-wheel {
+      position: relative;
+      margin: 0 auto 4px;
+    }
+    .wheel-center-label {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px;
+      color: var(--faint);
+      text-align: center;
+      pointer-events: none;
+      letter-spacing: 0.06em;
+      line-height: 1.5;
+    }
+    .wheel-pill {
+      position: absolute;
+      width: 52px;
+      text-align: center;
+      transform: translate(-50%, -50%);
+      padding: 7px 4px !important;
+      transition: box-shadow 0.15s, filter 0.15s;
+    }
+    .wheel-pill.wheel-selected {
+      box-shadow: 0 0 0 2px var(--gold), 0 0 14px rgba(245,166,35,0.45) !important;
+      filter: brightness(1.25);
+    }
+    .seq-chord-var-arc {
+      display: flex;
+      gap: 7px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding: 8px 14px 6px;
+      min-height: 44px;
+      align-items: center;
+      border-top: 1px solid var(--border2);
+    }
+    .seq-chord-var-arc::-webkit-scrollbar { display: none; }
+    .seq-chord-var-arc .seq-chord-var-pill {
+      flex-shrink: 0;
+      padding: 7px 12px;
+      font-size: 11px;
+    }
+    .wheel-clear-row {
+      display: flex;
+      justify-content: center;
+      margin-top: 6px;
+      margin-bottom: 4px;
+    }
+  }
+
 
   /* Loading button animation */
   .td-load-btn.loading {
@@ -9020,7 +9079,7 @@ body.il-perf-active #ilScrollFloat { display: none; }
 }
 .mt-snap-btn.snap-active { border-color: #c8a96e; color: #c8a96e; background: rgba(200,169,110,0.1); }
 .mt-snap-btn:hover:not(.snap-active) { border-color: #4a4e60; color: #9aa0b0; }
-.mt-ruler-canvas { flex: 1; display: block; height: 26px; }
+.mt-ruler-canvas { flex: 1; display: block; height: 26px; cursor: pointer; }
 .mt-zoom-info {
   display: flex; align-items: center; gap: 3px;
   padding: 0 6px; flex-shrink: 0;
@@ -16210,6 +16269,103 @@ function seqHideChordOnKeyboard() {
   document.addEventListener('DOMContentLoaded', _checkSweep);
 })();
 
+// ── Mobile portrait chord wheel ────────────────────────────────────
+let _seqWheelDegree = 0;
+
+function _seqRenderChordWheelInner(el, names, roman, QUAL_VARIANTS, parseChord) {
+  const sz = Math.min(280, window.innerWidth - 32);
+  const cx = sz / 2, cy = sz / 2;
+  const R  = sz * 0.39;
+  const N  = Math.min(7, names.length);
+
+  const pillsHtml = names.slice(0, N).map((name, i) => {
+    const displayName = name.replace('_viii','');
+    const angle = -Math.PI / 2 + i * (2 * Math.PI / N);
+    const x = cx + R * Math.cos(angle);
+    const y = cy + R * Math.sin(angle);
+    const isSel = (i === _seqWheelDegree);
+    return `<div class="seq-chord-pill wheel-pill${isSel ? ' wheel-selected' : ''}"
+      data-degree="${i}"
+      style="left:${x}px;top:${y}px;"
+      draggable="true"
+      title="${roman[i]}: ${displayName}"
+      ondragstart="this.classList.add('dragging');event.dataTransfer.setData('text/plain',JSON.stringify({chord:'${name}',degree:${i}}))"
+      ondragend="this.classList.remove('dragging')"
+      ontouchstart="window._seqPt=Date.now();seqWheelSelectDeg(${i});seqPillPress('${name}',${i})"
+      ontouchend="seqPillRelease()"
+      onmousedown="seqWheelSelectDeg(${i});if(Date.now()-(window._seqPt||0)>350)seqPillPress('${name}',${i})"
+      onmouseup="seqPillRelease()"
+      onmouseleave="if(!seqSweepMode)seqPillRelease()">
+      <span style="font-size:8px;opacity:0.6;display:block;text-align:center;margin-bottom:1px;">${roman[i]}</span>
+      ${displayName}
+    </div>`;
+  }).join('');
+
+  const varHtml = _seqWheelVarHtml(names, QUAL_VARIANTS, parseChord);
+
+  el.innerHTML = `
+    <div class="seq-chord-wheel" style="width:${sz}px;height:${sz}px;">
+      ${pillsHtml}
+      <div class="wheel-center-label">tap<br>to play</div>
+    </div>
+    <div class="seq-chord-var-arc" id="seqChordVarArc">${varHtml}</div>
+    <div class="wheel-clear-row">
+      <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="seqClearAllChordSlots()">Clear slots</button>
+    </div>`;
+}
+
+function _seqWheelVarHtml(names, QUAL_VARIANTS, parseChord) {
+  const QV = QUAL_VARIANTS || { '':['sus2','sus4','add9','maj7','7'], 'm':['m7','m9','madd9','msus4'], 'dim':['dim7','m7b5','dimM7'] };
+  const allNames = names || seqGetScaleChords(seqCurrentKey(), seqCurrentMode());
+  const selName = allNames[_seqWheelDegree] || '';
+  const pc = parseChord || function(nm) {
+    const s = nm.replace('_viii','');
+    const root = (s.length >= 2 && s[1] === '#') ? s.slice(0,2) : s[0];
+    return { root, qual: s.slice(root.length) };
+  };
+  const { root, qual } = pc(selName);
+  const variants = (QV[qual] || []).map(sfx => root + sfx);
+  if (!variants.length) return '<span style="font-family:monospace;font-size:10px;color:var(--faint);">—</span>';
+  return variants.map(vname =>
+    `<div class="seq-chord-var-pill" draggable="true"
+      ondragstart="this.classList.add('dragging');event.dataTransfer.setData('text/plain',JSON.stringify({chord:'${vname}',degree:''}))"
+      ondragend="this.classList.remove('dragging')"
+      ontouchstart="window._seqPt=Date.now();seqPillPress('${vname}','')"
+      ontouchend="seqPillRelease()"
+      onmousedown="if(Date.now()-(window._seqPt||0)>350)seqPillPress('${vname}','')"
+      onmouseup="seqPillRelease()"
+      onmouseleave="if(!seqSweepMode)seqPillRelease()">
+      ${vname}
+    </div>`
+  ).join('');
+}
+
+function seqWheelSelectDeg(idx) {
+  _seqWheelDegree = idx;
+  const el = document.getElementById('seqChordPills');
+  if (!el || !el.classList.contains('wheel-mode')) return;
+  el.querySelectorAll('.wheel-pill').forEach((p, i) => p.classList.toggle('wheel-selected', i === idx));
+  const arc = document.getElementById('seqChordVarArc');
+  if (arc) arc.innerHTML = _seqWheelVarHtml();
+}
+
+// Re-render chord pills on orientation change (mobile ↔ desktop)
+(function _initWheelResize() {
+  let _wheelResizeTimer = null;
+  let _wheelLastPortrait = null;
+  window.addEventListener('resize', function() {
+    const isPortrait = window.innerWidth <= 600 && window.innerHeight > window.innerWidth;
+    if (isPortrait === _wheelLastPortrait) return; // no layout change
+    _wheelLastPortrait = isPortrait;
+    clearTimeout(_wheelResizeTimer);
+    _wheelResizeTimer = setTimeout(function() {
+      if (document.getElementById('seqChordPills')) {
+        seqRenderChordPills(getCurrentSong());
+      }
+    }, 120);
+  });
+})();
+
 function seqClickFillChord(name, degree) {
   seqPlayChordByName(name);
   if (seqChordMode === 'preview') return; // preview only — don't fill the grid
@@ -16262,6 +16418,18 @@ function seqRenderChordPills(song) {
     return { root, qual };
   }
 
+  // ── Mobile portrait: render circular wheel ──
+  if (window.innerWidth <= 600 && window.innerHeight > window.innerWidth) {
+    el.classList.add('wheel-mode');
+    _seqRenderChordWheelInner(el, names, roman, QUAL_VARIANTS, parseChord);
+    seqUpdateHumanizeBtns();
+    seqRenderKeyTriggers();
+    seqRenderKeyboard();
+    return;
+  }
+
+  // ── Desktop / landscape: standard scrollable columns ──
+  el.classList.remove('wheel-mode');
   el.innerHTML = names.map((name, i) => {
     const displayName = name.replace('_viii','');
     const { root, qual } = parseChord(name);
@@ -29767,7 +29935,7 @@ function mtBuildUI() {
     <div class="mt-ruler-head">
       <button class="mt-snap-btn" id="mtSnapBtn" onclick="mtCycleSnap()" title="Snap to grid (cycles: Beat → Bar → Off)">SNAP: BAR</button>
     </div>
-    <canvas class="mt-ruler-canvas" id="mtRulerCanvas"></canvas>
+    <canvas class="mt-ruler-canvas" id="mtRulerCanvas" onclick="mtRulerClick(event)" title="Click to set playhead position"></canvas>
     <div class="mt-zoom-info">
       <span style="opacity:0.6;">+/–</span>
       <span class="mt-zoom-val" id="mtZoomVal">1×</span>
@@ -29968,8 +30136,8 @@ function mtBuildUI() {
   // stretched/blurry by CSS. Retry up to ~500ms.
   (function _waitRuler(n) {
     const c = document.getElementById('mtRulerCanvas');
-    if (c && c.offsetWidth > 300) { mtUpdateRuler(); }
-    else if (n < 10) { setTimeout(() => _waitRuler(n + 1), 50); }
+    if (c && c.offsetWidth > 50) { mtUpdateRuler(); }
+    else if (n < 20) { setTimeout(() => _waitRuler(n + 1), 50); }
     else { mtUpdateRuler(); } // give up and draw whatever we have
   })(0);
 
@@ -30025,8 +30193,14 @@ window.mtUpdateRuler = function() {
   const canvas = _el('mtRulerCanvas'); if (!canvas) return;
   const W = canvas.offsetWidth || canvas.parentElement?.offsetWidth || 200;
   const H = 26;
-  canvas.width = W; canvas.height = H;
+  // HiDPI: scale canvas backing store by devicePixelRatio for sharp rendering
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
   const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
   const bpm = parseInt((typeof song !== 'undefined' && song && song.bpm) ? song.bpm : 120) || 120;
   // Always show the full recordable timeline, not just what's recorded
@@ -30034,7 +30208,7 @@ window.mtUpdateRuler = function() {
   const pxPerSec = (W / dur) * _mtZoomH;
   const beatLen = 60 / bpm;
   const barLen  = beatLen * 4;
-  // Draw bar lines
+  // Draw bar lines + labels
   for (let t = 0; t <= dur + barLen; t += barLen) {
     const x = t * pxPerSec;
     if (x > W + 2) break;
@@ -30053,12 +30227,59 @@ window.mtUpdateRuler = function() {
     ctx.fillStyle = 'rgba(255,255,255,0.12)';
     ctx.fillRect(x, H * 0.55, 1, H * 0.45);
   }
+  // Draw seek cursor (gold) when not playing and a seek position has been set
+  if (!_mtIsPlaying && _mtSeekPos >= 0) {
+    const sx = _mtSeekPos * pxPerSec;
+    if (sx >= 0 && sx <= W + 2) {
+      const sxR = Math.round(sx);
+      // Vertical gold line
+      ctx.fillStyle = 'rgba(200,169,110,0.92)';
+      ctx.fillRect(sxR, 0, 2, H);
+      // Small downward triangle at top
+      ctx.fillStyle = '#c8a96e';
+      ctx.beginPath();
+      ctx.moveTo(sxR - 4, 0);
+      ctx.lineTo(sxR + 5, 0);
+      ctx.lineTo(sxR + 1, 7);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
   // Snap grid indicator color
   const sb = _el('mtSnapBtn');
   if (sb) sb.classList.toggle('snap-active', _mtSnapMode !== 'off');
   // Zoom value
   const zv = _el('mtZoomVal');
   if (zv) zv.textContent = _mtZoomH === 1 ? '1×' : _mtZoomH.toFixed(1) + '×';
+};
+
+// ── Ruler click-to-seek ──
+window.mtRulerClick = function(e) {
+  if (_vrRecording) return; // no seeking while recording
+  const canvas = _el('mtRulerCanvas'); if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const clickX = e.clientX - rect.left;
+  const W = canvas.offsetWidth || rect.width || 200;
+  const dur = (typeof VR_MAX_DURATION !== 'undefined' ? VR_MAX_DURATION : 300);
+  const pxPerSec = (W / dur) * _mtZoomH;
+  const t = Math.max(0, Math.min(dur, clickX / pxPerSec));
+
+  _mtSeekPos    = t;
+  _mtScrubOffset = t;
+
+  // Show per-track playheads at the seek position
+  const maxDur = _mtMaxDuration();
+  _mtTracks.forEach((tk, i) => {
+    const ph = _el('mt-playhead-' + i); if (!ph) return;
+    if (tk && tk.buffer && maxDur > 0) {
+      const pct = Math.min(1, t / (tk.duration || maxDur));
+      ph.style.display = 'block';
+      ph.style.left    = (pct * 100) + '%';
+    }
+  });
+
+  // Redraw ruler with seek cursor
+  mtUpdateRuler();
 };
 
 // ── Zoom ──
@@ -30780,9 +31001,17 @@ function _mtStopAll() {
     if (t.sourceNode) { try { t.sourceNode.stop(); } catch(e) {} t.sourceNode = null; }
   });
   if (_mtPlayheadRaf) { cancelAnimationFrame(_mtPlayheadRaf); _mtPlayheadRaf = null; }
-  // Reset playheads
-  _mtTracks.forEach((t,i) => {
-    const ph = _el('mt-playhead-'+i); if (ph) ph.style.display = 'none';
+  // Restore playheads to the seek position (or hide if no seek was set)
+  const _stopMaxDur = _mtMaxDuration();
+  _mtTracks.forEach((t, i) => {
+    const ph = _el('mt-playhead-' + i); if (!ph) return;
+    if (_mtSeekPos >= 0 && t && t.buffer && _stopMaxDur > 0) {
+      const pct = Math.min(1, _mtSeekPos / (t.duration || _stopMaxDur));
+      ph.style.display = 'block';
+      ph.style.left    = (pct * 100) + '%';
+    } else {
+      ph.style.display = 'none';
+    }
   });
   const fill = _el('mtProgressFill'); if(fill) fill.style.width='0%';
   const td = _el('mtTimeDisplay');   if(td)   td.textContent='0:00';
@@ -30791,6 +31020,8 @@ function _mtStopAll() {
   const _psb2 = _el('mtPlaySeqBtn'); if (_psb2) { _psb2.classList.remove('mt-active'); }
   _mtUpdateMonPill('');
   if (!_vrRecording) _setStatus(_mtArmedTrack >= 0 ? 'Track '+MT_NAMES[_mtArmedTrack]+' armed — press ⏺ to record' : 'Arm a track to record');
+  // Redraw ruler so seek cursor reappears after playback
+  mtUpdateRuler();
 }
 
 // ── Playhead animation ─────────────────────────────────────────
@@ -30840,7 +31071,8 @@ window.mtWaveformSeek = function(trackIdx, e) {
     _mtStartPlayback(seekTo);
   }
 };
-var _mtScrubOffset = 0; // seek position set while paused
+var _mtScrubOffset = 0; // seek position set while paused (consumed on play)
+var _mtSeekPos     = -1; // visible playhead position when not playing (-1 = none)
 
 // ── VU Meter (shared live mic input monitor) ─────────────────────
 var _vuCtx      = null;
