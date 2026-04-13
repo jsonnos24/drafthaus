@@ -4294,24 +4294,26 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .looper-drawer.open { transform: translateX(0); }
   /* ── Shared drawer header (SEQ + Keys + Looper share one fixed header) ── */
-  /* ── Floating transport panel ─────────────────────────────────── */
+  /* ── Fixed transport bar (mobile) ─────────────────────────────── */
   .shared-drawer-header {
-    position: fixed; z-index: 99990;
+    position: fixed; z-index: 9945;
     background: #13141a;
-    border: 1px solid rgba(255,255,255,0.85);
-    border-radius: 12px;
+    border-top: 1px solid rgba(255,255,255,0.15);
+    border-bottom: none; border-left: none; border-right: none;
+    border-radius: 0;
     overflow: hidden;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.65), 0 2px 8px rgba(0,0,0,0.4);
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.55);
     display: none; flex-direction: column;
-    width: auto; min-width: 260px; max-width: min(640px, 96vw);
-    /* default position — overridden by JS once visible */
-    bottom: 20px; left: 50%; transform: translateX(-50%);
-    user-select: none; touch-action: none;
-    /* Force own compositing layer so it always paints above will-change:transform nav bars */
+    width: 100%; min-width: unset; max-width: 100%;
+    /* Sit above bottom nav — same formula as #rehearseBar */
+    bottom: calc(54px + max(5px, env(safe-area-inset-bottom, 0px)));
+    left: 0; right: 0; transform: none;
+    user-select: none; touch-action: auto;
     isolation: isolate;
   }
   .shared-drawer-header.visible { display: flex; }
-  .shared-drawer-header.is-dragged { bottom: auto; transform: none; }
+  /* is-dragged class no longer moves it — keep fixed position */
+  .shared-drawer-header.is-dragged { bottom: calc(54px + max(5px, env(safe-area-inset-bottom, 0px))); left: 0 !important; top: auto !important; transform: none !important; }
 
   /* Drag handle bar */
   .float-drag-handle {
@@ -4380,12 +4382,16 @@ button, select, input, textarea { touch-action: manipulation; }
   .shared-drawer-header .drawer-transport-strip {
     padding: 7px 12px 9px;
     justify-content: center;
-    border-radius: 0 0 12px 12px;
+    border-radius: 0;
   }
-  /* When controls hidden, transport strip gets full border-radius */
+  /* When controls hidden, no extra radius needed on fixed bar */
   .shared-settings-row.hidden ~ .drawer-transport-strip {
-    border-radius: 0 0 12px 12px;
+    border-radius: 0;
   }
+  /* Hide drag/resize chrome — bar is fixed, not moveable */
+  .float-drag-handle { display: none !important; }
+  .float-resize-grip { display: none !important; }
+  .float-revert-btn  { display: none !important; }
 
   /* Spacers no longer needed (floating panel) */
   .shared-header-spacer { display: none; }
@@ -9618,8 +9624,9 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     min-height: 36px !important;
   }
 
-  /* Transport: teleported to <body> on open — needs to be above the overlay (z:9000) */
-  .mt-transport {
+  /* Transport: only apply fixed dock when actually teleported to <body>.
+     While still inside #vrDeck the transport stays in-flow and invisible. */
+  body > .mt-transport {
     z-index: 9999 !important;
     pointer-events: auto !important;
   }
@@ -9689,85 +9696,52 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     font-size: 20px !important;
   }
 
-  /* ── Transport: minimalist strip locked flush above the bottom nav ── */
-  .mt-transport {
+  /* ── Transport: locked bar above bottom nav — only when teleported to <body> ── */
+  body > .mt-transport {
     position: fixed !important;
     bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important;
     left: 0 !important;
     right: 0 !important;
-    z-index: 9999 !important;
-    /* Match nav background so the two bars look unified */
+    /* Match nav so the two bars read as one unified chrome */
     background: rgba(10,10,12,0.97) !important;
     backdrop-filter: blur(16px) !important;
     -webkit-backdrop-filter: blur(16px) !important;
     border-top: 1px solid var(--border) !important;
     border-radius: 0 !important;
     padding: 0 16px !important;
-    pointer-events: auto !important;
-    order: unset !important;
-    flex-shrink: unset !important;
   }
-  /* Add padding to track list so last track isn't hidden behind transport + nav */
+  /* Add padding to track list so content clears transport + nav */
   .mt-tracks {
     padding-bottom: calc(160px + env(safe-area-inset-bottom, 0px)) !important;
   }
-
   /* Compact / rehearsal mode: half-width right sidebar */
-  .mt-transport.mt-transport-rt {
+  body > .mt-transport.mt-transport-rt {
     left: auto !important;
     right: 0 !important;
     width: 50vw !important;
-    border-radius: 0 !important;
     padding: 0 10px !important;
   }
 
-  /* Thin progress bar flush at the top of the transport strip */
-  .mt-progress-wrap {
-    margin-bottom: 0 !important;
-  }
-  .mt-progress-bar {
-    height: 3px !important;
-    border-radius: 0 !important;
-  }
-  .mt-time-row { display: none !important; }
-
-  /* Hide all text/status — buttons only */
-  .mt-transport .mt-status      { display: none !important; }
-  .mt-transport .vr-time-limit  { display: none !important; }
-
-  /* Buttons: single compact row, nav-height feel */
-  .mt-transport-btns {
-    display: flex !important;
-    align-items: center !important;
+  /* Progress bar: thin flush line at the very top */
+  body > .mt-transport .mt-progress-wrap { margin-bottom: 0 !important; }
+  body > .mt-transport .mt-progress-bar  { height: 3px !important; border-radius: 0 !important; }
+  body > .mt-transport .mt-time-row      { display: none !important; }
+  /* Buttons only — hide all status/quota text */
+  body > .mt-transport .mt-status     { display: none !important; }
+  body > .mt-transport .vr-time-limit { display: none !important; }
+  /* Compact button row */
+  body > .mt-transport .mt-transport-btns {
+    display: flex !important; align-items: center !important;
     justify-content: center !important;
-    gap: 16px !important;
-    margin: 0 !important;
-    height: 44px !important;
+    gap: 16px !important; margin: 0 !important; height: 44px !important;
   }
-  .mt-transport-btn {
-    width: 36px !important;
-    height: 36px !important;
-    border-width: 1px !important;
-    font-size: 13px !important;
+  body > .mt-transport .mt-transport-btn {
+    width: 36px !important; height: 36px !important; border-width: 1px !important; font-size: 13px !important;
   }
-  .mt-transport-btn svg {
-    width: 14px !important;
-    height: 14px !important;
-  }
-  .mt-rec-btn {
-    width: 40px !important;
-    height: 40px !important;
-  }
-  .mt-rec-btn svg {
-    width: 16px !important;
-    height: 16px !important;
-  }
-  /* Play-seq button (Seq ▶): auto width, compact */
-  .mt-play-seq-btn {
-    font-size: 10px !important;
-    padding: 0 10px !important;
-    height: 30px !important;
-  }
+  body > .mt-transport .mt-transport-btn svg { width: 14px !important; height: 14px !important; }
+  body > .mt-transport .mt-rec-btn           { width: 40px !important; height: 40px !important; }
+  body > .mt-transport .mt-rec-btn svg       { width: 16px !important; height: 16px !important; }
+  body > .mt-transport .mt-play-seq-btn      { font-size: 10px !important; padding: 0 10px !important; height: 30px !important; }
 
   /* ── Trash section: compact ── */
   .vr-trash-toggle {
@@ -10170,11 +10144,9 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   .mt-empty-hint .mt-drop-hint { display: none !important; }
   .mt-track-state { font-size: 10px !important; top: 5px !important; right: 8px !important; }
 
-  /* ── Transport: minimalist strip — matches portrait styling ── */
-  .mt-transport {
+  /* ── Transport: only when teleported to <body> (landscape mobile) ── */
+  body > .mt-transport {
     position: fixed !important;
-    /* No bottom nav in landscape (max-width:700px doesn't match at 1024px viewport),
-       so sit at the very bottom with safe-area padding */
     bottom: env(safe-area-inset-bottom, 0px) !important;
     left: 0 !important;
     right: 0 !important;
@@ -10186,34 +10158,26 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     border-radius: 0 !important;
     padding: 0 16px !important;
     pointer-events: auto !important;
-    order: unset !important;
-    flex-shrink: unset !important;
   }
-  .mt-transport.mt-transport-rt {
-    left: auto !important;
-    right: 0 !important;
-    width: 40vw !important;
-    border-radius: 0 !important;
-    padding: 0 10px !important;
+  body > .mt-transport.mt-transport-rt {
+    left: auto !important; right: 0 !important;
+    width: 40vw !important; padding: 0 10px !important;
   }
-  /* Progress bar: thin flush line at top */
-  .mt-transport .mt-progress-wrap { margin-bottom: 0 !important; }
-  .mt-progress-bar { height: 3px !important; border-radius: 0 !important; }
-  .mt-time-row { display: none !important; }
-  /* Hide all text */
-  .mt-transport .mt-status     { display: none !important; }
-  .mt-transport .vr-time-limit { display: none !important; }
-  /* Compact button row */
-  .mt-transport-btns {
+  body > .mt-transport .mt-progress-wrap { margin-bottom: 0 !important; }
+  body > .mt-transport .mt-progress-bar  { height: 3px !important; border-radius: 0 !important; }
+  body > .mt-transport .mt-time-row      { display: none !important; }
+  body > .mt-transport .mt-status        { display: none !important; }
+  body > .mt-transport .vr-time-limit    { display: none !important; }
+  body > .mt-transport .mt-transport-btns {
     display: flex !important; align-items: center !important;
     justify-content: center !important;
     gap: 16px !important; margin: 0 !important; height: 44px !important;
   }
-  .mt-transport-btn { width: 36px !important; height: 36px !important; border-width: 1px !important; }
-  .mt-transport-btn svg { width: 14px !important; height: 14px !important; }
-  .mt-rec-btn { width: 40px !important; height: 40px !important; }
-  .mt-rec-btn svg { width: 16px !important; height: 16px !important; }
-  .mt-play-seq-btn { font-size: 10px !important; padding: 0 10px !important; height: 30px !important; }
+  body > .mt-transport .mt-transport-btn     { width: 36px !important; height: 36px !important; border-width: 1px !important; }
+  body > .mt-transport .mt-transport-btn svg { width: 14px !important; height: 14px !important; }
+  body > .mt-transport .mt-rec-btn           { width: 40px !important; height: 40px !important; }
+  body > .mt-transport .mt-rec-btn svg       { width: 16px !important; height: 16px !important; }
+  body > .mt-transport .mt-play-seq-btn      { font-size: 10px !important; padding: 0 10px !important; height: 30px !important; }
   .mt-vu-wrap { gap: 2px !important; }
   .mt-vu-canvas { width: 5px !important; }
 
@@ -16797,19 +16761,8 @@ function _sharedHeaderOpen(mode) {
   if (!el) return;
   el.classList.add('visible');
   _syncSharedRecBtnState();
-  // Restore saved position if available
-  if (!el.classList.contains('is-dragged')) {
-    requestAnimationFrame(function() {
-      const saved = _transportLoadPos();
-      if (saved) {
-        el.style.left      = saved.x + 'px';
-        el.style.top       = saved.y + 'px';
-        el.style.bottom    = 'auto';
-        el.style.transform = 'none';
-        el.classList.add('is-dragged');
-      }
-    });
-  }
+  // On mobile the bar is always fixed above the bottom nav — no saved position to restore
+  // On desktop the floating panel is hidden entirely, so position restore is a no-op either way
 }
 
 function _sharedHeaderClose() {
@@ -16874,6 +16827,8 @@ function _transportRestoreCollapse() {
     var dragging = false, ox = 0, oy = 0;
 
     function startDrag(cx, cy) {
+      // Mobile: bar is fixed to bottom — no drag allowed
+      if (window.innerWidth <= 768) return;
       const rect    = panel.getBoundingClientRect();
       panel.style.left      = rect.left + 'px';
       panel.style.top       = rect.top  + 'px';
