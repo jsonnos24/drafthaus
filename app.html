@@ -8685,6 +8685,8 @@ body.il-perf-active #ilScrollFloat { display: none; }
 .mt-transport {
   padding: 10px 14px 6px;
   border-top: 1px solid #2a2418;
+  /* Status/quota row hidden — JS still updates elements, just not visible */
+  display: none;
 }
 .mt-progress-wrap { margin-bottom: 6px; }
 .mt-progress-bar {
@@ -10662,10 +10664,6 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
               <option value="drafting">✏️ Drafting</option>
               <option value="finished">✅ Finished</option>
             </select>
-            <div style="display:flex;gap:6px;">
-              <button class="btn btn-sm" onclick="openShareModal()" title="Share draft" style="font-size:11px;background:rgba(200,160,255,0.12);color:var(--purple);border:1px solid rgba(200,160,255,0.35);">⬡ Share</button>
-              <button class="btn btn-ghost btn-sm" onclick="openExportPanel()" title="Export PDF + WAV">↓ Export</button>
-            </div>
           </div>
         </div>
         <div class="fields-row" style="margin-bottom:20px;">
@@ -21958,8 +21956,9 @@ function storageUpdateSel() {
   document.getElementById('storageDeleteBtn').disabled = total === 0;
 
   const songCheckIds = [...document.querySelectorAll('#storageTableBody .song-check:checked')];
-  // Share is only meaningful for whole songs, not for individual takes/loops
+  // Share and Export are only meaningful for whole songs, not for individual takes/loops
   document.getElementById('storageShareBtn').disabled = songCheckIds.length === 0;
+  document.getElementById('storageExportBtn').disabled = songCheckIds.length === 0;
 }
 
 async function storageDeleteSelected() {
@@ -22110,6 +22109,18 @@ async function openExportPanel() {
 }
 function closeExportPanel() {
   document.getElementById('exportModal').classList.remove('open');
+}
+
+async function storageExportSelected() {
+  const checked = [...document.querySelectorAll('#storageTableBody .song-check:checked')];
+  if (!checked.length) return;
+  const songId = checked[0].dataset.song;
+  const target = songs.find(s => s.id === songId);
+  if (!target) return;
+  currentId = songId;
+  populateSongFields(target);
+  closeStorageModal();
+  await openExportPanel();
 }
 
 // ── Export counter ────────────────────────────────────────────────
@@ -32705,6 +32716,7 @@ window._releaseMicStreams          = _releaseMicStreams;
         <div style="display:flex;gap:8px;align-items:center;">
           <button class="btn btn-ghost btn-sm" onclick="closeStorageModal()">Close</button>
           <button class="storage-share-btn" id="storageShareBtn" disabled onclick="storageToggleShareRow(true)">⬡ Share Selected</button>
+          <button class="btn btn-ghost btn-sm" id="storageExportBtn" disabled onclick="storageExportSelected()" style="font-size:11px;">↓ Export Selected</button>
           <button class="storage-delete-btn" id="storageDeleteBtn" disabled onclick="storageDeleteSelected()">Delete Selected</button>
         </div>
       </div>
@@ -33961,9 +33973,9 @@ window._releaseMicStreams          = _releaseMicStreams;
 </script>
 
 <script>
-// ── Header idle-dim: fade logo/buttons to 30% after 30s of no interaction ──
+// ── Header idle-dim: fade logo/buttons to 30% after 3s of no interaction ──
 (function() {
-  const IDLE_MS   = 10000;
+  const IDLE_MS   = 3000;
   const DIM_OPACITY = 0.3;
   let   dimTimer  = null;
   let   isDimmed  = false;
