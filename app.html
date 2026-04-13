@@ -4306,14 +4306,14 @@ button, select, input, textarea { touch-action: manipulation; }
     display: none; flex-direction: column;
     width: 100%; min-width: unset; max-width: 100%;
     /* Sit above bottom nav — same formula as #rehearseBar */
-    bottom: calc(54px + max(5px, env(safe-area-inset-bottom, 0px)));
+    bottom: calc(54px + env(safe-area-inset-bottom, 0px));
     left: 0; right: 0; transform: none;
     user-select: none; touch-action: auto;
     isolation: isolate;
   }
   .shared-drawer-header.visible { display: flex; }
   /* is-dragged class no longer moves it — keep fixed position */
-  .shared-drawer-header.is-dragged { bottom: calc(54px + max(5px, env(safe-area-inset-bottom, 0px))); left: 0 !important; top: auto !important; transform: none !important; }
+  .shared-drawer-header.is-dragged { bottom: calc(54px + env(safe-area-inset-bottom, 0px)); left: 0 !important; top: auto !important; transform: none !important; }
 
   /* Drag handle bar */
   .float-drag-handle {
@@ -4392,6 +4392,34 @@ button, select, input, textarea { touch-action: manipulation; }
   .float-drag-handle { display: none !important; }
   .float-resize-grip { display: none !important; }
   .float-revert-btn  { display: none !important; }
+
+  /* Tap tempo button with inline BPM display */
+  .tap-bpm-btn {
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    padding: 4px 12px !important;
+    min-width: 56px;
+    line-height: 1;
+    transition: background 0.1s;
+  }
+  .tap-bpm-word {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    line-height: 1;
+  }
+  .tap-bpm-value {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.01em;
+    line-height: 1;
+  }
 
   /* Spacers no longer needed (floating panel) */
   .shared-header-spacer { display: none; }
@@ -7317,7 +7345,7 @@ body.il-perf-active #stickySongBar { display: none !important; }
 #rehearseBar {
   position: fixed;
   /* Match nav height: 2px top-pad + 52px item + max(5px, safe-area-inset-bottom) bot-pad */
-  bottom: calc(54px + max(5px, env(safe-area-inset-bottom, 0px))); left: 0; right: 0;
+  bottom: calc(54px + env(safe-area-inset-bottom, 0px)); left: 0; right: 0;
   z-index: 9940;
   display: flex;
   align-items: center;
@@ -34333,28 +34361,11 @@ window._releaseMicStreams          = _releaseMicStreams;
     </svg>
   </div>
   <div id="sharedSettingsRow" class="shared-settings-row">
-    <!-- ⚙ Settings -->
-    <button class="seq-btn seq-settings-btn" id="seqSettingsBtn" onclick="seqToggleSettings(event)" title="Settings">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-      </svg>
+    <!-- Tap Tempo — shows current BPM inside button -->
+    <button class="seq-btn tap-bpm-btn" id="kbdTapBtn" onclick="kbdTapTempo()" title="Tap to set BPM">
+      <span class="tap-bpm-word">TAP</span>
+      <span class="tap-bpm-value" id="htBpmDisplay">100</span>
     </button>
-    <!-- MIDI -->
-    <div class="seq-midi-status">
-      <div id="midiStatusDot"></div>
-      <span id="midiStatusLabel">MIDI</span>
-      <button id="midiConnectBtn" onclick="initMidi()" title="Connect MIDI device">Connect</button>
-      <select id="midiChannelSelect" class="midi-bar-select" title="Filter: only notes on this channel trigger the keyboard. Use Learn Ch to auto-detect." onchange="midiSelectChannel(this.value)" style="display:none;font-size:10px;padding:2px 4px;height:22px;">
-        <option value="-1">All Ch</option>
-        <option value="0">Ch 1</option><option value="1">Ch 2</option><option value="2">Ch 3</option>
-        <option value="3">Ch 4</option><option value="4">Ch 5</option><option value="5">Ch 6</option>
-        <option value="6">Ch 7</option><option value="7">Ch 8</option><option value="8">Ch 9</option>
-        <option value="10">Ch 11</option><option value="11">Ch 12</option><option value="12">Ch 13</option>
-        <option value="13">Ch 14</option><option value="14">Ch 15</option><option value="15">Ch 16</option>
-      </select>
-      <button id="midiLearnBtn" onclick="midiLearnChannel()" title="Play a note to auto-detect your keyboard's MIDI channel" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:10px;background:transparent;border:1px solid var(--border2);color:var(--muted);border-radius:4px;padding:3px 7px;cursor:pointer;transition:all 0.15s;white-space:nowrap;">Learn Ch</button>
-    </div>
     <!-- Key -->
     <div class="seq-ctrl-group">
       <span class="seq-label">Key</span>
@@ -34374,13 +34385,7 @@ window._releaseMicStreams          = _releaseMicStreams;
         <option>B major</option><option>B minor</option>
       </select>
     </div>
-    <!-- BPM -->
-    <div class="seq-ctrl-group">
-      <span class="seq-label">BPM</span>
-      <input class="seq-input" type="number" id="kbdBpm" value="100" min="40" max="240" style="width:56px;" onchange="kbdBpmChanged(this.value)">
-      <button class="seq-btn" id="kbdTapBtn" onclick="kbdTapTempo()" title="Tap to the beat to set BPM" style="font-size:10px;padding:4px 9px;letter-spacing:0.04em;transition:background 0.1s;">TAP</button>
-    </div>
-    <!-- Time -->
+    <!-- Time sig -->
     <div class="seq-ctrl-group">
       <span class="seq-label">Time</span>
       <select class="seq-select" id="kbdTimeSig" onchange="kbdTimeSigChanged(this.value)">
@@ -34401,6 +34406,8 @@ window._releaseMicStreams          = _releaseMicStreams;
         <option value="16">16</option>
       </select>
     </div>
+    <!-- Hidden BPM input kept for JS sync compatibility -->
+    <input type="hidden" id="kbdBpm" value="100">
   </div>
   <!-- Transport buttons -->
   <div class="drawer-transport-strip">
@@ -34408,23 +34415,18 @@ window._releaseMicStreams          = _releaseMicStreams;
       disabled style="opacity:0.35;cursor:not-allowed;"
       title="Record melody (keyboard mode only)">
       <span class="t-btn-label">⏺ Rec</span>
-      <span class="t-btn-hint">r</span>
     </button>
     <button class="split-transport-btn split-play-btn" onclick="sharedPlay()" title="Play (Space)">
       <span class="t-btn-label">▶ Play</span>
-      <span class="t-btn-hint">␣</span>
     </button>
     <button class="split-transport-btn split-play-btn" onclick="sharedPlaySong()" title="Play Sequencer — plays all sections in order (Shift+Space)">
       <span class="t-btn-label">▶▶ Play Seq</span>
-      <span class="t-btn-hint">⇧ ␣</span>
     </button>
-    <button class="split-transport-btn split-stop-btn" onclick="sharedStop()" title="Stop (Space)">
+    <button class="split-transport-btn split-stop-btn" onclick="sharedStop()" title="Stop (Esc)">
       <span class="t-btn-label">■ Stop</span>
-      <span class="t-btn-hint">esc</span>
     </button>
     <button id="sharedMetBtn" class="split-transport-btn split-met-btn" onclick="seqToggleMet()" title="Toggle metronome (M)">
       <span class="t-btn-label">Metro</span>
-      <span class="t-btn-hint">m</span>
     </button>
   </div>
 </div>
