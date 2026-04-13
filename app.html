@@ -462,7 +462,9 @@ html.song-open::after {
   appearance: none; text-transform: uppercase;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23505068'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center;
+  transition: opacity 0.5s;
 }
+.status-pill.sp-faded { opacity: 0.18; }
 
 .midi-bar-label {
   font-family: 'IBM Plex Mono', monospace; font-size: 9px;
@@ -12092,6 +12094,39 @@ function populateSongFields(song) {
 function getCurrentSong() {
   return songs.find(s => s.id === currentId);
 }
+
+// ── Status pill auto-fade ──────────────────────────────────────────
+(function() {
+  var _spTimer = null;
+  function _spFade() {
+    var el = document.getElementById('statusSelect');
+    if (el) el.classList.add('sp-faded');
+  }
+  function _spWake() {
+    var el = document.getElementById('statusSelect');
+    if (el) el.classList.remove('sp-faded');
+    clearTimeout(_spTimer);
+    _spTimer = setTimeout(_spFade, 3000);
+  }
+  // Start the timer once the DOM is ready
+  document.addEventListener('DOMContentLoaded', function() {
+    var el = document.getElementById('statusSelect');
+    if (!el) return;
+    el.addEventListener('mouseenter', _spWake);
+    el.addEventListener('mouseleave', function() {
+      clearTimeout(_spTimer);
+      _spTimer = setTimeout(_spFade, 3000);
+    });
+    el.addEventListener('focus', _spWake);
+    el.addEventListener('blur', function() {
+      clearTimeout(_spTimer);
+      _spTimer = setTimeout(_spFade, 3000);
+    });
+    el.addEventListener('change', _spWake);
+    // Kick off the initial countdown
+    _spTimer = setTimeout(_spFade, 3000);
+  });
+})();
 
 function saveField() {
   const song = getCurrentSong();
