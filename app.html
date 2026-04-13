@@ -24038,7 +24038,7 @@ function setSplitRightTool(tool) {
     }
     content.appendChild(overlay);
     document.body.classList.add('split-4track-active');
-    _vrInitGainUI();
+    if (window._vrInitGainUI) window._vrInitGainUI();
     // Set zoom so 12 bars fill the ruler at current BPM
     if (typeof _mtZoom12Bars === 'function') {
       _mtZoomH = _mtZoom12Bars();
@@ -30216,7 +30216,7 @@ let _vrInputDestNode = null;   // MediaStreamDestinationNode for boosted stream
 function _vrGainToDb(g) {
   return (20 * Math.log10(Math.max(g, 0.01))).toFixed(1);
 }
-function _vrInitGainUI() {
+window._vrInitGainUI = function() {
   var sl = document.getElementById('vrGainSlider');
   var db = document.getElementById('vrGainDb');
   if (sl) sl.value = _vrInputGain;
@@ -30224,7 +30224,7 @@ function _vrInitGainUI() {
     var v = parseFloat(_vrGainToDb(_vrInputGain));
     db.textContent = (v >= 0 ? '+' : '') + v + 'dB';
   }
-}
+};
 window.vrGainChange = function(val) {
   _vrInputGain = parseFloat(val);
   localStorage.setItem('vr_input_gain', _vrInputGain);
@@ -31981,6 +31981,12 @@ async function _mtRunCountdown(cb) {
 window.vrToggleRec = async function() {
   if (_vrRecording) { _mtStopRecording(); return; }
   if (_mtArmedTrack < 0) { showToast('Arm a track first.', 'warn'); return; }
+  // Resume AudioContext synchronously here — still inside the user gesture click.
+  // The countdown (3 s setTimeout) breaks the gesture chain, so after it the browser
+  // will reject resume() on iOS / strict-autoplay Chrome. Firing it now guarantees
+  // the context is running before the gain chain sets up MediaStreamDestinationNode.
+  _mtCreateCtxSync();
+  if (_mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(() => {});
   const { remaining } = await _vrGetQuota();
   if (remaining <= 0) {
     if (userTier === 'free') {
@@ -32018,20 +32024,26 @@ window.vrToggleRec = async function() {
     // ── Input gain processing chain ──
     // Route mic → GainNode → MediaStreamDestination so the recorded signal
     // is amplified before hitting MediaRecorder. Fixes weak/quiet mic levels.
+    // Only attempt if AudioContext is actually running — a suspended context
+    // produces a silent MediaStreamDestination even though no error is thrown.
     const _ctx = _mtAudioCtx;
-    try {
-      if (_vrInputSrcNode)  { try { _vrInputSrcNode.disconnect();  } catch(e){} }
-      if (_vrInputGainNode) { try { _vrInputGainNode.disconnect(); } catch(e){} }
-      _vrInputSrcNode  = _ctx.createMediaStreamSource(stream);
-      _vrInputGainNode = _ctx.createGain();
-      _vrInputGainNode.gain.value = _vrInputGain;
-      _vrInputDestNode = _ctx.createMediaStreamDestination();
-      _vrInputSrcNode.connect(_vrInputGainNode);
-      _vrInputGainNode.connect(_vrInputDestNode);
-    } catch(e) {
-      // Fallback: if gain chain fails, record raw stream
+    if (_ctx.state === 'running') {
+      try {
+        if (_vrInputSrcNode)  { try { _vrInputSrcNode.disconnect();  } catch(e){} }
+        if (_vrInputGainNode) { try { _vrInputGainNode.disconnect(); } catch(e){} }
+        _vrInputSrcNode  = _ctx.createMediaStreamSource(stream);
+        _vrInputGainNode = _ctx.createGain();
+        _vrInputGainNode.gain.value = _vrInputGain;
+        _vrInputDestNode = _ctx.createMediaStreamDestination();
+        _vrInputSrcNode.connect(_vrInputGainNode);
+        _vrInputGainNode.connect(_vrInputDestNode);
+      } catch(e) {
+        _vrInputDestNode = null;
+        console.warn('Input gain chain failed, recording raw stream:', e);
+      }
+    } else {
       _vrInputDestNode = null;
-      console.warn('Input gain chain failed, recording raw stream:', e);
+      console.warn('AudioContext not running (' + _ctx.state + ') — recording raw stream without gain boost');
     }
     const _recStream = _vrInputDestNode ? _vrInputDestNode.stream : stream;
 
