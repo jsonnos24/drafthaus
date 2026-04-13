@@ -462,9 +462,7 @@ html.song-open::after {
   appearance: none; text-transform: uppercase;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23505068'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center;
-  transition: opacity 0.5s;
 }
-.status-pill.sp-faded { opacity: 0.18; }
 
 .midi-bar-label {
   font-family: 'IBM Plex Mono', monospace; font-size: 9px;
@@ -5676,7 +5674,8 @@ button, select, input, textarea { touch-action: manipulation; }
 }
 
 /* ── Header status dropdown ───────────────────────────────── */
-.header-status-wrap { position: relative; }
+.header-status-wrap { position: relative; transition: opacity 0.5s; }
+.header-status-wrap.hdr-faded { opacity: 0.18; }
 .header-status-btn {
   display: flex; align-items: center; gap: 7px;
   background: var(--card); border: 1px solid var(--border);
@@ -10485,7 +10484,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
           <div style="padding:6px 12px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:0.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="headerUserEmail"></div>
           <button class="header-dropdown-item" onclick="showUpgradeModal('');closeHeaderDropdown()">$ Pricing</button>
           <button class="header-dropdown-item" onclick="openAbout();closeHeaderDropdown()">ℹ About Drafthaus</button>
-          <button class="header-dropdown-item danger" onclick="auth.signOut()">Sign Out</button>
+          <button class="header-dropdown-item danger" onclick="auth.signOut().then(()=>{ window.location.href='https://drafthaus.ca'; })">Sign Out</button>
         </div>
       </div>
       <a class="header-report-bug" href="mailto:hellojasoncraig@gmail.com?subject=Drafthaus%20Bug%20Report">Report a Bug</a>
@@ -10624,7 +10623,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
         <div class="mobile-menu-sep"></div>
         <button class="mobile-menu-item danger" onclick="vrEmptyAllTrashesConfirm();closeMobileMenu()">🗑 Empty All Trash</button>
         <button class="mobile-menu-item danger" onclick="emptyTrashAndSignOut();closeMobileMenu()">🗑 Empty All Trash &amp; Sign Out</button>
-        <button class="mobile-menu-item danger" onclick="auth.signOut();closeMobileMenu()">Sign Out</button>
+        <button class="mobile-menu-item danger" onclick="auth.signOut().then(()=>{ window.location.href='https://drafthaus.ca'; });closeMobileMenu()">Sign Out</button>
       </div>
     </div>
   </div>
@@ -10725,13 +10724,12 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
             <div class="panel-working" id="dispWorking">Working title</div>
             <div class="panel-title" id="dispTitle">New Draft</div>
           </div>
-          <div class="panel-controls">
-            <select class="status-pill" id="statusSelect" onchange="saveField()">
-              <option value="idea">💡 Idea</option>
-              <option value="drafting">✏️ Drafting</option>
-              <option value="finished">✅ Finished</option>
-            </select>
-          </div>
+          <!-- statusSelect kept hidden so saveField() / populateSongFields() still work -->
+          <select id="statusSelect" style="display:none;" onchange="saveField()">
+            <option value="idea">💡 Idea</option>
+            <option value="drafting">✏️ Drafting</option>
+            <option value="finished">✅ Finished</option>
+          </select>
         </div>
         <div class="fields-row" style="margin-bottom:20px;">
           <div class="field-group" style="flex:2">
@@ -12095,34 +12093,29 @@ function getCurrentSong() {
   return songs.find(s => s.id === currentId);
 }
 
-// ── Status pill auto-fade ──────────────────────────────────────────
+// ── Header status pill auto-fade ──────────────────────────────────
 (function() {
   var _spTimer = null;
   function _spFade() {
-    var el = document.getElementById('statusSelect');
-    if (el) el.classList.add('sp-faded');
+    var el = document.getElementById('headerStatusWrap');
+    if (el) el.classList.add('hdr-faded');
   }
   function _spWake() {
-    var el = document.getElementById('statusSelect');
-    if (el) el.classList.remove('sp-faded');
+    var el = document.getElementById('headerStatusWrap');
+    if (el) el.classList.remove('hdr-faded');
     clearTimeout(_spTimer);
     _spTimer = setTimeout(_spFade, 3000);
   }
-  // Start the timer once the DOM is ready
   document.addEventListener('DOMContentLoaded', function() {
-    var el = document.getElementById('statusSelect');
+    var el = document.getElementById('headerStatusWrap');
     if (!el) return;
     el.addEventListener('mouseenter', _spWake);
     el.addEventListener('mouseleave', function() {
       clearTimeout(_spTimer);
       _spTimer = setTimeout(_spFade, 3000);
     });
-    el.addEventListener('focus', _spWake);
-    el.addEventListener('blur', function() {
-      clearTimeout(_spTimer);
-      _spTimer = setTimeout(_spFade, 3000);
-    });
-    el.addEventListener('change', _spWake);
+    // Wake on any status change (header dropdown selection)
+    el.addEventListener('click', _spWake);
     // Kick off the initial countdown
     _spTimer = setTimeout(_spFade, 3000);
   });
@@ -16538,7 +16531,8 @@ function seqSaveKeySlots() {
 
 function seqResetKeySlots() {
   const names = seqGetScaleChords(seqCurrentKey(), seqCurrentMode());
-  seqKeySlots = names.slice(); // preserve _viii so key slot 8 plays the correct octave
+  // Spread the 8 diatonic names into slots 0-7, keep slot 8 (9th) as-is
+  seqKeySlots = [...names, seqKeySlots[8] || ''];
   seqSaveKeySlots();
   seqRenderKeyTriggers();
 }
@@ -32494,7 +32488,7 @@ window.emptyTrashAndSignOut = async function() {
       });
       await batch.commit();
     }
-    auth.signOut();
+    auth.signOut().then(() => { window.location.href = 'https://drafthaus.ca'; });
   } catch(e) { showToast('Something went wrong.','error'); }
 };
 
