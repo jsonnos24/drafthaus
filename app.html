@@ -8382,6 +8382,7 @@ body.il-perf-active #ilScrollFloat { display: none; }
   background: none; border: none; cursor: pointer; padding: 4px;
   border-radius: 4px; display: flex; align-items: center;
   transition: color 0.15s, background 0.15s; color: #3a2e1e;
+  -webkit-appearance: none; appearance: none; flex-shrink: 0;
 }
 .vr-take-lock-btn:hover { color: #c0a878; background: rgba(192,168,120,0.1); }
 .vr-take-lock-btn.locked { color: #c0a878; }
@@ -10037,20 +10038,43 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   .mt-takes-panel .vr-take-num  { font-size: 13px !important; min-width: 28px !important; }
   .mt-takes-panel .vr-take-dur  { font-size: 12px !important; min-width: 36px !important; }
   .mt-takes-panel .vr-take-play-btn,
-  .mt-takes-panel .vr-take-action-btn,
-  .mt-takes-panel .vr-take-lock-btn {
-    min-width: 44px !important;
-    min-height: 44px !important;
-    font-size: 13px !important;
+  .mt-takes-panel .vr-take-action-btn {
+    min-width: 40px !important;
+    min-height: 40px !important;
+    font-size: 12px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
     border-radius: 8px !important;
+    flex-shrink: 0 !important;
+  }
+  .mt-takes-panel .vr-take-lock-btn {
+    min-width: 36px !important;
+    min-height: 36px !important;
+    font-size: 14px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 8px !important;
+    flex-shrink: 0 !important;
+    background: none !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    border: none !important;
+    padding: 0 !important;
   }
   .mt-takes-panel .vr-star-btn {
     font-size: 14px !important;
     padding: 3px !important;
   }
+  /* Prevent the takes top row from wrapping onto multiple lines on mobile */
+  .mt-takes-panel .vr-take-top {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+  }
+  .mt-takes-panel .vr-take-top::-webkit-scrollbar { display: none !important; }
 
   /* ── Takes panel: full bottom-sheet on mobile ── */
   .mt-takes-panel {
@@ -14627,7 +14651,9 @@ function getSeqAudioCtx() {
     seqMelodyGain.connect(seqMasterGain);
     setTimeout(seqApplyMixer, 0);
   }
-  if (seqAudioCtx.state === 'suspended') seqAudioCtx.resume();
+  // Do NOT call resume() here — this function is called during sample loading
+  // at startup (no user gesture), which causes Chrome to log autoplay warnings.
+  // resume() is called by the actual playback entry points (seqPlay, seqPlaySong).
   return seqAudioCtx;
 }
 
@@ -17464,6 +17490,8 @@ function seqPlay() {
   if (typeof htStartClock === 'function') htStartClock();
 
   const ctx = getSeqAudioCtx();
+  // Resume within the user gesture (or as close as possible).
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
   _seqSchedulerCtx = ctx;
   _seqStepIndex = 0;
   _seqNextNoteTime = ctx.currentTime + 0.05;
@@ -17546,6 +17574,7 @@ function seqPlaySong() {
   document.getElementById('seqDrawerTab')?.classList.add('playing');
 
   const ctx = getSeqAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
   _seqSchedulerCtx = ctx;
   _seqNextNoteTime = ctx.currentTime + 0.05;
   _seqTimer = setInterval(seqScheduleNotes, 25);
