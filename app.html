@@ -6268,6 +6268,37 @@ body.split-4track-active .split-transport { display: none !important; }
 .split-rec-btn   { border-color: rgba(248,113,113,0.5); color: var(--text); }
 .split-rec-btn.recording { background: var(--red); color: #fff; border-color: var(--red); animation: recPulse 1s ease-in-out infinite; }
 .split-met-btn.on { color: var(--gold); border-color: var(--gold); }
+/* Input gain pill — visible alongside 4-track transport */
+.vr-gain-pill {
+  display: none; align-items: center; gap: 5px;
+  background: var(--card2); border: 1px solid var(--border2);
+  border-radius: 7px; padding: 2px 7px; flex-shrink: 0;
+}
+body.split-4track-active .vr-gain-pill { display: flex; }
+.vr-gain-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 8px;
+  font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--faint); white-space: nowrap;
+}
+.vr-gain-slider {
+  width: 52px; height: 3px; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  background: var(--border2); border-radius: 2px; outline: none;
+}
+.vr-gain-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--gold); cursor: pointer; border: none;
+}
+.vr-gain-slider::-moz-range-thumb {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--gold); cursor: pointer; border: none;
+}
+.vr-gain-db {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  font-weight: 700; color: var(--gold);
+  min-width: 34px; text-align: right;
+}
 /* Hide keyboard drawer header transport in split mode */
 body.split-active .keyboard-drawer .kbd-transport-strip { display: none !important; }
 #splitRightSelect {
@@ -9122,6 +9153,10 @@ body.il-perf-active #ilScrollFloat { display: none; }
 .vr-take-action-btn.use-take:hover { border-color: #4a7050; color: #80c090; }
 .vr-take-action-btn.trash { color: #a07830; }
 .vr-take-action-btn.trash:hover { color: #c06060; }
+.vr-take-action-btn.normalize-btn { border: 1px solid #1e3a50; color: #4a8ab0; }
+.vr-take-action-btn.normalize-btn:hover { border-color: #2a5070; color: #6aaad0; }
+.vr-take-action-btn.normalize-btn:disabled { opacity: 0.4; cursor: default; }
+.vr-take-action-btn.normalize-btn.normalized { border-color: #1a3a28; color: #4a8060; }
 .vr-take-note { width: 100%; font-size: 10px; resize: none; margin-top: 4px; }
 .vr-take-playing { background: #0a1210; }
 .take-locked-row { opacity: 0.6; }
@@ -24003,6 +24038,7 @@ function setSplitRightTool(tool) {
     }
     content.appendChild(overlay);
     document.body.classList.add('split-4track-active');
+    _vrInitGainUI();
     // Set zoom so 12 bars fill the ruler at current BPM
     if (typeof _mtZoom12Bars === 'function') {
       _mtZoomH = _mtZoom12Bars();
@@ -30168,6 +30204,38 @@ let _vrOutputDeviceId  = localStorage.getItem('vr_output_device') || '';
 let _vrEchoCancellation = localStorage.getItem('vr_ec') === 'true';
 let _vrDevices         = { inputs: [], outputs: [] };
 
+// ── Input gain — pre-recording amplifier (fixes weak/quiet mic signals) ──
+// Stored as a linear multiplier (2.5 ≈ +8dB, 4.0 ≈ +12dB, 8.0 ≈ +18dB)
+let _vrInputGain = parseFloat(localStorage.getItem('vr_input_gain') || '3.0');
+// Holds the processing nodes for the current recording session
+let _vrInputGainNode = null;   // GainNode applied before MediaRecorder
+let _vrInputSrcNode  = null;   // MediaStreamSourceNode from mic stream
+let _vrInputDestNode = null;   // MediaStreamDestinationNode for boosted stream
+
+// ── Input gain UI helpers ──
+function _vrGainToDb(g) {
+  return (20 * Math.log10(Math.max(g, 0.01))).toFixed(1);
+}
+function _vrInitGainUI() {
+  var sl = document.getElementById('vrGainSlider');
+  var db = document.getElementById('vrGainDb');
+  if (sl) sl.value = _vrInputGain;
+  if (db) {
+    var v = parseFloat(_vrGainToDb(_vrInputGain));
+    db.textContent = (v >= 0 ? '+' : '') + v + 'dB';
+  }
+}
+window.vrGainChange = function(val) {
+  _vrInputGain = parseFloat(val);
+  localStorage.setItem('vr_input_gain', _vrInputGain);
+  // Update live gain node in real-time if a recording session is active
+  if (_vrInputGainNode) _vrInputGainNode.gain.value = _vrInputGain;
+  // Update dB label
+  var v = parseFloat(_vrGainToDb(_vrInputGain));
+  var db = document.getElementById('vrGainDb');
+  if (db) db.textContent = (v >= 0 ? '+' : '') + v + 'dB';
+};
+
 // Multitrack audio state
 let _mtAudioCtx     = null;
 let _mtMasterGain   = null;
@@ -31449,12 +31517,16 @@ async function _vuStart() {
   if (_vuActive) return;
   _vuActive = true;
   try {
-    // Reuse looper's shared stream if already live (avoids extra getUserMedia)
-    var src = (typeof loopSharedStream !== 'undefined' && loopSharedStream && loopSharedStream.active)
+    // Prefer 4-track stream (has noise-suppression off, proper constraints) → then looper → fallback
+    var src = (_mtStream && _mtStream.active) ? _mtStream
+            : (typeof loopSharedStream !== 'undefined' && loopSharedStream && loopSharedStream.active)
               ? loopSharedStream : null;
     if (!src) {
       if (!_vuStream || !_vuStream.active) {
-        _vuStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        _vuStream = await navigator.mediaDevices.getUserMedia({
+          audio: { noiseSuppression: false, echoCancellation: false, autoGainControl: false },
+          video: false
+        });
         _scheduleMicInactivityRelease();
       }
       src = _vuStream;
@@ -31943,6 +32015,26 @@ window.vrToggleRec = async function() {
       t.sourceNode.start(0);
     });
 
+    // ── Input gain processing chain ──
+    // Route mic → GainNode → MediaStreamDestination so the recorded signal
+    // is amplified before hitting MediaRecorder. Fixes weak/quiet mic levels.
+    const _ctx = _mtAudioCtx;
+    try {
+      if (_vrInputSrcNode)  { try { _vrInputSrcNode.disconnect();  } catch(e){} }
+      if (_vrInputGainNode) { try { _vrInputGainNode.disconnect(); } catch(e){} }
+      _vrInputSrcNode  = _ctx.createMediaStreamSource(stream);
+      _vrInputGainNode = _ctx.createGain();
+      _vrInputGainNode.gain.value = _vrInputGain;
+      _vrInputDestNode = _ctx.createMediaStreamDestination();
+      _vrInputSrcNode.connect(_vrInputGainNode);
+      _vrInputGainNode.connect(_vrInputDestNode);
+    } catch(e) {
+      // Fallback: if gain chain fails, record raw stream
+      _vrInputDestNode = null;
+      console.warn('Input gain chain failed, recording raw stream:', e);
+    }
+    const _recStream = _vrInputDestNode ? _vrInputDestNode.stream : stream;
+
     // Start MediaRecorder
     const t = _mtTracks[_mtArmedTrack];
     t.chunks = [];
@@ -31950,7 +32042,7 @@ window.vrToggleRec = async function() {
       ? 'audio/webm;codecs=opus'
       : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
         ? 'audio/ogg;codecs=opus' : 'audio/webm';
-    t.mediaRecorder = new MediaRecorder(stream, { mimeType });
+    t.mediaRecorder = new MediaRecorder(_recStream, { mimeType });
     t.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) t.chunks.push(e.data); };
     t.mediaRecorder.onstop = () => _mtFinishRecording(_mtArmedTrack, mimeType);
     t.mediaRecorder.start(100);
@@ -32005,6 +32097,10 @@ function _mtStopRecording() {
   if (_mtArmedTrack >= 0) _mtStopRecordingAnim(_mtArmedTrack);
   // Arm Sequencer: auto-stop sequencer when recording ends
   if (_vrSeqArmed && seqIsPlaying) { seqStop(); }
+  // Tear down input gain chain
+  try { if (_vrInputSrcNode)  _vrInputSrcNode.disconnect();  } catch(e){}
+  try { if (_vrInputGainNode) _vrInputGainNode.disconnect(); } catch(e){}
+  _vrInputSrcNode = null; _vrInputGainNode = null; _vrInputDestNode = null;
   const t = _mtArmedTrack >= 0 ? _mtTracks[_mtArmedTrack] : null;
   if (t && t.mediaRecorder && t.mediaRecorder.state !== 'inactive') t.mediaRecorder.stop();
   // Stop overdub playback
@@ -32502,6 +32598,7 @@ function _mtRenderTakesPanel(trackIdx) {
         <span class="vr-take-dur">${dur}</span>
         <div class="vr-take-stars">${stars}</div>
         <button class="vr-take-action-btn use-take${isActive?' active':''}" onclick="mtUseTake(${trackIdx},${idx})" title="Load as active take">USE</button>
+        <button class="vr-take-action-btn normalize-btn${take.normalized?' normalized':''}" onclick="vrNormalizeTake('${take.id}','${take.downloadUrl}','${take.storagePath||''}',${trackIdx},${idx})" title="Normalize audio levels to -1dB peak">${take.normalized?'✓NRM':'NORM'}</button>
         <button class="vr-take-lock-btn${isLocked?' locked':''}" onclick="vrToggleLock('${take.id}',${!isLocked})" title="${isLocked?'Unlock take':'Lock take (protects from deletion)'}">${isLocked?'🔒':'🔓'}</button>
         <button class="vr-take-action-btn trash${isLocked?' take-locked':''}" onclick="vrDeleteTake('${take.id}','${take.storagePath||''}')">✕</button>
       </div>
@@ -32524,6 +32621,79 @@ window.mtUseTake = async function(trackIdx, takeIdx) {
   const panel = _el('mt-takes-panel-'+trackIdx);
   if (panel) panel.classList.remove('open');
   _setStatus('T' + (takeIdx + 1) + ' loaded ✓');
+};
+
+// ── Normalize take ─────────────────────────────────────────────
+window.vrNormalizeTake = async function(takeId, downloadUrl, storagePath, trackIdx, takeIdx) {
+  const btn = document.querySelector('#vrTake_' + takeId + ' .normalize-btn');
+  if (btn) { btn.textContent = '…'; btn.disabled = true; }
+  try {
+    // 1. Fetch and decode
+    const resp    = await fetch(downloadUrl);
+    const arrBuf  = await resp.arrayBuffer();
+    const tmpCtx  = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await tmpCtx.decodeAudioData(arrBuf);
+    tmpCtx.close();
+
+    // 2. Find peak
+    let peak = 0;
+    for (let c = 0; c < decoded.numberOfChannels; c++) {
+      const d = decoded.getChannelData(c);
+      for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; }
+    }
+    if (peak < 0.005) {
+      if (typeof showToast === 'function') showToast('Take appears silent — skipped', 'warn', 2500);
+      if (btn) { btn.textContent = 'NORM'; btn.disabled = false; } return;
+    }
+
+    // 3. Scale to -1dBFS (linear ≈ 0.891)
+    const scale = 0.891 / peak;
+    for (let c = 0; c < decoded.numberOfChannels; c++) {
+      const d = decoded.getChannelData(c);
+      for (let i = 0; i < d.length; i++) d[i] *= scale;
+    }
+
+    // 4. Encode to WAV
+    const wavBlob = _audioBufferToWav(decoded);
+
+    // 5. Upload new file
+    const uid = auth.currentUser?.uid;
+    if (!uid) throw new Error('Not signed in');
+    const fname  = 'take_' + Date.now() + '_norm.wav';
+    const path   = 'voice_takes/' + _vrSongId + '/' + fname;
+    const snap   = await firebase.storage().ref(path).put(wavBlob, { contentType: 'audio/wav' });
+    const newUrl = await snap.ref.getDownloadURL();
+
+    // 6. Delete old file (best-effort, don't block on it)
+    if (storagePath) firebase.storage().ref(storagePath).delete().catch(() => {});
+
+    // 7. Update Firestore
+    await db.collection('voice_takes').doc(takeId).update({
+      downloadUrl: newUrl, storagePath: path, filename: fname,
+      mimeType: 'audio/wav', normalized: true
+    });
+
+    // 8. Update local state and clear IndexedDB cache
+    const t = _mtTracks[trackIdx];
+    if (t && t.takes[takeIdx]) {
+      Object.assign(t.takes[takeIdx], { downloadUrl: newUrl, storagePath: path,
+        filename: fname, mimeType: 'audio/wav', normalized: true });
+    }
+    if (window._mtAudioCache) window._mtAudioCache.del(takeId).catch?.(() => {});
+
+    // 9. Reload active buffer if this was the active take
+    if (t && t.activeTakeIdx === takeIdx) {
+      await _mtLoadTakeBuffer(trackIdx, t.takes[takeIdx]);
+    }
+
+    _mtRenderTakesPanel(trackIdx);
+    if (typeof showToast === 'function') showToast('Take normalized ✓', 'success', 2000);
+
+  } catch(err) {
+    console.error('[NORM]', err);
+    if (typeof showToast === 'function') showToast('Normalize failed: ' + err.message, 'error', 3500);
+    if (btn) { btn.textContent = 'NORM'; btn.disabled = false; }
+  }
 };
 
 // ── IndexedDB audio buffer cache — survives page reloads ───────
@@ -33932,6 +34102,14 @@ window._releaseMicStreams          = _releaseMicStreams;
       <button class="split-transport-btn split-rec-btn" id="mtRecBtn" onclick="vrToggleRec()" title="Record armed track (R)">⏺ Rec</button>
       <button class="split-transport-btn split-play-btn" id="mtPlayBtn" onclick="mtPlay()" disabled title="Play (Space)">▶ Play</button>
       <button class="split-transport-btn" id="mtPlaySeqBtn" onclick="mtPlayWithSeq()" title="Play with Sequencer">▶+🥁</button>
+    </div>
+    <!-- Input gain control — shown with 4-track transport -->
+    <div class="vr-gain-pill" id="vrGainPill" title="Input recording gain (pre-boost)">
+      <span class="vr-gain-label">IN</span>
+      <input type="range" class="vr-gain-slider" id="vrGainSlider"
+        min="0.5" max="8" step="0.1" value="3"
+        oninput="vrGainChange(this.value)">
+      <span class="vr-gain-db" id="vrGainDb">+9.5dB</span>
     </div>
     <!-- I/O pill — shown only when 4-track is in split right (body.split-4track-active) -->
     <div class="split-io-pill" id="vrIoHeaderPill">
