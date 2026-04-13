@@ -8681,6 +8681,29 @@ body.il-perf-active #ilScrollFloat { display: none; }
   color: var(--faint); padding: 4px 0;
 }
 
+/* ── Nav idle-dim: transition support + dimmed state ────────── */
+#searchWrap,
+#themeToggleBtn,
+#metroSegRun,
+#metroSegEdit,
+#metroSegBack,
+.vr-metro-btn,
+.bottom-nav-item.nav-mic,
+.bottom-nav-item.nav-keyboard,
+.bottom-nav-item.nav-sequencer,
+.bottom-nav-item.nav-looper,
+.bottom-nav-item.nav-mix {
+  transition: opacity 1.2s ease;
+}
+.nav-idledim {
+  opacity: 0.7 !important;
+}
+/* Active / open states always win over the dim */
+.metro-seg-active.nav-idledim,
+.nav-open.nav-idledim {
+  opacity: 1 !important;
+}
+
 /* ── Master transport ────────────────────────────────────────── */
 .mt-transport {
   padding: 10px 14px 6px;
@@ -34017,6 +34040,77 @@ window._releaseMicStreams          = _releaseMicStreams;
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function() { dimTimer = setTimeout(applyDim, IDLE_MS); });
   } else {
+    dimTimer = setTimeout(applyDim, IDLE_MS);
+  }
+})();
+</script>
+
+<script>
+// ── Nav idle-dim: fade nav controls to 70% after 3s of no interaction ──
+(function() {
+  const IDLE_MS = 3000;
+  const DIM_CLASS = 'nav-idledim';
+
+  const TARGET_SELECTORS = [
+    '#searchWrap',
+    '#themeToggleBtn',
+    '#metroSegRun',
+    '#metroSegEdit',
+    '#metroSegBack',
+    '.vr-metro-btn',
+    '.bottom-nav-item.nav-mic',
+    '.bottom-nav-item.nav-keyboard',
+    '.bottom-nav-item.nav-sequencer',
+    '.bottom-nav-item.nav-looper',
+    '.bottom-nav-item.nav-mix',
+  ];
+
+  let dimTimer = null;
+  let isDimmed = false;
+
+  function getTargets() {
+    const els = [];
+    TARGET_SELECTORS.forEach(function(sel) {
+      document.querySelectorAll(sel).forEach(function(el) { els.push(el); });
+    });
+    return els;
+  }
+
+  function applyDim() {
+    getTargets().forEach(function(el) { el.classList.add(DIM_CLASS); });
+    isDimmed = true;
+  }
+
+  function clearDim() {
+    getTargets().forEach(function(el) { el.classList.remove(DIM_CLASS); });
+    isDimmed = false;
+  }
+
+  function resetTimer() {
+    if (isDimmed) clearDim();
+    clearTimeout(dimTimer);
+    dimTimer = setTimeout(applyDim, IDLE_MS);
+  }
+
+  function attachListeners() {
+    getTargets().forEach(function(el) {
+      el.addEventListener('mouseenter',  resetTimer, { passive: true });
+      el.addEventListener('click',       resetTimer, { passive: true });
+      el.addEventListener('touchstart',  resetTimer, { passive: true });
+      el.addEventListener('mouseleave', function() {
+        clearTimeout(dimTimer);
+        dimTimer = setTimeout(applyDim, IDLE_MS);
+      }, { passive: true });
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+      attachListeners();
+      dimTimer = setTimeout(applyDim, IDLE_MS);
+    });
+  } else {
+    attachListeners();
     dimTimer = setTimeout(applyDim, IDLE_MS);
   }
 })();
