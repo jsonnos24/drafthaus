@@ -20619,6 +20619,18 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(() => checkPublicViewMode().catch(e => console.warn('publicView error:', e)), 100);
   }
 
+  // Process any pending Google redirect sign-in result (from signInWithRedirect).
+  // onAuthStateChanged handles the actual login transition; this call is just for
+  // error surfacing if the redirect result itself carries an error.
+  auth.getRedirectResult().catch(err => {
+    if (err && err.code && err.code !== 'auth/popup-closed-by-user') {
+      const errEl = document.getElementById('landingError');
+      if (errEl) errEl.textContent = 'Sign-in failed. Please try again.';
+      const btn = document.getElementById('landingUnlockBtn');
+      if (btn) btn.disabled = false;
+    }
+  });
+
   // Auth handled by onAuthStateChanged
 });
 
@@ -20642,6 +20654,7 @@ auth.onAuthStateChanged(user => {
       inactivityWarningSentAt: null,     // cleared on login so re-inactive users get warned again
       inactivityFinalWarningSentAt: null,
     }, { merge: true }).then(() => {
+      if (!auth.currentUser) return; // sign-out raced the set
       let appInited = false;
       // Use onSnapshot so tier updates (e.g. after Stripe payment) are applied in real-time
       _userTierUnsub = userRef.onSnapshot(doc => {
@@ -20696,6 +20709,15 @@ auth.onAuthStateChanged(user => {
         initApp();
         setTimeout(() => { if (typeof _initSplitAlwaysOn === 'function') _initSplitAlwaysOn(); }, 150);
       });
+    }, e => {
+      // Firestore write failed (e.g. offline or rules) — proceed with free tier rather than hanging
+      console.warn('[auth] userRef.set failed, proceeding with defaults:', e?.code);
+      if (!auth.currentUser) return;
+      document.getElementById('landingOverlay').classList.add('hidden');
+      const emailEl = document.getElementById('headerUserEmail');
+      if (emailEl) emailEl.textContent = user.email || '';
+      initApp();
+      setTimeout(() => { if (typeof _initSplitAlwaysOn === 'function') _initSplitAlwaysOn(); }, 150);
     });
   } else {
     // Logged out — unsubscribe tier listener and clear everything
@@ -22584,16 +22606,21 @@ async function submitLandingPassword() {
 
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
-    await auth.signInWithPopup(provider);
-    // onAuthStateChanged will handle hiding the overlay and calling initApp()
+    // Use redirect instead of popup — popup is blocked by Cross-Origin-Opener-Policy
+    // headers on the hosting server, causing signInWithPopup to throw auth/internal-error
+    // even though auth technically completes. Redirect is immune to COOP.
+    await auth.signInWithRedirect(provider);
+    // Page will navigate away to Google; on return, onAuthStateChanged handles the rest
   } catch (err) {
+    // Redirect call itself should not throw, but guard anyway
     if (err.code !== 'auth/popup-closed-by-user') {
       errEl.textContent = 'Sign-in failed. Please try again.';
     }
-  } finally {
     bartenderPasswordHide();
     btn.disabled = false;
   }
+  // Note: no finally — if redirect succeeds the page navigates away and
+  // the finally block would run before navigation, causing a flicker
 }
 
 // ── Landing sign-in/up (Email + Password) ─────────────────────────
