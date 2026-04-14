@@ -1194,6 +1194,11 @@ button, select, input, textarea { touch-action: manipulation; }
   #splitDivider    { top: calc(128px + env(safe-area-inset-top, 0px)); }
   /* In perf/rehearse mode header is hidden — seq strip floats; hide it to keep the panel clean */
   body.il-perf-active .global-seq-strip { display: none !important; }
+  /* In split+perf mode, header stays visible but seq strip is hidden — drop panels to header-bottom only */
+  body.il-perf-active.split-active #splitRightPanel,
+  body.il-perf-active.split-active #splitDivider {
+    top: calc(86px + env(safe-area-inset-top, 0px)) !important;
+  }
   .header-logo { font-size: 13px; }
   .header-sub { display: none; }
   .sync-status { font-size: 11px; }
@@ -6701,12 +6706,27 @@ body.split-active #seqDrawerOverlay,
 body.split-active #looperOverlay { display: none !important; }
 
 /* ── Split panel adjustments in rehearse/perf mode ───────────────── */
-/* In perf mode the site header is hidden — split panels start from top: 0 */
-body.il-perf-active.split-active #splitRightPanel {
-  top: 0 !important;
+/* In split mode, keep the header visible so the panel stays at its normal top position.
+   Only in standalone (non-split) rehearse does the header/panel go to top: 0. */
+body.il-perf-active.split-active #siteHeader { display: flex !important; }
+
+/* When 4-track overlay is inside the split panel it must NOT behave as a fixed sidebar —
+   override every vr-rt-compact positioning rule so it fills the panel like a normal element */
+#splitRightContent > #vrOverlay.vr-rt-compact {
+  position: relative !important;
+  inset: auto !important;
+  top: auto !important; right: auto !important; bottom: auto !important; left: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: none !important;
+  backdrop-filter: none !important;
 }
-body.il-perf-active.split-active #splitDivider {
-  top: 0 !important;
+#splitRightContent > #vrOverlay.vr-rt-compact > #vrDeck {
+  width: 100% !important; max-width: 100% !important;
+  height: 100% !important; max-height: 100% !important;
+  border-radius: 0 !important;
+  transform: none !important;
+  transition: none !important;
 }
 /* Hide the left panel tab header in perf mode — rehearse view has its own chrome */
 body.il-perf-active.split-active #splitLeftHeader {
@@ -6719,6 +6739,19 @@ body.il-perf-active.split-active .rt-metro.il-perf-metro {
 /* Pad the right panel bottom so content clears the bottom nav */
 body.il-perf-active.split-active #splitRightContent {
   padding-bottom: 60px;
+}
+
+/* ── Drawers in split+rehearse mode: start below the visible header ── */
+/* Without this, right-side drawers extend from top: 0 and the header visually covers their top */
+body.il-perf-active.split-active .keyboard-drawer.open,
+body.il-perf-active.split-active .looper-drawer.open {
+  top: calc(86px + env(safe-area-inset-top, 0px)) !important;
+  height: calc(100dvh - 86px - env(safe-area-inset-top, 0px)) !important;
+}
+/* Seq drawer is a bottom-sheet — just cap its height so it doesn't reach under the header */
+body.il-perf-active.split-active .seq-drawer.open {
+  height: calc(100dvh - 86px - env(safe-area-inset-top, 0px)) !important;
+  max-height: calc(100dvh - 86px - env(safe-area-inset-top, 0px)) !important;
 }
 
 /* 4-Track in split panel — strip modal backdrop, fill the panel */
@@ -7786,6 +7819,19 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
 body.il-perf-active .rt-metro { display: none !important; }
 body.il-perf-active #siteHeader { display: none; }
 body.il-perf-active #stickySongBar { display: none !important; }
+/* Hide global seq strip in ALL perf/rehearse contexts (not just mobile) */
+body.il-perf-active .global-seq-strip { display: none !important; }
+/* Rehearse-mode lyrics: extra bottom clearance so content isn't hidden behind the rehearse bar */
+body.il-perf-active .rt-body {
+  padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)) !important;
+}
+/* ── Fix metro bar gap: force bottom nav to match rehearse bar formula ── */
+@media(max-width: 700px) {
+  body.il-perf-active .bottom-nav {
+    height: calc(54px + env(safe-area-inset-bottom, 0px));
+    padding: 0 0 env(safe-area-inset-bottom, 0px);
+  }
+}
 /* Rehearse button stays visible in perf mode so user can exit */
 /* Elements only shown when metro bar is in perf overlay */
 .rt-perf-only { display: none; }
@@ -12859,7 +12905,14 @@ function _updateSiStats(song) {
   const sectionCount = Object.values(song.structure || {}).filter(s => s.checked).length;
   const seqs = getSongSequences ? getSongSequences(song) : [];
   const seqCount = seqs.length;
-  const chordCount = Object.values(song.chords || {}).reduce((n, arr) => n + (arr?.length || 0), 0);
+  // Count chords from all sources:
+  // 1) song.chords — direct chord editor
+  // 2) song.instruments[instId][partId].chords — drag-onto-lyrics (saved to guitar) + notation editor
+  const chordCount =
+    Object.values(song.chords || {}).reduce((n, arr) => n + (arr?.length || 0), 0) +
+    Object.values(song.instruments || {}).reduce((n, instData) =>
+      n + Object.values(instData || {}).reduce((m, partData) =>
+        m + (Array.isArray(partData?.chords) ? partData.chords.length : 0), 0), 0);
   const takesCount = (typeof _mtTracks !== 'undefined' ? _mtTracks : []).reduce((n, t) => n + (t?.takes?.length || 0), 0);
   const bpm = song.bpm || song.sequencer?.bpm || '—';
   el.innerHTML = [
@@ -17163,7 +17216,7 @@ function seqClearActiveSequence() {
         </button>
         <button class="lyrics-warn-confirm" id="_seqClearAll" style="text-align:left;padding:8px 12px;">
           <strong>Full reset</strong>
-          <div style="font-size:11px;opacity:0.7;margin-top:2px;">Clears everything — patterns, lyrics, and loops. Parts show as Unassigned.</div>
+          <div style="font-size:11px;opacity:0.7;margin-top:2px;">Clears everything — patterns, lyrics, and loops. Strip resets to one empty sequence.</div>
         </button>
         <button class="lyrics-warn-cancel" id="_seqClearCancel">Cancel</button>
       </div>
@@ -17205,9 +17258,12 @@ function seqClearActiveSequence() {
       // Clear loops
       if (song.loops) song.loops = [];
       if (song.loopTracks) song.loopTracks = [];
-      // Mark all sequences as unassigned
-      const seqs = getSongSequences(song);
-      seqs.forEach(seq => { seq.partId = ''; seq.part = ''; });
+      // Collapse to a single fresh empty sequence (not just marking all as Unassigned)
+      song.sequences = [{ id: 'seq_' + Date.now() + '_0', partId: '', part: '',
+        chordSlots: [], chordDegrees: [], chordContinued: [],
+        kick: [], snare: [], hat: [], crash: [], clap: [], melody: [] }];
+      seqActiveIdx = 0;
+      song.sequencer = song.sequences[0];
       save();
       scheduleSyncToSheet(song);
       seqRenderSequenceTabs();
@@ -32842,7 +32898,10 @@ window.vrOpen = function(autoRecord) {
   _setNavOpen('nav-mic', true);
   _vrSongId = currentId || null;
   if (!_vrSongId) { showNoSongModal(function() { vrOpen(autoRecord); }); return; }
-  const _inRT = !!window._ilPerfMode || !!document.getElementById('runThroughDrawer')?.classList.contains('open');
+  // vr-rt-compact = compact right-sidebar mode for rehearse/standalone.
+  // When the overlay is already inside the split panel it fills the panel — no compact mode needed.
+  const _inSplitPanel = !!document.getElementById('splitRightContent')?.contains(_el('vrOverlay'));
+  const _inRT = !_inSplitPanel && (!!window._ilPerfMode || !!document.getElementById('runThroughDrawer')?.classList.contains('open'));
   _el('vrOverlay').classList.toggle('vr-rt-compact', _inRT);
   _el('vrOverlay').classList.add('vr-open');
   // On mobile, #vrDeck has transform (slide-up / slide-in animation). Any position:fixed
@@ -33549,6 +33608,8 @@ window.vrLoadTakes = async function() {
     const _pb = _el('mtPlayBtn'); if (_pb) _pb.disabled = !_mtTracks.some(t=>t&&t.buffer);
     // Mark preload cache so mtPreloadForSong won't re-fetch if 4-track is closed and reopened
     _mtPreloadedSongId = _vrSongId;
+    // Refresh dashboard takes count
+    if (typeof _updateSiStats === 'function') _updateSiStats(getCurrentSong());
     // Update dh_rec_ flag so song list checkmarks stay accurate
     const _hasTakesNow = snap.docs.length > 0;
     if (_hasTakesNow) { try { localStorage.setItem('dh_rec_' + _vrSongId, '1'); } catch(e) {} }
@@ -33609,6 +33670,8 @@ async function mtPreloadForSong(songId) {
     if (currentId !== songId) return; // check after all buffers load
     _mtPreloadedSongId = songId;
     console.log('[MT] preloaded takes for song', songId);
+    // Refresh dashboard takes count now that _mtTracks is populated
+    if (typeof _updateSiStats === 'function') _updateSiStats(getCurrentSong());
   } catch(e) {
     console.warn('[MT] preload error', e);
   }
