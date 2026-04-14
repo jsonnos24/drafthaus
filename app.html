@@ -892,7 +892,15 @@ button, select, input, textarea { touch-action: manipulation; }
     background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
     color: var(--muted); border-radius: 8px; padding: 7px 10px;
     font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600;
-    letter-spacing: 0.06em; cursor: pointer; transition: all 0.15s; }
+    letter-spacing: 0.06em; cursor: pointer; transition: all 0.15s, opacity 0.5s; }
+  .hla-mob-status-pill.hdr-faded { opacity: 0.18; }
+  .hla-mob-status-pill.hdr-active {
+    opacity: 1 !important;
+    border-color: rgba(255,209,102,0.55) !important;
+    color: var(--gold) !important;
+    background: rgba(255,209,102,0.07) !important;
+    box-shadow: 0 0 0 1px rgba(255,209,102,0.2), 0 0 10px rgba(255,209,102,0.12);
+  }
   #headerListActions { display: none !important; }
   .header-status-wrap { display: none !important; }
   .header-report-bug  { display: none !important; }
@@ -6129,6 +6137,14 @@ button, select, input, textarea { touch-action: manipulation; }
 /* ── Header status dropdown ───────────────────────────────── */
 .header-status-wrap { position: relative; transition: opacity 0.5s; }
 .header-status-wrap.hdr-faded { opacity: 0.18; }
+/* Lit-up state: saving / loading activity */
+.header-status-wrap.hdr-active { opacity: 1 !important; }
+.header-status-wrap.hdr-active .header-status-btn {
+  border-color: rgba(255,209,102,0.55);
+  color: var(--gold);
+  background: rgba(255,209,102,0.07);
+  box-shadow: 0 0 0 1px rgba(255,209,102,0.2), 0 0 14px rgba(255,209,102,0.12);
+}
 .header-status-btn {
   display: flex; align-items: center; gap: 7px;
   background: var(--card); border: 1px solid var(--border);
@@ -8236,10 +8252,10 @@ body.il-perf-active #rehMetroSettingsPanel.open {
   margin: 0 -2px;
 }
 
-/* ── Perf mode top-right quick controls (Auto-scroll + Prime Seq) ─ */
+/* ── Perf mode quick controls (Auto-scroll + Prime Seq) ─ */
 #ilPerfControls {
   position: fixed;
-  top: calc(52px + env(safe-area-inset-top, 0px)); /* below seq strip */
+  top: calc(58px + env(safe-area-inset-top, 0px)); /* below 48px seq strip + 10px gap */
   right: 10px;
   z-index: 9900;
   display: none; /* hidden by default */
@@ -8250,6 +8266,22 @@ body.il-perf-active #rehMetroSettingsPanel.open {
 body.il-perf-active #ilPerfControls {
   display: flex;
   pointer-events: auto;
+}
+/* Mobile: move to top-left corner of the left pane */
+@media (max-width: 768px) {
+  #ilPerfControls {
+    right: auto;
+    left: 10px;
+    flex-direction: row;
+    gap: 6px;
+    top: calc(58px + env(safe-area-inset-top, 0px));
+  }
+  .il-perf-ctrl-btn {
+    min-width: 60px;
+    height: 44px;
+    font-size: 10px;
+    padding: 0 10px;
+  }
 }
 .il-perf-ctrl-btn {
   font-family: 'IBM Plex Mono', monospace;
@@ -9922,6 +9954,15 @@ body.il-perf-active #ilScrollFloat { display: none; }
 #vrOverlay.vr-rt-compact .vr-trash-toggle { padding: 4px 8px; font-size: 10px; flex-shrink: 0; }
 #vrOverlay.vr-rt-compact .mt-arm-btn,
 #vrOverlay.vr-rt-compact .mt-takes-btn  { font-size: 9px; padding: 2px 6px; }
+/* Halve ARM button width in rehearse/perf mode so 4-track takes less space */
+body.il-perf-active .mt-arm-btn {
+  padding: 3px 6px !important;
+  font-size: 9px !important;
+  letter-spacing: 0.06em !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  border-radius: 4px !important;
+}
 #vrOverlay.vr-rt-compact .mt-track-label { font-size: 10px; }
 
 /* ── Compact panel resize handle ────────────────────────────── */
@@ -13272,30 +13313,44 @@ function getCurrentSong() {
   return songs.find(s => s.id === currentId);
 }
 
-// ── Header status pill auto-fade ──────────────────────────────────
+// ── Header status pill auto-fade (desktop + mobile) ───────────────
 var _spWake; // exposed so setSyncStatus can un-fade on save/load activity
 (function() {
   var _spTimer = null;
   function _spFade() {
-    var el = document.getElementById('headerStatusWrap');
-    if (el) el.classList.add('hdr-faded');
+    var el  = document.getElementById('headerStatusWrap');
+    var mob = document.getElementById('mobStatusPill');
+    // Only fade if not currently in the active (syncing) lit state
+    if (el  && !el.classList.contains('hdr-active'))  el.classList.add('hdr-faded');
+    if (mob && !mob.classList.contains('hdr-active')) mob.classList.add('hdr-faded');
   }
   _spWake = function() {
-    var el = document.getElementById('headerStatusWrap');
-    if (el) el.classList.remove('hdr-faded');
+    var el  = document.getElementById('headerStatusWrap');
+    var mob = document.getElementById('mobStatusPill');
+    if (el)  el.classList.remove('hdr-faded');
+    if (mob) mob.classList.remove('hdr-faded');
     clearTimeout(_spTimer);
     _spTimer = setTimeout(_spFade, 3000);
   };
   document.addEventListener('DOMContentLoaded', function() {
+    // Desktop pill
     var el = document.getElementById('headerStatusWrap');
-    if (!el) return;
-    el.addEventListener('mouseenter', _spWake);
-    el.addEventListener('mouseleave', function() {
-      clearTimeout(_spTimer);
-      _spTimer = setTimeout(_spFade, 3000);
-    });
-    // Wake on any status change (header dropdown selection)
-    el.addEventListener('click', _spWake);
+    if (el) {
+      el.addEventListener('mouseenter', function() {
+        clearTimeout(_spTimer);
+        el.classList.remove('hdr-faded');
+      });
+      el.addEventListener('mouseleave', function() {
+        clearTimeout(_spTimer);
+        _spTimer = setTimeout(_spFade, 3000);
+      });
+      el.addEventListener('click', _spWake);
+    }
+    // Mobile pill — wake on touch
+    var mob = document.getElementById('mobStatusPill');
+    if (mob) {
+      mob.addEventListener('touchstart', _spWake, { passive: true });
+    }
     // Kick off the initial countdown
     _spTimer = setTimeout(_spFade, 3000);
   });
@@ -20881,6 +20936,12 @@ function setSyncStatus(state, label) {
     if (lbl2) lbl2.textContent = label;
     if (lblM) lblM.textContent = label;
   }
+  // Light up the pill when actively syncing/loading; un-light + start fade timer otherwise
+  const isActive = (state === 'syncing');
+  const _spWrap = document.getElementById('headerStatusWrap');
+  const _spMob  = document.getElementById('mobStatusPill');
+  if (_spWrap) { _spWrap.classList.toggle('hdr-active', isActive); if (isActive) _spWrap.classList.remove('hdr-faded'); }
+  if (_spMob)  { _spMob.classList.toggle('hdr-active', isActive);  if (isActive) _spMob.classList.remove('hdr-faded');  }
   // Un-fade the pill on any save/load activity; it'll re-fade after 3s of inactivity
   if (typeof _spWake === 'function') _spWake();
 }
