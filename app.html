@@ -1189,6 +1189,11 @@ button, select, input, textarea { touch-action: manipulation; }
   .site-header { position: fixed; width: 100%; z-index: 9950; padding: env(safe-area-inset-top, 0px) 14px 0; height: calc(86px + env(safe-area-inset-top, 0px)); min-height: calc(86px + env(safe-area-inset-top, 0px)); }
   .sticky-song-bar { top: calc(128px + env(safe-area-inset-top, 0px)); padding: 6px 14px; } /* below header (86px) + global seq strip (42px) */
   body.song-bar-visible #viewDetail .container { padding-top: 44px; }
+  /* Split panel — correct top for mobile two-row header (86px) + seq strip (42px) = 128px */
+  #splitRightPanel { top: calc(128px + env(safe-area-inset-top, 0px)); }
+  #splitDivider    { top: calc(128px + env(safe-area-inset-top, 0px)); }
+  /* In perf/rehearse mode header is hidden — seq strip floats; hide it to keep the panel clean */
+  body.il-perf-active .global-seq-strip { display: none !important; }
   .header-logo { font-size: 13px; }
   .header-sub { display: none; }
   .sync-status { font-size: 11px; }
@@ -9676,7 +9681,7 @@ body.il-perf-active #ilScrollFloat { display: none; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .mt-head-ms-row { gap: 3px; }
-.mt-head-lt-row { gap: 3px; }
+.mt-head-lt-row { gap: 3px; display: none; }
 /* ARM button full width in its row */
 .mt-arm-full {
   width: 100%; justify-content: center;
@@ -10520,6 +10525,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   }
 
   /* ── Mobile track action icons: trash + lock below M/S buttons ── */
+  .mt-head-lt-row { display: flex; }
   .mt-mob-icons {
     display: flex !important;
     gap: 5px !important;
@@ -29686,16 +29692,26 @@ function ilOpenImportModal() {
 
   const modal = document.createElement('div');
   modal.className = 'il-import-modal';
-  const escapedLyrics = existingLyrics.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/&/g,'&amp;');
-  modal.innerHTML = `
-    <div class="il-import-box">
-      <div class="il-import-title">⇩ Write Freely, Paste Lyrics</div>
-      <div class="il-import-desc">${existingLyrics ? 'Your existing lyrics are loaded below — edit freely, then save to split back into sections.' : 'Paste your full song lyrics below. Sections will be split automatically — every blank line (preceded by 4+ lines) becomes a new section. If there are no blank lines, every 4 lines becomes a section.'}</div>
-      <textarea class="il-import-textarea" id="ilImportTextarea" placeholder="Paste your lyrics here…" spellcheck="false"></textarea>
+  // Determine whether song already has sections — show action buttons upfront if so
+  let hasSections = false;
+  try { hasSections = (typeof rtActiveParts !== 'undefined' && rtActiveParts.length > 0); } catch(e) {}
+  const actionBtns = hasSections ? `
+      <div class="il-import-confirm-btns" style="margin-top:4px;">
+        <button class="il-import-confirm-update" onclick="ilImportSubmitAs('update')">↺ Update sections — keep chords</button>
+        <button class="il-import-confirm-append" onclick="ilImportSubmitAs('append')">Add to end</button>
+        <button class="il-import-confirm-replace" onclick="ilImportSubmitAs('replace')">Replace all existing sections</button>
+        <button class="il-import-confirm-cancel" onclick="this.closest('.il-import-modal').remove()">Cancel</button>
+      </div>` : `
       <div class="il-import-btns">
         <button class="il-import-cancel" onclick="this.closest('.il-import-modal').remove()">Cancel</button>
         <button class="il-import-save" onclick="ilImportSubmit()">Split into Sections</button>
-      </div>
+      </div>`;
+  modal.innerHTML = `
+    <div class="il-import-box">
+      <div class="il-import-title">⇩ Write Freely, Paste Lyrics</div>
+      <div class="il-import-desc">${existingLyrics ? 'Your existing lyrics are loaded below — edit freely, then choose how to apply.' : 'Paste your full song lyrics below. Sections will be split automatically — every blank line (preceded by 4+ lines) becomes a new section. If there are no blank lines, every 4 lines becomes a section.'}</div>
+      <textarea class="il-import-textarea" id="ilImportTextarea" placeholder="Paste your lyrics here…" spellcheck="false"></textarea>
+      ${actionBtns}
     </div>`;
   document.body.appendChild(modal);
   // Close on backdrop click
@@ -29723,13 +29739,21 @@ function ilImportSubmit() {
   const sections = ilParseImportedLyrics(text);
   if (!sections.length) { showToast('Could not parse any sections', 'error', 1800); return; }
 
-  // Check if song already has sections
-  if (rtActiveParts && rtActiveParts.length > 0) {
-    ilShowImportConfirm(sections);
-  } else {
-    document.querySelector('.il-import-modal')?.remove();
-    ilImportApply(sections, 'replace');
-  }
+  // No existing sections — apply directly (new song flow)
+  document.querySelector('.il-import-modal')?.remove();
+  ilImportApply(sections, 'replace');
+}
+
+// Called directly from the per-mode buttons shown when song already has sections
+function ilImportSubmitAs(mode) {
+  const textarea = document.getElementById('ilImportTextarea');
+  if (!textarea) return;
+  const text = textarea.value.trim();
+  if (!text) { showToast('Nothing to import', 'error', 1800); return; }
+  const sections = ilParseImportedLyrics(text);
+  if (!sections.length) { showToast('Could not parse any sections', 'error', 1800); return; }
+  document.querySelector('.il-import-modal')?.remove();
+  ilImportApply(sections, mode);
 }
 
 let _ilPendingImportSections = null;
@@ -30765,6 +30789,7 @@ document.addEventListener('keydown', function(e) {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
 
   // Layer 1 — modals (topmost)
+  if (document.querySelector('.il-import-modal'))                               { document.querySelector('.il-import-modal').remove(); return; }
   if (document.getElementById('onboardingOverlay')?.classList.contains('open')) { obClose(); return; }
   if (document.getElementById('drawerHelpOverlay')?.classList.contains('open')) { closeDrawerHelp(); return; }
   if (document.getElementById('aboutOverlay')?.classList.contains('open'))      { closeAbout(); return; }
@@ -30776,6 +30801,9 @@ document.addEventListener('keydown', function(e) {
   if (document.getElementById('noSongModal')?.style.display !== 'none')        { closeNoSongModal(); return; }
 
   // Layer 2 — overlays & drawers
+  // Handle 4-track in split mode (overlay is visible via offsetParent but not vr-open)
+  const vrOv = document.getElementById('vrOverlay');
+  if (vrOv && !vrOv.classList.contains('vr-open') && vrOv.offsetParent !== null && document.body.classList.contains('split-4track-active')) { closeSplitMode(); return; }
   if (document.getElementById('vrOverlay')?.classList.contains('vr-open'))     { vrClose(); return; }
   if (document.getElementById('keyboardDrawer')?.classList.contains('open'))   { closeKeyboardDrawer(); return; }
   if (document.getElementById('mixDrawer')?.classList.contains('open'))        { closeMixDrawer(); return; }
@@ -31429,13 +31457,16 @@ function mtBuildUI() {
         <div class="mt-track-head">
           <div class="mt-color-swatch color-${i}"></div>
           <div class="mt-head-inner">
-            <!-- Row 1: Track name -->
+            <!-- Row 1: Track name + VU meters -->
             <div class="mt-head-row mt-head-name-row">
               <span class="mt-track-label color-${i}" contenteditable="true" id="mt-label-${i}"
                 onblur="mtSaveLabel(${i},this)"
                 onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
               >${_mtSavedLabel(i)}</span>
-              <canvas class="mt-track-vu" id="lvu-${i}" width="6" height="24"></canvas>
+              <div class="mt-vu-wrap" style="margin:0 0 0 auto;gap:2px;">
+                <canvas class="mt-track-vu" id="mt-lvu-l-${i}" width="5" height="24"></canvas>
+                <canvas class="mt-track-vu" id="mt-lvu-r-${i}" width="5" height="24"></canvas>
+              </div>
             </div>
             <!-- Row 2: Mute + Solo -->
             <div class="mt-head-row mt-head-ms-row">
@@ -32051,9 +32082,12 @@ window._mtUpdateInlineTakesLabel = function(i) {
       if (cm && cm.classList.contains('open')) return; // let the cm handler deal with it
       if (_mtZoomH !== 1 || _mtZoomV !== 1) {
         e.preventDefault();
+        e.stopPropagation();
         mtZoomReset();
         if (typeof showToast === 'function') showToast('Zoom reset', 'info', 1000);
+        return; // consumed — don't fall through to close handler
       }
+      // Zoom already at default — let the global Escape handler close/navigate
     }
   });
 })();
@@ -32693,7 +32727,7 @@ function _vuStop() {
   if (_vuRafId) { cancelAnimationFrame(_vuRafId); _vuRafId = null; }
   // Paint all canvases dark/empty
   var ids = ['mtVuL','mtVuR'];
-  for (var ti = 0; ti < 4; ti++) { ids.push('lvu-l-'+ti); ids.push('lvu-r-'+ti); }
+  for (var ti = 0; ti < 4; ti++) { ids.push('lvu-l-'+ti); ids.push('lvu-r-'+ti); ids.push('mt-lvu-l-'+ti); ids.push('mt-lvu-r-'+ti); }
   ids.forEach(function(id) {
     var c = document.getElementById(id); if (!c) return;
     c.classList.remove('clipping');
@@ -32727,7 +32761,7 @@ function _vuDraw() {
   var clipping = now < _vuClipEnd;
 
   var ids = ['mtVuL','mtVuR'];
-  for (var ti = 0; ti < 4; ti++) { ids.push('lvu-l-'+ti); ids.push('lvu-r-'+ti); }
+  for (var ti = 0; ti < 4; ti++) { ids.push('lvu-l-'+ti); ids.push('lvu-r-'+ti); ids.push('mt-lvu-l-'+ti); ids.push('mt-lvu-r-'+ti); }
   ids.forEach(function(id) { _vuDrawBar(id, _vuLevel, clipping); });
 
   _vuRafId = requestAnimationFrame(_vuDraw);
