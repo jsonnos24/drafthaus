@@ -210,13 +210,11 @@ body::after {
 
 /* Song title in header — black text with orange glow */
 .header-song-title {
-  font-family: 'Pirata One', 'Cinzel Decorative', 'Playfair Display', serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-size: 15px;
-  font-weight: 400;
-  letter-spacing: 0.06em;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   color: #000;
-  -webkit-text-stroke: 0;
-  text-stroke: 0;
   text-shadow: 0 0 6px rgba(255,140,0,0.9), 0 0 14px rgba(255,140,0,0.6), 0 0 28px rgba(255,140,0,0.3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   max-width: 260px; cursor: pointer;
@@ -6616,6 +6614,66 @@ body.split-expanded-right #viewDetail { opacity: 0; pointer-events: none; }
 /* Floating transport is only for mobile — hide on desktop */
 @media (min-width: 769px) {
   #sharedDrawerHeader { display: none !important; }
+}
+/* ── Mobile 4-track transport bar ───────────────────────────────── */
+#mt4tMobileBar {
+  display: none;
+  position: fixed; z-index: 99991;
+  bottom: calc(54px + env(safe-area-inset-bottom, 0px));
+  left: 0; right: 0;
+  background: #13141a;
+  border-top: 1px solid rgba(255,255,255,0.15);
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.55);
+  flex-direction: column;
+  overflow: hidden;
+}
+#mt4tMobileBar.mt4t-bar-visible { display: flex; }
+@media (min-width: 769px) {
+  #mt4tMobileBar { display: none !important; }
+}
+#mt4tMobileBar .drawer-transport-strip {
+  padding: 6px 10px;
+  flex-wrap: nowrap;
+}
+#mt4tMobileBar .drawer-transport-strip .split-transport-btn {
+  min-height: 36px !important;
+  height: 36px !important;
+  font-size: 11px !important;
+  padding: 0 10px !important;
+  flex: 1;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+}
+#mt4tMobileBar .mt4t-gain-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px 6px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+#mt4tMobileBar .mt4t-gain-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 8px;
+  font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--faint); white-space: nowrap;
+}
+#mt4tMobileBar .mt4t-gain-slider {
+  flex: 1; height: 3px; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  background: var(--border2); border-radius: 2px; outline: none;
+}
+#mt4tMobileBar .mt4t-gain-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--gold); cursor: pointer; border: none;
+}
+#mt4tMobileBar .mt4t-gain-slider::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--gold); cursor: pointer; border: none;
+}
+#mt4tMobileBar .mt4t-gain-db {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  font-weight: 700; color: var(--gold);
+  min-width: 40px; text-align: right;
 }
 /* Dim overlays hidden in split mode */
 body.split-active #keyboardDrawerOverlay,
@@ -31156,10 +31214,18 @@ window.vrGainChange = function(val) {
   localStorage.setItem('vr_input_gain', _vrInputGain);
   // Update live gain node in real-time if a recording session is active
   if (_vrInputGainNode) _vrInputGainNode.gain.value = _vrInputGain;
-  // Update dB label
+  // Update dB label (desktop + mobile)
   var v = parseFloat(_vrGainToDb(_vrInputGain));
+  var dbStr = (v >= 0 ? '+' : '') + v + 'dB';
   var db = document.getElementById('vrGainDb');
-  if (db) db.textContent = (v >= 0 ? '+' : '') + v + 'dB';
+  if (db) db.textContent = dbStr;
+  var dbM = document.getElementById('vrGainDbM');
+  if (dbM) dbM.textContent = dbStr;
+  // Keep sliders in sync with each other
+  var slM = document.getElementById('vrGainSliderM');
+  if (slM && slM.value !== String(val)) slM.value = val;
+  var sl = document.getElementById('vrGainSlider');
+  if (sl && sl.value !== String(val)) sl.value = val;
 };
 
 // Multitrack audio state
@@ -32747,6 +32813,21 @@ const btBtn = _el('vrBtBtn'); if (btBtn) btBtn.classList.toggle('vr-bt-active', 
   setTimeout(() => {
     _mtTracks.forEach((t, i) => { if (t && t.buffer) _mtDrawTrackWaveform(i, t.buffer, t.color); });
   }, 900);
+  // Show mobile 4-track transport bar on mobile
+  if (_isMobile4T) {
+    const _mb = document.getElementById('mt4tMobileBar');
+    if (_mb) {
+      _mb.classList.add('mt4t-bar-visible');
+      // Sync gain slider value to match desktop
+      var _gslM = document.getElementById('vrGainSliderM');
+      var _gdbM = document.getElementById('vrGainDbM');
+      var _gsl  = document.getElementById('vrGainSlider');
+      var _gdb  = document.getElementById('vrGainDb');
+      if (_gslM && _gsl) _gslM.value = _gsl.value;
+      if (_gdbM && _gdb) _gdbM.textContent = _gdb.textContent;
+      _mt4tStartMobileSync();
+    }
+  }
 };
 
 window.vrClose = function() {
@@ -32771,8 +32852,61 @@ window.vrClose = function() {
     }
     document.body._mtTransportPrev = null;
   }
+  // Hide mobile 4-track transport bar
+  var _mb = document.getElementById('mt4tMobileBar');
+  if (_mb) _mb.classList.remove('mt4t-bar-visible');
+  _mt4tStopMobileSync();
   // Show persistent mini playback indicator if still playing
   _mtUpdateMiniPlaybar();
+};
+
+// ── Mobile 4-track transport — MutationObserver state sync ────────
+// Mirrors disabled state and active CSS classes from desktop buttons (mtStopBtn, mtRecBtn,
+// mtPlayBtn, mtPlaySeqBtn) to their mobile counterparts (mtStopBtnM, etc.) so we don't
+// have to touch every JS call-site that updates button state.
+var _mt4tMobileObserver = null;
+var _MT4T_SYNC_PAIRS = [
+  ['mtStopBtn', 'mtStopBtnM'],
+  ['mtRecBtn',  'mtRecBtnM'],
+  ['mtPlayBtn', 'mtPlayBtnM'],
+  ['mtPlaySeqBtn', 'mtPlaySeqBtnM']
+];
+function _mt4tSyncBtn(src, dst) {
+  if (!src || !dst) return;
+  // Sync disabled
+  dst.disabled = src.disabled;
+  // Sync classes that carry visual state (active, playing, recording flags)
+  // Copy known state classes; leave layout classes alone
+  var STATE_CLASSES = ['vr-playing', 'vr-recording', 'is-playing', 'is-recording', 'btn-active', 'split-stop-active'];
+  STATE_CLASSES.forEach(function(cls) {
+    dst.classList.toggle(cls, src.classList.contains(cls));
+  });
+  // Mirror inline opacity (disabled visual)
+  if (src.style.opacity) dst.style.opacity = src.style.opacity;
+  else dst.style.opacity = '';
+}
+window._mt4tStartMobileSync = function() {
+  if (_mt4tMobileObserver) return; // already running
+  // Initial sync
+  _MT4T_SYNC_PAIRS.forEach(function(pair) {
+    _mt4tSyncBtn(document.getElementById(pair[0]), document.getElementById(pair[1]));
+  });
+  // Watch for attribute / class changes on each source button
+  _mt4tMobileObserver = new MutationObserver(function(mutations) {
+    mutations.forEach(function(m) {
+      var src = m.target;
+      var pair = _MT4T_SYNC_PAIRS.find(function(p) { return p[0] === src.id; });
+      if (!pair) return;
+      _mt4tSyncBtn(src, document.getElementById(pair[1]));
+    });
+  });
+  _MT4T_SYNC_PAIRS.forEach(function(pair) {
+    var el = document.getElementById(pair[0]);
+    if (el) _mt4tMobileObserver.observe(el, { attributes: true, attributeFilter: ['disabled', 'class', 'style'] });
+  });
+};
+window._mt4tStopMobileSync = function() {
+  if (_mt4tMobileObserver) { _mt4tMobileObserver.disconnect(); _mt4tMobileObserver = null; }
 };
 
 // Bridge called by _vr4TrackSyncToSong (different script block — can't touch let _vrSongId directly)
@@ -36062,6 +36196,31 @@ window._releaseMicStreams          = _releaseMicStreams;
     <button id="sharedMetBtn" class="split-transport-btn split-met-btn" onclick="seqToggleMet()" title="Toggle metronome (M)">
       <span class="t-btn-label">Metro</span>
     </button>
+  </div>
+</div>
+
+<!-- ── Mobile 4-track transport bar ──────────────────────────────── -->
+<div id="mt4tMobileBar">
+  <div class="drawer-transport-strip">
+    <button class="split-transport-btn split-stop-btn" id="mtStopBtnM"
+      onclick="vrStop()" disabled
+      title="Stop">■ Stop</button>
+    <button class="split-transport-btn split-rec-btn" id="mtRecBtnM"
+      onclick="vrToggleRec()"
+      title="Record armed track">⏺ Rec</button>
+    <button class="split-transport-btn split-play-btn" id="mtPlayBtnM"
+      onclick="mtPlay()" disabled
+      title="Play">▶ Play</button>
+    <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtnM"
+      onclick="sharedPlaySong()"
+      title="Play full song — plays all sections in order">▶▶ Full</button>
+  </div>
+  <div class="mt4t-gain-row">
+    <span class="mt4t-gain-label">IN</span>
+    <input type="range" class="mt4t-gain-slider" id="vrGainSliderM"
+      min="0.5" max="8" step="0.1" value="3"
+      oninput="vrGainChange(this.value)">
+    <span class="mt4t-gain-db" id="vrGainDbM">+9.5dB</span>
   </div>
 </div>
 
