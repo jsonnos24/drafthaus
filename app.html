@@ -1229,8 +1229,8 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Split panel — correct top for mobile two-row header (86px) + seq strip (42px) = 128px */
   #splitRightPanel { top: calc(128px + env(safe-area-inset-top, 0px)); }
   #splitDivider    { top: calc(128px + env(safe-area-inset-top, 0px)); }
-  /* In perf/rehearse mode header is hidden — seq strip floats; hide it to keep the panel clean */
-  body.il-perf-active .global-seq-strip { display: none !important; }
+  /* In perf/rehearse mode header is hidden — seq strip moves to the very top */
+  body.il-perf-active .global-seq-strip { top: env(safe-area-inset-top, 0px) !important; }
   /* In split+perf mode, header stays visible but seq strip is hidden — drop panels to header-bottom only */
   body.il-perf-active.split-active #splitRightPanel,
   body.il-perf-active.split-active #splitDivider {
@@ -7724,14 +7724,12 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
 #songViewRunthrough.il-perf-mode .il-chart-area-row { margin-top: 2px; }
 /* Remove section indicators entirely in perf mode (dot, line, label all gone) */
 #songViewRunthrough.il-perf-mode .il-part-side { display: none; }
-/* Header is hidden in perf mode — reclaim that space at the top */
-#songViewRunthrough.il-perf-mode { padding-top: 14px; }
-/* Clearance for fixed metronome bar + autoscroll bar (no bottom nav in perf mode) */
-#songViewRunthrough.il-perf-mode { padding-bottom: 160px; }
+/* Header is hidden in perf mode — global seq strip sits at top (42px) */
+#songViewRunthrough.il-perf-mode { padding-top: calc(56px + env(safe-area-inset-top, 0px)); }
+/* Clearance for rehearse bar (44px) above bottom nav (54px) */
+#songViewRunthrough.il-perf-mode { padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
 
-/* ── Metro bar: only shown in perf mode fixed overlay ────────────── */
-#rtMetroBar { display: none; }
-#rtMetroBar.il-perf-metro { display: flex; }
+/* Metro bar removed */
 
 /* ── Header Transport Bar ────────────────────────────────────────── */
 .ht-bar {
@@ -7901,12 +7899,10 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
 .rt-mso-row { display: flex; align-items: center; gap: 10px; }
 
 /* ── Perf mode: hide bottom nav, top header + sticky song bar ───── */
-/* Bottom nav stays visible in perf/rehearse mode — metro bar is hidden instead */
-body.il-perf-active .rt-metro { display: none !important; }
 body.il-perf-active #siteHeader { display: none; }
 body.il-perf-active #stickySongBar { display: none !important; }
-/* Hide global seq strip in ALL perf/rehearse contexts (not just mobile) */
-body.il-perf-active .global-seq-strip { display: none !important; }
+/* In perf mode: seq strip is visible and repositioned to top (header is hidden) */
+body.il-perf-active .global-seq-strip { top: env(safe-area-inset-top, 0px) !important; }
 /* Rehearse-mode lyrics: extra bottom clearance so content isn't hidden behind the rehearse bar */
 body.il-perf-active .rt-body {
   padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px)) !important;
@@ -8095,6 +8091,65 @@ body.il-perf-active #rehMetroSettingsPanel.open {
   height: 1px;
   background: rgba(255,255,255,0.08);
   margin: 0 -2px;
+}
+
+/* ── Perf mode top-right quick controls (Auto-scroll + Prime Seq) ─ */
+#ilPerfControls {
+  position: fixed;
+  top: calc(52px + env(safe-area-inset-top, 0px)); /* below seq strip */
+  right: 10px;
+  z-index: 9900;
+  display: none; /* hidden by default */
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+body.il-perf-active #ilPerfControls {
+  display: flex;
+  pointer-events: auto;
+}
+.il-perf-ctrl-btn {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: rgba(12,12,18,0.92);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  padding: 0 14px;
+  cursor: pointer;
+  min-width: 76px;
+  height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+  -webkit-tap-highlight-color: transparent;
+}
+.il-perf-ctrl-btn:active { opacity: 0.65; }
+.il-perf-ctrl-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(167,139,250,0.12);
+}
+.il-perf-ctrl-btn.scroll-active {
+  color: #60cc80;
+  border-color: rgba(80,210,100,0.5);
+  background: rgba(80,210,100,0.08);
+}
+.il-perf-ctrl-btn.arm-active {
+  color: #f87171;
+  border-color: rgba(248,113,113,0.5);
+  background: rgba(248,113,113,0.08);
+  animation: armSeqPulse 1.2s ease-in-out infinite;
 }
 
 /* ── Metro bar lifted into perf mode ───────────────────────────── */
@@ -16199,19 +16254,33 @@ function seqRenderSequenceTabs() {
 // _seqLinkPending: null | { seqIdx, seqId, color }
 window._seqLinkPending = null;
 
-// Load/save seq links from localStorage (per-song)
-function _seqLinksKey(type) {
-  const song = getCurrentSong();
-  return song ? 'dh_seqlinks_' + type + '_' + song.id : null;
+// Load/save seq links on the song object (synced to Firestore)
+// Falls back to localStorage for migration of existing data on first read.
+function _seqLinksField(type) {
+  return type === '4t' ? 'seqLinks4t' : 'seqLinksLoop';
 }
 function _seqLinksLoad(type) {
-  const k = _seqLinksKey(type);
-  if (!k) return {};
-  try { return JSON.parse(localStorage.getItem(k) || '{}'); } catch(e) { return {}; }
+  const song = getCurrentSong();
+  if (!song) return {};
+  const field = _seqLinksField(type);
+  // If the song already has the field (even an empty object), use it
+  if (song[field] !== undefined) return song[field] || {};
+  // First time: migrate from localStorage if anything is stored there
+  const lsKey = 'dh_seqlinks_' + type + '_' + song.id;
+  let migrated = {};
+  try { migrated = JSON.parse(localStorage.getItem(lsKey) || '{}'); } catch(e) {}
+  // Persist migration onto song object so we don't re-read localStorage next time
+  song[field] = migrated;
+  save();
+  if (Object.keys(migrated).length > 0) scheduleSyncToSheet(song);
+  return migrated;
 }
 function _seqLinksSave(type, data) {
-  const k = _seqLinksKey(type);
-  if (k) try { localStorage.setItem(k, JSON.stringify(data)); } catch(e) {}
+  const song = getCurrentSong();
+  if (!song) return;
+  song[_seqLinksField(type)] = data;
+  save();
+  scheduleSyncToSheet(song);
 }
 
 // Enter/exit link mode
@@ -16675,6 +16744,26 @@ function seqDeleteSequence(idx) {
           loopSaveTrackSetting(ti, 'parts', t.parts.filter(p => p !== partId));
         }
       });
+    }
+
+    // Clear 4-track and looper seq-link entries for deleted sequence (saves to Firestore via _seqLinksSave)
+    const deletedSeqId = seq.id;
+    if (deletedSeqId) {
+      ['4t', 'loop'].forEach(type => {
+        const links = _seqLinksLoad(type);
+        let changed = false;
+        Object.keys(links).forEach(trackIdx => {
+          const filtered = (links[trackIdx] || []).filter(id => id !== deletedSeqId);
+          if (filtered.length !== (links[trackIdx] || []).length) {
+            links[trackIdx] = filtered;
+            changed = true;
+          }
+        });
+        if (changed) {
+          _seqLinksSave(type, links);
+        }
+      });
+      if (typeof _seqApplyAllTrackLinkStyles === 'function') _seqApplyAllTrackLinkStyles();
     }
 
     song.updatedAt = Date.now();
@@ -20658,6 +20747,8 @@ async function syncToSheet(song) {
       sequences:      song.sequences      || [],
       loopTracks:     song.loopTracks     || [],
       mtTracks:       song.mtTracks       || [],
+      seqLinks4t:     song.seqLinks4t     || {},
+      seqLinksLoop:   song.seqLinksLoop   || {},
       lyrics:         song.lyrics         || {},
       chordPositions: song.chordPositions || {},
       updatedAt:      song.updatedAt      || Date.now(),
@@ -28806,6 +28897,11 @@ function ilSetPerfMode(on) {
       rehScroll.textContent = _ilScrollActive ? '⏹ Scroll' : '▶ Scroll';
       rehScroll.classList.toggle('reh-seq-active', !!_ilScrollActive);
     }
+    const perfScroll = document.getElementById('ilPerfScrollBtn');
+    if (perfScroll) {
+      perfScroll.classList.toggle('scroll-active', !!_ilScrollActive);
+      perfScroll.querySelector('span').textContent = _ilScrollActive ? '⏹ Scroll' : 'Scroll';
+    }
   } else {
     // Stop metro if running, reset rehearse bar metro button
     _syncRehMetroBtn();
@@ -28860,11 +28956,18 @@ function rehMetroToggle() {
   _syncRehMetroBtn();
 }
 function _syncRehArmBtn() {
-  const btn = document.getElementById('rehArmSeqBtn');
-  if (!btn) return;
   const armed = !!window._vrSeqArmedState;
-  btn.classList.toggle('reh-arm-active', armed);
-  btn.textContent = armed ? '● Prime Seq' : 'Prime Seq';
+  const btn = document.getElementById('rehArmSeqBtn');
+  if (btn) {
+    btn.classList.toggle('reh-arm-active', armed);
+    btn.textContent = armed ? '● Arm Seq' : 'Arm Seq';
+  }
+  // Sync the perf overlay Prime button
+  const primeBtn = document.getElementById('ilPerfPrimeBtn');
+  if (primeBtn) {
+    primeBtn.classList.toggle('arm-active', armed);
+    primeBtn.querySelector('span').textContent = armed ? '● Prime' : 'Prime';
+  }
 }
 
 // ── Auto-scroll ───────────────────────────────────────────────────
@@ -28885,6 +28988,11 @@ function ilScrollStart() {
     const btn = document.getElementById(id);
     if (btn) { btn.textContent = '⏹ Scroll'; btn.classList.add('reh-seq-active'); }
   });
+  const perfScroll = document.getElementById('ilPerfScrollBtn');
+  if (perfScroll) {
+    perfScroll.classList.add('scroll-active');
+    perfScroll.querySelector('span').textContent = '⏹ Scroll';
+  }
   _ilScrollRaf = requestAnimationFrame(ilScrollStep);
 }
 function ilScrollStop() {
@@ -28895,6 +29003,11 @@ function ilScrollStop() {
     const btn = document.getElementById(id);
     if (btn) { btn.textContent = '▶ Scroll'; btn.classList.remove('reh-seq-active'); }
   });
+  const perfScroll = document.getElementById('ilPerfScrollBtn');
+  if (perfScroll) {
+    perfScroll.classList.remove('scroll-active');
+    perfScroll.querySelector('span').textContent = 'Scroll';
+  }
   if (_ilScrollRaf) { cancelAnimationFrame(_ilScrollRaf); _ilScrollRaf = null; }
 }
 function ilScrollStep(timestamp) {
@@ -35333,166 +35446,28 @@ window._releaseMicStreams          = _releaseMicStreams;
   <div class="rt-body" id="rtBody">
     <div class="rt-body-inner" id="rtBodyInner"></div>
   </div>
-  <div class="rt-metro" id="rtMetroBar">
-
-    <!-- ── PINNED LEFT: mini view-mode segmented control ── -->
-    <div class="rt-metro-pinned">
-      <div class="rt-metro-nav" id="rtMetroNav">
-        <div class="metro-view-seg" id="metroViewSeg">
-          <button class="metro-seg-btn metro-seg-run" id="metroSegRun" onclick="ilSetPerfMode(true)" title="Rehearse">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
-            <span>REHEARSE</span>
-          </button>
-          <button class="metro-seg-btn metro-seg-edit" id="metroSegEdit" onclick="stickyGoEditor()" title="Lyrics">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            <span>LYRICS</span>
-          </button>
-          <button class="metro-seg-btn metro-seg-back" id="metroSegBack" onclick="stickyGoBackend()" title="Backend">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
-            <span>BACKEND</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── SCROLLABLE RIGHT: all controls swipe horizontally ── -->
-    <div class="rt-metro-scrollable">
-
-      <!-- Normal-mode metronome controls (hidden in perf mode) -->
-      <div class="rt-metro-full-row" id="rtMetroFullRow">
-        <span class="rt-metro-label">BPM</span>
-        <button class="rt-mbtn" onclick="rtMetroDelta(-1)">−</button>
-        <span class="rt-metro-bpm" id="rtMetroBpmDisplay">120</span>
-        <button class="rt-mbtn" onclick="rtMetroDelta(1)">+</button>
-        <div class="rt-msep"></div>
-        <span class="rt-metro-label">Time</span>
-        <select class="rt-msel" id="rtMetroTimeSel" onchange="rtMetroChangeTime(this.value)">
-          <option value="4">4/4</option>
-          <option value="3">3/4</option>
-          <option value="6">6/8</option>
-          <option value="5">5/4</option>
-        </select>
-        <div class="rt-msep"></div>
-        <div class="rt-mdots" id="rtMetroDots"></div>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.06em;white-space:nowrap;opacity:0.6;"><kbd style="font-family:inherit;background:var(--card2);border:1px solid var(--border2);border-radius:3px;padding:1px 5px;font-size:9px;">space</kbd> play/pause</span>
-        <div class="rt-msep"></div>
-      </div>
-
-      <!-- 1. Microphone / Voice Recorder -->
-      <button class="rt-mbtn rt-perf-only vr-metro-btn" onclick="vrMicFromPerf()" title="4-Track Recorder" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 14px;height:auto;">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ffb8d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="9" y="2" width="6" height="12" rx="3"/>
-          <path d="M5 10a7 7 0 0 0 14 0"/>
-          <line x1="12" y1="19" x2="12" y2="22"/>
-          <line x1="8" y1="22" x2="16" y2="22"/>
-        </svg>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.1em;color:#ffb8d8;text-transform:uppercase;">4-Track</span>
-      </button>
-
-      <!-- TAP button (perf mode only; also in header transport for normal mode) -->
-      <div class="rt-msep"></div>
-      <button class="rt-mbtn rt-tap" id="rtTapBtn" onclick="rtTapTempo()" title="Tap Tempo (T)">TAP</button>
-
-      <!-- 2. Metronome play button -->
-      <div class="rt-msep rt-perf-only"></div>
-      <button class="rt-mbtn rt-mplay" id="rtMetroPlayBtn" onclick="rtMetroToggle()" title="Play / Pause  ·  Space">
-        <span class="rt-play-default">▶</span>
-        <span class="rt-play-perf">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="6 3 18 3 15 17 9 17"/>
-            <line x1="12" y1="17" x2="12" y2="22"/>
-            <line x1="8" y1="22" x2="16" y2="22"/>
-            <line x1="9" y1="10" x2="15" y2="10"/>
-          </svg>
-        </span>
-      </button>
-
-      <!-- 3. Metronome settings gear (perf-only) -->
-      <button class="rt-mbtn rt-perf-only" id="rtMetroSettingsBtn" onclick="rtToggleMetroSettings()" title="Metronome settings">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-      </button>
-
-      <!-- 4. Tuning fork -->
-      <button class="rt-mbtn rt-mfork" id="rtMetroForkBtn" onclick="rtForkToggle()" title="Tuning Fork — E2 (82.41 Hz)">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v10"/><path d="M17 3v10"/><path d="M7 13 Q7 20 12 20 Q17 20 17 13"/><line x1="12" y1="20" x2="12" y2="24"/></svg>
-      </button>
-
-      <!-- 5 & 6. Play Sequencer | Arm Sequencer -->
-      <div class="rt-msep rt-perf-only"></div>
-      <button class="rt-mbtn rt-perf-only" id="rtSeqPlayBtn" onclick="rtSeqTogglePlay()" title="Seq Play/Stop">▶ Seq</button>
-      <button class="rt-mbtn rt-perf-only" id="rtArmSeqBtn" onclick="vrToggleArmSeq()" title="Arm Sequencer — sequencer auto-plays when recording starts">Arm Seq</button>
-      <span class="rt-perf-only" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);letter-spacing:0.04em;margin-left:2px;white-space:nowrap;">then hit record in 4-Track</span>
-
-    </div><!-- /.rt-metro-scrollable -->
-  </div>
-</div>
-
-<!-- ── Metronome settings overlay (perf mode) ── -->
-<div id="rtMetroSettingsOverlay">
-  <div id="rtMetroSettingsPanel">
-    <div class="rt-mso-row">
-      <span class="rt-metro-label">BPM</span>
-      <button class="rt-mbtn" onclick="rtMetroDelta(-1)">−</button>
-      <span class="rt-metro-bpm" id="rtMetroBpmDisplay2">120</span>
-      <button class="rt-mbtn" onclick="rtMetroDelta(1)">+</button>
-    </div>
-    <div class="rt-mso-row">
-      <span class="rt-metro-label">Time</span>
-      <select class="rt-msel" id="rtMetroTimeSel2" onchange="rtMetroChangeTime(this.value)">
-        <option value="4">4/4</option>
-        <option value="3">3/4</option>
-        <option value="6">6/8</option>
-        <option value="5">5/4</option>
-      </select>
-      <button class="rt-mbtn rt-tap" id="rtTapBtn2" onclick="rtTapTempo()" title="Tap Tempo">TAP</button>
-    </div>
-    <div class="rt-mdots" id="rtMetroDots2" style="justify-content:center;padding-top:4px;"></div>
-  </div>
-</div>
-
-<!-- ── Metro settings popover (shown above rehearseBar) ── -->
-<div id="rehMetroSettingsPanel" aria-label="Metronome settings">
-  <div class="reh-ms-row">
-    <span class="reh-ms-label">Time</span>
-    <select class="reh-time-sel" id="rehTimeSel" onchange="rtMetroChangeTime(this.value)">
-      <option value="4">4/4</option>
-      <option value="3">3/4</option>
-      <option value="6">6/8</option>
-      <option value="5">5/4</option>
-    </select>
-  </div>
-  <div class="reh-ms-divider"></div>
-  <div class="reh-ms-row">
-    <span class="reh-ms-label">BPM</span>
-    <button class="reh-btn" onclick="rtMetroDelta(-1)" title="BPM down">−</button>
-    <span class="reh-bpm-display" id="rehBpmDisplay">120</span>
-    <button class="reh-btn" onclick="rtMetroDelta(1)" title="BPM up">+</button>
-    <button class="reh-btn" id="rehTapBtn" onclick="rtTapTempo()" title="Tap Tempo">TAP</button>
-  </div>
 </div>
 
 <!-- ── Rehearse control bar (perf mode only, slides up above bottom nav) ── -->
 <div id="rehearseBar" aria-label="Rehearse controls">
-  <!-- Auto-scroll -->
-  <button class="reh-btn" id="rehScrollBtn" onclick="ilScrollToggle()" title="Auto-scroll lyrics">▶ Scroll</button>
-  <div class="reh-sep"></div>
-  <!-- Sequencer: Play + Prime -->
-  <button class="reh-btn" id="rehSeqPlayBtn" onclick="rtSeqTogglePlay()" title="Play / Stop Sequencer">▶ Seq</button>
-  <button class="reh-btn" id="rehArmSeqBtn" onclick="vrToggleArmSeq()" title="Prime Sequencer — auto-starts on record">Prime Seq</button>
-  <div class="reh-sep"></div>
-  <!-- Metronome + Settings gear -->
-  <button class="reh-btn" id="rehMetroBtn" onclick="rehMetroToggle()" title="Metronome play/pause">▶ Metro</button>
-  <button class="reh-btn reh-metro-settings-btn" id="rehMetroSettingsBtn" onclick="rehMetroSettingsToggle(event)" title="Metronome settings">
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-  </button>
-  <div class="reh-sep"></div>
   <!-- Tuner -->
   <button class="reh-btn" id="rehForkBtn" onclick="rtForkToggle()" title="Tuning Fork — E2 (82.41 Hz)">
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v10"/><path d="M17 3v10"/><path d="M7 13 Q7 20 12 20 Q17 20 17 13"/><line x1="12" y1="20" x2="12" y2="24"/></svg>
     Tuner
+  </button>
+  <!-- Sequencer: Arm -->
+  <button class="reh-btn" id="rehArmSeqBtn" onclick="vrToggleArmSeq()" title="Prime Sequencer — auto-starts on record">Arm Seq</button>
+</div>
+
+<!-- ── Perf mode top-right controls (Auto-scroll + Prime Seq) ── -->
+<div id="ilPerfControls" aria-label="Perf quick controls">
+  <button class="il-perf-ctrl-btn" id="ilPerfScrollBtn" onclick="ilScrollToggle()" title="Auto-scroll lyrics">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+    <span>Scroll</span>
+  </button>
+  <button class="il-perf-ctrl-btn" id="ilPerfPrimeBtn" onclick="vrToggleArmSeq()" title="Prime Sequencer — auto-starts when recording begins">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    <span>Prime</span>
   </button>
 </div>
 
