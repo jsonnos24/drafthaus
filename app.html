@@ -14518,14 +14518,17 @@ function _seqTriggerMtTracksForPart(partId) {
     var _seqPartMap = {};
     _allSeqs.forEach(function(s) { if (s.id) _seqPartMap[s.id] = s.partId || s.part || null; });
     var _4tLinks = _seqLinksLoad('4t');
-    var anyLinked = Object.keys(_4tLinks).some(function(tidx) {
-      return (_4tLinks[tidx] || []).some(function(sid) {
+    // Stop any tracks that were playing for the previous section
+    if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
+    // Start only the tracks linked to this section
+    Object.keys(_4tLinks).forEach(function(tidx) {
+      var linked = (_4tLinks[tidx] || []).some(function(sid) {
         return _matchingSeqIds.has(sid) || _seqPartMap[sid] === partId;
       });
+      if (linked && typeof _mtSeqPlayTrack === 'function') {
+        _mtSeqPlayTrack(parseInt(tidx, 10));
+      }
     });
-    if (anyLinked && typeof mtPlay === 'function' && (typeof _mtIsPlaying === 'undefined' || !_mtIsPlaying)) {
-      mtPlay();
-    }
   } catch(e) { console.warn('[4T trigger] error:', e); }
 }
 
@@ -19486,6 +19489,8 @@ function seqStop() {
   if (typeof loopRenderPartsStrip === 'function') loopRenderPartsStrip();
   // Stop any looper tracks that the sequencer triggered
   _seqStopTriggeredLoops();
+  // Stop any 4-track lanes that the sequencer triggered
+  if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
   // Update the play button in the song list row
   try { renderGrid(); } catch(e) {}
 }
@@ -32365,6 +32370,8 @@ window.vrStop = function() {
 };
 function _mtStopAll() {
   _mtIsPlaying = false;
+  // Also clean up any seq-link per-track playback
+  if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
   _mtTracks.forEach(t => {
     if (!t) return;
     if (t.sourceNode) { try { t.sourceNode.stop(); } catch(e) {} t.sourceNode = null; }
@@ -32395,6 +32402,77 @@ function _mtStopAll() {
   if (typeof _mtUpdateMiniPlaybar === 'function') _mtUpdateMiniPlaybar();
 }
 
+// ── Seq-link per-track playback ────────────────────────────────
+// Tracks started individually by the sequencer section trigger.
+// These run independently so only the active section's track shows a moving playhead.
+var _mtSeqActiveTracks  = new Set();
+var _mtSeqTrackStartCtx = {}; // trackIdx → audioCtx time when that track started
+var _mtSeqHeadRaf       = null;
+
+function _mtSeqEnsureAudio() {
+  _mtCreateCtxSync();
+  if (_mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(function(){});
+}
+function _mtSeqWireTrack(t) {
+  if (!t.gainNode) {
+    t.gainNode = _mtAudioCtx.createGain();
+    t.gainNode.gain.value = t.volume / 100;
+  }
+  if (!t.panNode) {
+    if (_mtAudioCtx.createStereoPanner) {
+      t.panNode = _mtAudioCtx.createStereoPanner();
+      t.panNode.pan.value = (t.pan || 0) / 100;
+      try { t.gainNode.disconnect(); } catch(e) {}
+      t.gainNode.connect(t.panNode);
+      t.panNode.connect(_mtMasterGain);
+    } else {
+      try { t.gainNode.disconnect(); } catch(e) {}
+      t.gainNode.connect(_mtMasterGain);
+    }
+  }
+}
+window._mtSeqPlayTrack = function(trackIdx) {
+  _mtSeqEnsureAudio();
+  var t = _mtTracks[trackIdx]; if (!t || !t.buffer) return;
+  // Stop existing source for this slot if any
+  if (t.sourceNode) { try { t.sourceNode.stop(); } catch(e) {} t.sourceNode = null; }
+  _mtSeqWireTrack(t);
+  t.sourceNode = _mtAudioCtx.createBufferSource();
+  t.sourceNode.buffer = t.buffer;
+  t.sourceNode.connect(t.gainNode);
+  t.sourceNode.start(0);
+  _mtSeqActiveTracks.add(trackIdx);
+  _mtSeqTrackStartCtx[trackIdx] = _mtAudioCtx.currentTime;
+  // Start the shared seq playhead loop if not already running
+  if (!_mtSeqHeadRaf) _mtSeqTickHeads();
+};
+window._mtSeqStopTrack = function(trackIdx) {
+  var t = _mtTracks[trackIdx];
+  if (t && t.sourceNode) { try { t.sourceNode.stop(); } catch(e) {} t.sourceNode = null; }
+  _mtSeqActiveTracks.delete(trackIdx);
+  delete _mtSeqTrackStartCtx[trackIdx];
+  var ph = document.getElementById('mt-playhead-' + trackIdx);
+  if (ph) { ph.style.display = 'none'; ph.style.left = '0%'; }
+};
+window._mtSeqStopAllTracks = function() {
+  _mtSeqActiveTracks.forEach(function(i) { window._mtSeqStopTrack(i); });
+  _mtSeqActiveTracks.clear();
+  _mtSeqTrackStartCtx = {};
+  if (_mtSeqHeadRaf) { cancelAnimationFrame(_mtSeqHeadRaf); _mtSeqHeadRaf = null; }
+};
+function _mtSeqTickHeads() {
+  if (_mtSeqActiveTracks.size === 0) { _mtSeqHeadRaf = null; return; }
+  _mtSeqActiveTracks.forEach(function(i) {
+    var t = _mtTracks[i]; if (!t || !t.buffer) return;
+    var ph = document.getElementById('mt-playhead-' + i); if (!ph) return;
+    var elapsed = _mtAudioCtx.currentTime - (_mtSeqTrackStartCtx[i] || 0);
+    var pct = Math.min(1, elapsed / t.buffer.duration);
+    ph.style.display = 'block';
+    ph.style.left = (pct * 100) + '%';
+  });
+  _mtSeqHeadRaf = requestAnimationFrame(_mtSeqTickHeads);
+}
+
 // ── Playhead animation ─────────────────────────────────────────
 function _mtAnimatePlayhead(startOffset) {
   const dur = _mtMaxDuration();
@@ -32406,6 +32484,8 @@ function _mtAnimatePlayhead(startOffset) {
     const fill = _el('mtProgressFill'); if(fill) fill.style.width=(pct*100)+'%';
     const td   = _el('mtTimeDisplay');  if(td)   td.textContent=_fmtDur(elapsed);
     _mtTracks.forEach((t,i) => {
+      // Skip tracks managed by the seq-link per-track system
+      if (_mtSeqActiveTracks && _mtSeqActiveTracks.has(i)) return;
       const ph = _el('mt-playhead-'+i); if(!ph) return;
       const canvas = _el('mt-wave-'+i); if(!canvas) return;
       if (t && t.buffer) {
