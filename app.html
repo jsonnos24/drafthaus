@@ -6492,11 +6492,11 @@ body.split-active #splitRightPanel { display: flex; }
   background: var(--card);
 }
 
-/* ── Drawer transport dock — docked to bottom edge (desktop only) ── */
+/* ── Drawer transport dock — sits above bottom nav (desktop only) ── */
 #splitTransportDock {
   display: none;
   position: fixed;
-  bottom: 0;
+  bottom: calc(54px + env(safe-area-inset-bottom, 0px));
   left: 0; right: 0;
   z-index: 99991;
   background: transparent;
@@ -6504,8 +6504,8 @@ body.split-active #splitRightPanel { display: flex; }
   box-shadow: none;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  padding: 0 16px env(safe-area-inset-bottom, 6px);
-  height: calc(50px + env(safe-area-inset-bottom, 0px));
+  padding: 0 16px;
+  height: 50px;
   flex-shrink: 0;
 }
 .split-dock-center {
@@ -6604,7 +6604,7 @@ body.split-4track-active .split-transport { display: none !important; }
 .split-transport-btn {
   font-family: 'IBM Plex Mono', monospace; font-size: 10px;
   font-weight: 700; letter-spacing: 0.06em;
-  padding: 4px 10px; border-radius: 5px; cursor: pointer;
+  padding: 6px 10px; border-radius: 5px; cursor: pointer;
   border: 1px solid var(--border2); background: var(--card2);
   color: var(--text); transition: all 0.12s; white-space: nowrap;
 }
@@ -6764,9 +6764,9 @@ body.split-expanded-right #viewDetail { opacity: 0; pointer-events: none; }
   display: flex; flex-direction: column;
   position: relative;
 }
-/* Clear the transport dock at the bottom */
+/* Clear transport dock + bottom nav */
 body.split-active #splitRightContent {
-  padding-bottom: calc(50px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
 }
 @media (max-width: 768px) {
   body.split-active #splitRightContent { padding-bottom: 0; }
@@ -13256,18 +13256,19 @@ function getCurrentSong() {
 }
 
 // ── Header status pill auto-fade ──────────────────────────────────
+var _spWake; // exposed so setSyncStatus can un-fade on save/load activity
 (function() {
   var _spTimer = null;
   function _spFade() {
     var el = document.getElementById('headerStatusWrap');
     if (el) el.classList.add('hdr-faded');
   }
-  function _spWake() {
+  _spWake = function() {
     var el = document.getElementById('headerStatusWrap');
     if (el) el.classList.remove('hdr-faded');
     clearTimeout(_spTimer);
     _spTimer = setTimeout(_spFade, 3000);
-  }
+  };
   document.addEventListener('DOMContentLoaded', function() {
     var el = document.getElementById('headerStatusWrap');
     if (!el) return;
@@ -20796,6 +20797,8 @@ function setSyncStatus(state, label) {
     if (lbl2) lbl2.textContent = label;
     if (lblM) lblM.textContent = label;
   }
+  // Un-fade the pill on any save/load activity; it'll re-fade after 3s of inactivity
+  if (typeof _spWake === 'function') _spWake();
 }
 
 function scheduleSyncToSheet(song) {
