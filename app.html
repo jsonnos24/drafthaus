@@ -20672,20 +20672,6 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(() => checkPublicViewMode().catch(e => console.warn('publicView error:', e)), 100);
   }
 
-  // Process any pending Google redirect sign-in result (mobile sign-in via signInWithRedirect).
-  // On mobile browsers (iOS Safari etc.) signInWithPopup is blocked — redirect flow is used instead.
-  // getRedirectResult() picks up the auth result after the browser returns from Google.
-  auth.getRedirectResult().catch(err => {
-    if (err && err.code && err.code !== 'auth/credential-already-in-use') {
-      const errEl = document.getElementById('landingError');
-      if (errEl) errEl.textContent = 'Sign-in failed. Please try again.';
-      const btn = document.getElementById('landingUnlockBtn');
-      if (btn) btn.disabled = false;
-      bartenderPasswordHide();
-      console.warn('getRedirectResult error:', err);
-    }
-  });
-
   // Auth handled by onAuthStateChanged
 });
 
@@ -22663,15 +22649,14 @@ async function submitLandingPassword() {
 
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth <= 768;
-    if (isMobile) {
-      // Mobile: use redirect flow — popup is blocked by iOS Safari and some Android browsers.
-      // getRedirectResult() on the next page load (after Google returns) will pick up the result.
-      await auth.signInWithRedirect(provider);
-      // Page will navigate away — execution stops here on mobile
-    } else {
-      await auth.signInWithPopup(provider);
-    }
+    // On iOS Safari, Firebase's default LOCAL persistence (IndexedDB/localStorage) is blocked
+    // by Intelligent Tracking Prevention on the firebaseapp.com auth domain.
+    // Switching to SESSION persistence (sessionStorage) before signing in avoids this —
+    // sessionStorage is allowed even with strict privacy settings.
+    try {
+      await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
+    } catch (_) { /* ignore — fallback to default persistence */ }
+    await auth.signInWithPopup(provider);
     // onAuthStateChanged handles hiding overlay + initApp()
   } catch (err) {
     if (err.code !== 'auth/popup-closed-by-user') {
