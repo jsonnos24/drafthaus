@@ -208,20 +208,20 @@ body::after {
 .mobile-dock-summary { display: none; }
 .header-right  { display: flex; align-items: center; justify-content: flex-end; }
 
-/* Song title in header — gothic neon green */
+/* Song title in header — black text with orange glow */
 .header-song-title {
   font-family: 'Pirata One', 'Cinzel Decorative', 'Playfair Display', serif;
   font-size: 15px;
   font-weight: 400;
   letter-spacing: 0.06em;
   color: #000;
-  -webkit-text-stroke: 1px #39ff14;
-  text-stroke: 1px #39ff14;
-  text-shadow: 0 0 8px rgba(57,255,20,0.6), 0 0 20px rgba(57,255,20,0.2);
+  -webkit-text-stroke: 0;
+  text-stroke: 0;
+  text-shadow: 0 0 6px rgba(255,140,0,0.9), 0 0 14px rgba(255,140,0,0.6), 0 0 28px rgba(255,140,0,0.3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   max-width: 260px; cursor: pointer;
 }
-.header-song-title:hover { text-shadow: 0 0 12px rgba(57,255,20,0.9), 0 0 28px rgba(57,255,20,0.35); }
+.header-song-title:hover { text-shadow: 0 0 8px rgba(255,140,0,1), 0 0 20px rgba(255,140,0,0.8), 0 0 36px rgba(255,140,0,0.4); }
 /* On mobile: show song title in the header-center */
 @media (max-width: 768px) {
   .header-song-title { font-size: 13px; max-width: 160px; }
@@ -14438,9 +14438,26 @@ function _seqTriggerLoopsForPart(partId) {
     var saved = _syncSong?.loopTracks?.[i];
     if (saved) t.parts = saved.parts || (saved.partId ? [saved.partId] : []);
   });
+  // Also resolve tracks linked via the seq-link UI (localStorage, keyed by seqId)
+  var _newLinkedLoopTracks = new Set();
+  try {
+    var _allSeqs = _syncSong ? getSongSequences(_syncSong) : [];
+    var _matchingSeqIds = new Set(
+      _allSeqs.filter(function(s) { return (s.partId || s.part) === partId; }).map(function(s) { return s.id; })
+    );
+    if (_matchingSeqIds.size > 0) {
+      var _loopLinks = _seqLinksLoad('loop');
+      Object.keys(_loopLinks).forEach(function(tidx) {
+        var sids = _loopLinks[tidx] || [];
+        if (sids.some(function(sid) { return _matchingSeqIds.has(sid); })) {
+          _newLinkedLoopTracks.add(parseInt(tidx, 10));
+        }
+      });
+    }
+  } catch(e) {}
   // Start tracks assigned to the incoming part (always restart from beginning)
   loopTracks.forEach(function(t, i) {
-    if (!t.parts || !t.parts.includes(partId) || t.state === 'recording') return;
+    if ((!_newLinkedLoopTracks.has(i) && (!t.parts || !t.parts.includes(partId))) || t.state === 'recording') return;
     if (t.buffer) {
       // Buffer already loaded — start immediately
       t.state = 'playing'; loopStartPlayback(i);
@@ -14484,6 +14501,27 @@ function _seqStopTriggeredLoops() {
     try { loopUpdateTrackUI(i); loopDrawRing(t, 0); } catch(e) {}
   });
   _seqTriggeredLoopTracks.clear();
+}
+
+// Trigger 4-track playback for tracks linked to sequences assigned to partId.
+function _seqTriggerMtTracksForPart(partId) {
+  if (!partId) return;
+  try {
+    var _syncSong = getCurrentSong();
+    if (!_syncSong) return;
+    var _allSeqs = getSongSequences(_syncSong);
+    var _matchingSeqIds = new Set(
+      _allSeqs.filter(function(s) { return (s.partId || s.part) === partId; }).map(function(s) { return s.id; })
+    );
+    if (_matchingSeqIds.size === 0) return;
+    var _4tLinks = _seqLinksLoad('4t');
+    var anyLinked = Object.keys(_4tLinks).some(function(tidx) {
+      return (_4tLinks[tidx] || []).some(function(sid) { return _matchingSeqIds.has(sid); });
+    });
+    if (anyLinked && typeof mtPlay === 'function' && typeof _mtIsPlaying !== 'undefined' && !_mtIsPlaying) {
+      mtPlay();
+    }
+  } catch(e) {}
 }
 
 const SEQ_NOTES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -16082,6 +16120,7 @@ function seqSwitchToSequence(idx) {
     const _newSeq = seqs[idx];
     const _newPartId = _newSeq?.partId || _newSeq?.part || document.getElementById('seqPartAssign')?.value || null;
     _seqTriggerLoopsForPart(_newPartId);
+    _seqTriggerMtTracksForPart(_newPartId);
   }
 }
 
@@ -18147,6 +18186,7 @@ function seqPlay() {
   const _partFromDom = document.getElementById('seqPartAssign')?.value || null;
   const _loopPartId  = _curSeqForLoop?.partId || _curSeqForLoop?.part || _partFromDom || null;
   _seqTriggerLoopsForPart(_loopPartId);
+  _seqTriggerMtTracksForPart(_loopPartId);
 }
 
 function seqPlaySong() {
@@ -18231,8 +18271,9 @@ function seqPlaySong() {
   if (typeof loopRenderPartsStrip === 'function') loopRenderPartsStrip();
   showToast('Playing full draft — ' + sorted.map(s => seqGetPartLabel(s.partId||s.part)).join(' → '), 'success', 4000);
 
-  // Trigger looper tracks for the first section
+  // Trigger looper + 4-track tracks for the first section
   _seqTriggerLoopsForPart(_seqSongSections[0]?.partId || null);
+  _seqTriggerMtTracksForPart(_seqSongSections[0]?.partId || null);
 }
 
 // Returns true if step i should get an accented metronome click.
@@ -18354,6 +18395,7 @@ function seqScheduleNotes() {
           if (typeof kbdRenderMelodyTabs === 'function') { const _s = getCurrentSong(); if (_s) kbdRenderMelodyTabs(_s); }
           if (typeof loopRenderPartsStrip === 'function') loopRenderPartsStrip();
           _seqTriggerLoopsForPart(_nextPartId);
+          _seqTriggerMtTracksForPart(_nextPartId);
         }, visualDelay + 50);
         if (_seqSongSectionIdx >= _seqSongSections.length) {
           // Schedule stop after last note plays
@@ -32756,6 +32798,7 @@ window.ensembleLaunch = function() {
         const partId = _curSeq?.partId || _curSeq?.part || _partFromDom || null;
         if (partId) {
           _seqTriggerLoopsForPart(partId);
+          _seqTriggerMtTracksForPart(partId);
         } else {
           // No part context at all — fall back to starting any loaded, idle tracks
           loopTracks.forEach((t, i) => {
