@@ -13784,6 +13784,7 @@ function renderInstSections(song) {
           <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.15em;color:var(--faint);margin-bottom:5px;">Lyrics / Notes</div>
           <textarea
             class="notes-area"
+            name="section-notes-${part.id}"
             data-part-id="${part.id}"
             oninput="saveSectionLyric(this,'${part.id}')"
             placeholder="${part.label} lyrics or notes…"
@@ -15677,7 +15678,7 @@ function renderSequencerHtml(song) {
 
     <!-- ── Drum controls (below tabs, above grid) ── -->
     <div class="seq-instrument-row" style="flex-wrap:wrap;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border2);">
-      <select class="seq-select" onchange="if(this.value){applyDrumPattern(this.value);this.value=''}" style="width:auto;">
+      <select class="seq-select" name="drum-pattern-sel" onchange="if(this.value){applyDrumPattern(this.value);this.value=''}" style="width:auto;">
         <option value="">— Drum pattern —</option>
         <option value="rock1">Rock 1</option>
         <option value="rock2">Rock 2</option>
@@ -20634,6 +20635,23 @@ document.addEventListener('DOMContentLoaded', function() {
   // Auth handled by onAuthStateChanged
 });
 
+// ── bfcache fix for signInWithRedirect ────────────────────────────
+// Chrome may restore this page from back/forward cache after the Google
+// OAuth redirect instead of doing a fresh load, which means DOMContentLoaded
+// never fires and getRedirectResult() never runs. Detect this via pageshow
+// event.persisted and force a full reload so Firebase can process the result.
+window.addEventListener('pageshow', function(event) {
+  if (event.persisted) {
+    // Page was restored from bfcache after navigation (e.g. OAuth redirect).
+    // Check if we're still on the login overlay — if so, a redirect auth may
+    // be pending and we need a fresh load to process it.
+    const overlay = document.getElementById('landingOverlay');
+    if (overlay && !overlay.classList.contains('hidden')) {
+      window.location.reload();
+    }
+  }
+});
+
 let _userTierUnsub = null; // holds the onSnapshot unsubscribe for the current user doc
 let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestore
 
@@ -21878,7 +21896,7 @@ function rtRenderBody() {
       ? `<div class="rt-chords" id="rtchords-${part.id}">${rtMakeChordPillsHtml(part.id, chords)}</div>`
       : '';
     const addRowHtml = `<div class="rt-chord-add-row" id="rtcar-${part.id}">
-        <input class="rt-chord-input" type="text" placeholder="Add chord…" maxlength="20"
+        <input class="rt-chord-input" type="text" name="chord-add-${part.id}" placeholder="Add chord…" maxlength="20"
           data-rt-chord-part="${part.id}" onkeydown="rtChordInputKey(event,'${part.id}')">
         <button class="rt-chord-act-btn" title="Repeat last chord" onclick="rtRepeatChord('${part.id}')">↩</button>
         <button class="rt-chord-act-btn" title="Undo last added chord" onclick="rtUndoChord('${part.id}')">↺</button>
@@ -22082,7 +22100,7 @@ function rtAddSection(sel) {
     </div>
     <div class="rt-chord-area" id="rtca-${partId}">
       <div class="rt-chord-add-row" id="rtcar-${partId}">
-        <input class="rt-chord-input" type="text" placeholder="Add chord…" maxlength="20"
+        <input class="rt-chord-input" type="text" name="chord-add-${partId}" placeholder="Add chord…" maxlength="20"
           data-rt-chord-part="${partId}" onkeydown="rtChordInputKey(event,'${partId}')">
         <button class="rt-chord-act-btn" title="Repeat last chord" onclick="rtRepeatChord('${partId}')">↩</button>
         <button class="rt-chord-act-btn" title="Undo last added chord" onclick="rtUndoChord('${partId}')">↺</button>
@@ -23348,7 +23366,7 @@ function renderStorageList() {
 
     const takesInner = takes?.count
       ? `<label class="storage-audio-label">
-           <input type="checkbox" class="storage-check takes-check" data-song="${song.id}" data-type="takes" onchange="storageUpdateSel()" ${takesDisabled}>
+           <input type="checkbox" class="storage-check takes-check" name="stor-takes-${song.id}" data-song="${song.id}" data-type="takes" onchange="storageUpdateSel()" ${takesDisabled}>
            <span class="storage-audio-info">
              <span>${takesSize}</span>
              <span class="audio-count">${takes.count} take${takes.count !== 1 ? 's' : ''} · ~${Math.round(takes.secs)}s</span>
@@ -23357,7 +23375,7 @@ function renderStorageList() {
       : '<span style="color:var(--border2);">—</span>';
     const trashInner = trash?.count
       ? `<label class="storage-audio-label">
-           <input type="checkbox" class="storage-check trash-check" data-song="${song.id}" data-type="trash" onchange="storageUpdateSel()" ${trashDisabled}>
+           <input type="checkbox" class="storage-check trash-check" name="stor-trash-${song.id}" data-song="${song.id}" data-type="trash" onchange="storageUpdateSel()" ${trashDisabled}>
            <span class="storage-audio-info">
              <span>${trashSize}</span>
              <span class="audio-count">${trash.count} file${trash.count !== 1 ? 's' : ''} · ~${Math.round(trash.secs)}s</span>
@@ -23366,7 +23384,7 @@ function renderStorageList() {
       : '<span style="color:var(--border2);">—</span>';
     const loopsInner = loops?.count
       ? `<label class="storage-audio-label">
-           <input type="checkbox" class="storage-check loops-check" data-song="${song.id}" data-type="loops" onchange="storageUpdateSel()" ${loopsDisabled}>
+           <input type="checkbox" class="storage-check loops-check" name="stor-loops-${song.id}" data-song="${song.id}" data-type="loops" onchange="storageUpdateSel()" ${loopsDisabled}>
            <span class="storage-audio-info">
              <span>${loopsSize}</span>
              <span class="audio-count">${loops.count} loop${loops.count !== 1 ? 's' : ''} · ~${Math.round(loops.secs)}s</span>
@@ -23377,7 +23395,7 @@ function renderStorageList() {
     const storBorderStyle = storProjColor ? `border-left:3px solid ${storProjColor};padding-left:9px;` : '';
     return `<tr id="storage-row-${song.id}">
       <td style="display:flex;align-items:center;gap:8px;${storBorderStyle}">
-        ${isOwner ? `<input type="checkbox" class="storage-check song-check" data-song="${song.id}" onchange="storageUpdateSel()" title="Select for sharing">` : '<span style="width:14px;display:inline-block;"></span>'}
+        ${isOwner ? `<input type="checkbox" class="storage-check song-check" name="stor-song-${song.id}" data-song="${song.id}" onchange="storageUpdateSel()" title="Select for sharing">` : '<span style="width:14px;display:inline-block;"></span>'}
         ${nameHtml}${!isOwner ? ' <span style="font-size:9px;color:var(--faint);font-family:\'IBM Plex Mono\',monospace;">(shared)</span>' : ''}
       </td>
       <td class="storage-audio-cell${takes?.count ? '' : ' empty'}">${takesInner}</td>
@@ -27559,7 +27577,7 @@ function loopBuildUI() {
           <canvas class="loop-vu-canvas" id="lvu-r-${i}" width="6" height="52"></canvas>
         </div>
         <div class="track-vol-wrap">
-          <input type="range" class="track-vol" min="0" max="100" value="85"
+          <input type="range" class="track-vol" name="loop-vol-${i}" min="0" max="100" value="85"
             oninput="loopSetTrackVolume(${i}, this.value)" style="--vol:85%">
           <span class="track-vol-label">VOL</span>
         </div>
@@ -28922,7 +28940,7 @@ function ilRefreshAllPalettes(song) {
 function ilKeyChangerHtml(partId, song) {
   const key = song?.key || '';
   const opts = IL_KEYS.map(k => `<option value="${esc(k)}"${k === key ? ' selected' : ''}>${k || '— Key —'}</option>`).join('');
-  return `<select class="il-key-sel" title="Change key" onchange="ilChangeSongKey(this.value)">${opts}</select>`;
+  return `<select class="il-key-sel" name="il-key-${partId}" title="Change key" onchange="ilChangeSongKey(this.value)">${opts}</select>`;
 }
 var rtChordPositions = {}; // {partId: [{chord, line, word}]}
 var rtLyricEdits     = {}; // {partId: 'raw string'}
@@ -29148,7 +29166,7 @@ function ilMakePartHtml(part, song) {
         <textarea class="il-lyrics-raw" id="illyricsedit-${part.id}" style="display:none"
           oninput="ilLyricsRawEdit('${part.id}',this)">${esc(lyricRaw)}</textarea>
       </div>
-      <input class="il-part-notes" placeholder="Section notes…" value="${esc(notes)}"
+      <input class="il-part-notes" name="il-notes-${part.id}" placeholder="Section notes…" value="${esc(notes)}"
         data-il-notes="${part.id}" oninput="ilNotesChanged('${part.id}', this.value)">
       <div class="il-chart-area-row">
         <div class="il-chart-area">
@@ -30712,7 +30730,7 @@ function renderMixDrawerHtml() {
     const label = ch.charAt(0).toUpperCase()+ch.slice(1);
     return `<div class="mix-ch">
       <span class="mix-ch-label">${label}</span>
-      <input type="range" orient="vertical" min="0" max="100" value="${vol}"
+      <input type="range" name="mix-vol-${ch}" orient="vertical" min="0" max="100" value="${vol}"
         oninput="seqMixerChange('${ch}','Vol',this.value/100)"
         ondblclick="this.value=80;seqMixerChange('${ch}','Vol',0.8)"
         title="${label} volume — double-click to reset">
@@ -32093,7 +32111,7 @@ window._mtRenderInlineTakes = function(i) {
         <button class="vr-take-lock-btn${isLocked?' locked':''}" onclick="vrToggleLock('${take.id}',${!isLocked})" title="${isLocked?'Unlock take':'Lock (protect from deletion)'}">${isLocked?'🔒':'🔓'}</button>
         <button class="vr-take-action-btn trash${isLocked?' take-locked':''}" onclick="vrDeleteTake('${take.id}','${take.storagePath||''}')" title="Delete take">✕</button>
       </div>
-      <textarea class="vr-take-note" placeholder="Label this take…" rows="1"
+      <textarea class="vr-take-note" name="take-note-${take.id}" placeholder="Label this take…" rows="1"
         oninput="vrNoteInput(this,'${take.id}')"
         onblur="vrNoteSave('${take.id}',this.value)"
       >${noteVal}</textarea>`;
@@ -33958,7 +33976,7 @@ function _mtRenderTakesPanel(trackIdx) {
         <button class="vr-take-lock-btn${isLocked?' locked':''}" onclick="vrToggleLock('${take.id}',${!isLocked})" title="${isLocked?'Unlock take':'Lock take (protects from deletion)'}">${isLocked?'🔒':'🔓'}</button>
         <button class="vr-take-action-btn trash${isLocked?' take-locked':''}" onclick="vrDeleteTake('${take.id}','${take.storagePath||''}')">✕</button>
       </div>
-      <textarea class="vr-take-note" placeholder="Add note…" rows="1"
+      <textarea class="vr-take-note" name="take-note-${take.id}" placeholder="Add note…" rows="1"
         oninput="vrNoteInput(this,'${take.id}')"
         onblur="vrNoteSave('${take.id}',this.value)"
       >${noteVal}</textarea>`;
