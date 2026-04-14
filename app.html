@@ -20630,7 +20630,8 @@ document.addEventListener('DOMContentLoaded', function() {
     console.error('[auth] getRedirectResult error:', err?.code, err?.message);
     if (err && err.code && err.code !== 'auth/popup-closed-by-user') {
       const errEl = document.getElementById('landingError');
-      if (errEl) errEl.textContent = 'Sign-in failed. Please try again.';
+      // Show raw error code on screen for diagnosis
+      if (errEl) errEl.textContent = `Redirect error: ${err?.code || err?.message || 'unknown'}`;
       const btn = document.getElementById('landingUnlockBtn');
       if (btn) btn.disabled = false;
     }
@@ -22631,24 +22632,16 @@ async function submitLandingPassword() {
 
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
-    // Use redirect instead of popup — popup is blocked by Cross-Origin-Opener-Policy
-    // headers on the hosting server, causing signInWithPopup to throw auth/internal-error
-    // even though auth technically completes. Redirect is immune to COOP.
     console.log('[auth] calling signInWithRedirect…');
     await auth.signInWithRedirect(provider);
-    // Page will navigate away to Google; on return, onAuthStateChanged handles the rest
     console.log('[auth] signInWithRedirect returned (page should be navigating)');
   } catch (err) {
-    // Redirect call itself should not throw, but guard anyway
     console.error('[auth] signInWithRedirect threw:', err?.code, err?.message);
-    if (err.code !== 'auth/popup-closed-by-user') {
-      errEl.textContent = 'Sign-in failed. Please try again.';
-    }
+    // Show the raw error code on screen so we can diagnose it
+    errEl.textContent = `Sign-in error: ${err?.code || err?.message || 'unknown'} — check console`;
     bartenderPasswordHide();
     btn.disabled = false;
   }
-  // Note: no finally — if redirect succeeds the page navigates away and
-  // the finally block would run before navigation, causing a flicker
 }
 
 // ── Landing sign-in/up (Email + Password) ─────────────────────────
