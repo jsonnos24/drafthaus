@@ -860,9 +860,9 @@ button, select, input, textarea { touch-action: manipulation; }
   .hdr-midi-pill      { display: none !important; }
   #themeToggleBtn     { display: flex !important; }
   /* Two-row mobile header: CSS grid — row 1: left actions + right controls; row 2: transport */
-  .site-header  { display: grid; grid-template-columns: 1fr auto; grid-template-rows: 43px 43px; align-items: center; }
+  .site-header  { display: grid; grid-template-columns: 1fr auto; grid-template-rows: 43px 43px; align-items: stretch; }
   .header-left  { grid-column: 1; grid-row: 1; min-width: 0; overflow: hidden; display: flex; align-items: center; }
-  .header-right { grid-column: 2; grid-row: 1; }
+  .header-right { grid-column: 2; grid-row: 1; align-items: center; }
   /* Transport row — spans full width, second grid row */
   .header-center {
     display: flex !important;
@@ -973,11 +973,17 @@ button, select, input, textarea { touch-action: manipulation; }
      Tabs → Grid → Drummer controls stacked vertically
   ═══════════════════════════════════════════════════════ */
 
-  /* Drawer: true full-screen, no bottom padding */
+  /* All full-screen drawers start BELOW the fixed header + seq strip (128px + safe-area) */
   .seq-drawer {
-    height: 100dvh !important;
-    max-height: 100dvh !important;
+    height: calc(100dvh - 128px - env(safe-area-inset-top, 0px)) !important;
+    max-height: calc(100dvh - 128px - env(safe-area-inset-top, 0px)) !important;
     border-radius: 0 !important;
+  }
+  /* Keyboard + looper drawers: offset top to clear header + seq strip */
+  .keyboard-drawer,
+  .looper-drawer {
+    top: calc(128px + env(safe-area-inset-top, 0px)) !important;
+    height: calc(100dvh - 128px - env(safe-area-inset-top, 0px)) !important;
   }
   .seq-drawer-body {
     padding: 0 !important;
@@ -1437,9 +1443,9 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-grid-pane .seq-pattern-grid {
     touch-action: pan-x !important;
   }
-  /* Make sure drum rows don't get buried behind the keyboard drawer */
+  /* Drum rows: allow horizontal pan for scroll, keep z-index above keyboard drawer */
   #seqKick, #seqSnare, #seqHat, #seqCrash, #seqClap {
-    touch-action: none !important;
+    touch-action: pan-x !important;
     position: relative;
     z-index: 1;
   }
@@ -4638,9 +4644,11 @@ button, select, input, textarea { touch-action: manipulation; }
   }
 
   .shared-drawer-header .drawer-transport-strip {
-    padding: 7px 12px 9px;
+    padding: 6px 10px;
     justify-content: center;
     border-radius: 0;
+    flex-wrap: nowrap;
+    gap: 4px;
   }
   /* When controls hidden, no extra radius needed on fixed bar */
   .shared-settings-row.hidden ~ .drawer-transport-strip {
@@ -5414,6 +5422,9 @@ button, select, input, textarea { touch-action: manipulation; }
   /* header (86px + safe-area) + seq strip (42px) = 128px + safe-area */
   #viewList  { padding-top: calc(128px + env(safe-area-inset-top, 0px)); padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
   #viewDetail { padding-top: calc(128px + env(safe-area-inset-top, 0px)); padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
+  /* Extra bottom clearance when persistent 4-track transport bar is visible (~92px bar + 56px nav) */
+  body.mt4t-bar-open #viewList,
+  body.mt4t-bar-open #viewDetail { padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px)); }
 
   /* ── Global sequence strip — persistent bar below nav bar ── */
   .global-seq-strip {
@@ -5425,7 +5436,8 @@ button, select, input, textarea { touch-action: manipulation; }
     background: rgba(10,10,12,0.97);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--border);
+    border-top: 2px solid var(--gold);
+    border-bottom: 2px solid var(--gold);
     display: flex;
     align-items: center;
     overflow-x: auto;
@@ -5698,13 +5710,14 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* ── Sequencer toolbar: mobile layout ───────────────────────── */
 
-  /* Transport bar — compact buttons */
+  /* Transport bar — match 4-track button size exactly */
   .shared-drawer-header .drawer-transport-strip .split-transport-btn,
   .shared-drawer-header .drawer-transport-strip .melody-rec-btn {
-    min-height: 28px !important;
-    height: 28px !important;
-    font-size: 10px !important;
-    padding: 0 8px !important;
+    min-height: 36px !important;
+    height: 36px !important;
+    font-size: 11px !important;
+    padding: 0 10px !important;
+    flex: 1 !important;
     white-space: nowrap !important;
     display: inline-flex !important;
     align-items: center !important;
@@ -5714,6 +5727,20 @@ button, select, input, textarea { touch-action: manipulation; }
   .shared-drawer-header .t-btn-label {
     font-size: 10px;
     line-height: 1;
+  }
+  /* Mobile: hide BPM tap, time sig, bars — show only song title + key */
+  .shared-ctrl-desktop-only { display: none !important; }
+  /* Song title in settings row */
+  .shared-drawer-song-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+    flex: 1 1 auto;
+    letter-spacing: 0.02em;
   }
   /* Transport bar — compact settings row controls */
   .shared-drawer-header .shared-settings-row {
@@ -6701,6 +6728,24 @@ body.split-expanded-right #viewDetail { opacity: 0; pointer-events: none; }
   font-weight: 700; color: var(--gold);
   min-width: 40px; text-align: right;
 }
+/* Title row with dismiss button */
+#mt4tMobileBar .mt4t-bar-titlerow {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 3px 10px 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+#mt4tMobileBar .mt4t-bar-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 8px;
+  font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--gold); opacity: 0.8;
+}
+#mt4tMobileBar .mt4t-bar-dismiss {
+  background: none; border: none; color: var(--faint);
+  font-size: 12px; line-height: 1; cursor: pointer;
+  padding: 2px 4px; border-radius: 3px;
+  transition: color 0.15s;
+}
+#mt4tMobileBar .mt4t-bar-dismiss:hover { color: var(--text); }
 /* Dim overlays hidden in split mode */
 body.split-active #keyboardDrawerOverlay,
 body.split-active #seqDrawerOverlay,
@@ -8914,8 +8959,9 @@ body.il-perf-active #ilScrollFloat { display: none; }
     max-height: calc(100dvh - 52px - env(safe-area-inset-top, 0px) - 54px - 78px - env(safe-area-inset-bottom, 0px));
     padding-bottom: 12px;
   }
-  /* Hide shared drawer header when 4-track transport bar is active — prevents bleed-through */
-  body.mt4t-bar-open .shared-drawer-header { display: none !important; }
+  /* Hide shared drawer header when 4-track overlay is open — prevents bleed-through/z-index clash */
+  /* When bar is only persistent (overlay closed), shared drawer can still be used */
+  body.mt4t-overlay-open .shared-drawer-header { display: none !important; }
 }
 .vr-deck-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -12851,10 +12897,12 @@ window._setStatus = function(val) {
 function updateHeaderSongTitle(song) {
   const el = document.getElementById('headerSongTitle');
   const dock = document.getElementById('mobileDockSummary');
+  const drawerTitle = document.getElementById('sharedDrawerSongTitle');
   if (!el) return;
   if (!song) {
     el.style.display = 'none'; el.textContent = '';
     if (dock) dock.classList.remove('dock-visible');
+    if (drawerTitle) drawerTitle.textContent = '';
     return;
   }
   const title = song.title || song.workingTitle || 'Untitled';
@@ -12862,6 +12910,11 @@ function updateHeaderSongTitle(song) {
   el.style.display = 'block';
   el.title = title + ' — click to go to song info';
   el.onclick = function() { if (typeof switchBackendTab === 'function') switchBackendTab('songinfo', document.querySelector('.detail-tab')); };
+  // Sync to shared drawer header (mobile transport bar)
+  if (drawerTitle) {
+    drawerTitle.textContent = title;
+    drawerTitle.title = title;
+  }
   // Show compact BPM/time info in mobile header dock
   if (dock && window.innerWidth <= 768) {
     dock.classList.add('dock-visible');
@@ -17150,8 +17203,8 @@ function seqBuildGrids(song) {
     if (!el) return;
     const savedLane = sd[lane] || [];
     el.innerHTML = '';
-    // Prevent native scroll while drag-painting on touch
-    el.style.touchAction = 'none';
+    // Allow horizontal pan (native scroll) but keep vertical/tap for painting
+    el.style.touchAction = 'pan-x';
 
     for (let i = 0; i < totalSteps; i++) {
       const slot = document.createElement('div');
@@ -17161,8 +17214,6 @@ function seqBuildGrids(song) {
       if (savedLane[i]) slot.classList.add('drum-on');
 
       slot.addEventListener('pointerdown', e => {
-        e.preventDefault();
-        slot.setPointerCapture(e.pointerId);
         _drumPaint.active  = true;
         _drumPaint.paintOn = !slot.classList.contains('drum-on'); // toggle direction from first touch
         _drumPaint.lane    = lane;
@@ -32921,6 +32972,7 @@ window.vrOpen = function(autoRecord) {
   const _inRT = !_inSplitPanel && (!!window._ilPerfMode || !!document.getElementById('runThroughDrawer')?.classList.contains('open'));
   _el('vrOverlay').classList.toggle('vr-rt-compact', _inRT);
   _el('vrOverlay').classList.add('vr-open');
+  document.body.classList.add('mt4t-overlay-open');
   // On mobile, #vrDeck has transform (slide-up / slide-in animation). Any position:fixed
   // inside a transformed ancestor is relative to that ancestor — not the viewport.
   // Fix: ALWAYS teleport .mt-transport to <body> on mobile — zero transforms, zero overflow
@@ -32966,8 +33018,8 @@ const btBtn = _el('vrBtBtn'); if (btBtn) btBtn.classList.toggle('vr-bt-active', 
   setTimeout(() => {
     _mtTracks.forEach((t, i) => { if (t && t.buffer) _mtDrawTrackWaveform(i, t.buffer, t.color); });
   }, 900);
-  // Show mobile 4-track transport bar on mobile (not in rehearse/RT mode — that uses .mt-transport-rt)
-  if (_isMobile4T && !_inRT) {
+  // Show mobile 4-track transport bar on mobile (persistent — stays visible when navigating away)
+  if (_isMobile4T) {
     const _mb = document.getElementById('mt4tMobileBar');
     if (_mb) {
       _mb.classList.add('mt4t-bar-visible');
@@ -32995,6 +33047,7 @@ window.vrClose = function() {
   }
   if (!_keepPlaying) _vrStopTakesListener(); // clean up real-time listener only if not playing
   _el('vrOverlay').classList.remove('vr-open', 'vr-rt-compact');
+  document.body.classList.remove('mt4t-overlay-open');
   _vuMaybeStop();
   // Restore .mt-transport back into #vrDeck (undo body teleport)
   const _tp = document.querySelector('.mt-transport');
@@ -33006,11 +33059,11 @@ window.vrClose = function() {
     }
     document.body._mtTransportPrev = null;
   }
-  // Hide mobile 4-track transport bar
-  var _mb = document.getElementById('mt4tMobileBar');
-  if (_mb) _mb.classList.remove('mt4t-bar-visible');
-  document.body.classList.remove('mt4t-bar-open');
-  _mt4tStopMobileSync();
+  // Keep mobile 4-track transport bar visible — it persists above bottom nav while song is open.
+  // It only hides when the user explicitly dismisses it via mt4tBarDismiss().
+  // _mt4tStopMobileSync — keep sync running so buttons reflect playback state when bar is visible.
+  // (sync will be stopped in mt4tBarDismiss)
+
   // Show persistent mini playback indicator if still playing
   _mtUpdateMiniPlaybar();
 };
@@ -33062,6 +33115,18 @@ window._mt4tStartMobileSync = function() {
 };
 window._mt4tStopMobileSync = function() {
   if (_mt4tMobileObserver) { _mt4tMobileObserver.disconnect(); _mt4tMobileObserver = null; }
+};
+
+// Explicitly dismiss the persistent mobile 4-track transport bar
+window.mt4tBarDismiss = function() {
+  if (_vrRecording) { showToast('Stop recording before closing the transport bar.', 'warn'); return; }
+  if (_mtIsPlaying) {
+    if (typeof _mtStopAll === 'function') _mtStopAll();
+  }
+  var _mb = document.getElementById('mt4tMobileBar');
+  if (_mb) _mb.classList.remove('mt4t-bar-visible');
+  document.body.classList.remove('mt4t-bar-open');
+  window._mt4tStopMobileSync();
 };
 
 // Bridge called by _vr4TrackSyncToSong (different script block — can't touch let _vrSongId directly)
@@ -36289,8 +36354,10 @@ window._releaseMicStreams          = _releaseMicStreams;
     </svg>
   </div>
   <div id="sharedSettingsRow" class="shared-settings-row">
-    <!-- Tap Tempo — BPM number on top, "BPM" label below -->
-    <button class="seq-btn tap-bpm-btn" id="kbdTapBtn" onclick="kbdTapTempo()" title="Tap to set BPM">
+    <!-- Song title — shown on mobile only -->
+    <span id="sharedDrawerSongTitle" class="shared-drawer-song-title" title="Current song"></span>
+    <!-- Tap Tempo — BPM number on top, "BPM" label below — hidden on mobile -->
+    <button class="seq-btn tap-bpm-btn shared-ctrl-desktop-only" id="kbdTapBtn" onclick="kbdTapTempo()" title="Tap to set BPM">
       <span class="tap-bpm-word" id="htBpmDisplay">100</span>
       <span class="tap-bpm-value">BPM</span>
     </button>
@@ -36313,8 +36380,8 @@ window._releaseMicStreams          = _releaseMicStreams;
         <option>B major</option><option>B minor</option>
       </select>
     </div>
-    <!-- Time sig -->
-    <div class="seq-ctrl-group">
+    <!-- Time sig — hidden on mobile -->
+    <div class="seq-ctrl-group shared-ctrl-desktop-only">
       <span class="seq-label">Time</span>
       <select class="seq-select" id="kbdTimeSig" onchange="kbdTimeSigChanged(this.value)">
         <option value="4">4/4</option>
@@ -36323,8 +36390,8 @@ window._releaseMicStreams          = _releaseMicStreams;
         <option value="5">5/4</option>
       </select>
     </div>
-    <!-- Bars -->
-    <div class="seq-ctrl-group">
+    <!-- Bars — hidden on mobile -->
+    <div class="seq-ctrl-group shared-ctrl-desktop-only">
       <span class="seq-label">Bars</span>
       <select class="seq-select" id="kbdBars" onchange="kbdBarsChanged(this.value)">
         <option value="1">1</option>
@@ -36339,10 +36406,10 @@ window._releaseMicStreams          = _releaseMicStreams;
   </div>
   <!-- Transport buttons -->
   <div class="drawer-transport-strip">
-    <button id="sharedRecBtn" class="melody-rec-btn" onclick="sharedRec()"
+    <button id="sharedRecBtn" class="split-transport-btn split-rec-btn" onclick="sharedRec()"
       disabled style="opacity:0.35;cursor:not-allowed;"
       title="Record melody (keyboard mode only)">
-      <span class="t-btn-label">⏺ Rec</span>
+      ⏺ Rec
     </button>
     <button class="split-transport-btn split-play-btn" onclick="sharedPlay()" title="Play (Space)">
       <span class="t-btn-label">▶ Play</span>
@@ -36359,8 +36426,12 @@ window._releaseMicStreams          = _releaseMicStreams;
   </div>
 </div>
 
-<!-- ── Mobile 4-track transport bar ──────────────────────────────── -->
+<!-- ── Mobile 4-track transport bar (persistent above bottom nav) ──── -->
 <div id="mt4tMobileBar">
+  <div class="mt4t-bar-titlerow">
+    <span class="mt4t-bar-label">4-TRACK</span>
+    <button class="mt4t-bar-dismiss" onclick="mt4tBarDismiss()" title="Dismiss transport bar">✕</button>
+  </div>
   <div class="drawer-transport-strip">
     <button class="split-transport-btn split-stop-btn" id="mtStopBtnM"
       onclick="vrStop()" disabled
