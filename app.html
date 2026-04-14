@@ -28,7 +28,15 @@
   }
   applyViewport();
   // Longer timeout + resize listener ensures dimensions have settled after rotation
-  window.addEventListener('orientationchange', function() { setTimeout(applyViewport, 200); });
+  window.addEventListener('orientationchange', function() {
+    setTimeout(applyViewport, 100);
+    setTimeout(applyViewport, 350); // second call after full settle
+    // Force reset any existing zoom on orientation change
+    setTimeout(function() {
+      document.documentElement.style.zoom = '';
+      if (window.scrollY > 0) window.scrollTo(0, 0);
+    }, 400);
+  });
   window.addEventListener('resize', applyViewport);
   // Block native pinch-to-zoom gesture on touch devices
   document.addEventListener('touchmove', function(e) {
@@ -816,6 +824,11 @@ button, select, input, textarea { touch-action: manipulation; }
   .hla-storage-btn { display: none !important; }
   .hla-newdraft-btn { display: inline-flex !important; font-size: 11px !important; padding: 7px 10px !important; }
   .hla-inspo-btn    { display: inline-flex !important; font-size: 11px !important; padding: 7px 10px !important; }
+  .hla-mob-status-pill { display: inline-flex !important; align-items: center; gap: 5px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+    color: var(--muted); border-radius: 8px; padding: 7px 10px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.06em; cursor: pointer; transition: all 0.15s; }
   #headerListActions { display: none !important; }
   .header-status-wrap { display: none !important; }
   .header-report-bug  { display: none !important; }
@@ -840,14 +853,9 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Hide the full ht-bar transport on mobile — show compact summary instead */
   .header-center #headerTransport { display: none !important; }
   /* Mobile dock summary row — shown instead */
-  .mobile-dock-summary {
-    display: flex !important;
-    align-items: center; gap: 6px;
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
-    color: var(--muted); pointer-events: none;
-  }
-  .mobile-dock-bpm { font-weight: 700; color: var(--gold); font-size: 12px; }
-  .mobile-dock-sep { color: var(--border2); }
+  .mobile-dock-summary { display: none !important; }
+  .mobile-dock-bpm { display: none !important; }
+  .mobile-dock-sep { display: none !important; }
   /* header-right: theme far right, hamburger beside it */
   .header-right { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
   /* Theme toggle always last on right */
@@ -2720,6 +2728,33 @@ button, select, input, textarea { touch-action: manipulation; }
     color: var(--red); letter-spacing: 0.1em;
   }
 
+  /* ── Recording countdown overlay ── */
+  #melodyCountdown {
+    display: none; position: fixed;
+    bottom: 120px; right: 24px;
+    z-index: 9900;
+    pointer-events: none;
+  }
+  #melodyCountdown.visible { display: flex; }
+  .melody-countdown-inner {
+    display: flex; align-items: center; justify-content: center;
+    width: 64px; height: 64px; border-radius: 50%;
+    background: rgba(10, 12, 18, 0.88);
+    border: 2px solid rgba(255, 95, 95, 0.7);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 32px; font-weight: 700;
+    color: #ff5f5f;
+    transition: transform 0.08s ease, opacity 0.12s ease;
+    animation: cntdwnPop 0.15s ease forwards;
+  }
+  .melody-countdown-inner.go {
+    border-color: rgba(74, 222, 128, 0.8);
+    color: #4ade80;
+  }
+  @keyframes cntdwnPop {
+    from { transform: scale(0.7); opacity: 0.4; }
+    to   { transform: scale(1);   opacity: 1; }
+  }
 
   /* ── Saved Chord Bank ── */
   .chord-bank {
@@ -2919,6 +2954,8 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .seq-tab-del:hover { color: var(--red); }
   .seq-tab-playing { box-shadow: 0 0 0 2px var(--gold); animation: seqTabPulse 1s ease infinite; }
+  .seq-tab-unassigned { border-color: rgba(255,255,255,0.45) !important; }
+  .seq-tab-unassigned.active { border-color: rgba(255,255,255,0.85) !important; background: rgba(255,255,255,0.07) !important; }
   @keyframes seqTabPulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
   /* Seq-link pending mode: pill pulses with its own colour */
   @keyframes seqLinkPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.75;transform:scale(1.06)} }
@@ -5331,27 +5368,6 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .global-seq-strip::-webkit-scrollbar { display: none; }
 
-  /* ── 4-Track mini playbar ── */
-  #mtMiniPlaybar {
-    position: fixed;
-    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-    left: 50%; transform: translateX(-50%);
-    z-index: 9950;
-    display: flex; align-items: center; gap: 10px;
-    background: #12141e; border: 1px solid #c8a96e66;
-    border-radius: 24px; padding: 6px 14px;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.5), 0 0 12px rgba(200,169,110,0.15);
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px; white-space: nowrap;
-  }
-  .mt-mini-stop, .mt-mini-reopen {
-    background: none; border: 1px solid #2a2d38; border-radius: 6px;
-    color: #c8a96e; font-family: 'IBM Plex Mono', monospace; font-size: 11px;
-    padding: 3px 8px; cursor: pointer; transition: all 0.15s;
-  }
-  .mt-mini-stop { color: #e05c5c; border-color: #3a2020; }
-  .mt-mini-stop:hover { background: rgba(224,92,92,0.12); }
-  .mt-mini-reopen:hover { background: rgba(200,169,110,0.1); }
-  .mt-mini-label { color: #c8a96e; opacity: 0.85; letter-spacing: 0.04em; }
 
   /* ── Scroll-away header state ── */
   body.header-scrolled-away .site-header {
@@ -6111,15 +6127,23 @@ button, select, input, textarea { touch-action: manipulation; }
   flex-shrink: 0;
 }
 .il-mob-lyrics-back {
-  background: none; border: 1px solid #2a2d38; border-radius: 8px;
-  color: #c8a96e; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
-  padding: 5px 12px; cursor: pointer; flex-shrink: 0;
+  background: none; border: none; border-radius: 8px;
+  color: #888; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  padding: 5px 8px; cursor: pointer; flex-shrink: 0;
 }
+.il-mob-lyrics-back:hover { color: #c8a96e; }
 .il-mob-lyrics-title {
   font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600;
   color: #e0e0e0; flex: 1; text-align: center;
 }
-.il-mob-lyrics-spacer { width: 68px; flex-shrink: 0; } /* balances the back button */
+.il-mob-lyrics-save-btn {
+  background: rgba(200,169,110,0.14); border: 1px solid rgba(200,169,110,0.45);
+  border-radius: 8px; color: #c8a96e;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.05em; padding: 5px 12px; cursor: pointer; flex-shrink: 0;
+  white-space: nowrap;
+}
+.il-mob-lyrics-save-btn:active { background: rgba(200,169,110,0.28); }
 .il-mob-lyrics-ta {
   flex: 1; background: #0a0c10; color: #e8e0d4;
   font-family: 'Courier New', 'Courier', monospace; font-size: 16px; line-height: 1.75;
@@ -6692,6 +6716,7 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
 /* Hamburger menu — visible on all screen sizes */
 .mobile-menu-wrap { position: relative; display: block; }
 /* Mobile-only elements — hidden by default, shown in @media(max-width:700px) */
+.hla-mob-status-pill { display: none; }
 .hla-mobile-newdraft {
   display: none;
   align-items: center; justify-content: center;
@@ -8886,6 +8911,28 @@ body.il-perf-active #ilScrollFloat { display: none; }
   0%,100% { box-shadow: 0 0 0 2px var(--seq-link-color, #c8a96e), 0 0 18px rgba(200,169,110,0.35); }
   50%     { box-shadow: 0 0 0 2px var(--seq-link-color, #c8a96e), 0 0 28px rgba(200,169,110,0.6); }
 }
+/* Seq-link badge row — shown persistently inside track head when track is linked to a sequence */
+.mt-seq-links-row {
+  display: none; /* hidden until populated */
+  flex-direction: row; flex-wrap: wrap; align-items: center;
+  gap: 4px; padding: 4px 8px 5px 8px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.18);
+}
+.mt-seq-links-row.has-links { display: flex; }
+.mt-seq-link-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 8px; font-weight: 600;
+  letter-spacing: 0.07em; text-transform: uppercase;
+  border: 1px solid currentColor; border-radius: 4px;
+  padding: 2px 5px 2px 4px; opacity: 0.9;
+  white-space: nowrap; max-width: 72px; overflow: hidden; text-overflow: ellipsis;
+}
+.mt-seq-link-badge-dot {
+  width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0;
+}
+/* In link mode, the whole track is clickable — show pointer on entire lane */
+.mt-track.seq-link-mode-active * { cursor: pointer !important; }
 
 /* track head: label + arm */
 .mt-track-head {
@@ -9968,7 +10015,8 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     max-width: unset !important;
     flex: 1 !important;
   }
-  .vr-io-extras { display: none !important; }
+  .vr-io-extras { display: flex !important; }
+  .vr-io-extras .vr-bt-btn { display: none !important; }
   #vrMonPill,
   .vr-feedback-warn {
     display: none !important;
@@ -9998,6 +10046,11 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     flex-direction: column !important;
     align-items: stretch !important;
     overflow: hidden !important;  /* keep foot inside card boundaries */
+  }
+  /* Stack track-main children vertically (head → waveform → foot) on mobile */
+  .mt-track-main {
+    flex-direction: column !important;
+    min-height: unset !important;
   }
 
   /* Top row of track: label + ARM button side by side */
@@ -10392,8 +10445,8 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
 @media (max-width: 768px) and (orientation: portrait) {
   /* Full-screen overlay: sit below the seq strip (102px = 60px header + 42px seq strip) */
   #vrOverlay {
-    align-items: stretch !important;
-    justify-content: stretch !important;
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
     padding: 0 !important;
     background: transparent !important; /* no dimming backdrop */
     top: calc(102px + env(safe-area-inset-top, 0px)) !important;
@@ -10404,11 +10457,13 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     border-right: none !important;
     border-bottom: none !important;
     border-top: 1px solid #2a2d38 !important;
-    max-height: 100% !important;
-    height: 100% !important;
+    max-height: none !important;
+    height: calc(100vh - 102px - env(safe-area-inset-top, 0px)) !important;
+    min-height: unset !important;
     width: 100% !important;
     max-width: 100% !important;
-    /* Swipe handle: unnecessary since it takes full screen */
+    overflow: hidden !important;
+    flex: none !important;
   }
   /* Hide swipe handle in full-screen portrait mode */
   #vrDeck::before { display: none !important; }
@@ -10422,35 +10477,25 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     min-height: 180px !important;
   }
   /* Full-width waveform: stack head above waveform+foot */
-  #vrDeck .mt-track-main {
-    flex-direction: column !important;
-  }
+  #vrDeck .mt-track-main { flex-direction: column !important; }
+  /* In portrait, the track head is already a compact row (from mobile CSS).
+     Override only to ensure full width and no left border. */
   #vrDeck .mt-track-head {
     min-width: 0 !important; max-width: 100% !important; width: 100% !important;
-    border-right: none !important; border-bottom: 1px solid #1e2130 !important;
-    flex-direction: row !important; flex-wrap: wrap !important;
-    align-items: center !important; padding: 4px 8px !important; gap: 6px !important;
+    border-right: none !important;
   }
-  #vrDeck .mt-track-head > * { flex-shrink: 0; }
   /* Waveform fills the full row width */
   #vrDeck .mt-waveform-wrap {
     flex: 1 1 auto !important; width: 100% !important;
-    min-height: 70px !important;
+    min-height: 60px !important;
   }
   #vrDeck .mt-waveform-canvas { width: 100% !important; }
-  /* Foot: horizontal strip below waveform */
+  /* Foot: keep horizontal, full width */
   #vrDeck .mt-track-foot {
     min-width: 0 !important; max-width: 100% !important; width: 100% !important;
-    flex-direction: row !important; align-items: center !important;
-    padding: 4px 8px !important; gap: 10px !important;
-    border-top: 1px solid #1e2130 !important;
   }
-  #vrDeck .mt-vol-slider {
-    writing-mode: horizontal-tb !important; direction: ltr !important;
-    width: 80px !important; height: 20px !important;
-  }
-  #vrDeck .mt-pan-wrap { flex-direction: row !important; align-items: center !important; gap: 6px !important; }
-  #vrDeck .mt-pan-label { writing-mode: horizontal-tb !important; margin: 0 !important; }
+  /* Keep vol/pan hidden in portrait — override any accidental specificity leakage */
+  #vrDeck .mt-vol-slider, #vrDeck .mt-pan-wrap { display: none !important; }
 }
 
 /* ── 4-Track: mobile landscape ─────────────────────────────────────────────────────────
@@ -10941,7 +10986,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
       style="display:flex;align-items:center;gap:5px;background:rgba(245,166,35,0.12);border:1px solid rgba(245,166,35,0.55);color:var(--gold);border-radius:8px;padding:7px 12px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;letter-spacing:0.08em;transition:all 0.15s;"
       onmouseover="this.style.background='rgba(245,166,35,0.22)';this.style.borderColor='var(--gold)'"
       onmouseout="this.style.background='rgba(245,166,35,0.12)';this.style.borderColor='rgba(245,166,35,0.55)'">
-      + New Idea
+      +New
     </button>
     <button class="hla-inspo-btn" onclick="toggleDrawer('inspoDrawer', openInspoDrawer, closeInspoDrawer)"
       style="display:flex;align-items:center;gap:6px;background:rgba(200,160,255,0.08);border:1px solid rgba(200,160,255,0.3);color:var(--purple);border-radius:8px;padding:7px 12px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;letter-spacing:0.08em;transition:all 0.15s;"
@@ -10954,6 +10999,11 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
         <text x="50" y="60" font-family="monospace" font-size="28" font-weight="bold" fill="currentColor" text-anchor="middle">100</text>
       </svg>
       Roll
+    </button>
+    <!-- Mobile status pill: shows save state, opens mobile menu on tap -->
+    <button class="hla-mob-status-pill" id="mobStatusPill" onclick="toggleMobileMenu()" title="Status — tap to open menu">
+      <div class="sync-dot" id="syncDotMob"></div>
+      <span id="syncLabelMob">—</span>
     </button>
     </div>
     <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start;">
@@ -11234,7 +11284,6 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
         <!-- Hero: titles + status -->
         <div class="si-hero">
           <div class="panel-titles">
-            <div class="panel-working" id="dispWorking">Working title</div>
             <div class="panel-title" id="dispTitle">New Draft</div>
           </div>
           <div class="si-status-row">
@@ -11247,11 +11296,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
         <!-- Title + project tiles -->
         <div class="si-tiles-grid">
           <div class="si-tile si-tile-wide">
-            <div class="si-tile-label">Working Title</div>
-            <input class="si-tile-input" id="fWorkingTitle" placeholder="e.g. the rainy one" oninput="saveField()">
-          </div>
-          <div class="si-tile si-tile-wide">
-            <div class="si-tile-label">Official Title</div>
+            <div class="si-tile-label">Title</div>
             <input class="si-tile-input" id="fTitle" placeholder="—" oninput="saveField()">
           </div>
           <div class="si-tile">
@@ -12627,7 +12672,7 @@ function populateSongFields(song) {
   updateHeaderSongTitle(song);
   currentInstrument = 'guitar';
   instModes = {};
-  document.getElementById('fWorkingTitle').value = song.workingTitle || '';
+  const _wtel = document.getElementById('fWorkingTitle'); if (_wtel) _wtel.value = song.workingTitle || '';
   document.getElementById('fTitle').value        = song.title || '';
   document.getElementById('fBpm').value          = song.bpm || '';
   syncBpmUI(song.bpm || song.sequencer?.bpm || '120');
@@ -12688,7 +12733,7 @@ function saveField() {
   const song = getCurrentSong();
   if (!song) return;
   if (song._viewOnly) return; // Never save changes for view-only songs
-  song.workingTitle = document.getElementById('fWorkingTitle').value;
+  const _wtSave = document.getElementById('fWorkingTitle'); if (_wtSave) song.workingTitle = _wtSave.value;
   song.title        = document.getElementById('fTitle').value;
   _updateDraftingHeader();
   song.bpm          = document.getElementById('fBpm').value;
@@ -12712,7 +12757,7 @@ function saveField() {
 }
 
 function updatePanelTitles(song) {
-  document.getElementById('dispWorking').textContent = song.workingTitle || 'Working title…';
+  const _dw = document.getElementById('dispWorking'); if (_dw) _dw.textContent = song.workingTitle || 'Working title…';
   document.getElementById('dispTitle').textContent   = song.title || song.workingTitle || 'New Draft';
 
   // Completion bars — chords and lyrics per active part
@@ -15699,14 +15744,16 @@ function seqRenderSequenceTabs() {
     const active  = i === seqActiveIdx ? ' active' : '';
     const playing = i === nowPlayingIdx ? ' seq-tab-playing' : '';
     const linkPending = (window._seqLinkPending && window._seqLinkPending.seqIdx === i) ? ' seq-link-pending' : '';
-    return `<button class="seq-tab${active}${playing}${linkPending}" style="color:${color};" id="seq-tab-btn-${i}"
+    const isUnassigned = (color === 'var(--faint)');
+    const tabColor = isUnassigned ? '#fff' : color;
+    return `<button class="seq-tab${active}${playing}${linkPending}${isUnassigned ? ' seq-tab-unassigned' : ''}" style="color:${tabColor};" id="seq-tab-btn-${i}"
       onclick="seqTabClick(${i},event)" title="${linkPending ? 'Click to exit link mode' : 'Switch to '+label+' — click again to enter Link Mode'}"
       draggable="true"
       ondragstart="seqTabDragStart(event,${i})"
       ondragover="seqTabDragOver(event,${i})"
       ondrop="seqTabDrop(event,${i})"
       ondragend="seqTabDragEnd()">
-      <span class="seq-tab-dot" style="background:${color};"></span>
+      <span class="seq-tab-dot" style="background:${tabColor};"></span>
       ${label}
       <span class="seq-tab-edit" onclick="event.stopPropagation();seqShowTabEditPopup(event,${i})" title="Reassign or reorder">✎</span>
       ${seqs.length > 1 ? `<span class="seq-tab-del" onclick="event.stopPropagation();seqDeleteSequence(${i})" title="Delete this sequence">✕</span>` : ''}
@@ -15869,17 +15916,39 @@ function _seqLinkBorderShadow(seqIds) {
   return [...borders, glow].join(', ');
 }
 
-// Apply colored left-border box-shadows to all linked tracks
+// Apply colored left-border box-shadows to all linked tracks + update badge rows
 function _seqApplyAllTrackLinkStyles() {
   const links4t  = _seqLinksLoad('4t');
   const linksLoop = _seqLinksLoad('loop');
+  const song = getCurrentSong();
+  const seqs = song ? getSongSequences(song) : [];
   // 4-track lanes
   for (let i = 0; i < 4; i++) {
     const lane = document.getElementById('mt-track-' + i);
     if (!lane) continue;
-    const shadow = _seqLinkBorderShadow(links4t[i]);
+    const seqIds = links4t[i] || [];
+    const shadow = _seqLinkBorderShadow(seqIds);
     lane.style.boxShadow = shadow || '';
     lane.style.transition = 'box-shadow 0.2s';
+    // Update badge row
+    const badgeRow = document.getElementById('mt-seq-links-row-' + i);
+    if (badgeRow) {
+      if (seqIds.length) {
+        badgeRow.innerHTML = seqIds.map(id => {
+          const s = seqs.find(sq => sq.id === id);
+          const color = s ? seqGetPartColor(s.partId || s.part) : '#888';
+          const label = s ? (s.partId || s.part || s.name || 'Seq') : 'Seq';
+          const abbr = label.length > 8 ? label.slice(0, 7) + '…' : label;
+          return `<span class="mt-seq-link-badge" style="color:${color};border-color:${color}40;" title="Linked to: ${label}">
+            <span class="mt-seq-link-badge-dot"></span>${abbr}
+          </span>`;
+        }).join('');
+        badgeRow.classList.add('has-links');
+      } else {
+        badgeRow.innerHTML = '';
+        badgeRow.classList.remove('has-links');
+      }
+    }
   }
   // Looper track cards
   for (let i = 0; i < 4; i++) {
@@ -16993,13 +17062,40 @@ function seqToggleSweepMode() {
   if (!seqSweepMode) seqHideChordOnKeyboard();
 }
 
+// Track which MIDI notes are currently held by chord pill presses (for note-off on release)
+var _seqPillActiveNotes = []; // [{note, octave}]
+
 function seqPillPress(name, degree) {
   seqClickFillChord(name, degree);
   seqShowChordOnKeyboard(name);
+  // If melody recording is live, record each note in this chord
+  if (melodyIsRecording) {
+    const key  = seqCurrentKey();
+    const mode = seqCurrentMode();
+    const midiMap = seqGenChordMidi(key, mode);
+    const midiNotes = midiMap[name] || _chordVariantToMidi(name);
+    _seqPillActiveNotes = [];
+    if (midiNotes && midiNotes.length) {
+      midiNotes.forEach(midiNote => {
+        const noteIdx = midiNote % 12;
+        const octave  = Math.floor(midiNote / 12) - 1;
+        const note    = SEQ_NOTES[noteIdx];
+        if (note) {
+          melodyRecordNote(note, octave, true);
+          _seqPillActiveNotes.push({ note, octave });
+        }
+      });
+    }
+  }
 }
 
 function seqPillRelease() {
   seqHideChordOnKeyboard();
+  // If melody recording is live, fire note-off for all chord notes
+  if (melodyIsRecording && _seqPillActiveNotes.length) {
+    _seqPillActiveNotes.forEach(({ note, octave }) => melodyRecordNote(note, octave, false));
+    _seqPillActiveNotes = [];
+  }
 }
 
 function seqShowChordOnKeyboard(chordName) {
@@ -18713,6 +18809,7 @@ function melodyToggleRecord() {
   } else if (melodyCountingIn) {
     // Cancel the ongoing count-in
     melodyCountingIn = false;
+    _melodyShowCountdown(null);
     const btn    = document.getElementById('melodyRecBtn');
     const status = document.getElementById('melodyStatus');
     if (btn)    { btn.classList.remove('recording'); btn.textContent = '⏺ Rec'; }
@@ -18724,6 +18821,26 @@ function melodyToggleRecord() {
   }
 }
 
+// Show or hide the countdown overlay with a number (or "GO")
+function _melodyShowCountdown(numStr) {
+  const el  = document.getElementById('melodyCountdown');
+  const num = document.getElementById('melodyCountdownNum');
+  if (!el || !num) return;
+  if (numStr === null) {
+    el.classList.remove('visible');
+    return;
+  }
+  num.textContent = numStr;
+  num.classList.toggle('go', numStr === '●');
+  // Force re-trigger animation by removing and re-adding the class
+  num.style.animation = 'none';
+  requestAnimationFrame(() => {
+    num.style.animation = '';
+    num.style.animation = 'cntdwnPop 0.15s ease forwards';
+  });
+  el.classList.add('visible');
+}
+
 async function melodyStartRecord() {
   if (melodyCountingIn || melodyIsRecording) return; // guard against re-entry
   melodyCountingIn = true;
@@ -18732,7 +18849,7 @@ async function melodyStartRecord() {
   const bpm  = parseFloat(song?.sequencer?.bpm || document.getElementById('seqBpm')?.value || document.getElementById('kbdBpm')?.value || 100);
   const timeSig = parseInt(song?.sequencer?.time || document.getElementById('seqTime')?.value || 4);
   const stepMs  = (60000 / bpm); // one beat in ms
-  const totalCountInBeats = timeSig * 2; // 2 bars
+  const totalCountInBeats = 3; // fixed 3-beat countdown
 
   // Give the button a quick visual cue that recording is starting
   { const b = document.getElementById('melodyRecBtn'); if (b) b.textContent = '…';
@@ -18745,18 +18862,18 @@ async function melodyStartRecord() {
   const startTime = ctx.currentTime + 0.05; // small buffer
   for (let beat = 0; beat < totalCountInBeats; beat++) {
     const t = startTime + beat * (stepMs / 1000);
-    seqClick(t, _seqIsAccentBeat(beat % timeSig, timeSig, timeSig));
+    seqClick(t, beat === 0); // accent on beat 1 only
   }
 
-  // Update status display using setTimeout (visual only, not timing-critical)
+  // Show countdown numbers 3...2...1 and update status
   for (let beat = 0; beat < totalCountInBeats; beat++) {
     const delayMs = beat * stepMs;
-    const barNum  = Math.floor(beat / timeSig) + 1;
-    const beatNum = (beat % timeSig) + 1;
+    const countNum = totalCountInBeats - beat; // 3, 2, 1
     setTimeout(() => {
+      if (!melodyCountingIn) return;
+      _melodyShowCountdown(String(countNum));
       const s = document.getElementById('melodyStatus');
-      if (s && melodyCountingIn && !melodyIsRecording)
-        s.textContent = `Count-in: ${barNum}-${beatNum}`;
+      if (s) s.textContent = `${countNum}…`;
     }, delayMs);
   }
 
@@ -18782,6 +18899,9 @@ async function melodyStartRecord() {
   { const sb = document.getElementById('splitRecBtn'); if (sb) sb.classList.add('recording'); }
   _syncSharedRecBtn();
   if (status) status.textContent = '● RECORDING';
+  // Show "●" dot briefly then hide the countdown overlay
+  _melodyShowCountdown('●');
+  setTimeout(() => { if (melodyIsRecording) _melodyShowCountdown(null); }, 600);
   seqRenderMelodyRoll();
 
   // Auto-enable metronome while recording in keyboard-only mode (drums not in DOM)
@@ -18845,6 +18965,7 @@ function melodyStopRecord() {
   { const sb = document.getElementById('splitRecBtn'); if (sb) sb.classList.remove('recording'); }
   _syncSharedRecBtn();
   if (status) status.textContent = '';
+  _melodyShowCountdown(null); // hide countdown overlay on stop
   seqRenderMelodyRoll();
 }
 
@@ -20000,18 +20121,23 @@ function setSyncStatus(state, label) {
   const lbl = document.getElementById('syncLabel');
   const dot2 = document.getElementById('syncDot2');
   const lbl2 = document.getElementById('syncLabel2');
+  const dotM = document.getElementById('syncDotMob');
+  const lblM = document.getElementById('syncLabelMob');
   if (!dot || !lbl) return;
   dot.className = 'sync-dot ' + state;
   if (dot2) dot2.className = 'sync-dot ' + state;
+  if (dotM) dotM.className = 'sync-dot ' + state;
   // Append timestamp for saved/synced states
   if (state === 'saved' && label.includes('✓')) {
     const now = new Date();
     const t = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     lbl.textContent = label + ' ' + t;
     if (lbl2) lbl2.textContent = label + ' ' + t;
+    if (lblM) lblM.textContent = label + ' ' + t;
   } else {
     lbl.textContent = label;
     if (lbl2) lbl2.textContent = label;
+    if (lblM) lblM.textContent = label;
   }
 }
 
@@ -20213,6 +20339,8 @@ auth.onAuthStateChanged(user => {
       email:       user.email,
       displayName: user.displayName || '',
       lastActiveAt: Date.now(),          // updated every sign-in — used for inactivity cleanup
+      inactivityWarningSentAt: null,     // cleared on login so re-inactive users get warned again
+      inactivityFinalWarningSentAt: null,
     }, { merge: true }).then(() => {
       let appInited = false;
       // Use onSnapshot so tier updates (e.g. after Stripe payment) are applied in real-time
@@ -30978,13 +31106,11 @@ function mtBuildUI() {
     _mtTracks.push(t);
     const lane = document.createElement('div');
     lane.className = 'mt-track'; lane.id = 'mt-track-'+i;
-    // Intercept clicks for seq-link mode
+    // Intercept clicks for seq-link mode — capture any click anywhere in the track
     lane.addEventListener('click', function(e) {
       if (window._seqLinkPending) {
-        // Check click isn't on an interactive control (arm, mute, solo, label, etc.)
-        const tag = e.target.tagName.toLowerCase();
-        if (tag === 'button' || tag === 'input' || tag === 'select') return;
         e.stopPropagation();
+        e.preventDefault();
         seqLinkToggle4T(i);
       }
     }, true); // capture phase so we get it before children
@@ -31021,6 +31147,8 @@ function mtBuildUI() {
               <button class="mt-boost-btn mt-mob-boost-inline" id="mt-mob-boost-${i}" onclick="mtToggleBoost(${i})" title="+12dB gain boost">+12dB</button>
             </div>
           </div>
+          <!-- Seq-link badges: shown persistently when this track is linked to one or more sequences -->
+          <div class="mt-seq-links-row" id="mt-seq-links-row-${i}"></div>
         </div>
         <div class="mt-waveform-wrap" id="mt-wave-wrap-${i}"
           onclick="mtWaveformClick(${i},event)"
@@ -31508,7 +31636,7 @@ window.mtToggleTakesInline = function(i) {
   }
 };
 
-// Render takes in the inline takes panel
+// Render takes in the inline takes panel — uses full management UI (stars, label, protect, delete)
 window._mtRenderInlineTakes = function(i) {
   const panel = _el('mt-inline-takes-'+i); if (!panel) return;
   const t = _mtTracks[i]; if (!t) return;
@@ -31516,18 +31644,37 @@ window._mtRenderInlineTakes = function(i) {
     panel.innerHTML = '<div class="vr-no-takes">No recordings yet</div>';
     return;
   }
-  let html = '';
-  t.takes.forEach((take, k) => {
+  panel.innerHTML = '';
+  t.takes.forEach((take, idx) => {
     const dur = _fmtDur(take.duration || 0);
-    const n = k + 1;
-    html += `<div class="mt-take-item">
-      <span class="mt-take-num">Take ${n}</span>
-      <span class="mt-take-dur">${dur}</span>
-      <button onclick="mtLoadTake(${i},${k})" class="mt-take-action-btn">Load</button>
-      <button onclick="mtDeleteTake(${i},${k})" class="mt-take-delete-btn">✕</button>
-    </div>`;
+    const rating = take.rating || 0;
+    const isActive = (idx === t.activeTakeIdx);
+    const isLocked = take.locked || false;
+    const stars = [1,2,3,4,5].map(n =>
+      `<button class="vr-star-btn${rating>=n?' filled':''}" onclick="vrSetRating('${take.id}',${n})" title="${n} star${n>1?'s':''}">★</button>`
+    ).join('');
+    const row = document.createElement('div');
+    row.className = 'vr-take-row' + (isActive?' vr-take-playing':'') + (isLocked?' take-locked-row':'');
+    row.id = 'vrTake_'+take.id;
+    const noteVal = (take.note||'').replace(/"/g,'&quot;');
+    row.innerHTML = `
+      <div class="vr-take-top">
+        <button class="vr-take-play-btn" onclick="vrPlayTake('${take.id}','${take.downloadUrl}',${take.duration||0})" title="Preview take">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+        </button>
+        <span class="vr-take-num">T${idx+1}</span>
+        <span class="vr-take-dur">${dur}</span>
+        <div class="vr-take-stars">${stars}</div>
+        <button class="vr-take-action-btn use-take${isActive?' active':''}" onclick="mtUseTake(${i},${idx})" title="Load as active take">USE</button>
+        <button class="vr-take-lock-btn${isLocked?' locked':''}" onclick="vrToggleLock('${take.id}',${!isLocked})" title="${isLocked?'Unlock take':'Lock (protect from deletion)'}">${isLocked?'🔒':'🔓'}</button>
+        <button class="vr-take-action-btn trash${isLocked?' take-locked':''}" onclick="vrDeleteTake('${take.id}','${take.storagePath||''}')" title="Delete take">✕</button>
+      </div>
+      <textarea class="vr-take-note" placeholder="Label this take…" rows="1"
+        oninput="vrNoteInput(this,'${take.id}')"
+        onblur="vrNoteSave('${take.id}',this.value)"
+      >${noteVal}</textarea>`;
+    panel.appendChild(row);
   });
-  panel.innerHTML = html;
 };
 
 // Helper: update inline takes label
@@ -32372,14 +32519,7 @@ window.vrOverlayClick = function(e) {
   if (e.target === _el('vrOverlay')) vrClose();
 };
 
-// ── Mini playback indicator: shown when 4-track is playing but overlay is closed ──
-window._mtUpdateMiniPlaybar = function() {
-  const bar = document.getElementById('mtMiniPlaybar');
-  if (!bar) return;
-  const isPlaying = typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying;
-  const overlayOpen = !!document.getElementById('vrOverlay')?.classList.contains('vr-open');
-  bar.style.display = (isPlaying && !overlayOpen) ? 'flex' : 'none';
-};
+window._mtUpdateMiniPlaybar = function() {}; // mini playbar removed
 
 // ══ ENSEMBLE LAUNCHER ═══════════════════════════════════════════
 const _ENS_STORAGE_KEY = 'drafthaus-ensemble';
@@ -34682,19 +34822,18 @@ window._releaseMicStreams          = _releaseMicStreams;
 <!-- ── Mobile full-screen lyrics editor ── -->
 <div id="ilMobLyricsModal">
   <div class="il-mob-lyrics-header">
-    <button class="il-mob-lyrics-back" onclick="ilCloseMobileLyricsModal()">← Done</button>
+    <button class="il-mob-lyrics-back" onclick="ilCloseMobileLyricsModal()">← Back</button>
     <span class="il-mob-lyrics-title" id="ilMobLyricsTitle">Edit Lyrics</span>
-    <span class="il-mob-lyrics-spacer"></span>
+    <button class="il-mob-lyrics-save-btn" onclick="ilCloseMobileLyricsModal()">Update Section</button>
   </div>
   <textarea id="ilMobLyricsTa" class="il-mob-lyrics-ta" placeholder="Write your lyrics here…&#10;&#10;No distractions. Just words."
     oninput="(function(ta){const pid=window._ilMobLyricsPartId;if(!pid)return;const inlineTa=document.getElementById('illyricsedit-'+pid);if(inlineTa){inlineTa.value=ta.value;inlineTa.dispatchEvent(new Event('input',{bubbles:true}))}})(this)"></textarea>
 </div>
 
-<!-- ── 4-Track mini playbar (shown when 4-track is playing but overlay is closed) ── -->
-<div id="mtMiniPlaybar" style="display:none;">
-  <button class="mt-mini-stop" onclick="if(typeof _mtStopAll==='function')_mtStopAll();" title="Stop 4-track playback">⏹</button>
-  <span class="mt-mini-label">4-track playing</span>
-  <button class="mt-mini-reopen" onclick="vrOpen();" title="Open 4-track">▶ Open</button>
+
+<!-- ── Recording countdown overlay ─────────────────────────────── -->
+<div id="melodyCountdown">
+  <div class="melody-countdown-inner" id="melodyCountdownNum">3</div>
 </div>
 
 <!-- ── No-song modal prompt ── -->
