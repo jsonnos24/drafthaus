@@ -171,6 +171,8 @@ html {
   overflow-x: hidden;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* Disable double-tap-to-zoom across the entire site */
+  touch-action: manipulation;
 }
 
 body {
@@ -6470,12 +6472,36 @@ body.split-active #splitLeftHeader { display: flex; }
 }
 body.split-active #splitRightPanel { display: flex; }
 
-/* Right panel header bar */
+/* Right panel header bar — now only holds expand/help controls */
 #splitRightHeader {
   display: flex; align-items: center; gap: 8px;
   padding: 0 10px; height: 44px; flex-shrink: 0;
   border-bottom: 1px solid var(--border);
   background: var(--card);
+}
+
+/* ── Drawer transport dock — fixed above bottom nav (desktop only) ── */
+/* Replaces the transport strip that used to live inside #splitRightHeader */
+#splitTransportDock {
+  display: none;
+  position: fixed;
+  bottom: calc(54px + env(safe-area-inset-bottom, 0px));
+  left: 0; right: 0;
+  z-index: 99991;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.3);
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  height: 44px;
+  flex-shrink: 0;
+}
+/* Only show when split workspace is open, and only on desktop */
+body.split-active #splitTransportDock { display: flex; }
+@media (max-width: 768px) {
+  #splitTransportDock { display: none !important; }
 }
 /* I/O pill in split header — hidden unless 4-track is active in right panel */
 .split-io-pill {
@@ -6672,6 +6698,13 @@ body.split-expanded-right #viewDetail { opacity: 0; pointer-events: none; }
   display: flex; flex-direction: column;
   position: relative;
 }
+/* Clear the transport dock at the bottom */
+body.split-active #splitRightContent {
+  padding-bottom: calc(44px + env(safe-area-inset-bottom, 0px));
+}
+@media (max-width: 768px) {
+  body.split-active #splitRightContent { padding-bottom: 0; }
+}
 /* Strip overlay/drawer behavior from any drawer moved into split panel */
 #splitRightContent > .keyboard-drawer,
 #splitRightContent > .seq-drawer,
@@ -6822,9 +6855,9 @@ body.il-perf-active.split-active #splitLeftHeader {
 body.il-perf-active.split-active .rt-metro.il-perf-metro {
   right: calc(100% - var(--split-left)) !important;
 }
-/* Pad the right panel bottom so content clears the bottom nav */
+/* Pad the right panel bottom so content clears the transport dock + bottom nav */
 body.il-perf-active.split-active #splitRightContent {
-  padding-bottom: 60px;
+  padding-bottom: calc(44px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ── Drawers in split+rehearse mode: start below the visible header ── */
@@ -35649,40 +35682,6 @@ window._releaseMicStreams          = _releaseMicStreams;
 </div>
 <div id="splitRightPanel">
   <div id="splitRightHeader">
-    <div class="split-transport" id="splitTransport">
-      <button class="split-transport-btn split-rec-btn" id="splitRecBtn" onclick="sharedRec()" title="Record (keyboard mode)">⏺ Rec</button>
-      <button class="split-transport-btn split-play-btn" onclick="seqPlay()" title="Play loop">▶ Play</button>
-      <button class="split-transport-btn split-play-btn" onclick="seqPlaySong()" title="Play full song">▶▶ Full</button>
-      <button class="split-transport-btn split-stop-btn" onclick="seqStop()" title="Stop">■ Stop</button>
-      <button class="split-transport-btn split-met-btn" id="splitMetBtn" onclick="seqToggleMet()" title="Toggle metronome">Metro</button>
-    </div>
-    <!-- 4-track transport — only visible when 4-track occupies split right -->
-    <div class="split-4t-transport" id="split4tTransport">
-      <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="vrStop()" disabled title="Stop (Space)">■ Stop</button>
-      <button class="split-transport-btn split-rec-btn" id="mtRecBtn" onclick="vrToggleRec()" title="Record armed track (R)">⏺ Rec</button>
-      <button class="split-transport-btn split-play-btn" id="mtPlayBtn" onclick="mtPlay()" disabled title="Play (Space)">▶ Play</button>
-      <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtn" onclick="sharedPlaySong()" title="Play full song — plays all sections in order">▶▶ Full</button>
-      <button class="split-transport-btn split-met-btn" id="mtMetBtn" onclick="seqToggleMet()" title="Toggle metronome (M)">♩ Metro</button>
-    </div>
-    <!-- Input gain control — shown with 4-track transport -->
-    <div class="vr-gain-pill" id="vrGainPill" title="Input recording gain (pre-boost)">
-      <span class="vr-gain-label">IN</span>
-      <input type="range" class="vr-gain-slider" id="vrGainSlider"
-        min="0.5" max="8" step="0.1" value="3"
-        oninput="vrGainChange(this.value)">
-      <span class="vr-gain-db" id="vrGainDb">+9.5dB</span>
-    </div>
-    <!-- I/O pill — shown only when 4-track is in split right (body.split-4track-active) -->
-    <div class="split-io-pill" id="vrIoHeaderPill">
-      <button class="split-io-btn" id="vrInputBtnH" onclick="vrToggleDevicePicker('input','vrInputBtnH')" title="Select input device">
-        <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        <span id="vrInputLabelH">In</span>
-      </button>
-      <button class="split-io-btn" id="vrOutputBtnH" onclick="vrToggleDevicePicker('output','vrOutputBtnH')" title="Select output device">
-        <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path d="M15.54,8.46a5,5,0,0,1,0,7.07" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M19.07,4.93a10,10,0,0,1,0,14.14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
-        <span id="vrOutputLabelH">Out</span>
-      </button>
-    </div>
     <div style="flex:1"></div>
     <button id="splitRightHelpBtn" class="drawer-help-btn" style="display:none" title="Help">?</button>
     <span id="splitRightExpandHint" class="split-expand-hint">Hit Enter to Expand</span>
@@ -35692,6 +35691,45 @@ window._releaseMicStreams          = _releaseMicStreams;
   <div id="splitRightDefault" class="split-right-default"></div>
 </div>
 <div id="splitDivider"><button id="splitSwapBtn" onclick="switchSplitSides()" title="Swap panels" onmousedown="event.stopPropagation()">⇄</button></div>
+
+<!-- ── Drawer transport dock — fixed above bottom nav (desktop, split mode only) ── -->
+<div id="splitTransportDock">
+  <!-- Shared transport — keyboard / drum machine / looper -->
+  <div class="split-transport" id="splitTransport">
+    <button class="split-transport-btn split-rec-btn" id="splitRecBtn" onclick="sharedRec()" title="Record (keyboard mode)">⏺ Rec</button>
+    <button class="split-transport-btn split-play-btn" onclick="seqPlay()" title="Play loop">▶ Play</button>
+    <button class="split-transport-btn split-play-btn" onclick="seqPlaySong()" title="Play full song">▶▶ Full</button>
+    <button class="split-transport-btn split-stop-btn" onclick="seqStop()" title="Stop">■ Stop</button>
+    <button class="split-transport-btn split-met-btn" id="splitMetBtn" onclick="seqToggleMet()" title="Toggle metronome">Metro</button>
+  </div>
+  <!-- 4-track transport — only visible when 4-track occupies split right -->
+  <div class="split-4t-transport" id="split4tTransport">
+    <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="vrStop()" disabled title="Stop (Space)">■ Stop</button>
+    <button class="split-transport-btn split-rec-btn" id="mtRecBtn" onclick="vrToggleRec()" title="Record armed track (R)">⏺ Rec</button>
+    <button class="split-transport-btn split-play-btn" id="mtPlayBtn" onclick="mtPlay()" disabled title="Play (Space)">▶ Play</button>
+    <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtn" onclick="sharedPlaySong()" title="Play full song — plays all sections in order">▶▶ Full</button>
+    <button class="split-transport-btn split-met-btn" id="mtMetBtn" onclick="seqToggleMet()" title="Toggle metronome (M)">♩ Metro</button>
+  </div>
+  <!-- Input gain control — shown with 4-track transport -->
+  <div class="vr-gain-pill" id="vrGainPill" title="Input recording gain (pre-boost)">
+    <span class="vr-gain-label">IN</span>
+    <input type="range" class="vr-gain-slider" id="vrGainSlider"
+      min="0.5" max="8" step="0.1" value="3"
+      oninput="vrGainChange(this.value)">
+    <span class="vr-gain-db" id="vrGainDb">+9.5dB</span>
+  </div>
+  <!-- I/O pill — shown only when 4-track is in split right (body.split-4track-active) -->
+  <div class="split-io-pill" id="vrIoHeaderPill">
+    <button class="split-io-btn" id="vrInputBtnH" onclick="vrToggleDevicePicker('input','vrInputBtnH')" title="Select input device">
+      <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span id="vrInputLabelH">In</span>
+    </button>
+    <button class="split-io-btn" id="vrOutputBtnH" onclick="vrToggleDevicePicker('output','vrOutputBtnH')" title="Select output device">
+      <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><polygon points="11,5 6,9 2,9 2,15 6,15 11,19"/><path d="M15.54,8.46a5,5,0,0,1,0,7.07" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M19.07,4.93a10,10,0,0,1,0,14.14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      <span id="vrOutputLabelH">Out</span>
+    </button>
+  </div>
+</div>
 
 <!-- ── Onboarding / Help overlay ──────────────────────────────────── -->
 <div id="onboardingOverlay" onclick="if(event.target===this)obClose()">
