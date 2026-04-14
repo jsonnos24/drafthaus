@@ -14508,20 +14508,27 @@ function _seqTriggerMtTracksForPart(partId) {
   if (!partId) return;
   try {
     var _syncSong = getCurrentSong();
-    if (!_syncSong) return;
+    if (!_syncSong) { console.warn('[4T trigger] no current song'); return; }
     var _allSeqs = getSongSequences(_syncSong);
+    // Build seqId set for sequences matching this partId
     var _matchingSeqIds = new Set(
       _allSeqs.filter(function(s) { return (s.partId || s.part) === partId; }).map(function(s) { return s.id; })
     );
-    if (_matchingSeqIds.size === 0) return;
+    // Also build partId map in case seqIds drifted (e.g. migration assigned fresh IDs)
+    var _seqPartMap = {};
+    _allSeqs.forEach(function(s) { if (s.id) _seqPartMap[s.id] = s.partId || s.part || null; });
     var _4tLinks = _seqLinksLoad('4t');
+    console.log('[4T trigger] partId:', partId, '| matchingSeqIds:', [..._matchingSeqIds], '| links:', JSON.stringify(_4tLinks));
     var anyLinked = Object.keys(_4tLinks).some(function(tidx) {
-      return (_4tLinks[tidx] || []).some(function(sid) { return _matchingSeqIds.has(sid); });
+      return (_4tLinks[tidx] || []).some(function(sid) {
+        return _matchingSeqIds.has(sid) || _seqPartMap[sid] === partId;
+      });
     });
+    console.log('[4T trigger] anyLinked:', anyLinked, '| _mtIsPlaying:', typeof _mtIsPlaying !== 'undefined' ? _mtIsPlaying : 'undefined');
     if (anyLinked && typeof mtPlay === 'function' && typeof _mtIsPlaying !== 'undefined' && !_mtIsPlaying) {
       mtPlay();
     }
-  } catch(e) {}
+  } catch(e) { console.warn('[4T trigger] error:', e); }
 }
 
 const SEQ_NOTES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
