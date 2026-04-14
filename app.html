@@ -20623,7 +20623,11 @@ document.addEventListener('DOMContentLoaded', function() {
   // Process any pending Google redirect sign-in result (from signInWithRedirect).
   // onAuthStateChanged handles the actual login transition; this call is just for
   // error surfacing if the redirect result itself carries an error.
-  auth.getRedirectResult().catch(err => {
+  console.log('[auth] getRedirectResult starting…');
+  auth.getRedirectResult().then(result => {
+    console.log('[auth] getRedirectResult resolved — user:', result?.user?.email || 'none');
+  }).catch(err => {
+    console.error('[auth] getRedirectResult error:', err?.code, err?.message);
     if (err && err.code && err.code !== 'auth/popup-closed-by-user') {
       const errEl = document.getElementById('landingError');
       if (errEl) errEl.textContent = 'Sign-in failed. Please try again.';
@@ -20656,6 +20660,7 @@ let _userTierUnsub = null; // holds the onSnapshot unsubscribe for the current u
 let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestore
 
 auth.onAuthStateChanged(user => {
+  console.log('[auth] onAuthStateChanged fired — user:', user ? user.email : 'null');
   if (user) {
     // Clear any previous user's data before loading the new user's songs
     songs = [];
@@ -20672,10 +20677,12 @@ auth.onAuthStateChanged(user => {
       inactivityWarningSentAt: null,     // cleared on login so re-inactive users get warned again
       inactivityFinalWarningSentAt: null,
     }, { merge: true }).then(() => {
+      console.log('[auth] userRef.set succeeded — subscribing to tier snapshot');
       if (!auth.currentUser) return; // sign-out raced the set
       let appInited = false;
       // Use onSnapshot so tier updates (e.g. after Stripe payment) are applied in real-time
       _userTierUnsub = userRef.onSnapshot(doc => {
+        console.log('[auth] tier snapshot received — tier:', doc.data()?.tier || 'free');
         const newTier = doc.data()?.tier || 'free';
         _dismissedShares = new Set(doc.data()?.dismissedShares || []);
         if (doc.data()?.lastSongId) _lastSongIdFromFirestore = doc.data().lastSongId;
@@ -22627,10 +22634,13 @@ async function submitLandingPassword() {
     // Use redirect instead of popup — popup is blocked by Cross-Origin-Opener-Policy
     // headers on the hosting server, causing signInWithPopup to throw auth/internal-error
     // even though auth technically completes. Redirect is immune to COOP.
+    console.log('[auth] calling signInWithRedirect…');
     await auth.signInWithRedirect(provider);
     // Page will navigate away to Google; on return, onAuthStateChanged handles the rest
+    console.log('[auth] signInWithRedirect returned (page should be navigating)');
   } catch (err) {
     // Redirect call itself should not throw, but guard anyway
+    console.error('[auth] signInWithRedirect threw:', err?.code, err?.message);
     if (err.code !== 'auth/popup-closed-by-user') {
       errEl.textContent = 'Sign-in failed. Please try again.';
     }
