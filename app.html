@@ -6722,6 +6722,8 @@ body.split-4track-active .split-transport { display: none !important; }
 .split-rec-btn   { border-color: rgba(248,113,113,0.5); color: var(--text); }
 .split-rec-btn.recording { background: var(--red); color: #fff; border-color: var(--red); animation: recPulse 1s ease-in-out infinite; }
 .split-met-btn.on { color: var(--gold); border-color: var(--gold); }
+.split-loop-btn { border-color: rgba(126,200,247,0.35); color: rgba(126,200,247,0.6); }
+.split-loop-btn.mt-loop-active { color: #7ec8f7; border-color: #7ec8f7; background: rgba(126,200,247,0.12); box-shadow: 0 0 6px rgba(126,200,247,0.2); }
 /* Input gain pill — visible alongside 4-track transport */
 .vr-gain-pill {
   display: none; align-items: center; gap: 5px;
@@ -14127,9 +14129,9 @@ function moveSectionInOrder(fromIdx, toIdx) {
   }
 
   save();
+  if (typeof renderStructure === 'function') renderStructure(song); // updates structPillZone + chord cards
   renderSectionOrderSidebar(song);
   renderPreview(song);
-  // Refresh instrument sections and chord sections to reflect new order
   renderChordSections(song);
   scheduleSyncToSheet(song);
   // Sync global seq strip
@@ -16680,9 +16682,11 @@ function seqTabDrop(e, idx) {
       const pid = s.partId || s.part || '';
       if (pid && !seen.has(pid)) { seen.add(pid); newPartOrder.push(pid); }
     });
-    // Keep any structure parts that have no sequence (checked but no seq assigned) in their relative position
+    // Keep any structure parts that have no sequence (checked but no seq assigned) at end
     song.sectionOrder.forEach(pid => { if (!seen.has(pid)) newPartOrder.push(pid); });
     song.sectionOrder = newPartOrder;
+    // Re-render structure tab (pill zone + chord cards + sidebar)
+    if (typeof renderStructure === 'function') renderStructure(song);
     if (typeof renderSectionOrderSidebar === 'function') renderSectionOrderSidebar(song);
   }
 
@@ -19039,6 +19043,14 @@ function sharedPlay() {
 // Full song play — SEQ full-song mode; also coordinates 4-track if visible
 function sharedPlaySong() {
   if (seqIsPlaying) { sharedStop(); return; }
+  // Disable 4-track loop when playing full song
+  if (typeof _mtLoopEnabled !== 'undefined' && _mtLoopEnabled) {
+    _mtLoopEnabled = false;
+    ['mtLoopBtn','mtLoopBtnM'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) { el.classList.remove('mt-loop-active'); el.title = 'Loop playback (L)'; }
+    });
+  }
   seqPlaySong();
   const vrOpen = document.getElementById('vrOverlay')?.classList.contains('vr-open');
   const miniVisible = (function() {
@@ -23456,8 +23468,7 @@ function initApp() {
 // not on a blank screen. Called once when no songs exist and the onboarding
 // hasn't been completed.
 function _setupNewUserState() {
-  if (localStorage.getItem('drafthaus-onboarding-done')) return;
-  if (songs.length > 0) return; // already has drafts
+  if (songs.length > 0) return; // already has drafts — don't overwrite
 
   // Choose a random preset (skip 'random', 'clear', waltz, 5/4, 6/8 oddities)
   var _nuPresets = ['rock1', 'rock2', 'hiphop', 'pop', 'rnb', 'edm', 'motown', 'altrock', 'country'];
@@ -23514,23 +23525,35 @@ function _setupNewUserState() {
   save();
   openSong(_nuSong.id);
 
+  // Step 1 (150ms): Open the layout
   setTimeout(function() {
-    // Sync BPM + grid DOM controls so the sequencer drawer shows correct values
-    var _bpmEl  = document.getElementById('seqBpm');  if (_bpmEl)  _bpmEl.value  = '125';
-    var _gridEl = document.getElementById('seqGrid'); if (_gridEl) _gridEl.value = '1';
-
     if (window.innerWidth >= 900) {
       // Desktop: split view — lyrics edit left, drum machine right
       if (typeof openSplitMode === 'function') openSplitMode('sequencer');
     } else {
-      // Mobile: open 4-track
+      // Mobile: open 4-track drawer
       if (typeof vrOpen === 'function') vrOpen();
     }
+  }, 150);
 
-    // Rebuild sequencer grids so drum + chord slots are visible
-    if (typeof seqBuildGrids === 'function')        seqBuildGrids(_nuSong);
-    if (typeof seqRenderChordPills === 'function')  seqRenderChordPills(_nuSong);
-  }, 250);
+  // Step 2 (500ms): Sequencer DOM has had time to initialize — sync header controls and rebuild grids
+  setTimeout(function() {
+    // seqBars and seqGrid live in the persistent header
+    var _gridEl = document.getElementById('seqGrid'); if (_gridEl) _gridEl.value = '1';
+    var _barsEl = document.getElementById('seqBars'); if (_barsEl) _barsEl.value = '4';
+    // seqBpm lives inside the drawer (injected by initSequencer); update if present
+    var _bpmEl  = document.getElementById('seqBpm');  if (_bpmEl)  _bpmEl.value  = '125';
+    // Rebuild drum + chord grids with the pre-populated data
+    if (typeof seqBuildGrids === 'function')       seqBuildGrids(_nuSong);
+    if (typeof seqRenderChordPills === 'function') seqRenderChordPills(_nuSong);
+    // Also trigger the auto-fit zoom so the grid fills the pane
+    if (typeof _seqAutoFitZoom === 'function')     _seqAutoFitZoom();
+  }, 500);
+
+  // Step 3 (900ms): Show tutorial overlay once everything is settled
+  setTimeout(function() {
+    if (typeof obOpen === 'function') obOpen();
+  }, 900);
 }
 
 function showStartupPasswordPrompt() {
@@ -32614,6 +32637,7 @@ let _mtTracks       = [];   // 4 track objects, built by mtBuildUI
 let _mtPreloadedSongId = null; // song ID whose takes have been background-loaded
 let _mtPendingPlay    = false; // true when user tapped play before buffers finished loading
 let _vrTakesUnsubscribe = null; // Firestore onSnapshot unsubscribe for real-time take sync
+var _mtLoopEnabled    = false; // true = restart 4-track from beginning when playback ends
 
 // ── Helpers ────────────────────────────────────────────────────
 function _el(id) { return document.getElementById(id); }
@@ -33695,6 +33719,17 @@ async function _mtEnsureCtx() {
 // ── Float transport + auto-dim ──────────────────────────────────
 // Floating transport removed — transport controls live in split header
 
+// ── 4-track loop toggle ──────────────────────────────────────────
+window.mtToggleLoop = function() {
+  _mtLoopEnabled = !_mtLoopEnabled;
+  ['mtLoopBtn','mtLoopBtnM'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle('mt-loop-active', _mtLoopEnabled);
+    el.title = _mtLoopEnabled ? 'Loop ON — click to disable' : 'Loop playback (L)';
+  });
+};
+
 window.mtPlay = async function(startOffset) {
   if (_vrRecording) return;
   if (_mtIsPlaying) { _mtStopAll(); _mtPendingPlay = false; return; }
@@ -33947,6 +33982,11 @@ function _mtAnimatePlayhead(startOffset) {
       }
     });
     if (elapsed < dur) _mtPlayheadRaf = requestAnimationFrame(tick);
+    else if (_mtLoopEnabled) {
+      // Loop: stop audio sources cleanly then restart from the top
+      _mtTracks.forEach(t => { if (t && t.sourceNode) { try { t.sourceNode.stop(); } catch(e) {} t.sourceNode = null; } });
+      _mtStartPlayback(0);
+    }
     else { _mtStopAll(); _setStatus('Done'); }
   }
   _mtPlayheadRaf = requestAnimationFrame(tick);
@@ -36693,6 +36733,7 @@ window._releaseMicStreams          = _releaseMicStreams;
         <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="vrStop()" disabled title="Stop (Space)">■ Stop</button>
         <button class="split-transport-btn split-rec-btn" id="mtRecBtn" onclick="vrToggleRec()" title="Record armed track (R)">⏺ Rec</button>
         <button class="split-transport-btn split-play-btn" id="mtPlayBtn" onclick="mtPlay()" disabled title="Play (Space)">▶ Play</button>
+        <button class="split-transport-btn split-loop-btn" id="mtLoopBtn" onclick="mtToggleLoop()" title="Loop playback (L)">⟳ Loop</button>
         <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtn" onclick="sharedPlaySong()" title="Play full song — plays all sections in order">▶▶ Full</button>
         <button class="split-transport-btn split-met-btn" id="mtMetBtn" onclick="seqToggleMet()" title="Toggle metronome (M)">♩ Metro</button>
       </div>
@@ -37601,6 +37642,9 @@ window._releaseMicStreams          = _releaseMicStreams;
     <button class="split-transport-btn split-play-btn" id="mtPlayBtnM"
       onclick="mtPlay()" disabled
       title="Play">▶ Play</button>
+    <button class="split-transport-btn split-loop-btn" id="mtLoopBtnM"
+      onclick="mtToggleLoop()"
+      title="Loop playback (L)">⟳ Loop</button>
     <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtnM"
       onclick="sharedPlaySong()"
       title="Play full song — plays all sections in order">▶▶ Full</button>
