@@ -21543,6 +21543,18 @@ document.addEventListener('DOMContentLoaded', function() {
 let _userTierUnsub = null; // holds the onSnapshot unsubscribe for the current user doc
 let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestore
 
+// Handle Google redirect result on mobile (signInWithRedirect reloads the page;
+// onAuthStateChanged fires automatically with the user, but getRedirectResult
+// lets us surface any errors that occurred during the redirect).
+auth.getRedirectResult().catch(function(err) {
+  if (err && err.code && err.code !== 'auth/no-current-user') {
+    const errEl = document.getElementById('landingError');
+    if (errEl) errEl.textContent = 'Google sign-in failed. Please try again.';
+    const btn = document.getElementById('landingGoogleBtn');
+    if (btn) btn.disabled = false;
+  }
+});
+
 auth.onAuthStateChanged(user => {
   if (user) {
     // Clear any previous user's data before loading the new user's songs
@@ -23659,6 +23671,15 @@ async function submitLandingPassword() {
     try {
       await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
     } catch (_) { /* ignore — fallback to default persistence */ }
+
+    // Mobile browsers block signInWithPopup (popup is outside the gesture chain).
+    // Use redirect on mobile — the page reloads and onAuthStateChanged picks up the result.
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+      await auth.signInWithRedirect(provider);
+      return; // page will reload; no error handling needed here
+    }
+
     await auth.signInWithPopup(provider);
     // onAuthStateChanged handles hiding overlay + initApp()
   } catch (err) {
