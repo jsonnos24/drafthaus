@@ -1466,40 +1466,48 @@ button, select, input, textarea { touch-action: manipulation; }
   }
 }
 
-/* ── Mobile landscape — compact slots to show 8 bars ── */
+/* ── Mobile landscape — drum machine full-screen side panel ── */
 @media (max-width: 900px) and (orientation: landscape) {
+  /* Slide in from right, sitting BELOW the fixed header (97px) + seq strip (48px) */
   .seq-drawer {
     border-radius: 0 !important;
     transform: translateX(100%) !important;
-    top: 0 !important; bottom: auto !important;
-    height: 100dvh !important;
+    top: calc(97px + env(safe-area-inset-top, 0px)) !important;
+    bottom: auto !important;
+    height: calc(100dvh - 97px - env(safe-area-inset-top, 0px)) !important;
   }
   .seq-drawer.open { transform: translateX(0) !important; }
   .seq-drawer-handle { display: none !important; }
+
+  /* Hide the shared floating transport — it's redundant and takes up vertical space */
+  #sharedDrawerHeader { display: none !important; }
+
+  /* Compact slots: wide enough to read, short enough that all 8 rows fit */
   .seq-slot {
-    width: clamp(13px, 2.1vw, 20px) !important;
-    height: 34px !important;
-    font-size: 7px !important;
+    width: clamp(12px, 1.8vw, 18px) !important;
+    height: clamp(18px, 4.5vh, 26px) !important;
+    font-size: 6px !important;
     border-radius: 3px !important;
   }
   .seq-grid { gap: 1px !important; }
   .seq-bar-sep { width: 3px !important; }
   .seq-row-label {
-    min-width: 46px !important;
-    max-width: 46px !important;
-    font-size: 10px !important;
-    padding-right: 6px !important;
+    min-width: 44px !important;
+    max-width: 44px !important;
+    font-size: 9px !important;
+    padding-right: 5px !important;
   }
-  /* Prevent iOS from scroll-jumping when drum slots receive pointer capture */
+  /* Allow rows to scroll vertically if screen is very short */
   .seq-panel {
-    overflow-y: hidden !important;
-    overscroll-behavior: none !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain !important;
+    -webkit-overflow-scrolling: touch !important;
   }
   /* Drum grid: horizontal scroll only, no touch interference */
   .seq-grid-pane .seq-pattern-grid {
     touch-action: pan-x !important;
   }
-  /* Drum rows: allow horizontal pan for scroll, keep z-index above keyboard drawer */
+  /* Drum rows: allow horizontal pan */
   #seqKick, #seqSnare, #seqHat, #seqCrash, #seqClap {
     touch-action: pan-x !important;
     position: relative;
@@ -5466,13 +5474,27 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .nav-sub-icon { display: flex; align-items: center; justify-content: center; }
   .nav-sub-label { white-space: nowrap; }
-  /* Run Through — green */
+  /* Rehearse — uses custom PNG icon; keep text green but don't filter the image */
   .nav-sub-run { color: #39ff14; }
-  .nav-sub-run .nav-sub-icon { filter: drop-shadow(0 0 3px #39ff14); }
+  .nav-sub-run .nav-sub-icon { filter: none; }
+  .nav-sub-run .nav-rehearse-icon { filter: drop-shadow(0 0 3px rgba(100,200,255,0.6)); }
   .nav-sub-run:hover, .nav-sub-run.active {
     background: rgba(57,255,20,0.1); border-color: rgba(57,255,20,0.5);
     box-shadow: 0 0 8px rgba(57,255,20,0.2);
   }
+  /* Rehearse PNG icon — scales with the button */
+  .nav-rehearse-icon {
+    width: 24px; height: 24px;
+    object-fit: contain;
+    display: block;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+  /* Larger on the bigger mobile breakpoint */
+  @media (max-width: 700px) {
+    .nav-rehearse-icon { width: 28px; height: 28px; }
+  }
+
   /* Editor — orange */
   .nav-sub-edit { color: #ff9900; }
   .nav-sub-edit .nav-sub-icon { filter: drop-shadow(0 0 3px rgba(255,153,0,0.7)); }
@@ -8548,13 +8570,30 @@ body.il-perf-active #ilScrollFloat { display: none; }
   /* Slightly larger lyric text */
   .il-cc-syl { font-size: 19px; }
   /* Bigger chord label for readability */
-  .il-cc-chord { font-size: 15px; padding: 5px 4px 5px 12px; }
+  .il-cc-chord { font-size: 15px; padding: 5px 4px 5px 12px; cursor: pointer !important; }
   /* Large tap target for the ✕ remove button */
   .il-cc-chord-x { font-size: 14px; padding: 6px 8px; min-width: 32px; min-height: 32px; display: inline-flex; align-items: center; justify-content: center; }
   /* Larger drop zone above each syllable — easier to land on */
-  .il-cc-slot { min-height: 38px; }
+  .il-cc-slot { min-height: 42px; cursor: pointer; }
   /* More horizontal padding around each word column for a larger tap area */
-  .il-cc-word-col { padding: 6px 4px 2px; }
+  .il-cc-word-col { padding: 6px 4px 2px; cursor: pointer; }
+  /* Hide the chord palette pills on mobile — replaced by tap-to-type */
+  .il-chord-palette { display: none !important; }
+  /* Inline chord type-in input */
+  .il-chord-type-input {
+    width: 58px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 700;
+    color: var(--gold); background: rgba(245,166,35,0.12);
+    border: 1.5px solid rgba(245,166,35,0.6); border-radius: 5px;
+    padding: 4px 6px; text-align: center; outline: none;
+    -webkit-appearance: none; appearance: none;
+    /* Prevent iOS zoom on focus */
+    font-size: 16px;
+  }
+  /* Show a subtle ring on the slot when not occupied */
+  .il-cc-slot:not(:has(.il-cc-chord)):not(:has(.il-chord-type-input)) {
+    border-color: rgba(245,166,35,0.25) !important;
+  }
   /* Palette / tray pills: bigger text + tall enough to grab comfortably */
   .il-tray-pill {
     font-size: 15px; padding: 10px 14px;
@@ -26679,6 +26718,12 @@ function openSeqDrawer() {
   if (window.innerWidth < 900) document.getElementById('seqDrawerTab').style.display = 'none';
   else document.getElementById('seqDrawerTab').classList.add('tab-active');
   _sharedHeaderOpen('sequencer');
+  // In landscape mode, reset pinch-zoom to a compact default so the full grid is visible
+  if (window.innerWidth < 900 && window.innerHeight < window.innerWidth) {
+    var landscapeDefault = 20;
+    document.documentElement.style.setProperty('--drum-slot-px', landscapeDefault + 'px');
+    try { localStorage.setItem('dh_drum_slot_px', landscapeDefault); } catch(e) {}
+  }
 
   // Mobile: init swipe-down gesture + show landscape hint
   if (window.innerWidth < 700) {
@@ -29356,6 +29401,11 @@ function _triggerMetroScrollHint() {
   }, 420);
 }
 
+// Exit rehearse/perf mode when a tool drawer is opened on mobile
+function _exitPerfIfMobile() {
+  if (window._ilPerfMode && window.innerWidth < 900) ilSetPerfMode(false);
+}
+
 function ilSetPerfMode(on) {
   window._ilPerfMode = on;
   // Always clear perf-split hybrid state when perf mode is explicitly set
@@ -30040,13 +30090,15 @@ function ilRenderChordChartHtml(partId) {
           const hasChord = !!label;
           html += `<div class="il-cc-word-col"
             data-part="${partId}" data-line="${lineIdx}" data-word="${wordIdx}" data-syl="${sylIdx}"
+            onclick="ilSlotTap('${partId}',${lineIdx},${wordIdx},${sylIdx},this)"
             ondragover="ilSlotDragOver(event)"
             ondragleave="ilSlotDragLeave(event)"
             ondrop="ilSlotDrop(event)">
             <div class="il-cc-slot${hasChord ? ' has-chord' : ''}">
               ${hasChord ? `<span class="il-cc-chord" draggable="true"
                 data-part="${partId}" data-line="${lineIdx}" data-word="${wordIdx}" data-syl="${sylIdx}" data-chord="${esc(label)}"
-                ondragstart="ilChordDragStart(event)">${esc(label)}<button class="il-cc-chord-x"
+                ondragstart="ilChordDragStart(event)"
+                onclick="event.stopPropagation();ilSlotTap('${partId}',${lineIdx},${wordIdx},${sylIdx},this.closest('.il-cc-word-col'))">${esc(label)}<button class="il-cc-chord-x"
                 onclick="event.stopPropagation();ilUnpositionChord('${partId}',${lineIdx},${wordIdx},${sylIdx})"
                 title="Remove">✕</button></span>` : ''}
             </div>
@@ -30181,6 +30233,72 @@ function ilUnpositionChord(partId, lineIdx, wordIdx, sylIdx) {
   }
   ilRefreshPartView(partId);
   ilScheduleSave();
+}
+
+// ── Mobile: tap-to-type chord on a word column ───────────────────
+// On mobile (< 900px), tapping a word column opens an inline input.
+// Typing a chord name and pressing Enter saves it; empty + Enter removes it.
+function ilSlotTap(partId, lineIdx, wordIdx, sylIdx, colEl) {
+  if (window.innerWidth >= 900) return; // desktop uses drag-drop
+  var slot = colEl.querySelector('.il-cc-slot');
+  if (!slot) return;
+  // Don't open a second input if one is already open
+  if (slot.querySelector('.il-chord-type-input')) return;
+
+  // Existing chord value (if any)
+  var existingSpan = slot.querySelector('.il-cc-chord');
+  var currentVal   = existingSpan ? (existingSpan.dataset.chord || existingSpan.textContent.trim()) : '';
+
+  // Build the input
+  var inp = document.createElement('input');
+  inp.className   = 'il-chord-type-input';
+  inp.type        = 'text';
+  inp.maxLength   = 10;
+  inp.placeholder = currentVal || 'Am…';
+  inp.value       = currentVal;
+  inp.setAttribute('autocomplete', 'off');
+  inp.setAttribute('autocorrect', 'off');
+  inp.setAttribute('autocapitalize', 'characters'); // uppercase for chord names
+
+  // Hide existing pill while editing
+  if (existingSpan) existingSpan.style.visibility = 'hidden';
+  slot.appendChild(inp);
+
+  // Async focus so iOS keyboard animation plays correctly
+  setTimeout(function() { inp.focus(); inp.select(); }, 30);
+
+  function commit() {
+    var val = inp.value.trim();
+    inp.remove();
+    if (existingSpan) existingSpan.style.visibility = '';
+
+    if (val) {
+      // Place / replace chord at this position
+      if (!rtChordPositions[partId]) rtChordPositions[partId] = [];
+      rtChordPositions[partId] = rtChordPositions[partId]
+        .filter(function(p) {
+          return !(p.line === lineIdx && p.word === wordIdx && (p.syl ?? 0) === sylIdx);
+        });
+      rtChordPositions[partId].push({ chord: val, line: lineIdx, word: wordIdx, syl: sylIdx });
+    } else if (currentVal) {
+      // Cleared → remove chord
+      if (rtChordPositions[partId]) {
+        rtChordPositions[partId] = rtChordPositions[partId]
+          .filter(function(p) {
+            return !(p.line === lineIdx && p.word === wordIdx && (p.syl ?? 0) === sylIdx);
+          });
+      }
+    }
+    ilRefreshPartView(partId);
+    ilScheduleSave();
+  }
+
+  inp.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { inp.remove(); if (existingSpan) existingSpan.style.visibility = ''; }
+  });
+  // commit on blur (tap elsewhere)
+  inp.addEventListener('blur', function() { setTimeout(commit, 80); });
 }
 
 // ── Mobile touch drag for lyrics chord palette ────────────────────
@@ -36062,11 +36180,7 @@ window._releaseMicStreams          = _releaseMicStreams;
 
     <button class="nav-sub-btn nav-sub-run" id="navSubRunBtn" onclick="ilTogglePerfMode()">
       <span class="nav-sub-icon">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
-          <rect x="8" y="2" width="8" height="4" rx="1"/>
-          <line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/>
-        </svg>
+        <img src="rehearseblue.png" class="nav-rehearse-icon" alt="Rehearse" width="24" height="24">
       </span>
       <span class="nav-sub-label">Rehearse</span>
     </button>
@@ -36083,7 +36197,7 @@ window._releaseMicStreams          = _releaseMicStreams;
 
   </div>
 
-  <button class="bottom-nav-item nav-mic" onclick="vrMicFromList()">
+  <button class="bottom-nav-item nav-mic" onclick="_exitPerfIfMobile();vrMicFromList()">
     <span class="bottom-nav-icon">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffb8d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="9" y="2" width="6" height="12" rx="3"/>
@@ -36094,11 +36208,11 @@ window._releaseMicStreams          = _releaseMicStreams;
     </span>
     <span class="bottom-nav-label">4-Track</span>
   </button>
-  <button class="bottom-nav-item nav-keyboard" onclick="if(!_desktopOpenTool('keyboard'))toggleDrawer('keyboardDrawer',openKeyboardDrawer,closeKeyboardDrawer)">
+  <button class="bottom-nav-item nav-keyboard" onclick="_exitPerfIfMobile();if(!_desktopOpenTool('keyboard'))toggleDrawer('keyboardDrawer',openKeyboardDrawer,closeKeyboardDrawer)">
     <span class="bottom-nav-icon">🎹</span>
     <span class="bottom-nav-label">Keyboard</span>
   </button>
-  <button class="bottom-nav-item nav-sequencer" onclick="if(!_desktopOpenTool('sequencer'))toggleDrawer('seqDrawer',openSeqDrawer,closeSeqDrawer)">
+  <button class="bottom-nav-item nav-sequencer" onclick="_exitPerfIfMobile();if(!_desktopOpenTool('sequencer'))toggleDrawer('seqDrawer',openSeqDrawer,closeSeqDrawer)">
     <span class="bottom-nav-icon">
       <svg width="20" height="20" viewBox="0 0 100 100" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
         <!-- Snare drum shell (ellipse body) -->
@@ -36118,7 +36232,7 @@ window._releaseMicStreams          = _releaseMicStreams;
     </span>
     <span class="bottom-nav-label">Drums</span>
   </button>
-  <button class="bottom-nav-item nav-looper" onclick="if(!_desktopOpenTool('looper'))toggleDrawer('looperDrawer',openLooperDrawer,closeLooperDrawer)">
+  <button class="bottom-nav-item nav-looper" onclick="_exitPerfIfMobile();if(!_desktopOpenTool('looper'))toggleDrawer('looperDrawer',openLooperDrawer,closeLooperDrawer)">
     <span class="bottom-nav-icon">⍜</span>
     <span class="bottom-nav-label">Looper</span>
   </button>
