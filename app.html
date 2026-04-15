@@ -33546,6 +33546,12 @@ window.mtPlay = async function(startOffset) {
   const offset = startOffset !== undefined ? startOffset : _mtScrubOffset;
   _mtScrubOffset = 0;
   _mtStartPlayback(offset);
+  // Start sequencer for metronome clicks if enabled and not already running
+  if (typeof seqMetOn !== 'undefined' && seqMetOn &&
+      typeof seqIsPlaying !== 'undefined' && !seqIsPlaying &&
+      typeof seqPlay === 'function') {
+    try { seqPlay(); } catch(e) {}
+  }
 };
 
 // ── Play with Sequencer (syncs 4-track + drums + looper) ──────
@@ -33631,11 +33637,17 @@ function _mtCheckAllEnded() {
 window.vrStop = function() {
   if (_vrRecording) { _mtStopRecording(); }
   _mtStopAll();
+  // Stop sequencer / song playback too — covers sharedPlaySong() and metronome-only seqPlay()
+  if (typeof seqStop === 'function') { try { seqStop(); } catch(e) {} }
 };
 function _mtStopAll() {
   _mtIsPlaying = false;
   // Also clean up any seq-link per-track playback
   if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
+  // Stop sequencer if it was running (covers metronome-only and song playback)
+  if (typeof seqIsPlaying !== 'undefined' && seqIsPlaying && typeof seqStop === 'function') {
+    try { seqStop(); } catch(e) {}
+  }
   _mtTracks.forEach(t => {
     if (!t) return;
     if (t.sourceNode) { try { t.sourceNode.stop(); } catch(e) {} t.sourceNode = null; }
@@ -34504,8 +34516,8 @@ window.vrToggleRec = async function() {
     // Start psychedelic recording animation
     _mtStartRecordingAnim(_mtArmedTrack);
 
-    // Arm Sequencer: auto-start sequencer when recording begins
-    if (_vrSeqArmed && !seqIsPlaying) { seqPlay(); }
+    // Arm Sequencer: auto-start sequencer when recording begins (also start for metronome clicks)
+    if ((_vrSeqArmed || seqMetOn) && !seqIsPlaying) { seqPlay(); }
 
     const recBtn = _el('mtRecBtn');
     if (recBtn) { recBtn.innerHTML = ''; recBtn.textContent = 'Stop Rec'; recBtn.style.fontSize = '10px'; recBtn.style.letterSpacing = '0.04em'; recBtn.style.padding = '0 10px'; recBtn.classList.add('recording'); }
