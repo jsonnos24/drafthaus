@@ -23301,6 +23301,8 @@ async function loadSongsFromSheet() {
     if (!allDocs.length && !readOnlySnap.docs.length) {
       setSyncStatus('saved', 'No drafts yet');
       renderGrid();
+      // First-time user with no drafts — set up the starter state
+      setTimeout(_setupNewUserState, 400);
       return;
     }
 
@@ -23401,6 +23403,92 @@ function initApp() {
   if (!localStorage.getItem('drafthaus-onboarding-done')) {
     setTimeout(obOpen, 800);
   }
+}
+
+// ── New-user starter state ────────────────────────────────────────
+// Creates a pre-populated draft so first-timers land somewhere interesting,
+// not on a blank screen. Called once when no songs exist and the onboarding
+// hasn't been completed.
+function _setupNewUserState() {
+  if (localStorage.getItem('drafthaus-onboarding-done')) return;
+  if (songs.length > 0) return; // already has drafts
+
+  // Choose a random preset (skip 'random', 'clear', waltz, 5/4, 6/8 oddities)
+  var _nuPresets = ['rock1', 'rock2', 'hiphop', 'pop', 'rnb', 'edm', 'motown', 'altrock', 'country'];
+  var _nuPreset  = _nuPresets[Math.floor(Math.random() * _nuPresets.length)];
+
+  // Common chord progressions (1 chord per bar × 4 bars, 16 steps at grid=1)
+  var _nuProgressions = [
+    ['C','G','Am','F'],
+    ['C','Am','F','G'],
+    ['Am','F','C','G'],
+    ['D','A','Bm','G'],
+    ['G','D','Em','C'],
+    ['Am','G','F','E'],
+    ['Dm','Am','Bb','C'],
+  ];
+  var _nuProg = _nuProgressions[Math.floor(Math.random() * _nuProgressions.length)];
+
+  // Build chord slots array: 16 steps, chords at 0/4/8/12
+  var _nuChordSlots = new Array(16).fill('');
+  _nuProg.forEach(function(ch, i) { if (i < 4) _nuChordSlots[i * 4] = ch; });
+
+  var _nuSeqId = 'seq_' + Date.now();
+  var _nuSeq = {
+    id: _nuSeqId, bpm: '125', time: '4', bars: '4', grid: '1',
+    swing: '0', vel: '0.8', wave: 'triangle', instrument: 'piano+synth',
+    chordSlots: _nuChordSlots, chordDegrees: [],
+    kick: [], snare: [], hat: [], crash: [], clap: [], melody: []
+  };
+
+  // Apply drum pattern directly into the sequencer data
+  var _nuPattern = (typeof DRUM_PATTERNS !== 'undefined') ? DRUM_PATTERNS[_nuPreset] : null;
+  if (_nuPattern) {
+    var _nuSteps = 16;
+    function _nuFit(arr, s) {
+      if (!arr || !arr.length) return new Array(s).fill(0);
+      var out = [];
+      for (var i = 0; i < s; i++) out.push(arr[Math.floor(i * arr.length / s)] || 0);
+      return out;
+    }
+    _nuSeq.kick  = _nuFit(_nuPattern.kick,  _nuSteps);
+    _nuSeq.snare = _nuFit(_nuPattern.snare, _nuSteps);
+    _nuSeq.hat   = _nuFit(_nuPattern.hat,   _nuSteps);
+    _nuSeq.crash = _nuFit(_nuPattern.crash, _nuSteps);
+    _nuSeq.clap  = _nuFit(_nuPattern.clap,  _nuSteps);
+  }
+
+  var _nuSong = {
+    id: genId(), workingTitle: '', title: '', bpm: '125', key: 'C major', tuning: '',
+    project: '', status: 'idea', structure: {}, sectionOrder: [], chords: {}, instruments: {},
+    sequencer: _nuSeq, sequences: [_nuSeq], notes: '', moods: [],
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  songs.unshift(_nuSong);
+  save();
+  openSong(_nuSong.id);
+
+  setTimeout(function() {
+    // Sync BPM + grid DOM controls so the sequencer drawer shows correct values
+    var _bpmEl  = document.getElementById('seqBpm');  if (_bpmEl)  _bpmEl.value  = '125';
+    var _gridEl = document.getElementById('seqGrid'); if (_gridEl) _gridEl.value = '1';
+
+    if (window.innerWidth >= 900) {
+      // Desktop: split view — lyrics edit left, 4-track right
+      if (typeof openSplitMode === 'function') openSplitMode('4track');
+      // Show write/paste lyrics modal over the left pane
+      setTimeout(function() {
+        if (typeof ilOpenImportModal === 'function') ilOpenImportModal();
+      }, 350);
+    } else {
+      // Mobile: open 4-track
+      if (typeof vrOpen === 'function') vrOpen();
+    }
+
+    // Rebuild sequencer grids so drum + chord slots are visible
+    if (typeof seqBuildGrids === 'function')        seqBuildGrids(_nuSong);
+    if (typeof seqRenderChordPills === 'function')  seqRenderChordPills(_nuSong);
+  }, 250);
 }
 
 function showStartupPasswordPrompt() {
@@ -32389,7 +32477,22 @@ let _vrDevices         = { inputs: [], outputs: [] };
 
 // ── Input gain — pre-recording amplifier (fixes weak/quiet mic signals) ──
 // Stored as a linear multiplier (2.5 ≈ +8dB, 4.0 ≈ +12dB, 8.0 ≈ +18dB)
-let _vrInputGain = parseFloat(localStorage.getItem('vr_input_gain') || '3.0');
+// Gain is stored and exposed in dB (-24 to +24). Linear gain is derived from it.
+// Old key stored linear gain; new key 'vr_input_gain_db' stores dB directly.
+var _vrInputGainDb = (function() {
+  var storedDb = localStorage.getItem('vr_input_gain_db');
+  if (storedDb !== null) return parseFloat(storedDb);
+  // Migrate from old linear-gain key
+  var oldLinear = localStorage.getItem('vr_input_gain');
+  if (oldLinear !== null) {
+    var migratedDb = Math.round(20 * Math.log10(Math.max(parseFloat(oldLinear), 0.01)));
+    migratedDb = Math.max(-24, Math.min(24, migratedDb));
+    localStorage.setItem('vr_input_gain_db', migratedDb);
+    return migratedDb;
+  }
+  return 10; // default: +10dB (moderate boost)
+})();
+let _vrInputGain = Math.pow(10, _vrInputGainDb / 20); // linear gain derived from dB
 // Holds the processing nodes for the current recording session
 let _vrInputGainNode = null;   // GainNode applied before MediaRecorder
 let _vrInputSrcNode  = null;   // MediaStreamSourceNode from mic stream
@@ -32401,30 +32504,30 @@ function _vrGainToDb(g) {
 }
 window._vrInitGainUI = function() {
   var sl = document.getElementById('vrGainSlider');
+  var slM = document.getElementById('vrGainSliderM');
   var db = document.getElementById('vrGainDb');
-  if (sl) sl.value = _vrInputGain;
-  if (db) {
-    var v = parseFloat(_vrGainToDb(_vrInputGain));
-    db.textContent = (v >= 0 ? '+' : '') + v + 'dB';
-  }
+  var dbM = document.getElementById('vrGainDbM');
+  var dbStr = (_vrInputGainDb >= 0 ? '+' : '') + _vrInputGainDb + 'dB';
+  if (sl)  sl.value = _vrInputGainDb;
+  if (slM) slM.value = _vrInputGainDb;
+  if (db)  db.textContent  = dbStr;
+  if (dbM) dbM.textContent = dbStr;
 };
 window.vrGainChange = function(val) {
-  _vrInputGain = parseFloat(val);
-  localStorage.setItem('vr_input_gain', _vrInputGain);
+  _vrInputGainDb = Math.max(-24, Math.min(24, parseInt(val, 10)));
+  _vrInputGain   = Math.pow(10, _vrInputGainDb / 20); // convert dB → linear
+  localStorage.setItem('vr_input_gain_db', _vrInputGainDb);
   // Update live gain node in real-time if a recording session is active
   if (_vrInputGainNode) _vrInputGainNode.gain.value = _vrInputGain;
-  // Update dB label (desktop + mobile)
-  var v = parseFloat(_vrGainToDb(_vrInputGain));
-  var dbStr = (v >= 0 ? '+' : '') + v + 'dB';
-  var db = document.getElementById('vrGainDb');
-  if (db) db.textContent = dbStr;
-  var dbM = document.getElementById('vrGainDbM');
-  if (dbM) dbM.textContent = dbStr;
-  // Keep sliders in sync with each other
+  // Update dB labels
+  var dbStr = (_vrInputGainDb >= 0 ? '+' : '') + _vrInputGainDb + 'dB';
+  var db  = document.getElementById('vrGainDb');  if (db)  db.textContent  = dbStr;
+  var dbM = document.getElementById('vrGainDbM'); if (dbM) dbM.textContent = dbStr;
+  // Keep both sliders in sync
   var slM = document.getElementById('vrGainSliderM');
-  if (slM && slM.value !== String(val)) slM.value = val;
+  if (slM && slM.value !== String(_vrInputGainDb)) slM.value = _vrInputGainDb;
   var sl = document.getElementById('vrGainSlider');
-  if (sl && sl.value !== String(val)) sl.value = val;
+  if (sl  && sl.value  !== String(_vrInputGainDb)) sl.value  = _vrInputGainDb;
 };
 
 // Multitrack audio state
@@ -36519,9 +36622,9 @@ window._releaseMicStreams          = _releaseMicStreams;
       <div class="vr-gain-pill" id="vrGainPill" title="Input recording gain (pre-boost)">
         <span class="vr-gain-label">IN</span>
         <input type="range" class="vr-gain-slider" id="vrGainSlider"
-          min="0.5" max="8" step="0.1" value="3"
+          min="-24" max="24" step="1" value="10"
           oninput="vrGainChange(this.value)">
-        <span class="vr-gain-db" id="vrGainDb">+9.5dB</span>
+        <span class="vr-gain-db" id="vrGainDb">+10dB</span>
       </div>
     </div>
   </div>
@@ -36564,68 +36667,57 @@ window._releaseMicStreams          = _releaseMicStreams;
       <div class="ob-icon">🎵</div>
       <div class="ob-title">Welcome to Drafthaus</div>
       <div class="ob-body">
-        Your songwriter's workspace — <strong>lyrics, chords, structure, and recording</strong> all in one place.<br><br>
-        This quick guide walks you through the key features so you can hit the ground running.
+        Lyrics, chords, and recording — all in one place.<br><br>
+        We've started you off with a draft, a beat, and a chord progression. Just add words.
       </div>
     </div>
 
     <!-- Step 2: Core workflow -->
     <div class="ob-step" id="obStep1">
       <div class="ob-icon">📋</div>
-      <div class="ob-title">Your Draft List</div>
+      <div class="ob-title">Draft List</div>
       <div class="ob-body">
-        The <strong>Draft List</strong> is your home base. Every song starts here.<br><br>
-        • Hit <span class="ob-tag">+ New Draft</span> to create a song<br>
-        • Drag songs between <strong>projects</strong> to stay organized<br>
-        • Use <span class="ob-tag">⋯</span> on any row to share, rename, or delete<br>
-        • Press <span class="ob-tag">N</span> for a quick new draft, <span class="ob-tag">/</span> to search
+        Your songs live here. Hit <span class="ob-tag">+ New Draft</span> to start one, or press <span class="ob-tag">N</span>.<br><br>
+        Use <span class="ob-tag">⋯</span> on any row to rename, share, or delete.
       </div>
     </div>
 
     <!-- Step 3: Lyrics & chords -->
     <div class="ob-step" id="obStep2">
       <div class="ob-icon">✏️</div>
-      <div class="ob-title">Lyrics & Chord Annotations</div>
+      <div class="ob-title">Lyrics & Chords</div>
       <div class="ob-body">
-        Open a song and switch to <strong>Lyrics view</strong>. Add sections like Verse and Chorus, then click <span class="ob-tag">✏ Edit lyrics</span> to write.<br><br>
-        Drag <strong>chords</strong> from the right-hand palette directly onto syllables — the chord floats above that word in your chart.<br><br>
-        Hit <span class="ob-tag">Rehearse</span> for a clean, distraction-free performance view.
+        Tap <span class="ob-tag">✏ Edit Lyrics</span> to write or paste your lyrics, split into sections.<br><br>
+        Drag chords onto syllables in the chart. Hit <span class="ob-tag">Rehearse</span> for a clean performance view.
       </div>
     </div>
 
     <!-- Step 4: Production tools -->
     <div class="ob-step" id="obStep3">
       <div class="ob-icon">🎹</div>
-      <div class="ob-title">Your Production Tools</div>
+      <div class="ob-title">Production Tools</div>
       <div class="ob-body">
-        The bottom bar gives you four tools that sync to your song's BPM:<br><br>
-        <strong>4-Track</strong> — Record and overdub audio takes per section<br>
-        <strong>Keyboard</strong> — Play and record melodies with your MIDI device, your computer keyboard (keys 1–8 once a key is assigned to a song), or the on-screen keys<br>
-        <strong>Sequencer</strong> — Program drum and chord patterns. Load built-in <strong>drum presets</strong> to start fast, then customize per section<br>
-        <strong>Looper</strong> — Layer live loops on top of your song<br><br>
-        Open the <strong>Mix</strong> panel to balance levels across all four.
+        Four tools in the bottom bar, all BPM-synced:<br><br>
+        <strong>4-Track</strong> — Record audio takes per section<br>
+        <strong>Keyboard</strong> — Play melodies via MIDI, keyboard, or on-screen keys<br>
+        <strong>Sequencer</strong> — Drums and chord patterns. Try the built-in presets<br>
+        <strong>Looper</strong> — Layer live loops over your song
       </div>
     </div>
 
     <!-- Step 5: Sharing & shortcuts -->
     <div class="ob-step" id="obStep4">
       <div class="ob-icon">⬡</div>
-      <div class="ob-title">Sharing & Shortcuts</div>
+      <div class="ob-title">Share & Shortcuts</div>
       <div class="ob-body">
-        Share any draft via <span class="ob-tag">⋯ → Share</span> on the song row — collaborators can view or edit in real time.<br><br>
-        A few shortcuts worth knowing:
+        Share any draft via <span class="ob-tag">⋯ → Share</span> for real-time collaboration.<br><br>
         <div class="ob-shortcuts">
-          <span class="ob-kbd">H</span><span class="ob-kd">Draft list</span>
+          <span class="ob-kbd">N</span><span class="ob-kd">New draft</span>
           <span class="ob-kbd">L</span><span class="ob-kd">Lyrics view</span>
           <span class="ob-kbd">R</span><span class="ob-kd">Rehearse mode</span>
-          <span class="ob-kbd">B</span><span class="ob-kd">Backend</span>
-          <span class="ob-kbd">T / K / S / O</span><span class="ob-kd">4-Track / Keyboard / Sequencer / Looper</span>
-          <span class="ob-kbd">Tab</span><span class="ob-kd">Tap tempo (tap to the beat)</span>
-          <span class="ob-kbd">↓ Arrow</span><span class="ob-kd">Go to draft list</span>
-          <span class="ob-kbd">↵ Enter</span><span class="ob-kd">Expand active pane / revert</span>
+          <span class="ob-kbd">T / K / S / O</span><span class="ob-kd">4-Track / Keys / Seq / Loop</span>
+          <span class="ob-kbd">Tab</span><span class="ob-kd">Tap tempo</span>
           <span class="ob-kbd">Esc</span><span class="ob-kd">Close / go back</span>
-          <span class="ob-kbd">N</span><span class="ob-kd">New draft</span>
-          <span class="ob-kbd">/</span><span class="ob-kd">Search</span>
         </div>
       </div>
     </div>
