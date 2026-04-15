@@ -10259,7 +10259,7 @@ body.il-perf-active .mt-arm-btn {
 
 /* ── DAW track head — wider ── */
 .mt-track-head {
-  min-width: 160px !important; max-width: 160px !important; width: 160px !important;
+  min-width: 178px !important; max-width: 178px !important; width: 178px !important;
   flex-direction: row !important; align-items: stretch !important;
   padding: 0 !important; gap: 0 !important;
 }
@@ -10294,28 +10294,35 @@ body.il-perf-active .mt-arm-btn {
   padding: 0 7px !important; font-size: 9px !important; letter-spacing: 0.07em !important;
   height: 25px !important; border-radius: 3px !important; flex-shrink: 0;
 }
-/* Single-row: all 6 controls in one line */
+/* 3-per-row grid: 2 rows of 3, all buttons same size as ARM */
 .mt-ctrl-single-row {
-  flex-wrap: nowrap; gap: 2px; overflow: hidden;
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 2px !important;
+  overflow: visible !important;
+}
+/* All buttons in the grid: uniform ARM-style sizing */
+.mt-ctrl-single-row > button {
+  display: flex !important;
+  align-items: center !important; justify-content: center !important;
+  width: 100% !important; height: 25px !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 9px !important; font-weight: 700 !important;
+  letter-spacing: 0.07em !important; text-transform: uppercase !important;
+  border-radius: 3px !important; padding: 0 !important;
+  cursor: pointer !important; line-height: 1 !important;
+  transition: all 0.12s !important;
 }
 .mt-ctrl-single-row .mt-mob-icon-btn {
-  display: flex !important; /* always show lock/trash/boost in single row */
-  align-items: center; justify-content: center;
-  width: 22px !important; height: 25px !important;
   background: #141720 !important;
-  border: 1px solid #2a2d3a !important; border-radius: 3px !important;
-  cursor: pointer; color: #6a6e82 !important; padding: 0 !important;
-  flex-shrink: 0;
-  transition: color 0.15s, border-color 0.15s;
+  border: 1px solid #2a2d3a !important;
+  color: #6a6e82 !important;
 }
-.mt-ctrl-single-row .mt-mob-icon-btn svg { width: 9px !important; height: 9px !important; }
+.mt-ctrl-single-row .mt-mob-icon-btn svg { width: 10px !important; height: 10px !important; }
 .mt-ctrl-single-row .mt-mob-trash-btn { color: #b04848 !important; border-color: #3a2020 !important; }
 .mt-ctrl-single-row .mt-mob-boost-inline {
-  display: inline-flex !important;
-  margin-left: auto; margin-bottom: 0;
-  width: auto; padding: 0 5px; font-size: 8px !important;
-  height: 25px !important; line-height: 1; align-items: center;
-  flex-shrink: 0;
+  margin-left: 0 !important; width: 100% !important;
+  font-size: 9px !important; height: 25px !important;
 }
 /* Legacy refs — kept for compat */
 .mt-head-top { display: flex; align-items: center; gap: 4px; min-width: 0; }
@@ -22522,6 +22529,32 @@ var forkCtx=null,forkOsc=null,forkGain=null,forkOn=false;
 function metroForkToggle(){forkOn?metroForkStop():metroForkStart();}
 function metroForkStart(){try{forkCtx=new(window.AudioContext||window.webkitAudioContext)();forkOsc=forkCtx.createOscillator();forkGain=forkCtx.createGain();forkOsc.connect(forkGain);forkGain.connect(forkCtx.destination);forkOsc.type='sine';forkOsc.frequency.value=82.41;forkGain.gain.setValueAtTime(0,forkCtx.currentTime);forkGain.gain.linearRampToValueAtTime(0.28,forkCtx.currentTime+0.08);forkOsc.start();forkOn=true;document.getElementById('metroForkBtn').classList.add('active');}catch(e){}}
 function metroForkStop(){forkOn=false;document.getElementById('metroForkBtn').classList.remove('active');if(forkGain&&forkCtx)forkGain.gain.linearRampToValueAtTime(0,forkCtx.currentTime+0.06);setTimeout(function(){try{if(forkOsc){forkOsc.stop();forkOsc=null;}}catch(e){}try{if(forkCtx){forkCtx.close();forkCtx=null;}}catch(e){}forkGain=null;},80);}
+// ── Capture-phase Space guard ─────────────────────────────────────────────
+// Browsers fire button.click() on keyup when a button has focus.
+// Capturing keydown + keyup on Space ensures we claim the event before the
+// button's own handler sees it, preventing any focused button from toggling.
+document.addEventListener('keydown', function(e) {
+  if (e.code !== 'Space') return;
+  const t = e.target;
+  if (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  // Blur the focused element immediately in the capture phase so keyup never sees it focused
+  const ae = document.activeElement;
+  if (ae && ae !== document.body && ae.tagName !== 'BODY') {
+    try { ae.blur(); } catch(_) {}
+  }
+}, true); // capture = true  → fires before any bubble-phase handler
+
+document.addEventListener('keyup', function(e) {
+  if (e.code !== 'Space') return;
+  const t = e.target;
+  if (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  // Swallow the keyup so the browser never fires a synthetic click on any button
+  e.preventDefault();
+  e.stopImmediatePropagation();
+}, true); // capture = true
+
 document.addEventListener('keydown',function(e){
   // Escape closes metro settings overlay first, then exits perf mode
   if (e.key === 'Escape') {
@@ -22532,7 +22565,7 @@ document.addEventListener('keydown',function(e){
   // Space = play/stop active drawer; Shift+Space = play full song sequence
   if(e.code==='Space' && e.target.tagName!=='INPUT' && e.target.tagName!=='SELECT' && !e.target.isContentEditable && !e.metaKey && !e.ctrlKey && !e.altKey){
     e.preventDefault();
-    // Blur any focused button/element so its keyup doesn't fire a second click and double-toggle
+    // Blur any focused element (belt-and-suspenders, capture phase already did this)
     if (document.activeElement && document.activeElement !== document.body) {
       try { document.activeElement.blur(); } catch(_) {}
     }
