@@ -8736,6 +8736,26 @@ body.il-perf-active #ilPerfControls {
   -webkit-tap-highlight-color: transparent;
 }
 .il-perf-ctrl-btn:active { opacity: 0.65; }
+
+/* ── Drag handle for movable perf controls ── */
+.il-perf-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  color: rgba(255,255,255,0.35);
+  padding: 2px 0;
+  font-size: 14px;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.il-perf-drag-handle:active { cursor: grabbing; }
+.il-perf-drag-handle svg { pointer-events: none; }
+#ilPerfControls.is-dragging { opacity: 0.85; transition: none; }
+#ilPerfControls.was-dragged { transition: none; right: auto !important; }
 .il-perf-ctrl-btn.active {
   color: var(--accent);
   border-color: var(--accent);
@@ -31055,6 +31075,70 @@ function ilScrollSpeedChange(val) {
   }
 }
 
+// ── Drag-to-move for #ilPerfControls ─────────────────────────────
+(function() {
+  var _dragEl = null, _dragStartX = 0, _dragStartY = 0, _elStartX = 0, _elStartY = 0, _moved = false;
+
+  function initDrag() {
+    var handle = document.getElementById('ilPerfDragHandle');
+    if (!handle) return;
+    handle.addEventListener('mousedown', onStart, { passive: false });
+    handle.addEventListener('touchstart', onStart, { passive: false });
+  }
+
+  function getXY(e) {
+    var t = e.touches ? e.touches[0] : e;
+    return { x: t.clientX, y: t.clientY };
+  }
+
+  function onStart(e) {
+    _dragEl = document.getElementById('ilPerfControls');
+    if (!_dragEl) return;
+    e.preventDefault();
+    var pt = getXY(e);
+    _dragStartX = pt.x; _dragStartY = pt.y;
+    var rect = _dragEl.getBoundingClientRect();
+    _elStartX = rect.left; _elStartY = rect.top;
+    _moved = false;
+    _dragEl.classList.add('is-dragging');
+    document.addEventListener('mousemove', onMove, { passive: false });
+    document.addEventListener('mouseup', onEnd);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+  }
+
+  function onMove(e) {
+    if (!_dragEl) return;
+    e.preventDefault();
+    var pt = getXY(e);
+    var dx = pt.x - _dragStartX, dy = pt.y - _dragStartY;
+    if (!_moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+    _moved = true;
+    var nx = _elStartX + dx, ny = _elStartY + dy;
+    // Clamp within viewport
+    var w = _dragEl.offsetWidth, h = _dragEl.offsetHeight;
+    nx = Math.max(0, Math.min(window.innerWidth - w, nx));
+    ny = Math.max(0, Math.min(window.innerHeight - h, ny));
+    _dragEl.style.left = nx + 'px';
+    _dragEl.style.top = ny + 'px';
+    _dragEl.style.right = 'auto';
+    _dragEl.classList.add('was-dragged');
+  }
+
+  function onEnd() {
+    if (_dragEl) _dragEl.classList.remove('is-dragging');
+    _dragEl = null;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onEnd);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onEnd);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDrag);
+  } else { initDrag(); }
+})();
+
 // Seq play/stop toggle for perf mode metro bar
 var _rtSeqCountdownTimer = null;
 function _syncRehSeqBtn(playing) {
@@ -37880,6 +37964,9 @@ Object.defineProperty(window, '_mtArmedTrack', {
 
 <!-- ── Perf mode top-right control (Auto-scroll only; Prime Seq moved to rehearse bar) ── -->
 <div id="ilPerfControls" aria-label="Perf quick controls">
+  <div class="il-perf-drag-handle" id="ilPerfDragHandle" title="Drag to move">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="4" r="2"/><circle cx="16" cy="4" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="8" cy="20" r="2"/><circle cx="16" cy="20" r="2"/></svg>
+  </div>
   <button class="il-perf-ctrl-btn" id="ilPerfScrollBtn" onclick="ilScrollToggle()" title="Auto-scroll lyrics">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
     <span>Scroll</span>
