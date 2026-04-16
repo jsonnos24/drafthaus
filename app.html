@@ -8404,10 +8404,8 @@ body.il-perf-active:not(.split-active) .global-seq-strip { top: env(safe-area-in
     transform: translateX(-50%);
     z-index: 99992;
     display: flex !important;
-    background: rgba(10,10,12,0.92);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255,255,255,0.1);
+    background: none;
+    border: none;
     border-radius: 100px;
     justify-content: center;
     padding: 6px 20px;
@@ -8416,8 +8414,22 @@ body.il-perf-active:not(.split-active) .global-seq-strip { top: env(safe-area-in
     box-sizing: border-box;
     width: fit-content;
     max-width: calc(100vw - 32px);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
   }
+  /* Pill bg + blur on a pseudo-element so native <select> dropdowns
+     aren't trapped inside a backdrop-filter compositing layer */
+  #headerTransport::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: rgba(10,10,12,0.92);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    z-index: -1;
+  }
+  #headerTransport:hover::before { border-color: rgba(255,255,255,0.2); }
 
   /* When split/transport dock is visible, push control bar up above it */
   body.split-active #headerTransport {
@@ -13564,14 +13576,11 @@ function _drawerQuickLoad(id, afterLoad) {
       if (full && currentId === id) afterLoad(full);
     });
   }
+  // ── Warm up ALL AudioContexts within this user gesture ─────────
+  _warmUpAllAudioContexts();
+
   // Pre-load 4-track takes and saved loops in the background so Launch works immediately
   if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
-  if (typeof _mtCreateCtxSync === 'function') {
-    _mtCreateCtxSync();
-    if (typeof _mtAudioCtx !== 'undefined' && _mtAudioCtx && _mtAudioCtx.state === 'suspended') {
-      _mtAudioCtx.resume().catch(() => {});
-    }
-  }
   setTimeout(() => {
     if (typeof loopPreloadForSong === 'function') loopPreloadForSong(id);
     if (!(typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track')) {
@@ -13661,6 +13670,50 @@ function _vr4TrackSyncToSong(id) {
   window._vr4trackSetSongAndReload(id);
 }
 
+// ── Global Audio Warm-Up ──────────────────────────────────────────
+// Resume ALL AudioContexts so every instrument is ready to play immediately.
+// Must be called from within a user-gesture stack (click/tap/key handler)
+// because browsers require a gesture to resume a suspended AudioContext.
+// Safe to call repeatedly — only does work when a context is suspended.
+function _warmUpAllAudioContexts() {
+  // Sequencer context (chord pills, drums, metronome)
+  try {
+    var ctx = getSeqAudioCtx();
+    if (ctx && ctx.state === 'suspended') ctx.resume().catch(function(){});
+  } catch(e) {}
+  // 4-track context
+  try {
+    if (typeof _mtCreateCtxSync === 'function') {
+      _mtCreateCtxSync();
+      if (typeof _mtAudioCtx !== 'undefined' && _mtAudioCtx && _mtAudioCtx.state === 'suspended') {
+        _mtAudioCtx.resume().catch(function(){});
+      }
+    }
+  } catch(e) {}
+  // Looper context
+  try {
+    if (typeof loopAudioCtx !== 'undefined' && !loopAudioCtx) {
+      loopAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (typeof loopAudioCtx !== 'undefined' && loopAudioCtx) {
+      if (loopAudioCtx.state === 'suspended') loopAudioCtx.resume().catch(function(){});
+      if (!loopMasterGain) {
+        loopMasterGain = loopAudioCtx.createGain();
+        loopMasterGain.gain.value = 1.0;
+        loopMasterGain.connect(loopAudioCtx.destination);
+      }
+    }
+  } catch(e) {}
+}
+
+// Persistent listener: resume any suspended AudioContexts on every user
+// interaction. Handles the case where the user backgrounds the tab and
+// comes back, or the browser suspends contexts after inactivity. The
+// checks are extremely cheap (just reading .state) so this adds no
+// measurable overhead.
+document.addEventListener('click', _warmUpAllAudioContexts, true);
+document.addEventListener('touchstart', _warmUpAllAudioContexts, { capture: true, passive: true });
+
 function openSong(id) {
   _stopAllAudio();
   document.getElementById('loadSheetBtn')?.classList.remove('load-btn-glow');
@@ -13709,16 +13762,15 @@ function openSong(id) {
     });
   }
 
+  // ── Warm up ALL AudioContexts within this user gesture ─────────
+  // openSong is always called from a click handler, so resume() calls
+  // are accepted by the browser. This covers seq, 4-track, and looper.
+  _warmUpAllAudioContexts();
+
   // Pre-load 4-track takes and saved loops in the background so Launch works immediately.
   // Guard with typeof — openSong can be called during early initApp before the 4-track
   // script block has executed, so the functions may not be defined yet at that point.
   if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
-  if (typeof _mtCreateCtxSync === 'function') {
-    _mtCreateCtxSync();
-    if (typeof _mtAudioCtx !== 'undefined' && _mtAudioCtx && _mtAudioCtx.state === 'suspended') {
-      _mtAudioCtx.resume().catch(() => {});
-    }
-  }
   setTimeout(() => {
     if (typeof loopPreloadForSong === 'function') loopPreloadForSong(id);
     // 4-track openFn (in _splitDrawerMap) handles its own refresh when visible.
@@ -19944,6 +19996,7 @@ function seqPlay() {
   seqIsPlaying = true;
   document.getElementById('seqDrawerTab')?.classList.add('playing');
   if (typeof htStartClock === 'function') htStartClock();
+  if (typeof _bgEnsureKeepAlive === 'function') _bgEnsureKeepAlive();
 
   const ctx = getSeqAudioCtx();
   // Resume within the user gesture (or as close as possible).
@@ -20038,6 +20091,7 @@ function seqPlaySong() {
   seqIsPlaying = true;
   document.getElementById('seqDrawerTab')?.classList.add('playing');
   if (typeof htStartClock === 'function') htStartClock();
+  if (typeof _bgEnsureKeepAlive === 'function') _bgEnsureKeepAlive();
 
   const ctx = getSeqAudioCtx();
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -21261,6 +21315,7 @@ function seqStop() {
   clearInterval(_seqTimer);
   _seqTimer = null;
   if (typeof htStopClock === 'function') htStopClock();
+  if (typeof _bgMaybeRelease === 'function') _bgMaybeRelease();
   // Reset song-play state
   _seqPlayMode = 'loop';
   _seqSongSectionIdx  = 0;
@@ -29847,6 +29902,7 @@ function loopStartPlayback(i){
   const t=loopTracks[i];if(!t.buffer)return;loopStopPlayback(i);
   t.gainNode=loopAudioCtx.createGain();t.gainNode.gain.value=t.volume/100;t.gainNode.connect(loopMasterGain||loopAudioCtx.destination);
   t.sourceNode=loopAudioCtx.createBufferSource();t.sourceNode.buffer=t.buffer;t.sourceNode.loop=true;t.sourceNode.connect(t.gainNode);t.sourceNode.start();
+  if(typeof _bgEnsureKeepAlive==='function')_bgEnsureKeepAlive();
   const start=loopAudioCtx.currentTime;
   function tick(){if(t.state!=='playing')return;const el=(loopAudioCtx.currentTime-start)%t.recDuration;loopDrawRing(t,Math.floor((el/t.recDuration)*LOOP_NUM_LEDS));t.rafId=requestAnimationFrame(tick);}
   t.rafId=requestAnimationFrame(tick);
@@ -29854,6 +29910,7 @@ function loopStartPlayback(i){
 function loopStopPlayback(i){
   const t=loopTracks[i];cancelAnimationFrame(t.rafId);
   if(t.sourceNode){try{t.sourceNode.stop();}catch(e){}t.sourceNode.disconnect();t.sourceNode=null;}
+  if(typeof _bgMaybeRelease==='function')setTimeout(_bgMaybeRelease,50);
 }
 function loopMuteTrack(i){const t=loopTracks[i];t.state='muted';if(t.gainNode)t.gainNode.gain.value=0;cancelAnimationFrame(t.rafId);loopDrawRing(t,0);loopUpdateTrackUI(i);}
 function loopUnmuteTrack(i){const t=loopTracks[i];t.state='playing';if(t.gainNode)t.gainNode.gain.value=t.volume/100;loopUpdateTrackUI(i);loopStartPlayback(i);}
@@ -34961,6 +35018,7 @@ window.mtPlayWithSeq = async function() {
 
 function _mtStartPlayback(offsetSec) {
   _mtIsPlaying = true;
+  if (typeof _bgEnsureKeepAlive === 'function') _bgEnsureKeepAlive();
   if (typeof _mtUpdateMiniPlaybar === 'function') _mtUpdateMiniPlaybar();
   if (typeof htStartClock === 'function') htStartClock();
   _mtPlayStartCtx = _mtAudioCtx.currentTime;
@@ -35019,6 +35077,7 @@ window.vrStop = function() {
 };
 function _mtStopAll() {
   _mtIsPlaying = false;
+  if (typeof _bgMaybeRelease === 'function') _bgMaybeRelease();
   // Also clean up any seq-link per-track playback
   if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
   // Stop sequencer if it was running (covers metronome-only and song playback)
@@ -37289,8 +37348,93 @@ function _scheduleMicInactivityRelease() {
   }, MIC_INACTIVITY_MS);
 }
 
-// Page Visibility: kill mic the moment the user leaves the app
+// ── Background Audio Keepalive ─────────────────────────────────
+// Mobile browsers (iOS Safari, Chrome Android) suspend Web Audio
+// when the page is hidden / phone locks. Playing a silent <audio>
+// element keeps the audio thread alive and the page un-suspended.
+// Media Session API lets the lock-screen show controls.
+
+let _bgKeepAliveAudio = null;
+let _bgKeepAliveActive = false;
+
+function _bgEnsureKeepAlive() {
+  if (_bgKeepAliveActive) return;
+  _bgKeepAliveActive = true;
+
+  if (!_bgKeepAliveAudio) {
+    _bgKeepAliveAudio = document.createElement('audio');
+    // Tiny silent WAV (44-byte header, 1 sample) base64-encoded, looped
+    _bgKeepAliveAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+    _bgKeepAliveAudio.loop = true;
+    _bgKeepAliveAudio.volume = 0.01; // near-silent
+    _bgKeepAliveAudio.setAttribute('playsinline', '');
+    _bgKeepAliveAudio.setAttribute('webkit-playsinline', '');
+  }
+  _bgKeepAliveAudio.play().catch(() => {});
+
+  // Media Session: show "Now Playing" on lock screen
+  if ('mediaSession' in navigator) {
+    const song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
+    const title = song?.title || song?.name || 'Drafthaus';
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: title,
+      artist: 'Drafthaus',
+      album: 'Songwriting Session',
+    });
+    navigator.mediaSession.playbackState = 'playing';
+    navigator.mediaSession.setActionHandler('play',  () => {
+      if (typeof seqPlay === 'function' && !seqIsPlaying) seqPlay();
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      if (typeof seqStop === 'function' && seqIsPlaying) seqStop();
+    });
+    navigator.mediaSession.setActionHandler('stop', () => {
+      if (typeof seqStop === 'function' && seqIsPlaying) seqStop();
+    });
+  }
+}
+
+function _bgReleaseKeepAlive() {
+  if (!_bgKeepAliveActive) return;
+  _bgKeepAliveActive = false;
+  if (_bgKeepAliveAudio) {
+    _bgKeepAliveAudio.pause();
+    _bgKeepAliveAudio.currentTime = 0;
+  }
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.playbackState = 'paused';
+  }
+}
+
+// Returns true when the sequencer or any looper track is playing
+function _isAnyPlaybackActive() {
+  if (typeof seqIsPlaying !== 'undefined' && seqIsPlaying) return true;
+  if (typeof loopTracks !== 'undefined' && loopTracks.some(t => t.state === 'playing')) return true;
+  if (typeof _mtTracks !== 'undefined' && _mtTracks.some(t => t.isPlaying)) return true;
+  return false;
+}
+
+// Conditionally release keepalive only if nothing is playing
+function _bgMaybeRelease() {
+  if (!_isAnyPlaybackActive()) _bgReleaseKeepAlive();
+}
+
+// Page Visibility: resume any suspended AudioContexts when
+// returning to foreground, and keep mic-release logic.
 document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    // Re-resume any AudioContexts the browser may have suspended.
+    // Always resume — not just during active playback — so that chord
+    // pills, drums, loops, and 4-track play on the first tap after the
+    // user returns to the tab (even if nothing was playing before).
+    [
+      typeof seqAudioCtx   !== 'undefined' ? seqAudioCtx   : null,
+      typeof loopAudioCtx  !== 'undefined' ? loopAudioCtx  : null,
+      typeof _mtAudioCtx   !== 'undefined' ? _mtAudioCtx   : null,
+    ].forEach(ctx => {
+      if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+    });
+  }
   if (document.visibilityState === 'hidden' && !_isAnyRecordingActive()) {
     _releaseMicStreams();
   }
@@ -37326,6 +37470,11 @@ window._vuMaybeStop                = _vuMaybeStop;
 window._vuStop                     = _vuStop;
 window._scheduleMicInactivityRelease = _scheduleMicInactivityRelease;
 window._releaseMicStreams          = _releaseMicStreams;
+// Expose background audio keepalive so sequencer/looper (outside IIFE) can use them
+window._bgEnsureKeepAlive          = _bgEnsureKeepAlive;
+window._bgMaybeRelease             = _bgMaybeRelease;
+window._bgReleaseKeepAlive         = _bgReleaseKeepAlive;
+window._isAnyPlaybackActive        = _isAnyPlaybackActive;
 // Expose armed-track state so rehearse bar sync (outside IIFE) can read it
 Object.defineProperty(window, '_mtArmedTrack', {
   get() { return _mtArmedTrack; },
