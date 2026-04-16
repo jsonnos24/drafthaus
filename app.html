@@ -5,40 +5,42 @@
 <link rel="icon" type="image/x-icon" href="favicon.ico">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <script>
-// Landscape on mobile: widen virtual viewport so the browser scales content
-// down to fit the screen rather than rendering at 1:1 (which feels zoomed in).
+// Viewport management: portrait = normal device-width; landscape phone = scale
+// the mobile layout (portrait width) up to fill the landscape screen.
+// Using matchMedia for landscape detection because screen.width/height do NOT
+// swap on iOS — so sw > sh would always be false on an iPhone.
 (function() {
   var meta = document.querySelector('meta[name="viewport"]');
   function applyViewport() {
-    // Use screen.width/height — stable regardless of current zoom or viewport state.
-    // window.innerWidth shrinks when zoomed in, causing mis-detection.
-    var sw = screen.width, sh = screen.height;
-    var isLandscape = sw > sh;
-    var isMobile    = Math.min(sw, sh) < 500; // phone if short dimension < 500px
+    var isLandscape = window.matchMedia('(orientation: landscape)').matches;
+    // "Mobile phone" = short dimension of the physical screen < 500 CSS px
+    var shortDim = Math.min(screen.width, screen.height);
+    var isMobile = shortDim < 500;
     if (isLandscape && isMobile) {
-      // Compute exact scale so the 1024px layout fills the screen width perfectly.
-      // Capped at 1.0 so tablets/large phones aren't scaled up.
-      var scale = Math.min(1, sw / 1024).toFixed(3);
-      // initial-scale + maximum-scale both set to `scale` so the browser
-      // always starts fully zoomed out and cannot zoom back in.
-      meta.content = 'width=1024, initial-scale=' + scale + ', minimum-scale=0.1, maximum-scale=' + scale + ', viewport-fit=cover';
+      // Use the phone's portrait width as the virtual viewport width so that
+      // @media(max-width:700px) mobile CSS always applies in landscape.
+      // Scale up so the mobile layout fills the full landscape screen width.
+      var portraitW = shortDim;           // e.g. 390 on iPhone 14
+      var landscapeW = Math.max(screen.width, screen.height); // e.g. 844
+      var scale = (landscapeW / portraitW).toFixed(3);        // e.g. 2.164
+      meta.content = 'width=' + portraitW + ', initial-scale=' + scale +
+        ', minimum-scale=' + scale + ', maximum-scale=' + scale +
+        ', user-scalable=no, viewport-fit=cover';
     } else {
       meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
     }
   }
   applyViewport();
-  // Longer timeout + resize listener ensures dimensions have settled after rotation
   window.addEventListener('orientationchange', function() {
     setTimeout(applyViewport, 100);
-    setTimeout(applyViewport, 350); // second call after full settle
-    // Force reset any existing zoom on orientation change
+    setTimeout(applyViewport, 350);
     setTimeout(function() {
       document.documentElement.style.zoom = '';
       if (window.scrollY > 0) window.scrollTo(0, 0);
     }, 400);
   });
   window.addEventListener('resize', applyViewport);
-  // Block native pinch-to-zoom gesture on touch devices
+  // Block native pinch-to-zoom
   document.addEventListener('touchmove', function(e) {
     if (e.touches && e.touches.length > 1) e.preventDefault();
   }, { passive: false });
@@ -923,7 +925,7 @@ button, select, input, textarea { touch-action: manipulation; }
     flex-direction: row; align-items: center; justify-content: flex-start;
     grid-column: 1 / -1; grid-row: 2;
     padding: 5px 14px 7px;
-    border-top: 1px solid rgba(255,255,255,0.07);
+    border-top: none;
     overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
     transition: opacity 0.5s;
   }
@@ -1249,7 +1251,7 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* Header — fixed on mobile so transform works cleanly; z-index above seq strip (9940) */
   /* Two-row header: row1=43px + row2=54px = 97px total */
-  .site-header { position: fixed; width: 100%; z-index: 9950; padding: env(safe-area-inset-top, 0px) 14px 0; height: calc(97px + env(safe-area-inset-top, 0px)); min-height: calc(97px + env(safe-area-inset-top, 0px)); }
+  .site-header { position: fixed; width: 100%; z-index: 9950; padding: env(safe-area-inset-top, 0px) 14px 0; height: calc(97px + env(safe-area-inset-top, 0px)); min-height: calc(97px + env(safe-area-inset-top, 0px)); box-shadow: none; }
   .sticky-song-bar { top: calc(153px + env(safe-area-inset-top, 0px)); padding: 6px 14px; } /* below header (97px) + global seq strip (56px) */
   body.song-bar-visible #viewDetail .container { padding-top: 44px; }
   /* Split panel — correct top for mobile two-row header (97px) + seq strip (56px) = 153px */
@@ -4724,6 +4726,22 @@ button, select, input, textarea { touch-action: manipulation; }
   .shared-settings-row.hidden { display: none; }
   .shared-settings-row::-webkit-scrollbar { display: none; }
   .shared-settings-row > * { flex-shrink: 0; }
+  /* Three-zone layout helpers — desktop: children flow inline as normal */
+  .msr-left, .msr-right { display: contents; }
+  .msr-center { display: none; }
+  .shared-ctrl-mobile-only { display: none; }
+  /* Mobile time/bar display styling (always defined, shown only on mobile) */
+  .msr-time-val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px; font-weight: 700;
+    color: var(--text); letter-spacing: 0.02em;
+  }
+  .msr-pos-val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px; font-weight: 700;
+    color: var(--gold); letter-spacing: 0.02em;
+  }
+  .msr-dot { font-size: 11px; color: var(--faint); }
   /* Vertical resize mode — rows wrap and stack instead of scroll */
   .shared-drawer-header.is-resized-v {
     display: flex; flex-direction: column;
@@ -5845,11 +5863,30 @@ button, select, input, textarea { touch-action: manipulation; }
     font-size: 10px;
     line-height: 1;
   }
-  /* Mobile: hide BPM tap, time sig, bars — show only song title + key */
+  /* Mobile: hide desktop-only labels/elements */
   .shared-ctrl-desktop-only { display: none !important; }
   /* Key dropdown: only show when keyboard drawer is open */
   .kbd-only-mobile { display: none !important; }
   body:has(#keyboardDrawer.open) .kbd-only-mobile { display: flex !important; }
+  /* Mobile control bar: three-zone grid — [Tap+TimeSig] [Time/Bar] [Bars] */
+  #sharedSettingsRow {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    overflow-x: visible;
+    gap: 0;
+    padding: 4px 10px;
+  }
+  .msr-left {
+    display: flex; align-items: center; gap: 5px;
+  }
+  .msr-center {
+    display: flex; align-items: center; gap: 5px; justify-self: center;
+  }
+  .msr-right {
+    display: flex; align-items: center; gap: 5px; justify-content: flex-end;
+  }
+  .shared-ctrl-mobile-only { display: flex !important; }
   /* Song title in settings row */
   .shared-drawer-song-title {
     font-size: 12px;
@@ -5866,6 +5903,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .shared-drawer-header .shared-settings-row {
     padding: 4px 10px 4px !important;
     gap: 6px !important;
+    border-bottom: none !important;
   }
   .shared-drawer-header .seq-select,
   .shared-drawer-header .seq-input {
@@ -17896,6 +17934,8 @@ function syncBpmUI(rawBpm) {
   const kEl = document.getElementById('kbdBpm'); if (kEl && parseInt(kEl.value) !== bpm) kEl.value = bpm;
   // Header transport BPM display
   const htEl = document.getElementById('htBpmDisplay'); if (htEl) htEl.textContent = bpm;
+  // Mobile control bar tap button display
+  const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) ktEl.textContent = bpm;
   // Sync mobile dock summary
   if (typeof _syncMobileDock === 'function') _syncMobileDock();
 }
@@ -19251,22 +19291,30 @@ function htStopClock() {
   _htPlayStart = null;
   const t = document.getElementById('htTime'); if (t) t.textContent = '0:00';
   const p = document.getElementById('htPos');  if (p) p.textContent  = '1.1';
+  const st = document.getElementById('sharedTime'); if (st) st.textContent = '0:00';
+  const sp = document.getElementById('sharedPos');  if (sp) sp.textContent  = '1.1';
 }
 function _htTickClock() {
   if (!_htPlayStart) { _htRafId = null; return; }
   const elapsed  = (Date.now() - _htPlayStart) / 1000;
   const mins     = Math.floor(elapsed / 60);
   const secs     = Math.floor(elapsed % 60);
+  const timeStr  = mins + ':' + String(secs).padStart(2, '0');
   const t = document.getElementById('htTime');
-  const p = document.getElementById('htPos');
-  if (t) t.textContent = mins + ':' + String(secs).padStart(2, '0');
-  if (p) {
+  const st = document.getElementById('sharedTime');
+  if (t)  t.textContent  = timeStr;
+  if (st) st.textContent = timeStr;
+  const p  = document.getElementById('htPos');
+  const sp = document.getElementById('sharedPos');
+  if (p || sp) {
     const bpm      = (typeof rtMetroBpm !== 'undefined' ? rtMetroBpm : 120) || 120;
     const timeSig  = (typeof rtMetroTime !== 'undefined' ? rtMetroTime : 4) || 4;
     const totalBeats = elapsed / (60 / bpm);
     const bar  = Math.floor(totalBeats / timeSig) + 1;
     const beat = Math.floor(totalBeats % timeSig) + 1;
-    p.textContent = bar + '.' + beat;
+    const posStr = bar + '.' + beat;
+    if (p)  p.textContent  = posStr;
+    if (sp) sp.textContent = posStr;
   }
   _htRafId = requestAnimationFrame(_htTickClock);
 }
@@ -22952,7 +23000,7 @@ function openRunThroughDrawer() {
 
   rtMetroBpm  = parseInt(song.bpm || song.sequencer?.bpm || '120', 10) || 120;
   rtMetroTime = parseInt(song.sequencer?.time || '4', 10) || 4;
-  ['rtMetroBpmDisplay','htBpmDisplay'].forEach(id => {
+  ['rtMetroBpmDisplay','htBpmDisplay','kbdTapBpmNum'].forEach(id => {
     const el = document.getElementById(id); if (el) el.textContent = rtMetroBpm;
   });
   ['rtMetroTimeSel','htTimeSel'].forEach(id => {
@@ -23233,7 +23281,7 @@ function rtUpdateDots(beat) {
 
 function rtMetroDelta(d) {
   rtMetroBpm = Math.max(40, Math.min(240, rtMetroBpm + d));
-  ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay','htBpmDisplay'].forEach(id => {
+  ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay','htBpmDisplay','kbdTapBpmNum'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = rtMetroBpm;
   });
@@ -23276,7 +23324,7 @@ function rtTapTempo() {
     const intervals = recent.slice(1).map((t, i) => t - recent[i]);
     const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
     rtMetroBpm = Math.round(Math.max(40, Math.min(240, 60000 / avg)));
-    ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay','htBpmDisplay'].forEach(id => {
+    ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay','htBpmDisplay','kbdTapBpmNum'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.textContent = rtMetroBpm;
     });
@@ -37762,52 +37810,62 @@ window._releaseMicStreams          = _releaseMicStreams;
     </svg>
   </div>
   <div id="sharedSettingsRow" class="shared-settings-row">
-    <!-- Song title — shown on mobile only -->
-    <span id="sharedDrawerSongTitle" class="shared-drawer-song-title" title="Current song"></span>
-    <!-- Tap Tempo — BPM number on top, "BPM" label below — hidden on mobile -->
-    <button class="seq-btn tap-bpm-btn shared-ctrl-desktop-only" id="kbdTapBtn" onclick="kbdTapTempo()" title="Tap to set BPM">
-      <span class="tap-bpm-word" id="htBpmDisplay">100</span>
-      <span class="tap-bpm-value">BPM</span>
-    </button>
-    <!-- Key — shown on mobile only when keyboard drawer is open -->
-    <div class="seq-ctrl-group kbd-only-mobile">
-      <span class="seq-label">Key</span>
-      <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged()" style="font-size:10px;">
-        <option value="">— Key —</option>
-        <option>C major</option><option>C minor</option>
-        <option>C# / Db major</option><option>C# / Db minor</option>
-        <option>D major</option><option>D minor</option>
-        <option>D# / Eb major</option><option>D# / Eb minor</option>
-        <option>E major</option><option>E minor</option>
-        <option>F major</option><option>F minor</option>
-        <option>F# / Gb major</option><option>F# / Gb minor</option>
-        <option>G major</option><option>G minor</option>
-        <option>G# / Ab major</option><option>G# / Ab minor</option>
-        <option>A major</option><option>A minor</option>
-        <option>A# / Bb major</option><option>A# / Bb minor</option>
-        <option>B major</option><option>B minor</option>
-      </select>
+    <!-- LEFT: Tap + Time Sig (+ Key when keyboard drawer open) -->
+    <div class="msr-left">
+      <!-- Song title — desktop only -->
+      <span id="sharedDrawerSongTitle" class="shared-drawer-song-title shared-ctrl-desktop-only" title="Current song"></span>
+      <!-- Tap Tempo button — BPM number, no label -->
+      <button class="seq-btn tap-bpm-btn" id="kbdTapBtn" onclick="kbdTapTempo()" title="Tap to set BPM">
+        <span class="tap-bpm-word" id="kbdTapBpmNum">100</span>
+      </button>
+      <!-- Time Sig (label hidden on mobile) -->
+      <div class="seq-ctrl-group">
+        <span class="seq-label shared-ctrl-desktop-only">Time</span>
+        <select class="seq-select" id="kbdTimeSig" onchange="kbdTimeSigChanged(this.value)">
+          <option value="4">4/4</option>
+          <option value="3">3/4</option>
+          <option value="6">6/8</option>
+          <option value="5">5/4</option>
+        </select>
+      </div>
+      <!-- Key — shown on mobile only when keyboard drawer is open -->
+      <div class="seq-ctrl-group kbd-only-mobile">
+        <span class="seq-label">Key</span>
+        <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged()" style="font-size:10px;">
+          <option value="">— Key —</option>
+          <option>C major</option><option>C minor</option>
+          <option>C# / Db major</option><option>C# / Db minor</option>
+          <option>D major</option><option>D minor</option>
+          <option>D# / Eb major</option><option>D# / Eb minor</option>
+          <option>E major</option><option>E minor</option>
+          <option>F major</option><option>F minor</option>
+          <option>F# / Gb major</option><option>F# / Gb minor</option>
+          <option>G major</option><option>G minor</option>
+          <option>G# / Ab major</option><option>G# / Ab minor</option>
+          <option>A major</option><option>A minor</option>
+          <option>A# / Bb major</option><option>A# / Bb minor</option>
+          <option>B major</option><option>B minor</option>
+        </select>
+      </div>
     </div>
-    <!-- Time sig — hidden on mobile -->
-    <div class="seq-ctrl-group shared-ctrl-desktop-only">
-      <span class="seq-label">Time</span>
-      <select class="seq-select" id="kbdTimeSig" onchange="kbdTimeSigChanged(this.value)">
-        <option value="4">4/4</option>
-        <option value="3">3/4</option>
-        <option value="6">6/8</option>
-        <option value="5">5/4</option>
-      </select>
+    <!-- CENTER: Time / Bar position — mobile only -->
+    <div class="msr-center shared-ctrl-mobile-only">
+      <span class="msr-time-val" id="sharedTime">0:00</span>
+      <span class="msr-dot">·</span>
+      <span class="msr-pos-val" id="sharedPos">1.1</span>
     </div>
-    <!-- Bars — hidden on mobile -->
-    <div class="seq-ctrl-group shared-ctrl-desktop-only">
-      <span class="seq-label">Bars</span>
-      <select class="seq-select" id="kbdBars" onchange="kbdBarsChanged(this.value)">
-        <option value="1">1</option>
-        <option value="2">2</option>
-        <option value="4" selected>4</option>
-        <option value="8">8</option>
-        <option value="16">16</option>
-      </select>
+    <!-- RIGHT: Bars (label hidden on mobile) -->
+    <div class="msr-right">
+      <div class="seq-ctrl-group">
+        <span class="seq-label shared-ctrl-desktop-only">Bars</span>
+        <select class="seq-select" id="kbdBars" onchange="kbdBarsChanged(this.value)">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="4" selected>4</option>
+          <option value="8">8</option>
+          <option value="16">16</option>
+        </select>
+      </div>
     </div>
     <!-- Hidden BPM input kept for JS sync compatibility -->
     <input type="hidden" id="kbdBpm" value="100">
