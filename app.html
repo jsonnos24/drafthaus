@@ -6567,6 +6567,10 @@ button, select, input, textarea { touch-action: manipulation; }
   body.split-active #stickySongBar {
     display: none !important;
   }
+  /* Constrain the global section strip to the left pane in split mode */
+  body.split-active .global-seq-strip {
+    right: calc(100% - var(--split-left)) !important;
+  }
 }
 
 /* ── Tool-on-left mode (switch sides) ────────────────────────────── */
@@ -6595,6 +6599,11 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   body.split-active.split-tool-left #splitLeftHeader {
     display: none !important;
+  }
+  /* When sides are swapped, seq strip follows the content to the right */
+  body.split-active.split-tool-left .global-seq-strip {
+    left: var(--split-left) !important;
+    right: 0 !important;
   }
   /* Divider stays at the same visual position regardless of side */
 }
@@ -23254,51 +23263,24 @@ var forkCtx=null,forkOsc=null,forkGain=null,forkOn=false;
 function metroForkToggle(){forkOn?metroForkStop():metroForkStart();}
 function metroForkStart(){try{forkCtx=new(window.AudioContext||window.webkitAudioContext)();forkOsc=forkCtx.createOscillator();forkGain=forkCtx.createGain();forkOsc.connect(forkGain);forkGain.connect(forkCtx.destination);forkOsc.type='sine';forkOsc.frequency.value=82.41;forkGain.gain.setValueAtTime(0,forkCtx.currentTime);forkGain.gain.linearRampToValueAtTime(0.28,forkCtx.currentTime+0.08);forkOsc.start();forkOn=true;document.getElementById('metroForkBtn').classList.add('active');}catch(e){}}
 function metroForkStop(){forkOn=false;document.getElementById('metroForkBtn').classList.remove('active');if(forkGain&&forkCtx)forkGain.gain.linearRampToValueAtTime(0,forkCtx.currentTime+0.06);setTimeout(function(){try{if(forkOsc){forkOsc.stop();forkOsc=null;}}catch(e){}try{if(forkCtx){forkCtx.close();forkCtx=null;}}catch(e){}forkGain=null;},80);}
-// ── Capture-phase Space: transport ALWAYS owns spacebar on desktop ─────────
-// Everything runs in capture phase so NO element can intercept, stopPropagation,
-// or otherwise steal the spacebar from the transport.  The only exception is
-// genuine text-entry fields (INPUT, TEXTAREA, contentEditable).
+// ── Capture-phase Space guard ─────────────────────────────────────────────
+// Browsers fire button.click() on keyup when a button has focus.
+// Capturing keydown + keyup on Space ensures we claim the event before the
+// button's own handler sees it, preventing any focused button from toggling.
 document.addEventListener('keydown', function(e) {
   if (e.code !== 'Space') return;
   const t = e.target;
+  // Only skip blur for genuine text-entry contexts — SELECT is intentionally NOT excluded
+  // here so that using any dropdown never permanently traps the spacebar.
   if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-
-  // 1. Blur any focused element so buttons/selects can't fire synthetic clicks
+  // Blur the focused element (including SELECT) in the capture phase so it can't hold
+  // the spacebar hostage after the user has finished interacting with it.
   const ae = document.activeElement;
   if (ae && ae !== document.body && ae.tagName !== 'BODY') {
     try { ae.blur(); } catch(_) {}
   }
-
-  // 2. Claim the event — nothing else should see this Space
-  e.preventDefault();
-  e.stopImmediatePropagation();
-
-  // 3. Route to the correct transport action
-  // PRIORITY 1: If recording, spacebar always stops recording first
-  if (typeof _vrRecording !== 'undefined' && _vrRecording) {
-    if (typeof _mtStopRecording === 'function') _mtStopRecording();
-    return;
-  }
-  // PRIORITY 2-5: Route based on which drawer/overlay is visible
-  const rtOpen   = document.getElementById('runThroughDrawer')?.classList.contains('open');
-  const vrOpen   = document.getElementById('vrOverlay')?.classList.contains('vr-open');
-  const miniBar  = document.getElementById('vrMiniBar');
-  const miniOpen = miniBar && miniBar.style.display !== 'none' && miniBar.offsetParent !== null;
-  const seqOpen  = document.getElementById('seqDrawer')?.classList.contains('open');
-  const kbdOpen  = document.getElementById('keyboardDrawer')?.classList.contains('open');
-  const loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
-  if (rtOpen) {
-    rtMetroToggle();
-  } else if (vrOpen || miniOpen) {
-    if (e.shiftKey) { if (typeof mtPlayWithSeq === 'function') mtPlayWithSeq(); }
-    else { if (typeof mtPlay === 'function') mtPlay(); }
-  } else if (seqOpen || kbdOpen || loopOpen) {
-    if (e.shiftKey) { sharedPlaySong(); } else { sharedPlay(); }
-  } else {
-    if (!e.shiftKey) metroToggle();
-  }
-}, true); // capture = true
+}, true); // capture = true  → fires before any bubble-phase handler
 
 document.addEventListener('keyup', function(e) {
   if (e.code !== 'Space') return;
@@ -23310,53 +23292,47 @@ document.addEventListener('keyup', function(e) {
   e.stopImmediatePropagation();
 }, true); // capture = true
 
-// ── Escape & Cmd+S (bubble phase is fine for these) ──────────────────────
 document.addEventListener('keydown',function(e){
+  // Escape closes metro settings overlay first, then exits perf mode
   if (e.key === 'Escape') {
     const mso = document.getElementById('rtMetroSettingsOverlay');
     if (mso && mso.classList.contains('open')) { e.preventDefault(); mso.classList.remove('open'); return; }
     if (window._ilPerfMode) { e.preventDefault(); ilSetPerfMode(false); return; }
   }
+  // Space = play/stop active drawer; Shift+Space = play full song sequence
+  // Use document.activeElement (already blurred by capture handler) rather than e.target
+  // so that Space works immediately after any dropdown/button interaction.
+  if(e.code==='Space' && !e.metaKey && !e.ctrlKey && !e.altKey){
+    const _ae = document.activeElement;
+    if (_ae && (_ae.tagName === 'INPUT' || _ae.tagName === 'TEXTAREA' || _ae.isContentEditable)) return; // still typing
+    e.preventDefault();
+    // If recording, spacebar always stops the recording first
+    if (typeof _vrRecording !== 'undefined' && _vrRecording) {
+      if (typeof _mtStopRecording === 'function') _mtStopRecording();
+      return;
+    }
+    const rtOpen   = document.getElementById('runThroughDrawer')?.classList.contains('open');
+    const vrOpen   = document.getElementById('vrOverlay')?.classList.contains('vr-open');
+    const miniBar  = document.getElementById('vrMiniBar');
+    const miniOpen = miniBar && miniBar.style.display !== 'none' && miniBar.offsetParent !== null;
+    const seqOpen  = document.getElementById('seqDrawer')?.classList.contains('open');
+    const kbdOpen  = document.getElementById('keyboardDrawer')?.classList.contains('open');
+    const loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
+    if (rtOpen) {
+      rtMetroToggle();
+    } else if (vrOpen || miniOpen) {
+      if (e.shiftKey) { if (typeof mtPlayWithSeq === 'function') mtPlayWithSeq(); }
+      else { if (typeof mtPlay === 'function') mtPlay(); }
+    } else if (seqOpen || kbdOpen || loopOpen) {
+      if (e.shiftKey) { sharedPlaySong(); } else { sharedPlay(); }
+    } else {
+      if (!e.shiftKey) metroToggle();
+    }
+  }
+  // Cmd/Ctrl+S saves
   if((e.metaKey||e.ctrlKey)&&e.key==='s'){e.preventDefault();saveEdits();}
   if(e.key==='Escape')metroForkStop();
 });
-
-// ── Auto-return focus to body after any drawer/modal/overlay closes ───────
-// This guarantees spacebar always reaches the transport after interactions.
-// Watches for class removals on known panels; when they lose 'open'/'vr-open',
-// focus snaps to body so no stale element holds it.
-(function() {
-  function _returnFocusToBody() {
-    const ae = document.activeElement;
-    if (ae && ae !== document.body && ae.tagName !== 'INPUT' && ae.tagName !== 'TEXTAREA' && !ae.isContentEditable) {
-      try { ae.blur(); } catch(_) {}
-      try { document.body.focus(); } catch(_) {}
-    }
-  }
-  // After any click that isn't on a text field, return focus to body
-  document.addEventListener('click', function(e) {
-    const t = e.target;
-    if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
-    // Small delay so the click's own handler runs first
-    setTimeout(_returnFocusToBody, 50);
-  });
-  // After any modal/drawer close transition ends, return focus
-  document.addEventListener('transitionend', function(e) {
-    if (e.target && e.target.classList && (
-      e.target.classList.contains('drawer') ||
-      e.target.classList.contains('modal') ||
-      e.target.id === 'vrOverlay' ||
-      e.target.id === 'seqDrawer' ||
-      e.target.id === 'keyboardDrawer' ||
-      e.target.id === 'looperDrawer' ||
-      e.target.id === 'runThroughDrawer' ||
-      e.target.id === 'mixDrawer'
-    )) {
-      _returnFocusToBody();
-    }
-  });
-})();
-
 metroBuildDots();
 <\/script>
 </body>
@@ -26919,17 +26895,11 @@ function _desktopOpenTool(toolKey) {
     document.body.classList.remove('split-expanded-left');
     _syncExpandBtns();
   }
-  // Set split ratio — keyboard/seq default to 35% left (65% right); respect saved user pref
+  // Set split ratio — default 35% left / 65% right; respect per-tool saved pref
   var ratio;
-  if (toolKey === '4track') {
-    ratio = '50%';
-  } else if (toolKey === 'keyboard' || toolKey === 'sequencer') {
-    var saved = null;
-    try { saved = localStorage.getItem('drafthaus_split_ratio_user'); } catch(e) {}
-    ratio = saved || '35%';
-  } else {
-    ratio = '45%';
-  }
+  var saved = null;
+  try { saved = localStorage.getItem('drafthaus_split_ratio_' + toolKey); } catch(e) {}
+  ratio = saved || '35%';
   document.documentElement.style.setProperty('--split-left', ratio);
   var div = document.getElementById('splitDivider');
   var rp  = document.getElementById('splitRightPanel');
@@ -27061,10 +27031,10 @@ function _initSplitAlwaysOn() {
     splitExpandPane('left');
   }
 
-  // Restore user's manually-dragged split ratio (done after tool so it overrides tool default)
+  // Restore user's per-tool saved split ratio (done after tool so it overrides default)
   if (savedRight) {
     var savedRatio = null;
-    try { savedRatio = localStorage.getItem('drafthaus_split_ratio_user'); } catch(e) {}
+    try { savedRatio = localStorage.getItem('drafthaus_split_ratio_' + savedRight); } catch(e) {}
     if (savedRatio) {
       document.documentElement.style.setProperty('--split-left', savedRatio);
       var _div = document.getElementById('splitDivider');
@@ -27127,10 +27097,10 @@ window.addEventListener('resize', function() {
     if (!dragging) return;
     dragging = false;
     document.body.classList.remove('split-dragging');
-    // Persist the ratio the user dragged to, so tool auto-sizing can respect it
+    // Persist the ratio per-tool so each tool remembers its own split
     try {
       var pct = getComputedStyle(document.documentElement).getPropertyValue('--split-left').trim();
-      if (pct) localStorage.setItem('drafthaus_split_ratio_user', pct);
+      if (pct && _splitCurrentTool) localStorage.setItem('drafthaus_split_ratio_' + _splitCurrentTool, pct);
     } catch(e) {}
   }
   // Swap button fade logic
@@ -27154,13 +27124,13 @@ window.addEventListener('resize', function() {
       d.addEventListener('touchstart', onDividerDown, { passive: false });
       d.addEventListener('dblclick', function(e) {
         e.preventDefault();
-        document.documentElement.style.setProperty('--split-left', '50%');
+        document.documentElement.style.setProperty('--split-left', '35%');
         var div = document.getElementById('splitDivider');
-        if (div) div.style.left = 'calc(50% - 3px)';
+        if (div) div.style.left = 'calc(35% - 3px)';
         var rp = document.getElementById('splitRightPanel');
-        if (rp) rp.style.left = '50%';
-        // Double-click resets to equal split — clear saved preference
-        try { localStorage.removeItem('drafthaus_split_ratio_user'); } catch(e) {}
+        if (rp) rp.style.left = '35%';
+        // Double-click resets to default 35/65 split — clear saved preference for current tool
+        try { if (_splitCurrentTool) localStorage.removeItem('drafthaus_split_ratio_' + _splitCurrentTool); } catch(e) {}
       });
     }
   });
@@ -27212,16 +27182,9 @@ function _kbToggleRightTool(tool) {
   }
   // Set split ratio then open directly (bypass _desktopOpenTool's conflicting toggle)
   var ratio;
-  if (tool === '4track') {
-    ratio = '50%';
-  } else if (tool === 'keyboard' || tool === 'sequencer') {
-    // 65% right panel by default; respect any ratio the user has manually dragged to
-    var saved = null;
-    try { saved = localStorage.getItem('drafthaus_split_ratio_user'); } catch(e) {}
-    ratio = saved || '35%';
-  } else {
-    ratio = '45%';
-  }
+  var saved = null;
+  try { saved = localStorage.getItem('drafthaus_split_ratio_' + tool); } catch(e) {}
+  ratio = saved || '35%';
   document.documentElement.style.setProperty('--split-left', ratio);
   var div = document.getElementById('splitDivider');
   var rp  = document.getElementById('splitRightPanel');
@@ -33174,6 +33137,101 @@ function _syncPerfControlsVisibility() {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// ── GLOBAL SPACEBAR → TRANSPORT (capture phase, main app scope) ──────────
+// This is the REAL handler that runs in the main app.  Capture phase so
+// no button, select, or other element can intercept or scroll the page.
+// Only text-entry fields (INPUT, TEXTAREA, contentEditable) are exempt.
+// ══════════════════════════════════════════════════════════════════════════
+document.addEventListener('keydown', function(e) {
+  if (e.code !== 'Space') return;
+  const t = e.target;
+  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+  // 1. Blur any focused element so buttons/selects can't fire synthetic clicks
+  const ae = document.activeElement;
+  if (ae && ae !== document.body && ae.tagName !== 'BODY') {
+    try { ae.blur(); } catch(_) {}
+  }
+
+  // 2. Claim the event — prevent page scroll, stop all other listeners
+  e.preventDefault();
+  e.stopImmediatePropagation();
+
+  // 3. Global play / stop — spacebar ALWAYS controls audio transport
+  //
+  // STOP path: if ANYTHING is playing or recording, spacebar stops it all.
+  // PLAY path: if nothing is playing, spacebar starts playback based on
+  //            which drawer/overlay is visible (Shift+Space = full song).
+
+  var _isRecording  = typeof _vrRecording !== 'undefined' && _vrRecording;
+  var _isSeqPlaying = typeof seqIsPlaying !== 'undefined' && seqIsPlaying;
+  var _is4tPlaying  = typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying;
+  var _isMetroOn    = typeof metroRunning !== 'undefined' && metroRunning;
+  var _isRtMetroOn  = typeof rtMetroRunning !== 'undefined' && rtMetroRunning;
+  var _isLoopActive = typeof loopTracks !== 'undefined' && loopTracks.some(function(t) {
+    return t && (t.state === 'playing' || t.state === 'recording');
+  });
+  var _anythingOn   = _isRecording || _isSeqPlaying || _is4tPlaying || _isMetroOn || _isRtMetroOn || _isLoopActive;
+
+  // ── STOP: kill everything that's running ──
+  if (_anythingOn) {
+    if (_isRecording && typeof _mtStopRecording === 'function') _mtStopRecording();
+    if (_isSeqPlaying && typeof seqStop === 'function') seqStop();
+    if (_is4tPlaying && typeof _mtStopAll === 'function') try { _mtStopAll(); } catch(_e) {}
+    if (_isMetroOn && typeof metroToggle === 'function') metroToggle();     // toggles off
+    if (_isRtMetroOn && typeof rtMetroToggle === 'function') rtMetroToggle(); // toggles off
+    // Also stop looper tracks
+    if (typeof loopMasterStop === 'function') try { loopMasterStop(); } catch(_e) {}
+    return;
+  }
+
+  // ── PLAY: nothing running — start playback based on context ──
+  var rtOpen   = document.getElementById('runThroughDrawer')?.classList.contains('open');
+  var vrOpen   = document.getElementById('vrOverlay')?.classList.contains('vr-open');
+  var miniBar  = document.getElementById('vrMiniBar');
+  var miniOpen = miniBar && miniBar.style.display !== 'none' && miniBar.offsetParent !== null;
+  var seqOpen  = document.getElementById('seqDrawer')?.classList.contains('open');
+  var kbdOpen  = document.getElementById('keyboardDrawer')?.classList.contains('open');
+  var loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
+
+  if (rtOpen) {
+    if (typeof rtMetroToggle === 'function') rtMetroToggle();
+  } else if (vrOpen || miniOpen) {
+    if (e.shiftKey) { if (typeof mtPlayWithSeq === 'function') mtPlayWithSeq(); }
+    else            { if (typeof mtPlay === 'function') mtPlay(); }
+  } else if (seqOpen || kbdOpen || loopOpen) {
+    if (e.shiftKey) { sharedPlaySong(); } else { sharedPlay(); }
+  }
+  // If no drawer is open → spacebar does nothing (no metronome trigger)
+}, true); // ← capture = true
+
+// Swallow keyup too so no synthetic button click fires
+document.addEventListener('keyup', function(e) {
+  if (e.code !== 'Space') return;
+  const t = e.target;
+  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+}, true); // ← capture = true
+
+// ── Auto-return focus to body after clicks ───────────────────────────────
+// Prevents buttons/selects from holding focus and blocking spacebar.
+document.addEventListener('click', function(e) {
+  const t = e.target;
+  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+  setTimeout(function() {
+    const ae = document.activeElement;
+    if (ae && ae !== document.body && ae.tagName !== 'INPUT' && ae.tagName !== 'TEXTAREA' && !ae.isContentEditable) {
+      try { ae.blur(); } catch(_) {}
+    }
+  }, 50);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+
 document.addEventListener('keydown', function(e) {
   if (e.key !== 'Escape') return;
   // Don't trigger when typing
@@ -37825,8 +37883,8 @@ Object.defineProperty(window, '_mtArmedTrack', {
         <button class="split-transport-btn split-play-btn" id="mtPlayBtn" onclick="mtPlay()" disabled title="Play (Space)">▶ Play</button>
         <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtn" onclick="sharedPlaySong()" title="Play full song — plays all sections in order">▶▶ Seq</button>
         <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="vrStop()" disabled title="Stop (Space)">■ Stop</button>
-        <button class="split-transport-btn split-met-btn" id="mtMetBtn" onclick="seqToggleMet()" title="Toggle metronome (M)">♩ Metro</button>
-        <button class="split-transport-btn split-loop-btn" id="mtLoopBtn" onclick="mtToggleLoop()" title="Loop playback (L)">⟳</button>
+        <button class="split-transport-btn split-met-btn" id="mtMetBtn" onclick="seqToggleMet()" title="Toggle metronome (M)">Metro</button>
+        <button class="split-transport-btn split-loop-btn" id="mtLoopBtn" onclick="mtToggleLoop()" title="Loop playback (L)">🔄</button>
       </div>
       <!-- Input gain control — shown with 4-track transport -->
       <div class="vr-gain-pill" id="vrGainPill" title="Input recording gain (pre-boost)">
@@ -38768,10 +38826,10 @@ Object.defineProperty(window, '_mtArmedTrack', {
       title="Stop">■ Stop</button>
     <button class="split-transport-btn split-met-btn" id="mtMetBtnM"
       onclick="rtMetroToggle()"
-      title="Toggle metronome click">♩ Metro</button>
+      title="Toggle metronome click">Metro</button>
     <button class="split-transport-btn split-loop-btn" id="mtLoopBtnM"
       onclick="mtToggleLoop()"
-      title="Loop playback (L)">⟳</button>
+      title="Loop playback (L)">🔄</button>
   </div>
 </div>
 
