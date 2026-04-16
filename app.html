@@ -7894,6 +7894,25 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
   font-size: 13px; color: #999; font-style: italic; padding: 8px 0 4px;
 }
 
+/* Inline per-line lyrics editor */
+.il-cc-line-edit-input {
+  font-family: 'IBM Plex Sans', sans-serif; font-size: 17px; font-weight: 300;
+  color: #111111; background: #fff; border: 1.5px solid #1a3a6b;
+  border-radius: 5px; padding: 4px 8px; width: 100%; box-sizing: border-box;
+  outline: none; line-height: 1.3; margin: 0;
+}
+.il-cc-line-edit-input:focus {
+  box-shadow: 0 0 0 2px rgba(26,58,107,0.18);
+}
+.il-cc-line-edit-wrap {
+  width: 100%; display: flex; align-items: center; gap: 6px; padding: 2px 0;
+}
+.il-cc-line-edit-hint {
+  font-size: 11px; color: #888; white-space: nowrap; font-family: 'IBM Plex Mono', monospace;
+}
+.il-cc-syl { cursor: text; }
+.il-cc-blank-line { cursor: text; }
+
 /* Lyrics editor */
 .il-lyrics-edit-wrap { margin-bottom: 10px; }
 .il-lyrics-edit-toggle-btn {
@@ -8036,7 +8055,8 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
 }
 /* Compact line spacing */
 #songViewRunthrough.il-perf-mode .il-cc-line { margin-bottom: 6px; }
-#songViewRunthrough.il-perf-mode .il-cc-blank-line { height: 4px; }
+#songViewRunthrough.il-perf-mode .il-cc-blank-line { height: 4px; pointer-events: none; cursor: default; }
+#songViewRunthrough.il-perf-mode .il-cc-syl { cursor: default; }
 /* Tighter syllable spacing so words read as one unit */
 #songViewRunthrough.il-perf-mode .il-cc-word-col { padding: 1px 0 0; }
 #songViewRunthrough.il-perf-mode .il-cc-word-group { margin-right: 14px; }
@@ -31536,9 +31556,10 @@ function ilRenderChordChartHtml(partId) {
   lines.forEach((line, lineIdx) => {
     const words = line.match(/\S+/g) || [];
     if (!words.length) {
-      html += `<div class="il-cc-line il-cc-blank-line"></div>`;
+      html += `<div class="il-cc-line il-cc-blank-line" data-il-line="${lineIdx}" data-il-part="${partId}"
+        onclick="ilLineTap('${partId}',${lineIdx},this)"></div>`;
     } else {
-      html += `<div class="il-cc-line">`;
+      html += `<div class="il-cc-line" data-il-line="${lineIdx}" data-il-part="${partId}">`;
       words.forEach((word, wordIdx) => {
         const syllables = ilSyllabify(word);
         html += `<div class="il-cc-word-group">`;
@@ -31560,7 +31581,7 @@ function ilRenderChordChartHtml(partId) {
                 onclick="event.stopPropagation();ilUnpositionChord('${partId}',${lineIdx},${wordIdx},${sylIdx})"
                 title="Remove">✕</button></span>` : ''}
             </div>
-            <span class="il-cc-syl">${esc(syl)}</span>
+            <span class="il-cc-syl" onclick="event.stopPropagation();ilLineTap('${partId}',${lineIdx},this.closest('.il-cc-line'))">${esc(syl)}</span>
           </div>`;
         });
         html += `</div>`; // .il-cc-word-group
@@ -31756,6 +31777,117 @@ function ilSlotTap(partId, lineIdx, wordIdx, sylIdx, colEl) {
   });
   // commit on blur (tap elsewhere)
   inp.addEventListener('blur', function() { setTimeout(commit, 80); });
+}
+
+// ── Inline per-line lyrics editing ──────────────────────────────────
+// Click a lyric line in the chord chart → inline text input for that line.
+// On commit, update only that line, remap chords on it, re-render.
+function ilLineTap(partId, lineIdx, lineEl) {
+  // Don't open if already editing this line
+  if (lineEl.querySelector('.il-cc-line-edit-input')) return;
+
+  const lyricText = rtLyricEdits[partId] || '';
+  const lines = lyricText.split('\n');
+  const currentLine = lines[lineIdx] || '';
+
+  // Replace line content with an input
+  const origHtml = lineEl.innerHTML;
+  const wrap = document.createElement('div');
+  wrap.className = 'il-cc-line-edit-wrap';
+
+  const inp = document.createElement('input');
+  inp.className = 'il-cc-line-edit-input';
+  inp.type = 'text';
+  inp.value = currentLine;
+  inp.placeholder = 'Type lyrics for this line…';
+  inp.setAttribute('autocomplete', 'off');
+  inp.setAttribute('autocorrect', 'off');
+  inp.setAttribute('spellcheck', 'true');
+
+  const hint = document.createElement('span');
+  hint.className = 'il-cc-line-edit-hint';
+  hint.textContent = 'Enter ✓';
+
+  wrap.appendChild(inp);
+  wrap.appendChild(hint);
+  lineEl.innerHTML = '';
+  lineEl.appendChild(wrap);
+
+  setTimeout(function() { inp.focus(); inp.selectionStart = inp.selectionEnd = inp.value.length; }, 30);
+
+  var committed = false;
+  function commit() {
+    if (committed) return;
+    committed = true;
+
+    var newLine = inp.value;
+    // If unchanged, just re-render
+    if (newLine === currentLine) {
+      lineEl.innerHTML = origHtml;
+      return;
+    }
+
+    // Update the single line in rtLyricEdits
+    var oldText = rtLyricEdits[partId] || '';
+    var allLines = oldText.split('\n');
+    // Ensure array is long enough
+    while (allLines.length <= lineIdx) allLines.push('');
+    allLines[lineIdx] = newLine;
+    var newText = allLines.join('\n');
+    rtLyricEdits[partId] = newText;
+
+    // Remap chord positions for this line only
+    _ilRemapLineChords(partId, lineIdx, currentLine, newLine);
+
+    // Sync hidden textarea so save picks it up
+    var ta = document.getElementById('illyricsedit-' + partId);
+    if (ta) ta.value = newText;
+
+    // Re-render just this part's chart
+    ilRefreshPartView(partId);
+    ilScheduleSave();
+  }
+
+  inp.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { committed = true; lineEl.innerHTML = origHtml; }
+  });
+  inp.addEventListener('blur', function() { setTimeout(commit, 80); });
+}
+
+// Remap chords on a single line when that line's text changes
+function _ilRemapLineChords(partId, lineIdx, oldLineText, newLineText) {
+  var positions = rtChordPositions[partId];
+  if (!positions || !positions.length) return;
+
+  var oldWords = (oldLineText || '').match(/\S+/g) || [];
+  var newWords = (newLineText || '').match(/\S+/g) || [];
+
+  if (!newWords.length) {
+    // Line cleared — remove all chords on this line
+    rtChordPositions[partId] = positions.filter(function(p) { return p.line !== lineIdx; });
+    return;
+  }
+
+  var remapped = [];
+  positions.forEach(function(pos) {
+    if (pos.line !== lineIdx) { remapped.push(pos); return; }
+    // Clamp word index
+    var newWordIdx = Math.min(pos.word, newWords.length - 1);
+    // Clamp syllable index
+    var newSyls = ilSyllabify(newWords[newWordIdx]);
+    var newSylIdx = Math.min(pos.syl || 0, newSyls.length - 1);
+    remapped.push({ line: lineIdx, word: newWordIdx, syl: newSylIdx, chord: pos.chord });
+  });
+
+  // Deduplicate
+  var seen = {};
+  rtChordPositions[partId] = remapped.filter(function(p) {
+    var key = p.line + ',' + p.word + ',' + p.syl;
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
 }
 
 // ── Mobile touch drag for lyrics chord palette ────────────────────
