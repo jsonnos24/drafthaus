@@ -7128,6 +7128,11 @@ body.il-perf-active.split-active #siteHeader { display: flex !important; }
 body.il-perf-active.split-active #splitLeftHeader {
   display: none !important;
 }
+/* Global seq strip spans full width in perf mode, even when split panel is active */
+body.il-perf-active.split-active .global-seq-strip {
+  right: 0 !important;
+  left: 0 !important;
+}
 /* Constrain the fixed metro bar to the left panel so it doesn't cover the right panel */
 body.il-perf-active.split-active .rt-metro.il-perf-metro {
   right: calc(100% - var(--split-left)) !important;
@@ -27670,6 +27675,10 @@ function kbdGridChanged(callerVal) {
 }
 
 function openKeyboardDrawer() {
+  // ── Perf mode: only one tool panel at a time ──
+  if (window._ilPerfMode && document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
+    vrClose();
+  }
   _setNavOpen('nav-keyboard', true);
   document.getElementById('keyboardDrawer').classList.add('open');
   document.getElementById('keyboardDrawerOverlay').classList.add('open');
@@ -27749,6 +27758,10 @@ function closeKeyboardDrawer() {
 }
 
 function openSeqDrawer() {
+  // ── Perf mode: only one tool panel at a time ──
+  if (window._ilPerfMode && document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
+    vrClose();
+  }
   _setNavOpen('nav-sequencer', true);
   document.getElementById('seqDrawer').classList.add('open');
   document.getElementById('seqDrawerOverlay').classList.add('open');
@@ -29313,6 +29326,10 @@ var loopSongId = null;
 var loopMasterGain = null; // master fader for all looper output
 
 function openLooperDrawer() {
+  // ── Perf mode: only one tool panel at a time ──
+  if (window._ilPerfMode && document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
+    vrClose();
+  }
   _setNavOpen('nav-looper', true);
   const song = songs.find(s => s.id === currentId) || null;
   if (!song) { showNoSongModal(openLooperDrawer); return; }
@@ -35342,6 +35359,17 @@ window.vrOpen = function(autoRecord) {
   _setNavOpen('nav-mic', true);
   _vrSongId = currentId || null;
   if (!_vrSongId) { showNoSongModal(function() { vrOpen(autoRecord); }); return; }
+  // ── Perf mode: only one tool panel at a time ──
+  if (window._ilPerfMode) {
+    ['seqDrawer','keyboardDrawer','looperDrawer'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el && el.classList.contains('open')) {
+        if (id === 'seqDrawer' && typeof closeSeqDrawer === 'function') closeSeqDrawer();
+        else if (id === 'keyboardDrawer' && typeof closeKeyboardDrawer === 'function') closeKeyboardDrawer();
+        else if (id === 'looperDrawer' && typeof closeLooperDrawer === 'function') closeLooperDrawer();
+      }
+    });
+  }
   // vr-rt-compact = compact right-sidebar mode for rehearse/standalone.
   // When the overlay is already inside the split panel it fills the panel — no compact mode needed.
   const _inSplitPanel = !!document.getElementById('splitRightContent')?.contains(_el('vrOverlay'));
