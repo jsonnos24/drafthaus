@@ -8490,11 +8490,11 @@ body.il-perf-active #rehearseBar {
   color: #fb923c;
   border-color: rgba(251,146,60,0.4);
 }
-/* ARM T1 button — armed state */
+/* ARM T1 button — armed state (solid fill so it's unmistakable on mobile) */
 .reh-arm-btn.reh-armed {
-  color: #ef4444;
-  border-color: #ef4444;
-  background: rgba(239,68,68,0.12);
+  color: #fff;
+  border-color: #dc2626;
+  background: #dc2626;
   animation: armSeqPulse 1.2s ease-in-out infinite;
 }
 /* REC button — idle */
@@ -30828,7 +30828,7 @@ function _syncRehArmT1Btn() {
   if (!btn) return;
   const armed = (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack === 0);
   btn.classList.toggle('reh-armed', armed);
-  btn.textContent = armed ? '● ARM T1' : 'ARM T1';
+  btn.textContent = armed ? '⏺ REC T1' : 'ARM T1';
 }
 
 function _syncRehRecBtn() {
@@ -38004,7 +38004,10 @@ window._releaseMicStreams          = _releaseMicStreams;
 
       var x0 = 0, y0 = 0, x1 = 0, y1 = 0;
       var tracking = false, dismissed = false;
+      var decided = false;   // true once we lock into scroll vs dismiss
+      var isDismiss = false;  // which gesture won
       var THRESHOLD = 62; // px needed to trigger dismiss
+      var DEAD_ZONE = 10; // px of movement before we decide
 
       function bodyScrollTop() {
         if (!bodyId) return 0;
@@ -38033,6 +38036,8 @@ window._releaseMicStreams          = _releaseMicStreams;
         y0 = y1 = t.clientY;
         tracking = true;
         dismissed = false;
+        decided = false;
+        isDismiss = false;
         drawer.style.transition = 'none';
         _pulseHint();
       }, { passive: true });
@@ -38045,16 +38050,31 @@ window._releaseMicStreams          = _releaseMicStreams;
         var dx = x1 - x0, dy = y1 - y0;
         var adx = Math.abs(dx), ady = Math.abs(dy);
 
-        // Vertical gestures: let scroll win unless at top going down
-        if (ady > adx) {
-          if (dy < 0 || bodyScrollTop() > 3) {
-            // Scrolling up, or content scrolled — hand back to browser
+        // Wait for enough movement to decide — avoids jittery small-gesture conflicts
+        if (!decided) {
+          if (adx < DEAD_ZONE && ady < DEAD_ZONE) return; // still in dead zone
+          decided = true;
+
+          // Decide: dismiss gesture only if horizontal swipe,
+          // OR pulling down when content is scrolled to the very top
+          if (adx > ady) {
+            isDismiss = true; // horizontal swipe → dismiss
+          } else if (dy > 0 && bodyScrollTop() <= 1) {
+            isDismiss = true; // pull-down at top → dismiss
+          } else {
+            isDismiss = false; // everything else → normal scroll
+          }
+
+          if (!isDismiss) {
             tracking = false;
             drawer.style.transition = '';
             drawer.style.transform = '';
             return;
           }
         }
+
+        // If we locked into scroll, bail (shouldn't reach here, but safety)
+        if (!isDismiss) { tracking = false; return; }
 
         e.preventDefault();
 
