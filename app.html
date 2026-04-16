@@ -5,41 +5,11 @@
 <link rel="icon" type="image/x-icon" href="favicon.ico">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <script>
-// Viewport management: portrait = normal device-width; landscape phone = scale
-// the mobile layout (portrait width) up to fill the landscape screen.
-// Using matchMedia for landscape detection because screen.width/height do NOT
-// swap on iOS — so sw > sh would always be false on an iPhone.
+// Viewport management: portrait-only on mobile.
+// Landscape is blocked by the #landscapeWarnOverlay via CSS media query.
 (function() {
   var meta = document.querySelector('meta[name="viewport"]');
-  function applyViewport() {
-    var isLandscape = window.matchMedia('(orientation: landscape)').matches;
-    // "Mobile phone" = short dimension of the physical screen < 500 CSS px
-    var shortDim = Math.min(screen.width, screen.height);
-    var isMobile = shortDim < 500;
-    if (isLandscape && isMobile) {
-      // Use a virtual viewport of 600px — wide enough to use landscape real estate,
-      // narrow enough to stay inside the @media(max-width:700px) mobile breakpoint.
-      // Scale it to fill the physical landscape screen width.
-      var landscapeW = Math.max(screen.width, screen.height); // e.g. 844 on iPhone 14
-      var virtualW   = 600; // keeps mobile CSS active; ~1.4x zoom instead of ~2.2x
-      var scale = (landscapeW / virtualW).toFixed(3);          // e.g. 1.407
-      meta.content = 'width=' + virtualW + ', initial-scale=' + scale +
-        ', minimum-scale=' + scale + ', maximum-scale=' + scale +
-        ', user-scalable=no, viewport-fit=cover';
-    } else {
-      meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
-    }
-  }
-  applyViewport();
-  window.addEventListener('orientationchange', function() {
-    setTimeout(applyViewport, 100);
-    setTimeout(applyViewport, 350);
-    setTimeout(function() {
-      document.documentElement.style.zoom = '';
-      if (window.scrollY > 0) window.scrollTo(0, 0);
-    }, 400);
-  });
-  window.addEventListener('resize', applyViewport);
+  meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
   // Block native pinch-to-zoom
   document.addEventListener('touchmove', function(e) {
     if (e.touches && e.touches.length > 1) e.preventDefault();
@@ -1425,91 +1395,6 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .seq-mobile-close { display: flex !important; }
 
-  /* ── Landscape hint banner ── */
-  @keyframes seqHintWiggle {
-    0%   { transform: translateX(0) rotate(0deg); }
-    10%  { transform: translateX(-4px) rotate(-1.5deg); }
-    20%  { transform: translateX(4px) rotate(1.5deg); }
-    30%  { transform: translateX(-4px) rotate(-1deg); }
-    40%  { transform: translateX(4px) rotate(1deg); }
-    50%  { transform: translateX(-2px) rotate(-0.5deg); }
-    60%  { transform: translateX(2px) rotate(0.5deg); }
-    75%  { transform: translateX(-1px) rotate(0deg); }
-    100% { transform: translateX(0) rotate(0deg); }
-  }
-  #seqLandscapeHint {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: rgba(255,232,77,0.08);
-    border: 1px solid rgba(255,232,77,0.25);
-    border-radius: 10px;
-    padding: 10px 14px;
-    margin: 12px 12px 0;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px;
-    color: var(--gold);
-    animation: seqHintWiggle 0.7s ease-in-out 0.4s 1 both;
-  }
-  #seqLandscapeHint .hint-dismiss {
-    margin-left: auto;
-    background: none;
-    border: none;
-    color: var(--muted);
-    font-size: 16px;
-    cursor: pointer;
-    padding: 0 0 0 8px;
-    line-height: 1;
-  }
-}
-
-/* ── Mobile landscape — drum machine full-screen side panel ── */
-@media (max-width: 900px) and (orientation: landscape) {
-  /* Slide in from right, sitting BELOW the fixed header (43px) + seq strip (56px) */
-  .seq-drawer {
-    border-radius: 0 !important;
-    transform: translateX(100%) !important;
-    top: calc(43px + env(safe-area-inset-top, 0px)) !important;
-    bottom: auto !important;
-    height: calc(100dvh - 43px - env(safe-area-inset-top, 0px)) !important;
-  }
-  .seq-drawer.open { transform: translateX(0) !important; }
-  .seq-drawer-handle { display: none !important; }
-
-  /* Hide the shared floating transport — it's redundant and takes up vertical space */
-  #sharedDrawerHeader { display: none !important; }
-
-  /* Compact slots: wide enough to read, short enough that all 8 rows fit */
-  .seq-slot {
-    width: clamp(12px, 1.8vw, 18px) !important;
-    height: clamp(18px, 4.5vh, 26px) !important;
-    font-size: 6px !important;
-    border-radius: 3px !important;
-  }
-  .seq-grid { gap: 1px !important; }
-  .seq-bar-sep { width: 3px !important; }
-  .seq-row-label {
-    min-width: 44px !important;
-    max-width: 44px !important;
-    font-size: 9px !important;
-    padding-right: 5px !important;
-  }
-  /* Allow rows to scroll vertically if screen is very short */
-  .seq-panel {
-    overflow-y: auto !important;
-    overscroll-behavior: contain !important;
-    -webkit-overflow-scrolling: touch !important;
-  }
-  /* Drum grid: horizontal scroll only, no touch interference */
-  .seq-grid-pane .seq-pattern-grid {
-    touch-action: pan-x !important;
-  }
-  /* Drum rows: allow horizontal pan */
-  #seqKick, #seqSnare, #seqHat, #seqHiTom, #seqLoTom, #seqCrash, #seqClap {
-    touch-action: pan-x !important;
-    position: relative;
-    z-index: 1;
-  }
 }
 
 @media(max-width:400px){
@@ -2110,14 +1995,17 @@ button, select, input, textarea { touch-action: manipulation; }
     letter-spacing: 0.18em; color: var(--faint);
     margin-bottom: 10px;
   }
-  .seq-chords-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; overflow-y: visible; align-items: flex-start; margin-bottom: 12px; scrollbar-width: none; }
-  .seq-chords-row::-webkit-scrollbar { display: none; }
+  .seq-chords-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; overflow-y: visible; align-items: flex-start; margin-bottom: 12px; scrollbar-width: auto; padding-bottom: 8px; touch-action: pan-x; -webkit-overflow-scrolling: touch; }
+  .seq-chords-row::-webkit-scrollbar { display: block !important; height: 10px; }
+  .seq-chords-row::-webkit-scrollbar-track { background: var(--card2, #1a1a22); border-radius: 5px; }
+  .seq-chords-row::-webkit-scrollbar-thumb { background: rgba(180, 110, 255, 0.5); border-radius: 5px; min-width: 40px; }
+  .seq-chords-row::-webkit-scrollbar-thumb:active { background: rgba(180, 110, 255, 0.8); }
   .seq-chord-pill {
     font-family: 'IBM Plex Mono', monospace; font-size: 12px;
     padding: 6px 12px; background: var(--pill-bg, var(--card2));
     border: 1px solid var(--pill-border, var(--border2)); border-radius: 5px;
     cursor: grab; user-select: none; -webkit-user-select: none; color: var(--pill-color, var(--text));
-    transition: all 0.12s; touch-action: none;
+    transition: all 0.12s; touch-action: pan-x;
     -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
   }
   /* Purple shades for chords I–VIII (darkest→lightest) */
@@ -2142,7 +2030,7 @@ button, select, input, textarea { touch-action: manipulation; }
     border: 1px solid rgba(200, 182, 130, 0.7); border-radius: 4px;
     cursor: grab; user-select: none; -webkit-user-select: none; color: #1a1208;
     transition: all 0.12s; text-align: center; white-space: nowrap;
-    touch-action: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+    touch-action: pan-x; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
   }
   .seq-chord-var-pill:hover { background: rgba(245, 232, 195, 1); border-color: rgba(160,100,255,0.6); color: #0a0804; }
   .seq-chord-var-pill:active { cursor: grabbing; }
@@ -2150,9 +2038,12 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* ── Mobile chord grid mode (two groups of 4 columns) ── */
   .kbd-chord-grid-mode { display: block !important; overflow-x: visible !important; }
-  .kbd-chord-grid-mode .kbd-chord-group { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .kbd-chord-grid-mode .kbd-chord-group::-webkit-scrollbar { display: none; }
-  .kbd-chord-grid-mode .seq-chord-pill-col { flex: 1; min-width: 0; }
+  .kbd-chord-grid-mode .kbd-chord-group { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: auto; touch-action: pan-x; -webkit-overflow-scrolling: touch; padding-bottom: 6px; }
+  .kbd-chord-grid-mode .kbd-chord-group::-webkit-scrollbar { display: block !important; height: 8px; }
+  .kbd-chord-grid-mode .kbd-chord-group::-webkit-scrollbar-track { background: var(--card2, #1a1a22); border-radius: 4px; }
+  .kbd-chord-grid-mode .kbd-chord-group::-webkit-scrollbar-thumb { background: rgba(180, 110, 255, 0.5); border-radius: 4px; min-width: 30px; }
+  .kbd-chord-grid-mode .kbd-chord-group::-webkit-scrollbar-thumb:active { background: rgba(180, 110, 255, 0.8); }
+  .kbd-chord-grid-mode .seq-chord-pill-col { flex: 0 0 auto; min-width: 64px; }
   .kbd-chord-grid-mode .seq-chord-pill { font-size: 13px; padding: 8px 6px; text-align: center; white-space: nowrap; }
   .kbd-chord-grid-mode .seq-chord-var-pill { font-size: 10px; padding: 5px 4px; text-align: center; white-space: nowrap; }
   /* Key trigger slots (1-8) */
@@ -11906,9 +11797,9 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   font-weight: 600; letter-spacing: 0.06em; color: rgba(255,255,255,0.65);
   margin: 0; line-height: 1.5;
 }
-/* Show on mobile landscape, but NOT when the drum machine (seq drawer) is open */
+/* Show on mobile landscape — portrait only on mobile */
 @media (orientation: landscape) and (max-height: 500px) {
-  body:not(:has(#seqDrawer.open)) #landscapeWarnOverlay { display: flex !important; }
+  #landscapeWarnOverlay { display: flex !important; }
 }
 
 /* ── Backend drawer (slide-in from right) ──────────────────────────────── */
@@ -27852,17 +27743,9 @@ function openSeqDrawer() {
   else document.getElementById('seqDrawerTab').classList.add('tab-active');
   _sharedHeaderOpen('sequencer');
   _drawerMobileHeaderHide();
-  // In landscape mode, reset pinch-zoom to a compact default so the full grid is visible
-  if (window.innerWidth < 900 && window.innerHeight < window.innerWidth) {
-    var landscapeDefault = 20;
-    document.documentElement.style.setProperty('--drum-slot-px', landscapeDefault + 'px');
-    try { localStorage.setItem('dh_drum_slot_px', landscapeDefault); } catch(e) {}
-  }
-
-  // Mobile: init swipe-down gesture + show landscape hint
+  // Mobile: init swipe-down gesture
   if (window.innerWidth < 700) {
     _seqInitSwipeDown();
-    setTimeout(_seqShowLandscapeHint, 400); // slight delay so drawer has finished opening
   }
 
   const song = getCurrentSong();
@@ -28187,43 +28070,6 @@ function _seqAutoFitZoom() {
   document.documentElement.style.setProperty('--drum-slot-px', clamped + 'px');
   try { localStorage.setItem('dh_drum_slot_px', clamped); } catch(e) {}
 }
-
-/* ── Landscape hint ── */
-function _seqShowLandscapeHint() {
-  if (window.innerWidth >= 700) return;
-  if (window.innerWidth > window.innerHeight) return; // already landscape
-  if (sessionStorage.getItem('seqLandscapeHintDismissed')) return;
-  if (document.getElementById('seqLandscapeHint')) return;
-
-  const hint = document.createElement('div');
-  hint.id = 'seqLandscapeHint';
-  hint.innerHTML =
-    '<span style="font-size:20px;flex-shrink:0">📱</span>' +
-    '<div><div style="font-weight:600;letter-spacing:0.05em">Rotate for best experience</div>' +
-    '<div style="opacity:0.65;font-size:10px;margin-top:2px">Landscape fits all 8 bars on screen</div></div>' +
-    '<button class="hint-dismiss" onclick="_seqDismissLandscapeHint()" title="Dismiss">✕</button>';
-
-  const body = document.getElementById('seqDrawerBody');
-  if (body) body.insertAdjacentElement('afterbegin', hint);
-
-  // Auto-dismiss when device rotates to landscape
-  const onOrient = () => {
-    if (window.innerWidth > window.innerHeight) _seqDismissLandscapeHint();
-  };
-  window.addEventListener('resize', onOrient);
-  hint._cleanupResize = onOrient;
-}
-
-function _seqDismissLandscapeHint() {
-  const hint = document.getElementById('seqLandscapeHint');
-  if (!hint) return;
-  if (hint._cleanupResize) window.removeEventListener('resize', hint._cleanupResize);
-  hint.style.transition = 'opacity 0.2s';
-  hint.style.opacity = '0';
-  setTimeout(() => hint.remove(), 220);
-  sessionStorage.setItem('seqLandscapeHintDismissed', '1');
-}
-
 
 // Hide tab when no song is open
 function updateSeqDrawerTab() {
