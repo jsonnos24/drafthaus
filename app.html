@@ -8280,7 +8280,7 @@ body.il-perf-active:not(.split-active) .global-seq-strip { top: env(safe-area-in
 
   /* Rehearse bar — use desktop bottom-nav height (48px) */
   #rehearseBar {
-    bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(48px + env(safe-area-inset-bottom, 0px) + 6px);
   }
 }
 
@@ -8307,35 +8307,40 @@ body.il-perf-active .rt-body {
 .rt-metro.il-perf-metro .rt-perf-only { display: flex; align-items: center; }
 .rt-metro.il-perf-metro div.rt-perf-only { display: flex; }
 
-/* ── Rehearse control bar (slides up above bottom nav in perf mode) ── */
+/* ── Rehearse control bar (pill, slides up above bottom nav in perf mode) ── */
 #rehearseBar {
   position: fixed;
-  /* Match nav height: 2px top-pad + 52px item + max(5px, safe-area-inset-bottom) bot-pad */
-  bottom: calc(54px + env(safe-area-inset-bottom, 0px)); left: 0; right: 0;
+  bottom: calc(54px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
   z-index: 9940;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 0 12px;
+  padding: 0 16px;
   height: 44px;
-  background: rgba(12,12,16,0.98);
+  width: auto;
+  max-width: calc(100vw - 32px);
+  background: rgba(12,12,16,0.96);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 22px;
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   /* hidden: slide down entirely below bottom nav */
-  transform: translateY(calc(100% + 60px));
+  transform: translate(-50%, calc(100% + 60px));
   transition: transform 0.22s cubic-bezier(0.34,1.2,0.64,1);
   pointer-events: none;
   will-change: transform;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
 }
 #rehearseBar::-webkit-scrollbar { display: none; }
 body.il-perf-active #rehearseBar {
-  transform: translateY(0);
+  transform: translate(-50%, 0);
   pointer-events: auto;
 }
 .reh-sep {
@@ -8579,6 +8584,18 @@ body.il-perf-active #ilPerfControls {
   border-color: rgba(248,113,113,0.5);
   background: rgba(248,113,113,0.08);
   animation: armSeqPulse 1.2s ease-in-out infinite;
+}
+
+/* ── Mobile: rehearse bar above transport in perf mode ────────── */
+@media (max-width: 768px) {
+  body.il-perf-active #rehearseBar {
+    /* Sit above the perf-mode metro transport bar (~60px + safe-area) */
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+  /* When 4-track bar is also open, push rehearse bar higher */
+  body.il-perf-active.mt4t-bar-open #rehearseBar {
+    bottom: calc(64px + 48px + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 /* ── Metro bar lifted into perf mode ───────────────────────────── */
@@ -10303,9 +10320,9 @@ body.il-perf-active .mt-arm-btn {
   body.vr-compact-open.il-perf-active .rt-metro.il-perf-metro {
     right: var(--vr-compact-width, 42vw);
   }
-  /* Rehearse bar shifts left too */
+  /* Rehearse bar shifts left when compact panel is open */
   body.vr-compact-open.il-perf-active #rehearseBar {
-    right: var(--vr-compact-width, 42vw);
+    left: calc((100vw - var(--vr-compact-width, 42vw)) / 2);
   }
 }
 
@@ -30596,6 +30613,9 @@ function ilSetPerfMode(on) {
   _syncStickyNavBtns();
   // Hide bottom nav in perf mode
   document.body.classList.toggle('il-perf-active', on);
+  // Reset perf controls visibility (clear any inline display override from drawer logic)
+  const perfCtrl = document.getElementById('ilPerfControls');
+  if (perfCtrl) perfCtrl.style.display = '';
   // Stop scrolling and close settings overlay when leaving perf mode
   if (!on) {
     ilScrollStop();
@@ -30728,14 +30748,10 @@ function _syncRehArmBtn() {
   const btn = document.getElementById('rehArmSeqBtn');
   if (btn) {
     btn.classList.toggle('reh-arm-active', armed);
-    btn.textContent = armed ? '● Arm Seq' : 'Arm Seq';
+    const svg = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+    btn.innerHTML = armed ? '● Prime Seq' : svg + ' Prime Seq';
   }
-  // Sync the perf overlay Prime button
-  const primeBtn = document.getElementById('ilPerfPrimeBtn');
-  if (primeBtn) {
-    primeBtn.classList.toggle('arm-active', armed);
-    primeBtn.querySelector('span').textContent = armed ? '● Prime' : 'Prime';
-  }
+  // (Prime Seq button moved to rehearse bar — no separate perf overlay button to sync)
 }
 
 // ── Rehearse bar: ARM Track 1 + REC sync ─────────────────────────
@@ -30757,12 +30773,7 @@ function _syncRehArmT1Btn() {
 }
 
 function _syncRehRecBtn() {
-  const btn = document.getElementById('rehRecBtn');
-  if (!btn) return;
-  const recording = (typeof _vrRecording !== 'undefined' && _vrRecording);
-  btn.classList.toggle('reh-recording', recording);
-  const svg = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>';
-  btn.innerHTML = svg + (recording ? ' STOP' : ' REC');
+  // REC button removed from rehearse bar — stub kept for callers
 }
 
 // Sync reh bar record/arm state on mtArmTrack and vrToggleRec calls
@@ -32953,15 +32964,41 @@ function closeAllDrawers(exceptId) {
     const el = document.getElementById(id);
     if (el && el.classList.contains('open')) closeFn();
   });
+  // Restore auto-scroll controls when all drawers close in perf mode
+  if (!exceptId) _syncPerfControlsVisibility();
 }
 
 function toggleDrawer(drawerId, openFn, closeFn) {
   const drawer = document.getElementById(drawerId);
   if (drawer && drawer.classList.contains('open')) {
     closeFn();
+    // Restore auto-scroll controls if we're still in perf mode and no drawers remain open
+    _syncPerfControlsVisibility();
   } else {
     closeAllDrawers(drawerId);
     openFn();
+    // Hide auto-scroll when a drawer opens during rehearse mode
+    if (window._ilPerfMode) {
+      ilScrollStop();
+      const perfCtrl = document.getElementById('ilPerfControls');
+      if (perfCtrl) perfCtrl.style.display = 'none';
+    }
+  }
+}
+
+// Show/hide the auto-scroll overlay based on whether any drawer is open in perf mode
+function _syncPerfControlsVisibility() {
+  if (!window._ilPerfMode) return;
+  const anyOpen = ['seqDrawer','looperDrawer','inspoDrawer','practiceDrawer',
+    'runThroughDrawer','keyboardDrawer','backendDrawer'].some(id => {
+    const el = document.getElementById(id);
+    return el && el.classList.contains('open');
+  });
+  // Also check 4-track overlay
+  const vrOpen = document.getElementById('vrOverlay')?.classList.contains('vr-open');
+  const perfCtrl = document.getElementById('ilPerfControls');
+  if (perfCtrl) {
+    perfCtrl.style.display = (anyOpen || vrOpen) ? 'none' : '';
   }
 }
 
@@ -35157,6 +35194,8 @@ window.vrClose = function() {
   _el('vrOverlay').classList.remove('vr-open', 'vr-rt-compact');
   document.body.classList.remove('mt4t-overlay-open', 'vr-compact-open');
   _vuMaybeStop();
+  // Restore auto-scroll controls if no other drawers are open
+  if (typeof _syncPerfControlsVisibility === 'function') _syncPerfControlsVisibility();
   // Restore .mt-transport back into #vrDeck (undo body teleport)
   const _tp = document.querySelector('.mt-transport');
   if (_tp) _tp.classList.remove('mt-transport-rt'); // always strip compact tag
@@ -37400,32 +37439,29 @@ window._releaseMicStreams          = _releaseMicStreams;
   </div>
 </div>
 
-<!-- ── Rehearse control bar (perf mode only, slides up above bottom nav) ── -->
+<!-- ── Rehearse control bar (pill, perf mode only, slides up above bottom nav) ── -->
 <div id="rehearseBar" aria-label="Rehearse controls">
   <!-- Tuner -->
   <button class="reh-btn" id="rehForkBtn" onclick="rtForkToggle()" title="Tuning Fork — E2 (82.41 Hz)">
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v10"/><path d="M17 3v10"/><path d="M7 13 Q7 20 12 20 Q17 20 17 13"/><line x1="12" y1="20" x2="12" y2="24"/></svg>
     Tuner
   </button>
-  <!-- Sequencer: Arm -->
-  <button class="reh-btn" id="rehArmSeqBtn" onclick="vrToggleArmSeq()" title="Prime Sequencer — auto-starts on record">Arm Seq</button>
-  <!-- 4-track quick-record controls -->
-  <button class="reh-btn reh-arm-btn" id="rehArmT1Btn" onclick="rehArmTrack1()" title="Arm Track 1 for recording">ARM T1</button>
-  <button class="reh-btn reh-rec-btn" id="rehRecBtn" onclick="vrToggleRec()" title="Record / Stop recording">
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
-    REC
+  <span class="reh-sep"></span>
+  <!-- Prime Seq (replaces both old Arm Seq + floating Prime button) -->
+  <button class="reh-btn" id="rehArmSeqBtn" onclick="vrToggleArmSeq()" title="Prime Sequencer — auto-starts when recording begins">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    Prime Seq
   </button>
+  <span class="reh-sep"></span>
+  <!-- ARM T1 -->
+  <button class="reh-btn reh-arm-btn" id="rehArmT1Btn" onclick="rehArmTrack1()" title="Arm Track 1 for recording">ARM T1</button>
 </div>
 
-<!-- ── Perf mode top-right controls (Auto-scroll + Prime Seq) ── -->
+<!-- ── Perf mode top-right control (Auto-scroll only; Prime Seq moved to rehearse bar) ── -->
 <div id="ilPerfControls" aria-label="Perf quick controls">
   <button class="il-perf-ctrl-btn" id="ilPerfScrollBtn" onclick="ilScrollToggle()" title="Auto-scroll lyrics">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
     <span>Scroll</span>
-  </button>
-  <button class="il-perf-ctrl-btn" id="ilPerfPrimeBtn" onclick="vrToggleArmSeq()" title="Prime Sequencer — auto-starts when recording begins">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-    <span>Prime</span>
   </button>
 </div>
 
