@@ -23577,12 +23577,22 @@ async function loadSongsFromSheet() {
     renderGrid();
     setSyncStatus('saved', 'Loaded ✓');
 
-    // Auto-restore last open song — prefer Firestore (cross-device) over localStorage
+    // Auto-restore last open song for returning users
     if (!currentId) {
       const lastId = _lastSongIdFromFirestore || localStorage.getItem('drafthaus-last-song');
-      if (lastId && songs.find(s => s.id === lastId)) {
-        openSong(lastId);
-        setSongViewMode('backend');
+      const uid    = auth.currentUser?.uid;
+      // Primary: explicit last-opened ID (cross-device via Firestore, same-device via localStorage)
+      let restoreSong = lastId ? songs.find(s => s.id === lastId) : null;
+      // Fallback: most recently updated owned song (handles first login on a new device,
+      // or older accounts where lastSongId was never written)
+      if (!restoreSong && songs.length > 0) {
+        const ownedSongs = songs.filter(s => !uid || s.ownerId === uid);
+        const pool = ownedSongs.length > 0 ? ownedSongs : songs;
+        restoreSong = [...pool].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+      }
+      if (restoreSong) {
+        openSong(restoreSong.id);
+        // openSong already calls showDetail() and setSongViewMode('runthrough') — no override
       }
     }
 
@@ -36918,18 +36928,18 @@ window._releaseMicStreams          = _releaseMicStreams;
       <div class="split-transport" id="splitTransport">
         <button class="split-transport-btn split-rec-btn" id="splitRecBtn" onclick="sharedRec()" title="Record (keyboard mode)">⏺ Rec</button>
         <button class="split-transport-btn split-play-btn" onclick="seqPlay()" title="Play loop">▶ Play</button>
-        <button class="split-transport-btn split-play-btn" onclick="seqPlaySong()" title="Play full song">▶▶ Full</button>
+        <button class="split-transport-btn split-play-btn" onclick="seqPlaySong()" title="Play full song">▶▶ Seq</button>
         <button class="split-transport-btn split-stop-btn" onclick="seqStop()" title="Stop">■ Stop</button>
         <button class="split-transport-btn split-met-btn" id="splitMetBtn" onclick="seqToggleMet()" title="Toggle metronome">Metro</button>
       </div>
       <!-- 4-track transport — only visible when 4-track occupies split right -->
       <div class="split-4t-transport" id="split4tTransport">
-        <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="vrStop()" disabled title="Stop (Space)">■ Stop</button>
         <button class="split-transport-btn split-rec-btn" id="mtRecBtn" onclick="vrToggleRec()" title="Record armed track (R)">⏺ Rec</button>
         <button class="split-transport-btn split-play-btn" id="mtPlayBtn" onclick="mtPlay()" disabled title="Play (Space)">▶ Play</button>
-        <button class="split-transport-btn split-loop-btn" id="mtLoopBtn" onclick="mtToggleLoop()" title="Loop playback (L)">⟳ Loop</button>
-        <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtn" onclick="sharedPlaySong()" title="Play full song — plays all sections in order">▶▶ Full</button>
+        <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtn" onclick="sharedPlaySong()" title="Play full song — plays all sections in order">▶▶ Seq</button>
+        <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="vrStop()" disabled title="Stop (Space)">■ Stop</button>
         <button class="split-transport-btn split-met-btn" id="mtMetBtn" onclick="seqToggleMet()" title="Toggle metronome (M)">♩ Metro</button>
+        <button class="split-transport-btn split-loop-btn" id="mtLoopBtn" onclick="mtToggleLoop()" title="Loop playback (L)">⟳</button>
       </div>
       <!-- Input gain control — shown with 4-track transport -->
       <div class="vr-gain-pill" id="vrGainPill" title="Input recording gain (pre-boost)">
@@ -37813,7 +37823,7 @@ window._releaseMicStreams          = _releaseMicStreams;
       <span class="t-btn-label">▶ Play</span>
     </button>
     <button class="split-transport-btn split-play-btn" onclick="sharedPlaySong()" title="Play Sequencer — plays all sections in order (Shift+Space)">
-      <span class="t-btn-label">▶▶ Play Seq</span>
+      <span class="t-btn-label">▶▶ Seq</span>
     </button>
     <button class="split-transport-btn split-stop-btn" onclick="sharedStop()" title="Stop (Esc)">
       <span class="t-btn-label">■ Stop</span>
@@ -37827,24 +37837,24 @@ window._releaseMicStreams          = _releaseMicStreams;
 <!-- ── Mobile 4-track transport bar (persistent above bottom nav) ──── -->
 <div id="mt4tMobileBar">
   <div class="drawer-transport-strip">
-    <button class="split-transport-btn split-stop-btn" id="mtStopBtnM"
-      onclick="vrStop()" disabled
-      title="Stop">■ Stop</button>
     <button class="split-transport-btn split-rec-btn" id="mtRecBtnM"
       onclick="vrToggleRec()"
       title="Record armed track">⏺ Rec</button>
     <button class="split-transport-btn split-play-btn" id="mtPlayBtnM"
       onclick="mtPlay()" disabled
       title="Play">▶ Play</button>
-    <button class="split-transport-btn split-loop-btn" id="mtLoopBtnM"
-      onclick="mtToggleLoop()"
-      title="Loop playback (L)">⟳ Loop</button>
     <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtnM"
       onclick="sharedPlaySong()"
-      title="Play full song — plays all sections in order">▶▶ Full</button>
+      title="Play full song — plays all sections in order">▶▶ Seq</button>
+    <button class="split-transport-btn split-stop-btn" id="mtStopBtnM"
+      onclick="vrStop()" disabled
+      title="Stop">■ Stop</button>
     <button class="split-transport-btn split-met-btn" id="mtMetBtnM"
       onclick="rtMetroToggle()"
       title="Toggle metronome click">♩ Metro</button>
+    <button class="split-transport-btn split-loop-btn" id="mtLoopBtnM"
+      onclick="mtToggleLoop()"
+      title="Loop playback (L)">⟳</button>
   </div>
 </div>
 
