@@ -17,13 +17,13 @@
     var shortDim = Math.min(screen.width, screen.height);
     var isMobile = shortDim < 500;
     if (isLandscape && isMobile) {
-      // Use the phone's portrait width as the virtual viewport width so that
-      // @media(max-width:700px) mobile CSS always applies in landscape.
-      // Scale up so the mobile layout fills the full landscape screen width.
-      var portraitW = shortDim;           // e.g. 390 on iPhone 14
-      var landscapeW = Math.max(screen.width, screen.height); // e.g. 844
-      var scale = (landscapeW / portraitW).toFixed(3);        // e.g. 2.164
-      meta.content = 'width=' + portraitW + ', initial-scale=' + scale +
+      // Use a virtual viewport of 600px — wide enough to use landscape real estate,
+      // narrow enough to stay inside the @media(max-width:700px) mobile breakpoint.
+      // Scale it to fill the physical landscape screen width.
+      var landscapeW = Math.max(screen.width, screen.height); // e.g. 844 on iPhone 14
+      var virtualW   = 600; // keeps mobile CSS active; ~1.4x zoom instead of ~2.2x
+      var scale = (landscapeW / virtualW).toFixed(3);          // e.g. 1.407
+      meta.content = 'width=' + virtualW + ', initial-scale=' + scale +
         ', minimum-scale=' + scale + ', maximum-scale=' + scale +
         ', user-scalable=no, viewport-fit=cover';
     } else {
@@ -1511,7 +1511,7 @@ button, select, input, textarea { touch-action: manipulation; }
     touch-action: pan-x !important;
   }
   /* Drum rows: allow horizontal pan */
-  #seqKick, #seqSnare, #seqHat, #seqCrash, #seqClap {
+  #seqKick, #seqSnare, #seqHat, #seqHiTom, #seqLoTom, #seqCrash, #seqClap {
     touch-action: pan-x !important;
     position: relative;
     z-index: 1;
@@ -2244,6 +2244,8 @@ button, select, input, textarea { touch-action: manipulation; }
   [data-row="hat"]   .seq-slot.drum-on { background: rgba(245,166,35,0.85); border-color: #ffd080; }
   [data-row="crash"] .seq-slot.drum-on { background: rgba(180,110,255,0.80); border-color: #cc88ff; }
   [data-row="clap"]  .seq-slot.drum-on { background: rgba(0,210,110,0.80);  border-color: #80ffba; }
+  [data-row="hitom"] .seq-slot.drum-on { background: rgba(255,153,64,0.80); border-color: #ffb366; }
+  [data-row="lotom"] .seq-slot.drum-on { background: rgba(204,119,51,0.80); border-color: #e89050; }
   .seq-slot.playing { background: var(--teal) !important; border-color: #80efd0 !important; }
   .seq-slot:hover { border-color: rgba(255,255,255,0.25); }
   /* ── Per-row label colours ── */
@@ -2253,6 +2255,8 @@ button, select, input, textarea { touch-action: manipulation; }
   [data-row="hat"]   .seq-row-label { color: #f5a623; }
   [data-row="crash"] .seq-row-label { color: #cc88ff; }
   [data-row="clap"]  .seq-row-label { color: #00d26e; }
+  [data-row="hitom"] .seq-row-label { color: #ff9940; }
+  [data-row="lotom"] .seq-row-label { color: #cc7733; }
 
   .seq-bar-sep { width: 6px; flex-shrink: 0; }
 
@@ -5833,7 +5837,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .kbd-chord-seq-wrapper .seq-row-label { display: none !important; }
 
   /* Drum rows compact */
-  #seqKick, #seqSnare, #seqHat, #seqCrash, #seqClap {
+  #seqKick, #seqSnare, #seqHat, #seqHiTom, #seqLoTom, #seqCrash, #seqClap {
     flex-wrap: nowrap;
   }
   .seq-row-label {
@@ -13287,7 +13291,7 @@ function newSong() {
     showUpgradeModal(`You've reached your ${limits.songs}-song limit on the free plan. Upgrade to create unlimited songs.`);
     return;
   }
-  const _defSeq = { id: 'seq_' + Date.now(), bpm:'120', time:'4', bars:'4', grid:'1', swing:'0', vel:'0.8', wave:'triangle', instrument:'piano+synth', chordSlots:[], chordDegrees:[], kick:[], snare:[], hat:[], crash:[], clap:[], melody:[] };
+  const _defSeq = { id: 'seq_' + Date.now(), bpm:'120', time:'4', bars:'4', grid:'1', swing:'0', vel:'0.8', wave:'triangle', instrument:'piano+synth', chordSlots:[], chordDegrees:[], kick:[], snare:[], hat:[], crash:[], clap:[], hitom:[], lotom:[], melody:[] };
   const song = {
     id: genId(), workingTitle:'', title:'', bpm:'120', key:'C major', tuning:'',
     project:'', status:'idea', structure:{}, sectionOrder:[], chords:{}, instruments:{}, sequencer: _defSeq, sequences: [_defSeq], notes:'', moods:[],
@@ -13990,7 +13994,7 @@ function addSectionToSong(partId) {
       swing: cur.swing || '0', vel: cur.vel || '0.8',
       wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
       chordSlots: [], chordDegrees: [],
-      kick: [], snare: [], hat: [], crash: [], clap: [], melody: [],
+      kick: [], snare: [], hat: [], crash: [], clap: [], hitom: [], lotom: [], melody: [],
       melodyQuantize: false, mixer: {},
     });
     if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
@@ -15085,6 +15089,8 @@ const _ACOUSTIC_URLS = {
   kick:  'https://tonejs.github.io/audio/drum-samples/acoustic-kit/kick.mp3',
   snare: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/snare.mp3',
   hat:   'https://tonejs.github.io/audio/drum-samples/acoustic-kit/hihat.mp3',
+  hitom: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/tom1.mp3',
+  lotom: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/tom2.mp3',
   // crash.mp3 is 404 on this CDN — seqPlayCrash has a synth fallback
 };
 // Kit 2: HARGREAVES (Stark)
@@ -15095,6 +15101,8 @@ const _ACOUSTIC2_URLS = {
   kick:  'https://tonejs.github.io/audio/drum-samples/Stark/kick.mp3',
   snare: 'https://tonejs.github.io/audio/drum-samples/Stark/snare.mp3',
   hat:   'https://tonejs.github.io/audio/drum-samples/Stark/hihat.mp3',
+  hitom: 'https://tonejs.github.io/audio/drum-samples/Stark/tom1.mp3',
+  lotom: 'https://tonejs.github.io/audio/drum-samples/Stark/tom2.mp3',
   // crash.mp3 is 404 on this CDN — seqPlayCrash has a synth fallback
 };
 // Helpers: check active kit type, get active buffers
@@ -15129,16 +15137,26 @@ const _DRUM_BANKS = {
   clap: [
     { label: 'Synth',      url: null }, // all CDN clap samples 404 — synth only
   ],
+  hitom: [
+    { label: 'Lacer',      url: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/tom1.mp3' },
+    { label: 'Hargreaves', url: 'https://tonejs.github.io/audio/drum-samples/Stark/tom1.mp3' },
+    { label: 'Synth',      url: null },
+  ],
+  lotom: [
+    { label: 'Lacer',      url: 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/tom2.mp3' },
+    { label: 'Hargreaves', url: 'https://tonejs.github.io/audio/drum-samples/Stark/tom2.mp3' },
+    { label: 'Synth',      url: null },
+  ],
 };
 // state: 'idle' | 'loading' | 'ok' | 'error'
 var _drumBankStates = {};
 var _drumBankBufs   = {};
 // which bank index is active per voice
-var _drumBankChoice = { kick: 0, snare: 2, hat: 0, crash: 0, clap: 0 };
-// kick:0=Lacer, snare:2=CR78, hat:0=Lacer, crash:0=Synth, clap:0=Synth
+var _drumBankChoice = { kick: 0, snare: 2, hat: 0, crash: 0, clap: 0, hitom: 0, lotom: 0 };
+// kick:0=Lacer, snare:2=CR78, hat:0=Lacer, crash:0=Synth, clap:0=Synth, hitom:0=Lacer, lotom:0=Lacer
 // Initialize state arrays
 (function() {
-  ['kick','snare','hat','crash','clap'].forEach(v => {
+  ['kick','snare','hat','crash','clap','hitom','lotom'].forEach(v => {
     _drumBankStates[v] = _DRUM_BANKS[v].map(e => e.url === null ? 'ok' : 'idle');
     _drumBankBufs[v]   = _DRUM_BANKS[v].map(() => null);
   });
@@ -15174,7 +15192,7 @@ async function _loadDrumBankSlot(voice, idx) {
 }
 
 function _loadAllDrumBankSlots() {
-  ['kick','snare','hat','crash','clap'].forEach(voice => {
+  ['kick','snare','hat','crash','clap','hitom','lotom'].forEach(voice => {
     _DRUM_BANKS[voice].forEach((_, idx) => {
       _loadDrumBankSlot(voice, idx);
     });
@@ -15218,7 +15236,7 @@ function _drumBankUpdateLabel(voice) {
   if (!btn) return;
   const idx = _drumBankChoice[voice];
   const entry = _DRUM_BANKS[voice][idx];
-  const drumNames = { kick:'Kick', snare:'Snare', hat:'Hi Hat', crash:'Crash', clap:'Claps' };
+  const drumNames = { kick:'Kick', snare:'Snare', hat:'Hi Hat', crash:'Crash', clap:'Claps', hitom:'Hi Tom', lotom:'Lo Tom' };
   const drumName = drumNames[voice] || voice;
   btn.innerHTML = `${drumName}<span class="drum-label-arrow">▾</span>`;
 }
@@ -15253,7 +15271,7 @@ function _drumBankPopupRender(voice) {
   const popup = document.getElementById('drumBankPopup');
   if (!popup) return;
   const activeIdx = _drumBankChoice[voice];
-  const colors = { kick:'#e8304a', snare:'#87ceeb', hat:'#f5a623', crash:'#cc88ff', clap:'#00d26e' };
+  const colors = { kick:'#e8304a', snare:'#87ceeb', hat:'#f5a623', crash:'#cc88ff', clap:'#00d26e', hitom:'#ff9940', lotom:'#cc7733' };
   const rowColor = colors[voice] || '#fff';
   popup.innerHTML = _DRUM_BANKS[voice].map((entry, idx) => {
     const state   = _drumBankStates[voice][idx]; // 'idle'|'loading'|'ok'|'error'
@@ -15296,6 +15314,7 @@ var seqKeySlots  = ['','','','','','','','','']; // user-assignable chords for k
 var seqHumanizeChords = true;  // default ON — chords sound most natural with subtle timing variation
 var seqHumanizeDrums  = false;
 var seqHumanizeMelody = false;
+var _activeProgressionId = ''; // tracks the last applied progression for re-humanize
 
 function seqToggleHumanize(type) {
   if (type === 'chords') seqHumanizeChords = !seqHumanizeChords;
@@ -15474,6 +15493,60 @@ const SEQ_SCALES = {
 // Keep for legacy compatibility
 const SEQ_STEPS_DEF = [0,2,4,5,7,9,11];
 const SEQ_QUALITIES = ['','m','m','','','m','dim'];
+
+// ── Progression token → {semis, quality} — key-agnostic resolution ──────────
+const PROGRESSION_TOKEN_MAP = {
+  // Major-context diatonic
+  'I':    { semis: 0,  quality: '' },
+  'ii':   { semis: 2,  quality: 'm' },
+  'iii':  { semis: 4,  quality: 'm' },
+  'IV':   { semis: 5,  quality: '' },
+  'V':    { semis: 7,  quality: '' },
+  'vi':   { semis: 9,  quality: 'm' },
+  'vii':  { semis: 11, quality: 'dim' },
+  // Minor-context diatonic (natural minor)
+  'i':    { semis: 0,  quality: 'm' },
+  'III':  { semis: 3,  quality: '' },
+  'iv':   { semis: 5,  quality: 'm' },
+  'v':    { semis: 7,  quality: 'm' },
+  'VI':   { semis: 8,  quality: '' },
+  'VII':  { semis: 10, quality: '' },
+  // Borrowed / chromatic
+  'bVII': { semis: 10, quality: '' },
+};
+
+const SEQ_PROGRESSIONS = [
+  // ── Classic Rock & Pop ─────────────────────────────────────────────────────
+  { id:'I-IV-V',       group:'Classic Rock & Pop', label:'I - IV - V',       tokens:['I','IV','V'],      moods:'upbeat, classic, energetic',      genres:'rock, blues, early pop' },
+  { id:'I-V-vi-IV',    group:'Classic Rock & Pop', label:'I - V - vi - IV',  tokens:['I','V','vi','IV'], moods:'uplifting, emotional, anthemic',   genres:'pop, rock, mainstream' },
+  { id:'vi-IV-I-V',    group:'Classic Rock & Pop', label:'vi - IV - I - V',  tokens:['vi','IV','I','V'], moods:'nostalgic, yearning',              genres:'pop, alternative' },
+  { id:'I-vi-IV-V',    group:'Classic Rock & Pop', label:'I - vi - IV - V',  tokens:['I','vi','IV','V'], moods:'doo-wop, sentimental, warm',       genres:'50s pop, ballads' },
+  { id:'I-V-IV',       group:'Classic Rock & Pop', label:'I - V - IV',       tokens:['I','V','IV'],      moods:'simple, strong, open',             genres:'rock, folk' },
+  { id:'I-V-IV-I',     group:'Classic Rock & Pop', label:'I - V - IV - I',   tokens:['I','V','IV','I'],  moods:'resolved, satisfying',             genres:'rock, country' },
+  { id:'I-IV-V-IV',    group:'Classic Rock & Pop', label:'I - IV - V - IV',  tokens:['I','IV','V','IV'], moods:'looping, steady energy',           genres:'blues, rock' },
+  { id:'I-IV-I-V',     group:'Classic Rock & Pop', label:'I - IV - I - V',   tokens:['I','IV','I','V'],  moods:'steady, reassuring',               genres:'country, folk' },
+  // ── Jazz & Soul ────────────────────────────────────────────────────────────
+  { id:'ii-V-I',       group:'Jazz & Soul', label:'ii - V - I',       tokens:['ii','V','I'],         moods:'smooth, resolved, jazzy',          genres:'jazz, soul' },
+  { id:'I-vi-ii-V',    group:'Jazz & Soul', label:'I - vi - ii - V',  tokens:['I','vi','ii','V'],    moods:'sophisticated, flowing',           genres:'jazz, standards' },
+  { id:'vi-ii-V-I',    group:'Jazz & Soul', label:'vi - ii - V - I',  tokens:['vi','ii','V','I'],    moods:'smooth, resolving, soulful',       genres:'jazz, R&B' },
+  { id:'I-IV-ii-V',    group:'Jazz & Soul', label:'I - IV - ii - V',  tokens:['I','IV','ii','V'],    moods:'light tension, jazzy pop',         genres:'pop, jazz fusion' },
+  // ── Indie & Pop ────────────────────────────────────────────────────────────
+  { id:'I-IV-vi-V',    group:'Indie & Pop', label:'I - IV - vi - V',  tokens:['I','IV','vi','V'],    moods:'dreamy, soft tension',             genres:'pop, indie' },
+  { id:'I-V-ii-IV',    group:'Indie & Pop', label:'I - V - ii - IV',  tokens:['I','V','ii','IV'],    moods:'modern, bright',                   genres:'pop, indie' },
+  { id:'IV-I-V-vi',    group:'Indie & Pop', label:'IV - I - V - vi',  tokens:['IV','I','V','vi'],    moods:'hopeful, rising',                  genres:'pop, worship' },
+  { id:'ii-IV-I-V',    group:'Indie & Pop', label:'ii - IV - I - V',  tokens:['ii','IV','I','V'],    moods:'bright, unconventional',           genres:'indie, pop' },
+  { id:'I-iii-IV-V',   group:'Indie & Pop', label:'I - iii - IV - V', tokens:['I','iii','IV','V'],   moods:'emotional lift, slightly dramatic', genres:'pop, rock' },
+  { id:'vi-V-IV-V',    group:'Indie & Pop', label:'vi - V - IV - V',  tokens:['vi','V','IV','V'],    moods:'moody, circular tension',          genres:'alternative, indie' },
+  // ── Rock Anthems ───────────────────────────────────────────────────────────
+  { id:'I-bVII-IV-I',  group:'Rock Anthems', label:'I - bVII - IV - I', tokens:['I','bVII','IV','I'],  moods:'gritty, anthemic, rebellious',    genres:'rock, classic rock' },
+  { id:'I-V-bVII-IV',  group:'Rock Anthems', label:'I - V - bVII - IV', tokens:['I','V','bVII','IV'],  moods:'bold, driving',                   genres:'rock, alt rock' },
+  // ── Minor & Dark ───────────────────────────────────────────────────────────
+  { id:'i-VI-III-VII', group:'Minor & Dark', label:'i - VI - III - VII', tokens:['i','VI','III','VII'], moods:'epic, cinematic, powerful',      genres:'metal, cinematic, post-rock' },
+  { id:'i-VI-VII',     group:'Minor & Dark', label:'i - VI - VII',       tokens:['i','VI','VII'],       moods:'dramatic, rising tension',       genres:'rock, metal' },
+  { id:'i-VII-VI-VII', group:'Minor & Dark', label:'i - VII - VI - VII', tokens:['i','VII','VI','VII'], moods:'brooding, hypnotic',             genres:'metal, alternative' },
+  { id:'i-iv-v',       group:'Minor & Dark', label:'i - iv - v',         tokens:['i','iv','v'],         moods:'dark, traditional, tense',       genres:'minor blues, folk' },
+  { id:'i-iv-VII-III', group:'Minor & Dark', label:'i - iv - VII - III', tokens:['i','iv','VII','III'], moods:'mysterious, exotic',             genres:'prog, experimental' },
+];
 
 // ── Mini Mixer gains ─────────────────────────────────────────────
 var seqChordsGain  = null;
@@ -16020,7 +16093,9 @@ function _midiDrumNoteOn(midiNote, velocity) {
   else if (midiNote === 42 || midiNote === 44 || midiNote === 46) seqPlayHat(now, velocity * 0.6);
   else if (midiNote === 49 || midiNote === 55 || midiNote === 57) seqPlayCrash(now, velocity * 0.9);
   else if (midiNote === 39 || midiNote === 75)                    seqPlayClap(now, velocity * 0.7);
-  // Toms / other GM notes with no matching voice are silently ignored
+  else if (midiNote === 48 || midiNote === 50)                    seqPlayHiTom(now, velocity * 0.75);
+  else if (midiNote === 41 || midiNote === 43 || midiNote === 45) seqPlayLoTom(now, velocity * 0.75);
+  // Other GM notes with no matching voice are silently ignored
 }
 
 function _midiNoteOn(midiNote, velocity) {
@@ -16661,7 +16736,7 @@ function renderSequencerHtml(song) {
 
     <!-- ── Drum pattern grid ── -->
     <div class="seq-pattern-grid">
-      ${[['Kick','seqKick','kick'],['Snare','seqSnare','snare'],['Hi Hat','seqHat','hat'],['Crash','seqCrash','crash'],['Claps','seqClap','clap']].map(([label,id,row])=>`
+      ${[['Kick','seqKick','kick'],['Snare','seqSnare','snare'],['Hi Hat','seqHat','hat'],['Hi Tom','seqHiTom','hitom'],['Lo Tom','seqLoTom','lotom'],['Crash','seqCrash','crash'],['Claps','seqClap','clap']].map(([label,id,row])=>`
       <div class="seq-grid-row" data-row="${row}">
         <button class="seq-row-label" onclick="_drumLabelClick(event,'${row}')" title="Change ${label} sample">${label}<span class="drum-label-arrow">▾</span></button>
         <div class="seq-grid" id="${id}"></div>
@@ -16694,7 +16769,7 @@ function initSequencer(song) {
   }
   // Restore per-voice bank choices from song, then probe all 25 slots in background
   const savedChoices = (song.sequencer || {}).drumBankChoices || {};
-  ['kick','snare','hat','crash','clap'].forEach(v => {
+  ['kick','snare','hat','crash','clap','hitom','lotom'].forEach(v => {
     if (savedChoices[v] !== undefined) _drumBankChoice[v] = savedChoices[v];
   });
   setTimeout(_loadAllDrumBankSlots, 0);
@@ -16753,7 +16828,7 @@ function initSequencer(song) {
   requestAnimationFrame(() => {
     seqBuildGrids(fresh);
     // Update drum label text to reflect restored bank choices
-    ['kick','snare','hat','crash','clap'].forEach(v => _drumBankUpdateLabel(v));
+    ['kick','snare','hat','crash','clap','hitom','lotom'].forEach(v => _drumBankUpdateLabel(v));
     requestAnimationFrame(() => {
       seqRenderChordPills(fresh); // also calls seqRenderKeyTriggers
       seqRenderKeyboard();
@@ -16774,8 +16849,8 @@ function seqVerifyData(song) {
     seqBuildGrids(song);
   }
   // Check drum lanes
-  ['kick','snare','hat','crash','clap'].forEach((lane, li) => {
-    const elId = ['seqKick','seqSnare','seqHat','seqCrash','seqClap'][li];
+  ['kick','snare','hat','crash','clap','hitom','lotom'].forEach((lane, li) => {
+    const elId = ['seqKick','seqSnare','seqHat','seqCrash','seqClap','seqHiTom','seqLoTom'][li];
     const savedLane = sd[lane] || [];
     const expectedOn = savedLane.filter(v => v).length;
     const actualOn = document.querySelectorAll(`#${elId} .seq-slot.drum-on`).length;
@@ -17285,8 +17360,8 @@ function seqSaveAllToCurrent(song) {
     sd.chordContinued = slots.map(s => s.classList.contains('chord-tail'));
   }
   // Save drum lanes
-  ['kick','snare','hat','crash','clap'].forEach((lane, li) => {
-    const elId = ['seqKick','seqSnare','seqHat','seqCrash','seqClap'][li];
+  ['kick','snare','hat','crash','clap','hitom','lotom'].forEach((lane, li) => {
+    const elId = ['seqKick','seqSnare','seqHat','seqCrash','seqClap','seqHiTom','seqLoTom'][li];
     const el = document.getElementById(elId);
     if (el) sd[lane] = [...el.querySelectorAll('.seq-slot')].map(s => s.classList.contains('drum-on') ? 1 : 0);
   });
@@ -17329,7 +17404,7 @@ function seqAddSequence(partId) {
     wave:   cur.wave  || 'triangle',
     instrument: cur.instrument || 'piano+synth',
     chordSlots: [], chordDegrees: [],
-    kick: [], snare: [], hat: [], crash: [], clap: [], melody: [],
+    kick: [], snare: [], hat: [], crash: [], clap: [], hitom: [], lotom: [], melody: [],
     melodyQuantize: false, mixer: {},
   };
   seqs.push(newSeq);
@@ -17545,7 +17620,7 @@ function seqDeleteSequence(idx) {
 
   // Summarise what content this sequence / part contains
   const hasChords = (seq.chordSlots || []).some(s => s);
-  const hasDrums  = ['kick','snare','hat','crash','clap'].some(lane => (seq[lane] || []).some(v => v));
+  const hasDrums  = ['kick','snare','hat','crash','clap','hitom','lotom'].some(lane => (seq[lane] || []).some(v => v));
   const hasLoops  = typeof loopTracks !== 'undefined' && loopTracks.some(t => t.parts && t.parts.includes(partId));
 
   const doDelete = (alsoDeleteLyrics) => {
@@ -18208,7 +18283,7 @@ function seqBuildGrids(song) {
     seqSaveDrumLane(paintLane, paintElId);
   }
 
-  [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqCrash','crash'],['seqClap','clap']].forEach(([elId, lane]) => {
+  [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqHiTom','hitom'],['seqLoTom','lotom'],['seqCrash','crash'],['seqClap','clap']].forEach(([elId, lane]) => {
     const el = document.getElementById(elId);
     if (!el) return;
     const savedLane = sd[lane] || [];
@@ -18295,7 +18370,7 @@ function seqClearActiveSequence() {
       seq.chordDegrees   = [];
       seq.chordContinued = [];
       seq.kick   = []; seq.snare  = []; seq.hat   = [];
-      seq.crash  = []; seq.clap   = [];
+      seq.crash  = []; seq.clap   = []; seq.hitom = []; seq.lotom = [];
       seq.melody = [];
     });
     // Rebuild visible grids
@@ -18324,7 +18399,7 @@ function seqClearActiveSequence() {
       // Collapse to a single fresh empty sequence (not just marking all as Unassigned)
       song.sequences = [{ id: 'seq_' + Date.now() + '_0', partId: '', part: '',
         chordSlots: [], chordDegrees: [], chordContinued: [],
-        kick: [], snare: [], hat: [], crash: [], clap: [], melody: [] }];
+        kick: [], snare: [], hat: [], crash: [], clap: [], hitom: [], lotom: [], melody: [] }];
       seqActiveIdx = 0;
       song.sequencer = song.sequences[0];
       save();
@@ -18347,6 +18422,162 @@ function seqClearAllChordSlots() {
     delete slot.dataset.chordDegree;
   });
   seqSaveChordSlots();
+}
+
+// ── Chord Progressions ────────────────────────────────────────────────────────
+
+// Resolve a single progression token (e.g. 'I', 'bVII', 'vi') to a chord name
+// and its degree index within the current scale chords (or '' if borrowed/not found).
+function _resolveProgressionToken(token, key, scaleChords) {
+  const spec = PROGRESSION_TOKEN_MAP[token];
+  if (!spec) return { chord: '', degree: '' };
+  const rootIdx      = SEQ_NOTES.indexOf(key);
+  const chordRootIdx = (rootIdx + spec.semis) % 12;
+  const chord        = SEQ_NOTES[chordRootIdx] + spec.quality;
+  const deg          = scaleChords.indexOf(chord);
+  return { chord, degree: deg >= 0 ? String(deg) : '' };
+}
+
+// Core fill — applies a progression to the chord grid with optional beat-offset humanization.
+// Does NOT show a confirmation dialog; call seqApplyProgression() for that.
+function _seqProgressionFill(progressionId) {
+  const prog = SEQ_PROGRESSIONS.find(p => p.id === progressionId);
+  if (!prog) return;
+  const song = getCurrentSong();
+  if (!song) return;
+
+  const sd         = seqGetData(song);
+  const totalSteps = seqGetStepCount(sd);
+  const timeSig    = parseInt(sd.time || '4');
+  const gridSub    = parseInt(sd.grid || '2');
+  const bars       = parseInt(sd.bars || '8');
+  const stepsPerBar = timeSig * gridSub;
+  const beatStep    = gridSub; // one beat = gridSub steps
+
+  // Resolve song key
+  const keyRaw  = song.key || 'C major';
+  const keyRoot = keyRaw.split('/')[0].trim().split(' ')[0].trim();
+  const enhMap  = { 'Db':'C#','Eb':'D#','Fb':'E','Gb':'F#','Ab':'G#','Bb':'A#','Cb':'B' };
+  const key     = enhMap[keyRoot] || keyRoot;
+  const mode    = keyRaw.toLowerCase().includes('minor') ? 'minor' : 'major';
+  const scaleChords = seqGetScaleChords(key, mode);
+
+  // Resolve progression tokens → chord names + degrees
+  const chordList = prog.tokens.map(t => _resolveProgressionToken(t, key, scaleChords));
+
+  // Loop chords to fill all bars: one chord per bar
+  const loopedChords = [];
+  for (let b = 0; b < bars; b++) loopedChords.push(chordList[b % chordList.length]);
+
+  // Compute humanized start positions (beat-level offsets)
+  // Chord 0 always starts at step 0; subsequent chords can shift ±1 beat
+  const startPositions = [];
+  const beatChoices    = [-beatStep, 0, 0, 0, beatStep]; // biased toward no shift
+  for (let i = 0; i < loopedChords.length; i++) {
+    const base   = i * stepsPerBar;
+    const offset = i > 0 ? beatChoices[Math.floor(Math.random() * beatChoices.length)] : 0;
+    const pos    = Math.max(
+      (startPositions[i - 1] ?? -1) + 1,
+      Math.min(base + offset, totalSteps - 1)
+    );
+    startPositions.push(pos);
+  }
+
+  // Build new slot arrays
+  const newSlots     = new Array(totalSteps).fill('');
+  const newDegrees   = new Array(totalSteps).fill('');
+  const newContinued = new Array(totalSteps).fill(false);
+  const newDraggable = new Array(totalSteps).fill(false);
+
+  for (let i = 0; i < startPositions.length; i++) {
+    const start = startPositions[i];
+    const end   = i < startPositions.length - 1 ? startPositions[i + 1] : totalSteps;
+    const { chord, degree } = loopedChords[i];
+    if (!chord) continue;
+    newSlots[start]     = chord;
+    newDegrees[start]   = degree;
+    newDraggable[start] = true;
+    for (let j = start + 1; j < end; j++) {
+      newSlots[j]     = chord;
+      newDegrees[j]   = degree;
+      newContinued[j] = true;
+    }
+  }
+
+  // Apply to DOM
+  seqPushUndo();
+  const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
+  slots.forEach((slot, i) => {
+    const val = newSlots[i] || '';
+    slot.classList.remove('filled', 'chord-tail');
+    delete slot.dataset.chordDegree;
+    slot.draggable = false;
+    _seqSlotSetText(slot, val);
+    if (val) {
+      slot.classList.add('filled');
+      if (newContinued[i]) {
+        slot.classList.add('chord-tail');
+      } else {
+        slot.draggable = true;
+      }
+      if (newDegrees[i] !== '') slot.dataset.chordDegree = newDegrees[i];
+    }
+  });
+
+  // Save + update state
+  _activeProgressionId = progressionId;
+  seqSaveChordSlots();
+
+  // Show re-humanize button if present
+  const reHumBtn = document.getElementById('seqProgressionReHumBtn');
+  if (reHumBtn) reHumBtn.style.display = '';
+
+  // Keep dropdown reflecting what's applied
+  const sel = document.getElementById('seqProgressionSelect');
+  if (sel) sel.value = progressionId;
+
+  showToast(`${prog.label} · ${prog.moods}`, 'success', 2500);
+}
+
+// Public: apply a progression, confirming first if chord slots already exist.
+function seqApplyProgression(progressionId) {
+  if (!progressionId) return;
+  const song = getCurrentSong();
+  if (!song) return;
+  const sd        = seqGetData(song);
+  const hasChords = (sd.chordSlots || []).some(Boolean);
+
+  if (hasChords) {
+    const modal = document.createElement('div');
+    modal.className = 'lyrics-warn-modal';
+    modal.innerHTML = `
+      <div class="lyrics-warn-box">
+        <div class="lyrics-warn-title">Replace chord sequence?</div>
+        <div class="lyrics-warn-body" style="margin-bottom:14px;">
+          This will replace your existing chord slots.<br>You can undo with Ctrl/⌘+Z.
+        </div>
+        <div class="lyrics-warn-btns">
+          <button class="lyrics-warn-confirm" id="_progConfirm">Replace</button>
+          <button class="lyrics-warn-cancel"  id="_progCancel">Cancel</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#_progConfirm').onclick = () => { modal.remove(); _seqProgressionFill(progressionId); };
+    modal.querySelector('#_progCancel').onclick  = () => {
+      modal.remove();
+      // Restore select to whatever was last applied (or blank)
+      const sel = document.getElementById('seqProgressionSelect');
+      if (sel) sel.value = _activeProgressionId || '';
+    };
+  } else {
+    _seqProgressionFill(progressionId);
+  }
+}
+
+// Re-runs the last progression fill with a fresh random humanization pattern.
+function seqRehumanizeProgression() {
+  if (!_activeProgressionId) return;
+  _seqProgressionFill(_activeProgressionId);
 }
 
 // ── Keyboard drawer chord REC button — shortcut to compose mode ──
@@ -18965,6 +19196,64 @@ function seqPlayCrash(time, vel) {
   }
 }
 
+function seqPlayHiTom(time, vel) {
+  const ctx = getSeqAudioCtx();
+  const out = seqGetDrumsOut();
+  // ── Bank buffer takes priority ──
+  const bankBuf = _drumBankBuf('hitom');
+  if (bankBuf) {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = bankBuf;
+    g.gain.setValueAtTime(vel * 0.8, time);
+    src.connect(g); g.connect(out); src.start(time); return;
+  }
+  // ── Acoustic kit fallback ──
+  const bufs = _drumBufs();
+  if (_drumIsAcoustic() && bufs.hitom) {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = bufs.hitom;
+    g.gain.setValueAtTime(vel * 0.8, time);
+    src.connect(g); g.connect(out); src.start(time); return;
+  }
+  // ── Synth fallback: pitched thud ──
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.frequency.setValueAtTime(280, time);
+  o.frequency.exponentialRampToValueAtTime(160, time + 0.08);
+  g.gain.setValueAtTime(0.6 * vel, time);
+  g.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
+  o.connect(g); g.connect(out);
+  o.start(time); o.stop(time + 0.2);
+}
+
+function seqPlayLoTom(time, vel) {
+  const ctx = getSeqAudioCtx();
+  const out = seqGetDrumsOut();
+  // ── Bank buffer takes priority ──
+  const bankBuf = _drumBankBuf('lotom');
+  if (bankBuf) {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = bankBuf;
+    g.gain.setValueAtTime(vel * 0.85, time);
+    src.connect(g); g.connect(out); src.start(time); return;
+  }
+  // ── Acoustic kit fallback ──
+  const bufs = _drumBufs();
+  if (_drumIsAcoustic() && bufs.lotom) {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = bufs.lotom;
+    g.gain.setValueAtTime(vel * 0.85, time);
+    src.connect(g); g.connect(out); src.start(time); return;
+  }
+  // ── Synth fallback: lower pitched thud ──
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.frequency.setValueAtTime(180, time);
+  o.frequency.exponentialRampToValueAtTime(90, time + 0.1);
+  g.gain.setValueAtTime(0.65 * vel, time);
+  g.gain.exponentialRampToValueAtTime(0.001, time + 0.22);
+  o.connect(g); g.connect(out);
+  o.start(time); o.stop(time + 0.25);
+}
+
 // ── Transport bar: pin flush above bottom nav ────────────────────────────────
 function _pinTransportAboveNav() {
   requestAnimationFrame(function() {
@@ -19496,6 +19785,8 @@ function seqPlaySong() {
       hat:         seq.hat    || [],
       crash:       seq.crash  || [],
       clap:        seq.clap   || [],
+      hitom:       seq.hitom  || [],
+      lotom:       seq.lotom  || [],
       melody:          seq.melody          || [],
       melodyInstrument: seq.melodyInstrument || 'piano',
       totalSteps, stepDur, bpm, grid, time, bars,
@@ -19591,11 +19882,13 @@ function seqScheduleNotes() {
         }
       }
       // Drums — per-instrument jitter
-      if (sec.kick[i])  seqPlayKick( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
-      if (sec.snare[i]) seqPlaySnare(seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, velocity * 0.8);
-      if (sec.hat[i])   seqPlayHat(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, velocity * 0.6);
-      if (sec.crash[i]) seqPlayCrash(seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, velocity * 0.9);
-      if (sec.clap[i])  seqPlayClap( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, velocity * 0.7);
+      if (sec.kick[i])  seqPlayKick(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
+      if (sec.snare[i]) seqPlaySnare( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, velocity * 0.8);
+      if (sec.hat[i])   seqPlayHat(   seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, velocity * 0.6);
+      if (sec.hitom[i]) seqPlayHiTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, velocity * 0.75);
+      if (sec.lotom[i]) seqPlayLoTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, velocity * 0.75);
+      if (sec.crash[i]) seqPlayCrash( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, velocity * 0.9);
+      if (sec.clap[i])  seqPlayClap(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, velocity * 0.7);
       if (seqMetOn) seqClick(noteTime, _seqIsAccentBeat(i % beatsPerBar, beatsPerBar, sec.time));
 
       // Melody: schedule all notes once per section start
@@ -19621,6 +19914,8 @@ function seqScheduleNotes() {
           _hl('#seqKick');
           _hl('#seqSnare');
           _hl('#seqHat');
+          _hl('#seqHiTom');
+          _hl('#seqLoTom');
           _hl('#seqCrash');
           _hl('#seqClap');
         }, visualDelay);
@@ -19696,6 +19991,8 @@ function seqScheduleNotes() {
   const kickSlots  = [...document.querySelectorAll('#seqKick .seq-slot')];
   const snareSlots = [...document.querySelectorAll('#seqSnare .seq-slot')];
   const hatSlots   = [...document.querySelectorAll('#seqHat .seq-slot')];
+  const hiTomSlots = [...document.querySelectorAll('#seqHiTom .seq-slot')];
+  const loTomSlots = [...document.querySelectorAll('#seqLoTom .seq-slot')];
   const crashSlots = [...document.querySelectorAll('#seqCrash .seq-slot')];
   const clapSlots  = [...document.querySelectorAll('#seqClap .seq-slot')];
   // Use drum slots for step count — chord grid now lives in keyboard drawer (may not be in DOM)
@@ -19760,11 +20057,13 @@ function seqScheduleNotes() {
       }
     }
     // Drums — each instrument gets its own jitter for a natural, imprecise feel
-    if (kickSlots[i]?.classList.contains('drum-on'))  seqPlayKick( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
-    if (snareSlots[i]?.classList.contains('drum-on')) seqPlaySnare(seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, velocity * 0.8);
-    if (hatSlots[i]?.classList.contains('drum-on'))   seqPlayHat(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, velocity * 0.6);
-    if (crashSlots[i]?.classList.contains('drum-on')) seqPlayCrash(seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, velocity * 0.9);
-    if (clapSlots[i]?.classList.contains('drum-on'))  seqPlayClap( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, velocity * 0.7);
+    if (kickSlots[i]?.classList.contains('drum-on'))   seqPlayKick(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
+    if (snareSlots[i]?.classList.contains('drum-on'))  seqPlaySnare( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, velocity * 0.8);
+    if (hatSlots[i]?.classList.contains('drum-on'))    seqPlayHat(   seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, velocity * 0.6);
+    if (hiTomSlots[i]?.classList.contains('drum-on'))  seqPlayHiTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, velocity * 0.75);
+    if (loTomSlots[i]?.classList.contains('drum-on'))  seqPlayLoTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, velocity * 0.75);
+    if (crashSlots[i]?.classList.contains('drum-on'))  seqPlayCrash( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, velocity * 0.9);
+    if (clapSlots[i]?.classList.contains('drum-on'))   seqPlayClap(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, velocity * 0.7);
     if (seqMetOn) seqClick(noteTime, _seqIsAccentBeat(i % beatsPerBar, beatsPerBar, time_sig));
 
     // Melody: schedule once per loop start
@@ -19784,16 +20083,20 @@ function seqScheduleNotes() {
         if (!seqIsPlaying) return;
         document.querySelectorAll('.seq-slot.playing').forEach(s => s.classList.remove('playing'));
         // Re-query DOM at fire time to avoid stale references after DOM rebuilds
-        const liveChord = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
-        const liveKick  = [...document.querySelectorAll('#seqKick .seq-slot')];
-        const liveSnare = [...document.querySelectorAll('#seqSnare .seq-slot')];
-        const liveHat   = [...document.querySelectorAll('#seqHat .seq-slot')];
-        const liveCrash = [...document.querySelectorAll('#seqCrash .seq-slot')];
-        const liveClap  = [...document.querySelectorAll('#seqClap .seq-slot')];
+        const liveChord  = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
+        const liveKick   = [...document.querySelectorAll('#seqKick .seq-slot')];
+        const liveSnare  = [...document.querySelectorAll('#seqSnare .seq-slot')];
+        const liveHat    = [...document.querySelectorAll('#seqHat .seq-slot')];
+        const liveHiTom  = [...document.querySelectorAll('#seqHiTom .seq-slot')];
+        const liveLoTom  = [...document.querySelectorAll('#seqLoTom .seq-slot')];
+        const liveCrash  = [...document.querySelectorAll('#seqCrash .seq-slot')];
+        const liveClap   = [...document.querySelectorAll('#seqClap .seq-slot')];
         if (liveChord[stepI])  liveChord[stepI].classList.add('playing');
         if (liveKick[stepI])   liveKick[stepI].classList.add('playing');
         if (liveSnare[stepI])  liveSnare[stepI].classList.add('playing');
         if (liveHat[stepI])    liveHat[stepI].classList.add('playing');
+        if (liveHiTom[stepI])  liveHiTom[stepI].classList.add('playing');
+        if (liveLoTom[stepI])  liveLoTom[stepI].classList.add('playing');
         if (liveCrash[stepI])  liveCrash[stepI].classList.add('playing');
         if (liveClap[stepI])   liveClap[stepI].classList.add('playing');
         // ── Scroll pattern grid to follow playhead ──
@@ -22329,8 +22632,10 @@ function generateInspoSong() {
   const hat   = (dp?.hat   || []).slice(0, 16);
   const crash = (dp?.crash || []).slice(0, 16);
   const clap  = (dp?.clap  || []).slice(0, 16);
+  const hitom = (dp?.hitom || []).slice(0, 16);
+  const lotom = (dp?.lotom || []).slice(0, 16);
 
-  return { key, bpm, timeSig, pattern, title, chordSlots, kick, snare, hat, crash, clap, root };
+  return { key, bpm, timeSig, pattern, title, chordSlots, kick, snare, hat, crash, clap, hitom, lotom, root };
 }
 
 const INSPO_SUCCESS_LINES = [
@@ -23741,7 +24046,7 @@ function _setupNewUserState() {
     id: _nuSeqId, bpm: '125', time: '4', bars: '4', grid: '1',
     swing: '0', vel: '0.8', wave: 'triangle', instrument: 'piano+synth',
     chordSlots: _nuChordSlots, chordDegrees: [],
-    kick: [], snare: [], hat: [], crash: [], clap: [], melody: []
+    kick: [], snare: [], hat: [], crash: [], clap: [], hitom: [], lotom: [], melody: []
   };
 
   // Apply drum pattern directly into the sequencer data
@@ -23759,6 +24064,8 @@ function _setupNewUserState() {
     _nuSeq.hat   = _nuFit(_nuPattern.hat,   _nuSteps);
     _nuSeq.crash = _nuFit(_nuPattern.crash, _nuSteps);
     _nuSeq.clap  = _nuFit(_nuPattern.clap,  _nuSteps);
+    _nuSeq.hitom = _nuFit(_nuPattern.hitom || [], _nuSteps);
+    _nuSeq.lotom = _nuFit(_nuPattern.lotom || [], _nuSteps);
   }
 
   var _nuSong = {
@@ -25442,11 +25749,11 @@ function _midiChordTrack(chordSlots, grid) {
 }
 
 // Drum machine MIDI track (channel 9 = GM percussion)
-function _midiDrumTrack(kick, snare, hat, crash, clap, grid) {
+function _midiDrumTrack(kick, snare, hat, crash, clap, hitom, lotom, grid) {
   const TPB = 480;
   const st = Math.round(TPB / grid);
   const NON = 0x99, NOF = 0x89; // note on/off ch 9
-  const GM = { kick: 36, snare: 38, hat: 42, crash: 49, clap: 39 };
+  const GM = { kick: 36, snare: 38, hat: 42, crash: 49, clap: 39, hitom: 50, lotom: 45 };
   const events = [];
   const addLane = (lane, note) => (lane || []).forEach((on, i) => {
     if (!on) return;
@@ -25456,6 +25763,8 @@ function _midiDrumTrack(kick, snare, hat, crash, clap, grid) {
   addLane(kick,  GM.kick);
   addLane(snare, GM.snare);
   addLane(hat,   GM.hat);
+  addLane(hitom, GM.hitom);
+  addLane(lotom, GM.lotom);
   addLane(crash, GM.crash);
   addLane(clap,  GM.clap);
   return _midiEventsToTrack(events);
@@ -25523,10 +25832,11 @@ async function exportMidiZip() {
     // ── Drums MIDI ───────────────────────────────────────────────
     const kick  = sd.kick  || [], snare = sd.snare || [];
     const hat   = sd.hat   || [], crash = sd.crash || [], clap  = sd.clap  || [];
-    if ([kick, snare, hat, crash, clap].some(a => a.some(Boolean))) {
+    const hitom = sd.hitom || [], lotom = sd.lotom || [];
+    if ([kick, snare, hat, crash, clap, hitom, lotom].some(a => a.some(Boolean))) {
       setS('Building drums.mid…');
       await new Promise(r => setTimeout(r, 10));
-      const midi = _midiAssemble([_midiTempoTrack(bpm, timeSig), _midiDrumTrack(kick, snare, hat, crash, clap, grid)], TPB);
+      const midi = _midiAssemble([_midiTempoTrack(bpm, timeSig), _midiDrumTrack(kick, snare, hat, crash, clap, hitom, lotom, grid)], TPB);
       zip.file('drums.mid', midi);
       fileCount++;
     }
@@ -26890,8 +27200,8 @@ function renderKeyboardDrawerHtml(song) {
         </div>
       </div>
 
-    <!-- Chord instrument dropdown -->
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
+    <!-- Chord instrument + Progressions row -->
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
       <div class="seq-ctrl-group">
         <span class="seq-label">Chords</span>
         <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()" style="width:auto;">
@@ -26910,6 +27220,25 @@ function renderKeyboardDrawerHtml(song) {
         </select>
         <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
       </div>
+      <div class="seq-ctrl-group">
+        <span class="seq-label">Progression</span>
+        <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="width:auto;max-width:260px;">
+          <option value="">— Pick a progression —</option>
+          ${['Classic Rock & Pop','Jazz & Soul','Indie & Pop','Rock Anthems','Minor & Dark'].map(grp => `
+          <optgroup label="${grp}">
+            ${SEQ_PROGRESSIONS.filter(p => p.group === grp).map(p =>
+              `<option value="${p.id}"${_activeProgressionId === p.id ? ' selected' : ''}>${p.label}  ·  ${p.moods}</option>`
+            ).join('')}
+          </optgroup>`).join('')}
+        </select>
+      </div>
+      <button id="seqProgressionReHumBtn"
+        onclick="seqRehumanizeProgression()"
+        class="seq-btn"
+        title="Re-shuffle the rhythm — same chords, new timing"
+        style="${_activeProgressionId ? '' : 'display:none;'}font-size:10px;padding:4px 10px;white-space:nowrap;">
+        ↺ Re-shuffle
+      </button>
     </div>
 
     <!-- ══ Chord Progression Section ══ -->
@@ -27675,203 +28004,272 @@ const DRUM_PATTERNS = {
   rock1: {
     name: 'Rock 1',
     // Classic rock: kick 1&3, snare 2&4, eighth hats, clap on 2&4
+    // Toms: hi tom on "ah" of beat 3, lo tom on "ah" of beat 4 — classic fill push
     kick:  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
   },
   rock2: {
     name: 'Rock 2',
     // Driving rock: syncopated kick on 1, 2+, 3, 4+ (no clash on backbeats), 16th hats
+    // Toms: hi tom on "ah" of beat 3, lo tom on "e" of beat 4 — turns back to 1
     kick:  [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,1,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
   },
   waltz: {
     name: 'Waltz',
     // 3/4: 12-step grid (3 beats × 4 16ths). Kick beat 1, snare beats 2 & 3, 8th-note hats
+    // Toms: hi tom on beat 2, lo tom on beat 3 — descending fill is very classical waltz
     kick:  [1,0,0,0, 0,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 1,0,0,0],
     hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0],
+    hitom: [0,0,0,0, 1,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 1,0,0,0],
   },
   hiphop: {
     name: 'Hip Hop',
     // Boom bap: kick on 1, 2+, and 3, snare on 2&4, syncopated hats
+    // No toms — 808s and snap define this sound; toms would muddy it
     kick:  [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,1, 0,1,1,0, 1,0,1,1, 0,1,0,1],
     crash: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
   },
   pop: {
     name: 'Pop',
+    // No toms — pop grooves are clean and focused; toms reserved for drops/builds
     kick:  [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
   },
   country: {
     name: 'Country',
     // Classic country: kick 1, 3, 4+; snare 2&4; 8th hats; clap on 2&4 only
+    // No toms — traditional country drumming stays off the toms
     kick:  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,1,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
   },
   jazz: {
     name: 'Jazz',
+    // Toms: hi tom on "ah" of beat 3, lo tom on "e" of beat 4 — trading-eights fill feel
     kick:  [1,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
     snare: [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,1,0,0],
     hat:   [1,0,1,0, 1,1,1,0, 1,0,1,0, 1,1,0,0],
     crash: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,1,0,0],
   },
   shoegaze: {
     name: 'Shoegaze',
+    // No toms — shoegaze drums are buried in reverb; sparse and washy
     kick:  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
     crash: [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
   },
   motown: {
     name: 'Motown',
+    // Toms are a signature of Motown — hi tom on "and" of 2, lo tom on "e" of 4 (descending fill)
     kick:  [1,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,1,0, 1,0,0,0],
+    hitom: [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,1,0,0],
   },
   hardrock: {
     name: 'Hard Rock',
+    // Heavy toms: hi tom on "e" and "and" of beat 3, lo tom on beat 4 — power fill
     kick:  [1,0,1,0, 1,0,0,0, 1,0,1,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,1, 0,0,0,0, 1,0,0,1],
     hat:   [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,1,1,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0],
   },
   punk: {
     name: 'Punk',
     // Punk: relentless 8th-note kick, snare 2&4, 8th-note hats (not 16ths — keeps room to breathe)
+    // No toms — punk is raw and stripped back; no fills
     kick:  [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
   },
   altrock: {
     name: 'Alt Rock',
     // Alt Rock: kick 1, 2+, 3a — avoids landing on beat 4 with snare
+    // Toms: hi tom on "ah" of beat 3, lo tom on "ah" of beat 4 — subtle tension/release
     kick:  [1,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,0,1],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,0, 0,0,1,0, 1,0,0,0, 1,0,1,0],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
   },
   rnb: {
     name: 'R&B',
+    // Toms: hi tom between beats 2 and 3 (groove accent), lo tom before the turnaround
     kick:  [1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,1,0,1, 1,0,1,1, 0,1,1,0, 1,1,0,1],
     crash: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,1,0, 1,0,0,0],
+    hitom: [0,0,0,0, 0,1,0,0, 0,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
   },
   edm: {
     name: 'EDM',
+    // No toms — four-on-the-floor is purely electronic; toms break the machine feel
     kick:  [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,1],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
   },
   blues: {
     name: 'Blues',
+    // Toms: hi tom on "ah" of beat 3, lo tom on "e" of beat 4 — shuffle fill feel
     kick:  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,1,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,0,1, 0,0,1,0, 1,0,0,1, 0,0,1,0],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,1,0,0, 0,0,0,0, 0,1,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,1,0,0],
   },
   classical: {
     name: 'Ballad',
     // Sparse ballad feel: kick on 1, soft snare/brush on 3, gentle quarter-note hats, no clap
+    // No toms — too heavy for a ballad feel
     kick:  [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
     hat:   [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
   },
   // ── 6/8 patterns (12 steps = one bar of 6 eighth notes, groups of 3+3) ──
   six8: {
     name: '6/8 Groove',
     // Kick on beat 1 & 4, snare on beat 4, hat on all 6 eighth notes
+    // Toms: hi tom on beat 5, lo tom on beat 6+ — fills the compound back half
     kick:  [1,0,0, 0,0,0, 1,0,0, 0,0,0],
     snare: [0,0,0, 0,0,0, 0,0,0, 1,0,0],
     hat:   [1,1,1, 1,1,1, 1,1,1, 1,1,1],
     crash: [1,0,0, 0,0,0, 0,0,0, 0,0,0],
     clap:  [0,0,0, 0,0,0, 1,0,0, 0,0,0],
+    hitom: [0,0,0, 0,0,0, 0,0,0, 0,1,0],
+    lotom: [0,0,0, 0,0,0, 0,0,0, 0,0,1],
   },
   six8_rock: {
     name: '6/8 Rock',
     // Kick on 1,3,4 — driving compound feel
+    // Toms: hi tom on beat 3, lo tom on beat 6+ — pushes the compound pulse forward
     kick:  [1,0,0, 1,0,0, 1,0,0, 0,0,0],
     snare: [0,0,0, 0,0,0, 0,0,0, 1,0,0],
     hat:   [1,1,1, 1,1,1, 1,1,1, 1,1,1],
     crash: [1,0,0, 0,0,0, 0,0,0, 0,0,0],
     clap:  [0,0,0, 0,0,0, 0,0,0, 1,0,0],
+    hitom: [0,0,0, 0,1,0, 0,0,0, 0,0,0],
+    lotom: [0,0,0, 0,0,0, 0,0,0, 0,1,0],
   },
   six8_folk: {
     name: '6/8 Folk',
     // Classic lilting 6/8: kick 1, snare 4, hat on downbeats of each triplet
+    // No toms — folk is delicate and acoustic
     kick:  [1,0,0, 0,0,0, 0,0,0, 0,0,0],
     snare: [0,0,0, 0,0,0, 1,0,0, 0,0,0],
     hat:   [1,0,1, 0,1,0, 1,0,1, 0,1,0],
     crash: [0,0,0, 0,0,0, 0,0,0, 0,0,0],
     clap:  [0,0,0, 0,0,0, 1,0,0, 0,0,0],
+    hitom: [0,0,0, 0,0,0, 0,0,0, 0,0,0],
+    lotom: [0,0,0, 0,0,0, 0,0,0, 0,0,0],
   },
   six8_ballad: {
     name: '6/8 Ballad',
     // Slow flowing 6/8: sparse kick, snare on 4, gentle hats
+    // No toms — too sparse and intimate for tom work
     kick:  [1,0,0, 0,0,0, 0,0,0, 0,0,0],
     snare: [0,0,0, 0,0,0, 0,0,0, 1,0,0],
     hat:   [1,0,0, 1,0,0, 1,0,0, 1,0,0],
     crash: [0,0,0, 0,0,0, 0,0,0, 0,0,0],
     clap:  [0,0,0, 0,0,0, 0,0,0, 0,0,0],
+    hitom: [0,0,0, 0,0,0, 0,0,0, 0,0,0],
+    lotom: [0,0,0, 0,0,0, 0,0,0, 0,0,0],
   },
   // ── 5/4 patterns (20 steps = one bar of 5 quarter notes at 16th-note resolution) ──
   five4: {
     name: '5/4',
     // 3+2 grouping: kick on 1&4, snare on 2&5
+    // Toms: hi tom on beat 3, lo tom on "ah" of beat 5 — marks the odd grouping boundary
     kick:  [1,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
   },
   five4_jazz: {
     name: '5/4 Jazz',
     // "Take Five" style: sparse kick, snare on 3, jazz hats
+    // Toms: hi tom on "ah" of beat 3, lo tom on "e" of beat 5 — ornamental jazz fills
     kick:  [1,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
     snare: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,1,0],
     hat:   [1,0,1,0, 1,1,0,0, 1,0,1,0, 1,0,0,0, 1,0,0,0],
     crash: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,1,0,0],
   },
   five4_rock: {
     name: '5/4 Rock',
     // Aggressive 5/4: kick on 1&3, driving hats
+    // Toms: hi tom on "ah" of beat 3, lo tom on "ah" of beat 5 — reinforces the off-beat landing
     kick:  [1,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,1,0, 0,0,0,0],
     snare: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hat:   [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
     crash: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
     clap:  [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    hitom: [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,0,0],
+    lotom: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
   },
   random: {
     name: 'Random',
@@ -27880,6 +28278,8 @@ const DRUM_PATTERNS = {
     hat:   null,
     crash: null,
     clap:  null,
+    hitom: null,
+    lotom: null,
   },
   clear: {
     name: 'Clear',
@@ -27888,6 +28288,8 @@ const DRUM_PATTERNS = {
     hat:   [],
     crash: [],
     clap:  [],
+    hitom: [],
+    lotom: [],
   },
 };
 
@@ -27901,7 +28303,7 @@ function applyDrumPattern(patternKey) {
 
   // Generate random pattern
   if (patternKey === 'random') {
-    const prob = { kick: 0.35, snare: 0.25, hat: 0.6, crash: 0.08, clap: 0.15 };
+    const prob = { kick: 0.35, snare: 0.25, hat: 0.6, crash: 0.08, clap: 0.15, hitom: 0.12, lotom: 0.10 };
     const steps = seqGetStepCount(song.sequencer);
     // Kick: always on beat 1, random elsewhere
     const kick = Array.from({length: steps}, (_, i) => i === 0 ? 1 : Math.random() < prob.kick ? 1 : 0);
@@ -27911,11 +28313,16 @@ function applyDrumPattern(patternKey) {
     // Crash: sparse, only on beat 1 or random with low probability
     const crash = Array.from({length: steps}, (_, i) => i === 0 ? (Math.random() < 0.5 ? 1 : 0) : Math.random() < prob.crash ? 1 : 0);
     const clap  = Array.from({length: steps}, (_, i) => Math.random() < prob.clap ? 1 : 0);
+    // Toms: sparse random fills, avoid clashing with kick/snare on same step
+    const hitom = Array.from({length: steps}, (_, i) => (!kick[i] && !snare[i] && Math.random() < prob.hitom) ? 1 : 0);
+    const lotom = Array.from({length: steps}, (_, i) => (!kick[i] && !snare[i] && !hitom[i] && Math.random() < prob.lotom) ? 1 : 0);
     song.sequencer.kick  = kick;
     song.sequencer.snare = snare;
     song.sequencer.hat   = hat;
     song.sequencer.crash = crash;
     song.sequencer.clap  = clap;
+    song.sequencer.hitom = hitom;
+    song.sequencer.lotom = lotom;
     save();
     scheduleSyncToSheet(song);
     // Re-render drums directly
@@ -27943,6 +28350,8 @@ function applyDrumPattern(patternKey) {
   song.sequencer.hat   = fitPattern(pattern.hat,   totalSteps);
   song.sequencer.crash = fitPattern(pattern.crash, totalSteps);
   song.sequencer.clap  = fitPattern(pattern.clap,  totalSteps);
+  song.sequencer.hitom = fitPattern(pattern.hitom || [], totalSteps);
+  song.sequencer.lotom = fitPattern(pattern.lotom || [], totalSteps);
 
   save();
   scheduleSyncToSheet(song);
@@ -27953,7 +28362,7 @@ applyDrumPattern._redrawGrids = function(song) {
   const totalSteps = seqGetStepCount(song.sequencer);
   const beatsPerBar = parseInt(document.getElementById('seqTime')?.value || song.sequencer.time || '4') *
                       parseInt(document.getElementById('seqGrid')?.value || song.sequencer.grid || '2');
-  [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqCrash','crash'],['seqClap','clap']].forEach(([elId, lane]) => {
+  [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqHiTom','hitom'],['seqLoTom','lotom'],['seqCrash','crash'],['seqClap','clap']].forEach(([elId, lane]) => {
     const el = document.getElementById(elId);
     if (!el) return;
     const savedLane = song.sequencer[lane] || [];
