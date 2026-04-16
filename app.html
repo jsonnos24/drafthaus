@@ -2145,6 +2145,14 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-chord-var-pill:hover { background: rgba(245, 232, 195, 1); border-color: rgba(160,100,255,0.6); color: #0a0804; }
   .seq-chord-var-pill:active { cursor: grabbing; }
   .seq-chord-var-pill.dragging { opacity: 0.45; }
+
+  /* ── Mobile chord grid mode (two groups of 4 columns) ── */
+  .kbd-chord-grid-mode { display: block !important; overflow-x: visible !important; }
+  .kbd-chord-grid-mode .kbd-chord-group { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .kbd-chord-grid-mode .kbd-chord-group::-webkit-scrollbar { display: none; }
+  .kbd-chord-grid-mode .seq-chord-pill-col { flex: 1; min-width: 0; }
+  .kbd-chord-grid-mode .seq-chord-pill { font-size: 13px; padding: 8px 6px; text-align: center; white-space: nowrap; }
+  .kbd-chord-grid-mode .seq-chord-var-pill { font-size: 10px; padding: 5px 4px; text-align: center; white-space: nowrap; }
   /* Key trigger slots (1-8) */
   .seq-key-slot {
     display: flex; flex-direction: column; align-items: center; gap: 1px;
@@ -2218,7 +2226,7 @@ button, select, input, textarea { touch-action: manipulation; }
     cursor: pointer; transition: all 0.1s; position: relative;
     overflow: hidden;
   }
-  .seq-slot.bar-start { border-left: 2px solid rgba(255, 232, 77, 0.75); margin-left: 2px; }
+  .seq-slot.bar-start { border-left: 3px solid rgba(255, 232, 77, 0.85); margin-left: 6px; }
   /* ── Per-row active slot colours ── */
   /* Chord slots: warm cream for variant/custom chords (no degree set); overridden by degree rules */
   [data-row="chord"] .seq-slot.filled { background: rgba(210,185,120,0.14); border-color: rgba(210,185,120,0.40); color: rgba(235,215,155,0.92); }
@@ -19004,19 +19012,8 @@ function seqRenderChordPills(song) {
     return { root, qual };
   }
 
-  // ── Mobile portrait: render circular wheel ──
-  if (window.innerWidth <= 600 && window.innerHeight > window.innerWidth) {
-    el.classList.add('wheel-mode');
-    _seqRenderChordWheelInner(el, names, roman, QUAL_VARIANTS, parseChord);
-    seqUpdateHumanizeBtns();
-    seqRenderKeyTriggers();
-    seqRenderKeyboard();
-    return;
-  }
-
-  // ── Desktop / landscape: standard scrollable columns ──
-  el.classList.remove('wheel-mode');
-  el.innerHTML = names.map((name, i) => {
+  // ── Build pill + variant column HTML for a single chord ──
+  function _pillColHtml(name, i) {
     const displayName = name.replace('_viii','');
     const { root, qual } = parseChord(name);
     const variants = (QUAL_VARIANTS[qual] || []).map(sfx => root + sfx);
@@ -19048,10 +19045,29 @@ function seqRenderChordPills(song) {
       </div>
       ${varHtml}
     </div>`;
-  }).join('')
-  + `<div style="align-self:flex-start;margin-left:6px;margin-top:2px;flex-shrink:0;">
-      <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="seqClearAllChordSlots()" title="Clear all chord grid slots">Clear</button>
-    </div>`;
+  }
+
+  // ── Mobile portrait: two-group grid (I–IV then V–VIII) ──
+  const isMobilePortrait = window.innerWidth <= 600 && window.innerHeight > window.innerWidth;
+  if (isMobilePortrait) {
+    el.classList.remove('wheel-mode');
+    el.classList.add('kbd-chord-grid-mode');
+    const half = Math.min(4, names.length);
+    const group1 = names.slice(0, half).map((n, i) => _pillColHtml(n, i)).join('');
+    const group2 = names.slice(half).map((n, i) => _pillColHtml(n, half + i)).join('');
+    el.innerHTML =
+      `<div class="kbd-chord-group" style="display:flex;gap:4px;justify-content:center;margin-bottom:10px;">${group1}</div>` +
+      `<div class="kbd-chord-group" style="display:flex;gap:4px;justify-content:center;">${group2}</div>`;
+    seqUpdateHumanizeBtns();
+    seqRenderKeyTriggers();
+    seqRenderKeyboard();
+    return;
+  }
+
+  // ── Desktop / landscape: standard scrollable columns ──
+  el.classList.remove('wheel-mode');
+  el.classList.remove('kbd-chord-grid-mode');
+  el.innerHTML = names.map((name, i) => _pillColHtml(name, i)).join('');
   seqUpdateHumanizeBtns();
   seqRenderKeyTriggers(); // keep key bank in sync when key/mode changes
   // Render keyboard
@@ -20336,14 +20352,13 @@ function seqRenderKeyboard() {
   const el = document.getElementById('seqKeyboard');
   if (!el) return;
 
-  // 88-key range: A0–C8. Approximate with 7 full octaves (C1–B7) = 84 keys.
-  // Use narrower keys on desktop so more keys are visible without scrolling.
+  // Desktop: 7 octaves (C1–B7). Mobile: compact 3 octaves (C3–C5), half-height keys.
   const isDesktop = window.innerWidth >= 768;
-  const W  = isDesktop ? 28 : 50;   // white key width
-  const BW = isDesktop ? 18 : 32;   // black key width
-  const WH = isDesktop ? 110 : 130; // white key height
-  const BH = isDesktop ? 68  : 82;  // black key height
-  const octaves = [1, 2, 3, 4, 5, 6, 7]; // 7 octaves ≈ 88 keys
+  const W  = isDesktop ? 28 : 44;   // white key width
+  const BW = isDesktop ? 18 : 28;   // black key width
+  const WH = isDesktop ? 110 : 72;  // white key height — half-height on mobile
+  const BH = isDesktop ? 68  : 46;  // black key height — half-height on mobile
+  const octaves = isDesktop ? [1, 2, 3, 4, 5, 6, 7] : [3, 4, 5]; // mobile: C3–C5
   const totalWidth = 7 * octaves.length * W;
 
   // Make the container scrollable so all keys are reachable
@@ -20511,12 +20526,14 @@ function seqRenderKeyboard() {
   board.addEventListener('touchcancel', _kbdRelease); // iOS: system gesture interrupts touch
 
   // Scroll to C4 (middle C) on open so the player starts in a useful range
+  // On mobile with 3 octaves (C3–C5) the keyboard fits without scrolling, but still center if needed
   const c4Idx = octaves.indexOf(4);
   if (c4Idx >= 0) {
     const c4X = c4Idx * 7 * W;
-    // Center C4 in the visible area
     const containerW = el.clientWidth || el.offsetWidth || 300;
-    el.scrollLeft = Math.max(0, c4X - containerW / 2 + W * 3);
+    if (totalWidth > containerW) {
+      el.scrollLeft = Math.max(0, c4X - containerW / 2 + W * 3);
+    }
   }
 }
 
@@ -27361,74 +27378,31 @@ function renderKeyboardDrawerHtml(song) {
         </div>
       </div>
 
-    <!-- Chord instrument + Progressions row -->
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
-      <div class="seq-ctrl-group">
-        <span class="seq-label">Chords</span>
-        <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()" style="width:auto;">
-          <option value="synth"${chordInstrument==='synth'?' selected':''}>Synth</option>
-          <option value="piano"${chordInstrument==='piano'?' selected':''}>Grand Piano</option>
-          <option value="piano2"${chordInstrument==='piano2'?' selected':''}>Upright Piano</option>
-          <option value="piano+piano2"${chordInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
-          <option value="guitar"${chordInstrument==='guitar'?' selected':''}>Guitar</option>
-          <option value="guitar+piano"${chordInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
-          <option value="guitar+piano2"${chordInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
-          <option value="guitar+synth"${chordInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
-          <option value="piano+synth"${chordInstrument==='piano+synth'?' selected':''}>Grand + Synth</option>
-          <option value="piano2+synth"${chordInstrument==='piano2+synth'?' selected':''}>Upright + Synth</option>
-          <option value="guitar+piano+synth"${chordInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Grand + Synth</option>
-          <option value="guitar+piano2+synth"${chordInstrument==='guitar+piano2+synth'?' selected':''}>Guitar + Upright + Synth</option>
-        </select>
-        <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
-      </div>
-      <div class="seq-ctrl-group">
-        <span class="seq-label">Progression</span>
-        <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="width:auto;max-width:260px;">
-          <option value="">— Pick a progression —</option>
-          ${['Classic Rock & Pop','Jazz & Soul','Indie & Pop','Rock Anthems','Minor & Dark'].map(grp => `
-          <optgroup label="${grp}">
-            ${SEQ_PROGRESSIONS.filter(p => p.group === grp).map(p =>
-              `<option value="${p.id}"${_activeProgressionId === p.id ? ' selected' : ''}>${p.label}  ·  ${p.moods}</option>`
-            ).join('')}
-          </optgroup>`).join('')}
-        </select>
-      </div>
+    <!-- ═══ 1. PROGRESSION row (dropdown + Re-shuffle) ═══ -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <span class="seq-label" style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--gold);flex-shrink:0;">PROGRESSION</span>
+      <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="width:auto;max-width:260px;flex:1;">
+        <option value="">— Pick a progression —</option>
+        ${['Classic Rock & Pop','Jazz & Soul','Indie & Pop','Rock Anthems','Minor & Dark'].map(grp => `
+        <optgroup label="${grp}">
+          ${SEQ_PROGRESSIONS.filter(p => p.group === grp).map(p =>
+            `<option value="${p.id}"${_activeProgressionId === p.id ? ' selected' : ''}>${p.label}  ·  ${p.moods}</option>`
+          ).join('')}
+        </optgroup>`).join('')}
+      </select>
       <button id="seqProgressionReHumBtn"
         onclick="seqRehumanizeProgression()"
         class="seq-btn"
         title="Re-shuffle the rhythm — same chords, new timing"
-        style="${_activeProgressionId ? '' : 'display:none;'}font-size:10px;padding:4px 10px;white-space:nowrap;">
-        ↺ Re-shuffle
+        style="${_activeProgressionId ? '' : 'display:none;'}font-size:10px;padding:5px 14px;white-space:nowrap;font-weight:700;letter-spacing:0.04em;">
+        ↺ RE-SHUFFLE
       </button>
     </div>
 
-    <!-- ══ Chord Progression Section ══ -->
-    <div style="border-bottom:1px solid var(--border2);margin-bottom:12px;padding-bottom:12px;">
-
-      <!-- Title row: label + Preview + Humanize + Sweep -->
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px;">
-        <span class="seq-chord-section-title" style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:700;letter-spacing:0.06em;color:var(--text);">Finger Chord Slots — Keyboard Keys 1–9</span>
-        <button class="seq-chord-mode-btn${seqChordMode==='preview'?' active':''}" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Preview mode — clicking a chord just plays it, nothing is added to the grid">▶ Preview</button>
-        <button class="seq-humanize-btn${seqHumanizeChords?' active':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords — adds subtle timing variation so they feel less robotic">〜 Humanize</button>
-        <button class="seq-chord-mode-btn" id="seqSweepBtn" onclick="seqToggleSweepMode()" title="Sweep mode — hover over chord pills to auto-play (desktop only)" style="display:none;">⟿ Sweep</button>
-      </div>
-      <!-- Mode hint below title -->
-      <div id="seqChordModeHint" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:0.08em;margin-bottom:10px;">Preview Mode — Click chord to preview · Drag into grid to compose</div>
-
-      <!-- Finger chord slots (1–9) -->
-      <div class="seq-chords-row" id="seqKeyTriggerRow" style="margin-bottom:10px;align-items:stretch;"></div>
-
-      <!-- Chord interval pills (Clear btn rendered inside by seqRenderChordPills) -->
-      <div style="margin-bottom:6px;">
-        <div class="seq-chords-row" id="seqChordPills"></div>
-      </div>
-
-    </div>
-
-    <!-- Chord Sequence grid — below chord wheel -->
-    <div class="kbd-chord-seq-wrapper" style="margin-top:12px;margin-bottom:8px;">
+    <!-- ═══ 2. CHORD SEQUENCE strip ═══ -->
+    <div class="kbd-chord-seq-wrapper" style="margin-bottom:10px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-        <div class="kbd-chord-seq-label" style="margin-bottom:0;">Chord Sequence</div>
+        <div class="kbd-chord-seq-label" style="margin-bottom:0;">CHORD SEQUENCE</div>
         <button id="kbdChordRecBtn" class="kbd-chord-rec-btn" onclick="kbdToggleChordRec()"
           title="Record — tap a chord pill to fill the next slot">● REC</button>
       </div>
@@ -27439,34 +27413,65 @@ function renderKeyboardDrawerHtml(song) {
       </div>
     </div>
 
-    <!-- Melody action buttons row -->
-    <div class="seq-instrument-row kbd-instrument-row" style="margin-bottom:8px;">
-      <!-- Keyboard (melody) instrument — above the keyboard, before Quantize -->
-      <div class="seq-ctrl-group" style="margin-right:6px;">
-        <span class="seq-label">Keyboard</span>
-        <select class="seq-select" id="melodyInstrumentSelect" onchange="melodyInstrumentChanged()" style="width:auto;font-size:10px;">
-          <option value="synth"${melodyInstrument==='synth'?' selected':''}>Synth</option>
-          <option value="piano"${melodyInstrument==='piano'?' selected':''}>Grand Piano</option>
-          <option value="piano2"${melodyInstrument==='piano2'?' selected':''}>Upright Piano</option>
-          <option value="piano+piano2"${melodyInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
-          <option value="guitar"${melodyInstrument==='guitar'?' selected':''}>Guitar</option>
-          <option value="guitar+piano"${melodyInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
-          <option value="guitar+piano2"${melodyInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
-          <option value="guitar+synth"${melodyInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
-          <option value="piano+synth"${melodyInstrument==='piano+synth'?' selected':''}>Grand + Synth</option>
-          <option value="piano2+synth"${melodyInstrument==='piano2+synth'?' selected':''}>Upright + Synth</option>
-          <option value="guitar+piano+synth"${melodyInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Grand + Synth</option>
-          <option value="guitar+piano2+synth"${melodyInstrument==='guitar+piano2+synth'?' selected':''}>Guitar + Upright + Synth</option>
-        </select>
-        <span id="melodyInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
+    <!-- ═══ 3. CHORD PILLS (grid layout — two groups of 4) ═══ -->
+    <div style="margin-bottom:10px;">
+      <!-- Mode buttons row -->
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+        <button class="seq-chord-mode-btn${seqChordMode==='preview'?' active':''}" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Preview mode — clicking a chord just plays it, nothing is added to the grid">▶ Preview</button>
+        <button class="seq-humanize-btn${seqHumanizeChords?' active':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords — adds subtle timing variation so they feel less robotic">〜 Humanize</button>
+        <button class="seq-chord-mode-btn" id="seqSweepBtn" onclick="seqToggleSweepMode()" title="Sweep mode — hover over chord pills to auto-play (desktop only)" style="display:none;">⟿ Sweep</button>
+        <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;margin-left:auto;" onclick="seqClearAllChordSlots()" title="Clear all chord grid slots">Clear</button>
       </div>
-      <button class="melody-quant-btn${melodyQuantize ? ' active' : ''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()">Quantize</button>
-      <button class="seq-humanize-btn${seqHumanizeMelody ? ' active' : ''}" id="seqHumanizeMelodyBtn" onclick="seqToggleHumanize('melody')" title="Humanize melody — adds subtle timing and volume variation to each note">〜 Humanize</button>
-      <button class="seq-btn" style="font-size:10px;padding:4px 10px;background:var(--card2);border:1px solid var(--border2);color:var(--muted);border-radius:5px;" onclick="melodyClear()">Clear</button>
-      <span class="melody-status" id="melodyStatus" style="margin-left:4px;"></span>
+      <div id="seqChordModeHint" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:0.08em;margin-bottom:8px;">Preview Mode — Click chord to preview · Drag into grid to compose</div>
+      <!-- Chord pills container -->
+      <div class="seq-chords-row" id="seqChordPills"></div>
     </div>
 
-    <!-- Keyboard (scrollable, 7 octaves) -->
+    <!-- Finger chord slots (1–9) — hidden, kept for key-binding logic -->
+    <div class="seq-chords-row" id="seqKeyTriggerRow" style="display:none;"></div>
+
+    <!-- ═══ 4. CHORDS instrument dropdown ═══ -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <span class="seq-label" style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--gold);flex-shrink:0;">CHORDS</span>
+      <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()" style="flex:1;max-width:280px;">
+        <option value="synth"${chordInstrument==='synth'?' selected':''}>Synth</option>
+        <option value="piano"${chordInstrument==='piano'?' selected':''}>Grand Piano</option>
+        <option value="piano2"${chordInstrument==='piano2'?' selected':''}>Upright Piano</option>
+        <option value="piano+piano2"${chordInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
+        <option value="guitar"${chordInstrument==='guitar'?' selected':''}>Guitar</option>
+        <option value="guitar+piano"${chordInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
+        <option value="guitar+piano2"${chordInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
+        <option value="guitar+synth"${chordInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
+        <option value="piano+synth"${chordInstrument==='piano+synth'?' selected':''}>Grand + Synth</option>
+        <option value="piano2+synth"${chordInstrument==='piano2+synth'?' selected':''}>Upright + Synth</option>
+        <option value="guitar+piano+synth"${chordInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Grand + Synth</option>
+        <option value="guitar+piano2+synth"${chordInstrument==='guitar+piano2+synth'?' selected':''}>Guitar + Upright + Synth</option>
+      </select>
+      <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
+    </div>
+
+    <!-- ═══ 5. KEYBOARD instrument dropdown ═══ -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <span class="seq-label" style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--gold);flex-shrink:0;">KEYBOARD</span>
+      <select class="seq-select" id="melodyInstrumentSelect" onchange="melodyInstrumentChanged()" style="flex:1;max-width:280px;">
+        <option value="synth"${melodyInstrument==='synth'?' selected':''}>Synth</option>
+        <option value="piano"${melodyInstrument==='piano'?' selected':''}>Grand Piano</option>
+        <option value="piano2"${melodyInstrument==='piano2'?' selected':''}>Upright Piano</option>
+        <option value="piano+piano2"${melodyInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
+        <option value="guitar"${melodyInstrument==='guitar'?' selected':''}>Guitar</option>
+        <option value="guitar+piano"${melodyInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
+        <option value="guitar+piano2"${melodyInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
+        <option value="guitar+synth"${melodyInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
+        <option value="piano+synth"${melodyInstrument==='piano+synth'?' selected':''}>Grand + Synth</option>
+        <option value="piano2+synth"${melodyInstrument==='piano2+synth'?' selected':''}>Upright + Synth</option>
+        <option value="guitar+piano+synth"${melodyInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Grand + Synth</option>
+        <option value="guitar+piano2+synth"${melodyInstrument==='guitar+piano2+synth'?' selected':''}>Guitar + Upright + Synth</option>
+      </select>
+      <span id="melodyInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
+      <button class="melody-quant-btn${melodyQuantize ? ' active' : ''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()" style="margin-left:auto;">Quantize</button>
+    </div>
+
+    <!-- ═══ 6. KEYBOARD (scrollable, 3 octaves on mobile / 7 on desktop) ═══ -->
     <div id="seqKeyboard" style="margin-bottom:6px;"></div>
 
     <!-- Melody roll -->
