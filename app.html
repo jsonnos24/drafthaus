@@ -12962,7 +12962,16 @@ function calcSongProgress(song) {
   return Math.min(100, Math.round(score));
 }
 
+let _renderGridPending = false;
+
 function renderGrid() {
+  // Don't re-render if a dropdown menu is open — onSnapshot-driven re-renders
+  // destroy the DOM and kill the open menu before the user can select anything.
+  if (document.querySelector('.sl-actions-menu.open, .sl-status-menu.open, .sl-takes-dropdown.open')) {
+    _renderGridPending = true;
+    return;
+  }
+  _renderGridPending = false;
   const grid  = document.getElementById('songsGrid');
   const uid   = auth.currentUser?.uid;
 
@@ -32509,12 +32518,12 @@ function _closeRowActions(e) {
     let inside = false;
     open.forEach(m => { if (m.contains(e.target)) inside = true; });
     if (inside) {
-      // Click was inside menu — re-register so an outside click still closes it
       setTimeout(() => document.addEventListener('click', _closeRowActions, { once: true }), 0);
       return;
     }
   }
   open.forEach(m => m.classList.remove('open'));
+  if (_renderGridPending) renderGrid();
 }
 
 // ── Row-level status change dropdown ─────────────────────────────
@@ -32549,6 +32558,7 @@ function _closeRowStatus(e) {
     }
   }
   open.forEach(m => m.classList.remove('open'));
+  if (_renderGridPending) renderGrid();
 }
 function setRowStatus(id, status) {
   _closeRowStatus();
@@ -32760,13 +32770,16 @@ function _slFmtDur(sec) {
 
 // Close tape dropdown when clicking outside
 document.addEventListener('click', (e) => {
+  let closed = false;
   document.querySelectorAll('.sl-takes-dropdown.open').forEach(d => {
     if (d.contains(e.target)) return;
     d.classList.remove('open');
     const b = document.getElementById('sltape-' + d.id.replace('sltdrop-',''));
     if (b) b.classList.remove('active');
     _slTapeStop();
+    closed = true;
   });
+  if (closed && _renderGridPending) renderGrid();
 });
 
 function rowSeqToggle(id) {
