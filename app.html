@@ -32502,8 +32502,18 @@ function toggleRowActions(id, e) {
     setTimeout(() => document.addEventListener('click', _closeRowActions, { once: true }), 0);
   }
 }
-function _closeRowActions() {
-  document.querySelectorAll('.sl-actions-menu.open').forEach(m => m.classList.remove('open'));
+function _closeRowActions(e) {
+  const open = document.querySelectorAll('.sl-actions-menu.open');
+  if (e && e.target) {
+    let inside = false;
+    open.forEach(m => { if (m.contains(e.target)) inside = true; });
+    if (inside) {
+      // Click was inside menu — re-register so an outside click still closes it
+      setTimeout(() => document.addEventListener('click', _closeRowActions, { once: true }), 0);
+      return;
+    }
+  }
+  open.forEach(m => m.classList.remove('open'));
 }
 
 // ── Row-level status change dropdown ─────────────────────────────
@@ -32527,8 +32537,17 @@ function toggleRowStatus(id, e) {
     setTimeout(() => document.addEventListener('click', _closeRowStatus, { once: true }), 0);
   }
 }
-function _closeRowStatus() {
-  document.querySelectorAll('.sl-status-menu.open').forEach(m => m.classList.remove('open'));
+function _closeRowStatus(e) {
+  const open = document.querySelectorAll('.sl-status-menu.open');
+  if (e && e.target) {
+    let inside = false;
+    open.forEach(m => { if (m.contains(e.target)) inside = true; });
+    if (inside) {
+      setTimeout(() => document.addEventListener('click', _closeRowStatus, { once: true }), 0);
+      return;
+    }
+  }
+  open.forEach(m => m.classList.remove('open'));
 }
 function setRowStatus(id, status) {
   _closeRowStatus();
@@ -32739,13 +32758,14 @@ function _slFmtDur(sec) {
 }
 
 // Close tape dropdown when clicking outside
-document.addEventListener('click', () => {
+document.addEventListener('click', (e) => {
   document.querySelectorAll('.sl-takes-dropdown.open').forEach(d => {
+    if (d.contains(e.target)) return;
     d.classList.remove('open');
     const b = document.getElementById('sltape-' + d.id.replace('sltdrop-',''));
     if (b) b.classList.remove('active');
+    _slTapeStop();
   });
-  _slTapeStop();
 });
 
 function rowSeqToggle(id) {
