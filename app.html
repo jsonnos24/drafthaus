@@ -15669,15 +15669,120 @@ var _midiInputId     = null; // selected input device id
 var _midiOutputId    = null; // selected output device id
 var _midiMelodyChannel = -1; // -1 = all channels (minus ch10); 0-15 = specific MIDI channel (0-indexed)
 var _midiLearning = false;   // true while waiting to auto-detect channel from next incoming note
+// Permission state: null | 'granted' | 'denied' | 'unsupported' | 'ios'
+var _midiPermission  = null;
+
+// ── MIDI status modal ─────────────────────────────────────────────
+function _showMidiModal(title, body, iconColor) {
+  // Remove any existing MIDI modal
+  var prev = document.getElementById('midiInfoModal');
+  if (prev) prev.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'midiInfoModal';
+  overlay.style.cssText = [
+    'position:fixed;inset:0;z-index:99999',
+    'display:flex;align-items:center;justify-content:center',
+    'background:rgba(0,0,0,0.65);backdrop-filter:blur(6px)',
+    '-webkit-backdrop-filter:blur(6px)',
+    'padding:20px;box-sizing:border-box'
+  ].join(';');
+
+  overlay.innerHTML = `
+    <div style="
+      background:#1a1c27;border:1px solid #2e3048;border-radius:14px;
+      padding:24px 22px 20px;max-width:360px;width:100%;
+      font-family:'IBM Plex Mono',monospace;box-shadow:0 20px 60px rgba(0,0,0,0.7);
+      position:relative;
+    ">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <span style="font-size:22px;">🎹</span>
+        <span style="font-size:13px;font-weight:700;color:#e0e0f0;letter-spacing:0.05em;">${title}</span>
+      </div>
+      <div style="font-size:11px;color:#a0a0c0;line-height:1.65;margin-bottom:18px;">${body}</div>
+      <div id="midiModalStatus" style="
+        font-size:10px;color:${iconColor || '#f5a623'};
+        background:rgba(255,255,255,0.04);border-radius:7px;
+        padding:8px 10px;margin-bottom:16px;
+        display:flex;align-items:center;gap:7px;letter-spacing:0.04em;
+      ">
+        <span id="midiModalDot" style="
+          width:8px;height:8px;border-radius:50%;flex-shrink:0;
+          background:${iconColor || '#f5a623'};
+        "></span>
+        <span id="midiModalStatusText"></span>
+      </div>
+      <button onclick="document.getElementById('midiInfoModal').remove()" style="
+        width:100%;padding:9px;border-radius:8px;border:1px solid #2e3048;
+        background:#232538;color:#c0c0e0;font-family:'IBM Plex Mono',monospace;
+        font-size:11px;font-weight:700;letter-spacing:0.06em;cursor:pointer;
+        transition:background 0.15s;
+      " onmouseover="this.style.background='#2e3050'" onmouseout="this.style.background='#232538'">
+        Got it
+      </button>
+    </div>`;
+
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) overlay.remove();
+  });
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function _isIOS() {
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS
+}
 
 async function initMidi() {
-  if (!navigator.requestMIDIAccess) {
-    showToast('Web MIDI is not supported in this browser. Use Chrome or Edge.', 'error', 5000);
+  // ── 1. iOS detection ─────────────────────────────────────────────
+  // All browsers on iOS (Chrome, Edge, Firefox, etc.) are required by Apple
+  // to use WebKit as their engine. WebKit does not implement the Web MIDI API,
+  // so requestMIDIAccess is undefined regardless of which browser icon the user tapped.
+  if (_isIOS()) {
+    _midiPermission = 'ios';
+    _midiEnabled    = false;
+    _midiUpdateUI();
+    _showMidiModal(
+      'MIDI not available on iPhone / iPad',
+      'Chrome and Edge on iPhone and iPad still run on Apple\'s Safari engine ' +
+      '(WebKit), which does not support the Web MIDI API — even though those ' +
+      'browsers support MIDI on desktop.<br><br>' +
+      '<strong style="color:#e0e0f0;">To use a MIDI controller, try:</strong><br>' +
+      '• A Mac or Windows PC using Chrome or Edge<br>' +
+      '• A dedicated iOS MIDI app (e.g. GarageBand, AUM, Midiflow)',
+      '#f5a623'
+    );
+    var statusEl = document.getElementById('midiModalStatusText');
+    if (statusEl) statusEl.textContent = 'Web MIDI not supported on iOS';
     return;
   }
+
+  // ── 2. API not present (non-iOS browser that lacks MIDI support) ──
+  if (!navigator.requestMIDIAccess) {
+    _midiPermission = 'unsupported';
+    _midiEnabled    = false;
+    _midiUpdateUI();
+    _showMidiModal(
+      'Web MIDI not supported',
+      'Your browser does not support the Web MIDI API.<br><br>' +
+      '<strong style="color:#e0e0f0;">For MIDI support, open Drafthaus in:</strong><br>' +
+      '• Chrome (desktop)<br>' +
+      '• Microsoft Edge (desktop)<br>' +
+      '• Opera (desktop)',
+      '#e05050'
+    );
+    var statusEl2 = document.getElementById('midiModalStatusText');
+    if (statusEl2) statusEl2.textContent = 'Web MIDI not supported in this browser';
+    return;
+  }
+
+  // ── 3. API present — request access ──────────────────────────────
   try {
     _midiAccess  = await navigator.requestMIDIAccess({ sysex: false });
-    _midiEnabled = true;
+    _midiEnabled    = true;
+    _midiPermission = 'granted';
+
     // Default: first input device receives messages
     const _allInputs = [..._midiAccess.inputs.values()];
     if (!_midiInputId && _allInputs[0]) _midiInputId = _allInputs[0].id;
@@ -15687,7 +15792,6 @@ async function initMidi() {
     _midiAccess.onstatechange = e => {
       if (e.port.type === 'input') {
         if (e.port.state === 'connected') {
-          // Auto-select first device if none chosen yet
           if (!_midiInputId) _midiInputId = e.port.id;
           e.port.onmidimessage = (e.port.id === _midiInputId) ? _midiHandleMessage : null;
         }
@@ -15702,10 +15806,41 @@ async function initMidi() {
     if (_instrHas('piano'))  loadPianoSamples();
     if (_instrHas('piano2')) loadPiano2Samples();
     if (_instrHas('guitar')) loadGuitarSamples();
+
+    // Show status modal only if no device is connected yet
+    const inputs = [..._midiAccess.inputs.values()];
+    if (inputs.length === 0) {
+      var m = _showMidiModal(
+        'MIDI ready — no device detected',
+        'Permission granted. Connect a MIDI keyboard or controller and it will ' +
+        'appear automatically.',
+        '#f5a623'
+      );
+      var st = document.getElementById('midiModalStatusText');
+      if (st) st.textContent = 'Permission granted · no device connected';
+    } else {
+      showToast('MIDI connected — ' + inputs.length + ' device' + (inputs.length > 1 ? 's' : ''), 'success', 3000);
+    }
+
   } catch(e) {
-    console.warn('MIDI access denied:', e);
-    _midiEnabled = false;
+    console.warn('MIDI access error:', e);
+    _midiEnabled    = false;
+    _midiPermission = (e.name === 'SecurityError' || e.name === 'NotAllowedError') ? 'denied' : 'unsupported';
     _midiUpdateUI();
+    if (_midiPermission === 'denied') {
+      _showMidiModal(
+        'MIDI permission denied',
+        'The browser blocked access to MIDI devices. To fix this:<br><br>' +
+        '• Click the lock icon in your address bar<br>' +
+        '• Set MIDI to <strong style="color:#e0e0f0;">Allow</strong><br>' +
+        '• Reload the page and try again',
+        '#e05050'
+      );
+      var stDenied = document.getElementById('midiModalStatusText');
+      if (stDenied) stDenied.textContent = 'Permission denied by browser';
+    } else {
+      showToast('MIDI error: ' + (e.message || e.name || 'unknown'), 'error', 5000);
+    }
   }
 }
 
@@ -15911,36 +16046,52 @@ function _midiUpdateUI() {
     ? (inputs[0].name || '1 device')
     : inCount + ' devices';
 
+  // Derive dot colour + label from permission + connected state
+  var dotColor, statusLabel;
+  if (_midiEnabled && inCount > 0) {
+    dotColor = '#00d26e'; statusLabel = deviceName;              // green  — device connected
+  } else if (_midiEnabled) {
+    dotColor = '#f5a623'; statusLabel = 'no device';            // amber  — granted, waiting
+  } else if (_midiPermission === 'denied') {
+    dotColor = '#e05050'; statusLabel = 'permission denied';    // red    — blocked
+  } else if (_midiPermission === 'ios' || _midiPermission === 'unsupported') {
+    dotColor = '#e05050'; statusLabel = 'not supported';        // red    — unsupported env
+  } else {
+    dotColor = 'var(--faint)'; statusLabel = 'MIDI';            // grey   — idle / never tried
+  }
+
   // Update ALL instances of status dots/labels (duplicate IDs in seq + kbd panels)
   document.querySelectorAll('#midiStatusDot').forEach(dot => {
-    if (_midiEnabled && inCount > 0)  dot.style.background = '#00d26e';
-    else if (_midiEnabled)            dot.style.background = '#f5a623';
-    else                              dot.style.background = 'var(--faint)';
+    dot.style.background = dotColor;
   });
   document.querySelectorAll('#midiStatusLabel').forEach(lbl => {
-    if (_midiEnabled && inCount > 0)  lbl.textContent = deviceName;
-    else if (_midiEnabled)            lbl.textContent = 'no device';
-    else                              lbl.textContent = 'MIDI';
+    lbl.textContent = statusLabel;
   });
   document.querySelectorAll('#midiConnectBtn').forEach(btn => {
-    btn.style.display = _midiEnabled ? 'none' : '';
+    // Hide connect button if MIDI is already active OR unsupported on this platform
+    var hide = _midiEnabled || _midiPermission === 'ios' || _midiPermission === 'unsupported';
+    btn.style.display = hide ? 'none' : '';
   });
 
   // ── Header MIDI pill ────────────────────────────────────────────
   const hdrDot  = document.getElementById('hdrMidiDot');
   const hdrLbl  = document.getElementById('hdrMidiLabel');
   const hdrConn = document.getElementById('hdrMidiConnectBtn');
-  if (hdrDot) {
-    if (_midiEnabled && inCount > 0)  hdrDot.style.background = '#00d26e';
-    else if (_midiEnabled)            hdrDot.style.background = '#f5a623';
-    else                              hdrDot.style.background = 'var(--faint)';
+  if (hdrDot) hdrDot.style.background = dotColor;
+  if (hdrLbl) hdrLbl.textContent      = statusLabel;
+  if (hdrConn) {
+    var hideHdr = _midiEnabled || _midiPermission === 'ios' || _midiPermission === 'unsupported';
+    hdrConn.style.display = hideHdr ? 'none' : '';
+    // Show "Why?" link on unsupported platforms so users can tap for info
+    if (_midiPermission === 'ios' || _midiPermission === 'unsupported') {
+      hdrConn.textContent  = 'Why?';
+      hdrConn.style.display = '';
+      hdrConn.onclick = function() { initMidi(); };
+    } else {
+      hdrConn.textContent = 'Connect';
+      hdrConn.onclick = function() { initMidi(); };
+    }
   }
-  if (hdrLbl) {
-    if (_midiEnabled && inCount > 0)  hdrLbl.textContent = deviceName;
-    else if (_midiEnabled)            hdrLbl.textContent = 'no device';
-    else                              hdrLbl.textContent = 'MIDI';
-  }
-  if (hdrConn) hdrConn.style.display = _midiEnabled ? 'none' : '';
 
   // ── Legacy header MIDI bar (hidden stubs) ────────────────────────
   const barDot     = document.getElementById('headerMidiDot');
@@ -21544,17 +21695,7 @@ document.addEventListener('DOMContentLoaded', function() {
 let _userTierUnsub = null; // holds the onSnapshot unsubscribe for the current user doc
 let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestore
 
-// Handle Google redirect result on mobile (signInWithRedirect reloads the page;
-// onAuthStateChanged fires automatically with the user, but getRedirectResult
-// lets us surface any errors that occurred during the redirect).
-auth.getRedirectResult().catch(function(err) {
-  if (err && err.code && err.code !== 'auth/no-current-user') {
-    const errEl = document.getElementById('landingError');
-    if (errEl) errEl.textContent = 'Google sign-in failed. Please try again.';
-    const btn = document.getElementById('landingGoogleBtn');
-    if (btn) btn.disabled = false;
-  }
-});
+// (signInWithRedirect removed — Safari ITP blocks cross-origin sessionStorage during OAuth redirect)
 
 auth.onAuthStateChanged(user => {
   if (user) {
@@ -23669,22 +23810,15 @@ async function submitLandingPassword() {
     // by Intelligent Tracking Prevention on the firebaseapp.com auth domain.
     // Switching to SESSION persistence (sessionStorage) before signing in avoids this —
     // sessionStorage is allowed even with strict privacy settings.
-    try {
-      await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
-    } catch (_) { /* ignore — fallback to default persistence */ }
-
-    // Mobile browsers block signInWithPopup (popup is outside the gesture chain).
-    // Use redirect on mobile — the page reloads and onAuthStateChanged picks up the result.
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) {
-      await auth.signInWithRedirect(provider);
-      return; // page will reload; no error handling needed here
-    }
-
+    // Always use signInWithPopup — signInWithRedirect is broken on Safari (iOS ITP blocks
+    // the cross-origin sessionStorage that Firebase needs to restore OAuth state after redirect).
+    // Popup is triggered directly from a user gesture so Safari/Chrome mobile allow it.
     await auth.signInWithPopup(provider);
     // onAuthStateChanged handles hiding overlay + initApp()
   } catch (err) {
-    if (err.code !== 'auth/popup-closed-by-user') {
+    if (err.code === 'auth/popup-blocked') {
+      errEl.textContent = 'Pop-up was blocked. Please allow pop-ups for this site and try again.';
+    } else if (err.code !== 'auth/popup-closed-by-user') {
       errEl.textContent = 'Sign-in failed. Please try again.';
     }
     bartenderPasswordHide();
