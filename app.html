@@ -1824,6 +1824,7 @@ button, select, input, textarea { touch-action: manipulation; }
     gap: 8px;
     border-top: 1px solid var(--border);
     margin-bottom: 0;
+    min-height: 44px;
   }
   /* ── Drum grid — 8-column wrapped rows (no horizontal scroll) ── */
   .seq-grid-pane .seq-pattern-grid {
@@ -1883,7 +1884,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-instrument-row {
     display: flex; align-items: center; gap: 8px;
     padding: 8px 0 10px; border-bottom: 1px solid var(--border);
-    margin-bottom: 4px;
+    margin-bottom: 4px; min-height: 44px;
   }
   .seq-ctrl-group {
     display: flex; align-items: center; gap: 6px;
@@ -2999,7 +3000,7 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .seq-tab-add:hover { border-color: var(--gold); color: var(--gold); }
   .seq-tab-dup-btn { flex-direction: row; gap: 4px; }
-  .seq-tab-dup-label { font-size: 8px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.75; }
+  .seq-tab-dup-label { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.75; }
   .seq-tab-spacer { flex: 1; }
   .seq-play-song-btn {
     display: inline-flex; align-items: center; gap: 5px;
@@ -6964,7 +6965,7 @@ body.split-active #looperOverlay { display: none !important; }
 /* ── Split panel adjustments in rehearse/perf mode ───────────────── */
 /* In split mode, keep the header visible so the panel stays at its normal top position.
    Only in standalone (non-split) rehearse does the header/panel go to top: 0. */
-body.il-perf-active.split-active #siteHeader { display: flex !important; }
+body.il-perf-active.split-active #siteHeader { display: grid !important; }
 
 /* When 4-track overlay is inside the split panel it must NOT behave as a fixed sidebar —
    override every vr-rt-compact positioning rule so it fills the panel like a normal element */
@@ -7020,8 +7021,19 @@ body.il-perf-active.split-active .seq-drawer.open {
   position: relative !important; inset: auto !important;
   width: 100% !important; max-width: 100% !important;
   height: 100% !important; overflow-y: auto !important;
-  padding: 20px 20px 80px !important; box-sizing: border-box !important;
+  padding: 0 20px 80px !important; box-sizing: border-box !important;
   display: block !important;
+}
+/* Google Docs–style page view: light grey surround with white content card */
+body.split-expanded-right #splitRightContent {
+  background: #e8e8e8;
+}
+body.split-expanded-right #splitRightContent > #songViewRunthrough {
+  max-width: 820px !important;
+  margin: 0 auto !important;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  padding: 28px 36px 80px !important;
 }
 #splitRightContent > #vrOverlay {
   position: relative !important;
@@ -7429,7 +7441,7 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
 }
 /* ── Desktop: use full container width + 3-col horizontal palette ── */
 @media (min-width: 880px) {
-  #songViewRunthrough { max-width: 100%; padding: 24px 2px 120px; }
+  #songViewRunthrough { max-width: 100%; padding: 24px 5px 120px; }
   /* Song title slightly larger on desktop */
   .il-song-title { font-size: 52px; }
   /* Wider palette on large screens, sticky */
@@ -8644,6 +8656,8 @@ body.il-perf-active #ilPerfControls {
 .il-perf-ctrl-btn.scroll-active {
   color: #60cc80;
   border-color: rgba(80,210,100,0.5);
+  opacity: 0.3;
+  transition: opacity 0.6s ease;
   background: rgba(80,210,100,0.08);
 }
 .il-perf-ctrl-btn.arm-active {
@@ -14126,6 +14140,7 @@ function renderStructAddMenu(song) {
   ).join('');
 }
 
+var _structMenuTs = 0;
 function toggleStructAddMenu(e) {
   e.stopPropagation();
   const menu = document.getElementById('structAddMenu');
@@ -14133,16 +14148,22 @@ function toggleStructAddMenu(e) {
   const isOpen = menu.style.display !== 'none';
   menu.style.display = isOpen ? 'none' : 'grid';
   if (!isOpen) {
+    _structMenuTs = Date.now();
     const song = getCurrentSong();
     if (song) renderStructAddMenu(song);
-    // Close when clicking outside
-    setTimeout(() => document.addEventListener('click', _closeStructMenu, { once: true }), 0);
   }
 }
 function _closeStructMenu() {
   const menu = document.getElementById('structAddMenu');
   if (menu) menu.style.display = 'none';
 }
+document.addEventListener('click', function(e) {
+  const menu = document.getElementById('structAddMenu');
+  if (!menu || menu.style.display === 'none') return;
+  if (Date.now() - _structMenuTs < 250) return;
+  if (menu.contains(e.target)) return;
+  menu.style.display = 'none';
+});
 
 function addSectionToSong(partId) {
   _closeStructMenu();
@@ -17227,6 +17248,7 @@ window.seqDuplicateActive = function() {
   seqActiveIdx = seqActiveIdx + 1;
   song.sequencer = clone;
   save();
+  scheduleSyncToSheet(song);
   seqLoadSequenceIntoDOM(clone, song);
   seqRenderSequenceTabs();
   if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
@@ -17620,6 +17642,7 @@ function seqAddSequence(partId) {
   }
 
   save();
+  scheduleSyncToSheet(song);
   seqLoadSequenceIntoDOM(newSeq, song);
   seqRenderSequenceTabs();
   if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
@@ -17721,8 +17744,12 @@ function seqShowAddSequencePopup(evt) {
 
   document.body.appendChild(popup);
 
-  // Close on outside click
-  const close = e => { if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('click', close, true); } };
+  // Close on outside click (with debounce)
+  const openTs = Date.now();
+  const close = e => {
+    if (Date.now() - openTs < 250) return;
+    if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('click', close, true); }
+  };
   setTimeout(() => document.addEventListener('click', close, true), 10);
 }
 
@@ -17784,7 +17811,9 @@ function seqShowTabEditPopup(evt, idx) {
 
   document.body.appendChild(popup);
 
+  const _tabOpenTs = Date.now();
   const close = e => {
+    if (Date.now() - _tabOpenTs < 250) return;
     if (!popup.contains(e.target)) {
       popup.remove();
       document.removeEventListener('click', close, true);
@@ -29402,9 +29431,11 @@ function loopShowPartAssignPopup(partId, anchorEl) {
   if (left < 8) left = 8;
   popup.style.left = left + 'px';
   popup.style.top  = (r.bottom + 6) + 'px';
-  // Close on outside click
+  // Close on outside click (with debounce)
+  var _laOpenTs = Date.now();
   setTimeout(function() {
     _loopAssignCloseHandler = function(e) {
+      if (Date.now() - _laOpenTs < 250) return;
       if (_loopAssignPopup && !_loopAssignPopup.contains(e.target)) {
         _loopAssignPopup.remove(); _loopAssignPopup = null;
         document.removeEventListener('click', _loopAssignCloseHandler);
@@ -30762,19 +30793,18 @@ function rehMetroSettingsToggle(e) {
     left = Math.max(8, Math.min(left, window.innerWidth - panelW - 8));
     panel.style.left      = left + 'px';
     panel.style.transform = 'translateY(0)';
-    // Close on outside click
-    setTimeout(() => {
-      document.addEventListener('click', _rehMetroSettingsOutside, { once: true });
-    }, 0);
+    panel._openTs = Date.now();
   }
 }
-function _rehMetroSettingsOutside(e) {
+document.addEventListener('click', function(e) {
   const panel = document.getElementById('rehMetroSettingsPanel');
-  const btn   = document.getElementById('rehMetroSettingsBtn');
-  if (panel && !panel.contains(e.target) && e.target !== btn) {
-    panel.classList.remove('open');
-    if (btn) btn.classList.remove('active');
-  }
+  if (!panel || !panel.classList.contains('open')) return;
+  if (Date.now() - (panel._openTs || 0) < 250) return;
+  const btn = document.getElementById('rehMetroSettingsBtn');
+  if (panel.contains(e.target) || e.target === btn) return;
+  panel.classList.remove('open');
+  if (btn) btn.classList.remove('active');
+});
 }
 
 function _syncRehMetroBtn() {
@@ -31232,7 +31262,8 @@ function ilRelabelPart(partId) {
   const partEl = document.getElementById(`ilpart-${partId}`);
   const side = partEl?.querySelector('.il-part-side');
   if (side) side.appendChild(popup);
-  const close = e => { if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('click', close, true); } };
+  const _rlOpenTs = Date.now();
+  const close = e => { if (Date.now() - _rlOpenTs < 250) return; if (!popup.contains(e.target)) { popup.remove(); document.removeEventListener('click', close, true); } };
   setTimeout(() => document.addEventListener('click', close, true), 10);
 }
 
@@ -32491,51 +32522,61 @@ function ilSaveEdits() {
   }
 }
 
+// ── Centralized dropdown system ───────────────────────────────────
+// All song-list dropdowns go through this. A single document-level
+// handler (registered once) closes menus when you click outside them.
+// renderGrid is deferred while any menu is open (guard at top of renderGrid).
+var _slOpenMenu = null;   // currently-open menu element
+var _slOpenMenuTs = 0;    // timestamp when it was opened (debounce guard)
+
+function _slCloseAllMenus() {
+  document.querySelectorAll('.sl-actions-menu.open, .sl-status-menu.open, .sl-takes-dropdown.open')
+    .forEach(m => m.classList.remove('open'));
+  if (_slOpenMenu) {
+    _slOpenMenu = null;
+    if (_renderGridPending) renderGrid();
+  }
+}
+
+// Single document-level handler — always active, fires on every click
+document.addEventListener('click', function(e) {
+  if (!_slOpenMenu) return;
+  // Ignore clicks within 250ms of opening (debounce rapid fire)
+  if (Date.now() - _slOpenMenuTs < 250) return;
+  // If the click is inside the open menu, let it through
+  if (_slOpenMenu.contains(e.target)) return;
+  _slCloseAllMenus();
+}, true); // capture phase so it runs before inline handlers
+
 // ── Row-level actions dropdown ────────────────────────────────────
 function toggleRowActions(id, e) {
   e.stopPropagation();
   const menu = document.getElementById('slm-' + id);
   if (!menu) return;
-  const isOpen = menu.classList.contains('open');
-  // Close all open menus first
-  document.querySelectorAll('.sl-actions-menu.open').forEach(m => m.classList.remove('open'));
-  if (!isOpen) {
-    // Position using fixed coords from the button
+  const wasOpen = menu.classList.contains('open');
+  _slCloseAllMenus();
+  if (!wasOpen) {
     const btn = e.currentTarget;
     const r = btn.getBoundingClientRect();
     menu.style.top  = (r.bottom + 5) + 'px';
-    // Align right edge of menu with right edge of button, clamped to viewport
     const menuW = 170;
     const left = Math.min(r.right - menuW, window.innerWidth - menuW - 8);
     menu.style.left = Math.max(8, left) + 'px';
     menu.classList.add('open');
-    setTimeout(() => document.addEventListener('click', _closeRowActions, { once: true }), 0);
+    _slOpenMenu = menu;
+    _slOpenMenuTs = Date.now();
   }
 }
-function _closeRowActions(e) {
-  const open = document.querySelectorAll('.sl-actions-menu.open');
-  if (e && e.target) {
-    let inside = false;
-    open.forEach(m => { if (m.contains(e.target)) inside = true; });
-    if (inside) {
-      setTimeout(() => document.addEventListener('click', _closeRowActions, { once: true }), 0);
-      return;
-    }
-  }
-  open.forEach(m => m.classList.remove('open'));
-  if (_renderGridPending) renderGrid();
-}
+function _closeRowActions() { _slCloseAllMenus(); }
 
 // ── Row-level status change dropdown ─────────────────────────────
 function toggleRowStatus(id, e) {
   e.stopPropagation();
   const menu = document.getElementById('slsm-' + id);
   if (!menu) return;
-  const isOpen = menu.classList.contains('open');
-  // Close any other open menus
-  document.querySelectorAll('.sl-status-menu.open, .sl-actions-menu.open')
-    .forEach(m => m.classList.remove('open'));
-  if (!isOpen) {
+  const wasOpen = menu.classList.contains('open');
+  _slCloseAllMenus();
+  if (!wasOpen) {
     const badge = document.getElementById('slsb-' + id);
     if (!badge) return;
     const r = badge.getBoundingClientRect();
@@ -32544,22 +32585,11 @@ function toggleRowStatus(id, e) {
     const left  = Math.min(r.left, window.innerWidth - menuW - 8);
     menu.style.left = Math.max(8, left) + 'px';
     menu.classList.add('open');
-    setTimeout(() => document.addEventListener('click', _closeRowStatus, { once: true }), 0);
+    _slOpenMenu = menu;
+    _slOpenMenuTs = Date.now();
   }
 }
-function _closeRowStatus(e) {
-  const open = document.querySelectorAll('.sl-status-menu.open');
-  if (e && e.target) {
-    let inside = false;
-    open.forEach(m => { if (m.contains(e.target)) inside = true; });
-    if (inside) {
-      setTimeout(() => document.addEventListener('click', _closeRowStatus, { once: true }), 0);
-      return;
-    }
-  }
-  open.forEach(m => m.classList.remove('open'));
-  if (_renderGridPending) renderGrid();
-}
+function _closeRowStatus(e) { _slCloseAllMenus(); }
 function setRowStatus(id, status) {
   _closeRowStatus();
   const song = songs.find(s => s.id === id);
@@ -32631,21 +32661,23 @@ function slTapeToggle(songId) {
   const drop = document.getElementById('sltdrop-' + songId);
   const btn  = document.getElementById('sltape-' + songId);
   if (!drop || !btn) return;
-  const isOpen = drop.classList.contains('open');
-  // Close all other dropdowns first
+  const wasOpen = drop.classList.contains('open');
+  _slCloseAllMenus();
+  // Also clear tape-specific active states
   document.querySelectorAll('.sl-takes-dropdown.open').forEach(d => {
     d.classList.remove('open');
     const b = document.getElementById('sltape-' + d.id.replace('sltdrop-',''));
     if (b) b.classList.remove('active');
   });
-  if (isOpen) return; // was open, just close it
-  // Position using fixed coords to escape overflow:hidden parents
+  if (wasOpen) return;
   const rect = btn.getBoundingClientRect();
   drop.style.top  = (rect.bottom + 4) + 'px';
   drop.style.right = (window.innerWidth - rect.right) + 'px';
   drop.style.left  = 'auto';
   btn.classList.add('active');
   drop.classList.add('open');
+  _slOpenMenu = drop;
+  _slOpenMenuTs = Date.now();
   drop.innerHTML = '<div class="sl-takes-drop-loading">Loading…</div>';
   _slLoadTakes(songId, drop);
 }
@@ -32768,19 +32800,7 @@ function _slFmtDur(sec) {
   return m + ':' + String(s).padStart(2, '0');
 }
 
-// Close tape dropdown when clicking outside
-document.addEventListener('click', (e) => {
-  let closed = false;
-  document.querySelectorAll('.sl-takes-dropdown.open').forEach(d => {
-    if (d.contains(e.target)) return;
-    d.classList.remove('open');
-    const b = document.getElementById('sltape-' + d.id.replace('sltdrop-',''));
-    if (b) b.classList.remove('active');
-    _slTapeStop();
-    closed = true;
-  });
-  if (closed && _renderGridPending) renderGrid();
-});
+// (Takes dropdown close is handled by the centralized _slCloseAllMenus system)
 
 function rowSeqToggle(id) {
   // If the ensemble is running, stop everything
@@ -32869,15 +32889,19 @@ function rowDismissSharedSong(id) {
 }
 
 // ── Header status dropdown ────────────────────────────────────────
+var _headerDropTs = 0;
 function toggleHeaderDropdown() {
   const wrap = document.getElementById('headerStatusWrap');
   if (!wrap) return;
+  const opening = !wrap.classList.contains('open');
   wrap.classList.toggle('open');
+  if (opening) _headerDropTs = Date.now();
 }
 function closeHeaderDropdown() {
   document.getElementById('headerStatusWrap')?.classList.remove('open');
 }
 document.addEventListener('click', function(e) {
+  if (Date.now() - _headerDropTs < 250) return;
   const wrap = document.getElementById('headerStatusWrap');
   if (wrap && !wrap.contains(e.target)) wrap.classList.remove('open');
 });
@@ -32901,12 +32925,14 @@ function toggleKsPanel(anchorEl) {
     panel.style.left = left + 'px';
   }
   panel.classList.toggle('open');
+  if (panel.classList.contains('open')) panel._openTs = Date.now();
 }
 document.addEventListener('click', function(e) {
+  const panel = document.getElementById('ksPanel');
+  if (!panel || !panel.classList.contains('open')) return;
+  if (Date.now() - (panel._openTs || 0) < 250) return;
   const ksWrap   = document.getElementById('ksWrap');
   const menuWrap = document.getElementById('mobileMenuWrap');
-  const panel    = document.getElementById('ksPanel');
-  if (!panel) return;
   const insideKs   = ksWrap   && ksWrap.contains(e.target);
   const insideMenu = menuWrap && menuWrap.contains(e.target);
   const insidePanel = panel.contains(e.target);
@@ -34030,6 +34056,9 @@ function mtBuildUI() {
     const p   = prev[i];
     const vol = p ? p.volume : _mtSavedVol(i);
     const pan = p ? p.pan    : _mtSavedPan(i);
+    // Restore persisted track states from song.mtTracks (Firebase-synced)
+    const song = getCurrentSong ? getCurrentSong() : null;
+    const saved = song?.mtTracks?.[i] || {};
     const t = {
       id: i, color: MT_COLORS[i], name: MT_NAMES[i],
       buffer:       p ? p.buffer       : null,
@@ -34037,9 +34066,10 @@ function mtBuildUI() {
       panNode:      p ? p.panNode      : null,
       sourceNode:   null,
       volume: vol, pan: pan,
-      muted:        p ? (p.muted  || false) : false,
-      soloed:       p ? (p.soloed || false) : false,
-      locked:       p ? (p.locked || false) : false,
+      muted:        p ? (p.muted  || false) : (saved.muted || false),
+      soloed:       p ? (p.soloed || false) : (saved.soloed || false),
+      locked:       p ? (p.locked || false) : (saved.locked || false),
+      boostActive:  p ? (p.boostActive || false) : (saved.boostActive || false),
       takes:        p ? p.takes        : [],
       activeTakeIdx: p ? p.activeTakeIdx : -1,
       duration:     p ? p.duration     : 0,
@@ -34130,6 +34160,23 @@ function mtBuildUI() {
         <div class="vr-no-takes">No recordings yet</div>
       </div>`;
     tracksBody.appendChild(lane);
+    // Restore persisted mute/solo/lock/boost visual states
+    if (t.muted) {
+      lane.classList.add('mt-is-muted');
+      const mb = _el('mt-mute-'+i); if (mb) mb.classList.add('mt-muted');
+    }
+    if (t.soloed) {
+      const sb = _el('mt-solo-'+i); if (sb) sb.classList.add('mt-soloed');
+    }
+    if (t.locked) {
+      lane.classList.add('mt-track-locked');
+      const lb = _el('mt-mob-lock-'+i); if (lb) lb.classList.add('mt-locked');
+    }
+    if (t.boostActive) {
+      const bb = _el('mt-boost-'+i); if (bb) bb.classList.add('boost-active');
+      const mbob = _el('mt-mob-boost-'+i); if (mbob) mbob.classList.add('boost-active');
+      if (t.gainNode) t.gainNode.gain.value = (t.volume / 100) * 4.0;
+    }
     // Visually lock tracks beyond the tier limit
     if (i >= getTierLimits().tracks) lane.classList.add('mt-tier-locked');
     // ── Drag-and-drop audio files onto waveform area ────────────
@@ -34813,6 +34860,7 @@ window.mtMobileTrashTrack = async function(i) {
 window.mtMobileLockTrack = function(i) {
   const t = _mtTracks[i]; if (!t) return;
   t.locked = !t.locked;
+  mtSaveTrackSetting(i, 'locked', t.locked);
   const lane = _el('mt-track-'+i);
   const btn  = _el('mt-mob-lock-'+i);
   if (lane) lane.classList.toggle('mt-track-locked', t.locked);
@@ -34865,6 +34913,7 @@ window.mtSetVolume = function(i, val) {
 window.mtToggleBoost = function(i) {
   const t = _mtTracks[i]; if (!t) return;
   t.boostActive = !t.boostActive;
+  mtSaveTrackSetting(i, 'boostActive', t.boostActive);
   const btn = _el('mt-boost-'+i);
   if (btn) btn.classList.toggle('boost-active', t.boostActive);
   const mobBtn = _el('mt-mob-boost-'+i);
@@ -34895,6 +34944,7 @@ window.mtResetPan = function(i) {
 window.mtToggleMute = function(i) {
   const t = _mtTracks[i]; if (!t) return;
   t.muted = !t.muted;
+  mtSaveTrackSetting(i, 'muted', t.muted);
   // Apply gain: muted = 0, otherwise restore volume (unless soloed chain overrides)
   _mtApplyMuteGain(i);
   // Update button + track visual
@@ -34905,6 +34955,7 @@ window.mtToggleMute = function(i) {
   // If we're muting a track that was soloed, also clear solo
   if (t.muted && t.soloed) {
     t.soloed = false;
+    mtSaveTrackSetting(i, 'soloed', false);
     const sb = _el('mt-solo-'+i);
     if (sb) sb.classList.remove('mt-soloed');
     _mtRefreshSoloDimming();
@@ -34915,9 +34966,11 @@ window.mtToggleMute = function(i) {
 window.mtToggleSolo = function(i) {
   const t = _mtTracks[i]; if (!t) return;
   t.soloed = !t.soloed;
+  mtSaveTrackSetting(i, 'soloed', t.soloed);
   // Un-mute if we're soloing
   if (t.soloed && t.muted) {
     t.muted = false;
+    mtSaveTrackSetting(i, 'muted', false);
     const mb  = _el('mt-mute-'+i);
     const ln  = _el('mt-track-'+i);
     if (mb) mb.classList.remove('mt-muted');
