@@ -3979,7 +3979,7 @@ button, select, input, textarea { touch-action: manipulation; }
     font-family: 'IBM Plex Sans', sans-serif;
     display: flex; flex-direction: column;
     transform: translateY(100%);
-    transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+    transition: transform 0.35s cubic-bezier(0.4,0,0.2,1), top 0.28s cubic-bezier(0.34,1.56,0.64,1);
     overflow: hidden; -webkit-font-smoothing: antialiased;
   }
   #runThroughDrawer.open { transform: translateY(0); }
@@ -5680,6 +5680,7 @@ button, select, input, textarea { touch-action: manipulation; }
     border-right: none !important;
     border-top: 1px solid var(--border) !important;
     transform: translateY(100%) !important;
+    transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), top 0.28s cubic-bezier(0.34,1.56,0.64,1) !important;
   }
   .seq-drawer.open,
   .practice-drawer.open,
@@ -5687,6 +5688,20 @@ button, select, input, textarea { touch-action: manipulation; }
   .inspo-drawer.open,
   .keyboard-drawer.open {
     transform: translateY(0) !important;
+  }
+  /* When header hides (scrolled away), slide drawers up to fill the 43px gap */
+  body.header-scrolled-away .seq-drawer,
+  body.header-scrolled-away .practice-drawer,
+  body.header-scrolled-away .looper-drawer,
+  body.header-scrolled-away .inspo-drawer,
+  body.header-scrolled-away .keyboard-drawer {
+    top: calc(91px + env(safe-area-inset-top, 0px)) !important;
+    transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), top 0.28s cubic-bezier(0.34,1.56,0.64,1) !important;
+  }
+  /* Full-screen drawers also respond to header-scrolled-away */
+  body.header-scrolled-away #backendDrawer.open,
+  body.header-scrolled-away #runThroughDrawer.open {
+    top: calc(56px + env(safe-area-inset-top, 0px));
   }
   .practice-drawer-header,
   .inspo-drawer-header {
@@ -11689,8 +11704,8 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   background: var(--bg, #0d0f16);
   display: flex; flex-direction: column; overflow: hidden;
   transform: translateX(100%);
-  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: transform;
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), top 0.28s cubic-bezier(0.34,1.56,0.64,1);
+  will-change: transform, top;
 }
 #backendDrawer.open { transform: translateX(0); }
 .backend-drawer-header {
@@ -22374,11 +22389,13 @@ function openInspoDrawer() {
   _inspoRestoreDice();
   // Auto-roll the D20 every time the drawer opens
   setTimeout(() => rollInspoDie(0), 350);
+  _drawerMobileHeaderHide();
 }
 function closeInspoDrawer() {
   document.getElementById('inspoDrawer').classList.remove('open');
   document.getElementById('inspoOverlay').classList.remove('open');
   _inspoRestoreDice();
+  _drawerMobileHeaderRestore();
 }
 function _inspoRestoreDice() {
   document.querySelectorAll('.inspo-die').forEach(d => {
@@ -23387,6 +23404,7 @@ function openRunThroughDrawer() {
   rtBuildDots();
 
   document.getElementById('runThroughDrawer').classList.add('open');
+  _drawerMobileHeaderHide();
 
   // Silently preload 4-track takes in the background so the transport play button
   // works immediately when the user opens the 4-track in rehearsal mode.
@@ -23516,6 +23534,7 @@ function closeRunThroughDrawer() {
   document.getElementById('runThroughDrawer').classList.remove('open');
   rtMetroStop();
   rtForkStop();
+  _drawerMobileHeaderRestore();
 }
 
 function rtMarkDirty() {
@@ -27531,6 +27550,7 @@ function openKeyboardDrawer() {
   if (window.innerWidth < 900) document.getElementById('keyboardDrawerTab').style.display = 'none';
   else document.getElementById('keyboardDrawerTab').classList.add('tab-active');
   _sharedHeaderOpen('keyboard');
+  _drawerMobileHeaderHide();
 
   const song = getCurrentSong();
   const nameEl = document.getElementById('keyboardDrawerSongName');
@@ -27599,6 +27619,7 @@ function closeKeyboardDrawer() {
   if (window.innerWidth < 900) document.getElementById('keyboardDrawerTab').style.display = '';
   document.getElementById('keyboardDrawerTab').classList.remove('tab-active');
   _sharedHeaderClose();
+  _drawerMobileHeaderRestore();
 }
 
 function openSeqDrawer() {
@@ -27608,6 +27629,7 @@ function openSeqDrawer() {
   if (window.innerWidth < 900) document.getElementById('seqDrawerTab').style.display = 'none';
   else document.getElementById('seqDrawerTab').classList.add('tab-active');
   _sharedHeaderOpen('sequencer');
+  _drawerMobileHeaderHide();
   // In landscape mode, reset pinch-zoom to a compact default so the full grid is visible
   if (window.innerWidth < 900 && window.innerHeight < window.innerWidth) {
     var landscapeDefault = 20;
@@ -27686,6 +27708,7 @@ function closeSeqDrawer() {
   if (window.innerWidth < 900) document.getElementById('seqDrawerTab').style.display = '';
   document.getElementById('seqDrawerTab').classList.remove('tab-active');
   _sharedHeaderClose();
+  _drawerMobileHeaderRestore();
 }
 
 /* ── Mobile: swipe-down-to-close — now handled by shared initDrawerSwipe in DOMContentLoaded ── */
@@ -27698,6 +27721,10 @@ function _seqInitSwipeDown() { /* swipe handled by shared initDrawerSwipe */ }
   var lastY = 0, ticking = false, hidden = false;
   var HIDE_THRESHOLD = 8;   // px of downward scroll before hiding
   var SHOW_THRESHOLD = 4;   // px of upward scroll before showing
+
+  /* --- Drawer-aware scroll state --- */
+  var _drawerScrollLastY = 0;
+  var _drawerScrollListeners = [];  // {el, handler} pairs for cleanup
 
   function applyState(scrollY) {
     if (window.innerWidth > 768) {
@@ -27725,6 +27752,26 @@ function _seqInitSwipeDown() { /* swipe handled by shared initDrawerSwipe */ }
     }
   }
 
+  /* Drawer-specific scroll handler — works on scrollTop of drawer bodies */
+  function applyDrawerScrollState(scrollY) {
+    if (window.innerWidth > 768) return;
+    var delta = scrollY - _drawerScrollLastY;
+    _drawerScrollLastY = scrollY;
+
+    if (delta > HIDE_THRESHOLD && !hidden && scrollY > 40) {
+      hidden = true;
+      document.body.classList.add('header-scrolled-away');
+    } else if (delta < -SHOW_THRESHOLD && hidden) {
+      hidden = false;
+      document.body.classList.remove('header-scrolled-away');
+    }
+    // Near top of drawer — show header
+    if (scrollY <= 10 && hidden) {
+      hidden = false;
+      document.body.classList.remove('header-scrolled-away');
+    }
+  }
+
   function onScroll() {
     if (!ticking) {
       ticking = true;
@@ -27743,6 +27790,53 @@ function _seqInitSwipeDown() { /* swipe handled by shared initDrawerSwipe */ }
       if (el) el.addEventListener('scroll', onScroll, { passive: true });
     });
   });
+
+  /* ── Drawer header-hide helpers (called from drawer open/close) ── */
+  window._drawerMobileHeaderHide = function() {
+    if (window.innerWidth > 768) return;
+    // Immediately hide header, move seq strip to top
+    hidden = true;
+    document.body.classList.add('header-scrolled-away');
+    // Attach scroll listeners to all known drawer scroll containers
+    _drawerMobileScrollCleanup();
+    var bodyIds = ['seqDrawerBody', 'keyboardDrawerBody', 'looperBody',
+                   'backendDrawerBody', 'practiceDrawerBody', 'inspoDrawerBody',
+                   'runThroughDrawerBody'];
+    bodyIds.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var handler = function() {
+        requestAnimationFrame(function() {
+          applyDrawerScrollState(el.scrollTop);
+        });
+      };
+      el.addEventListener('scroll', handler, { passive: true });
+      _drawerScrollListeners.push({ el: el, handler: handler });
+    });
+    _drawerScrollLastY = 0;
+  };
+
+  function _drawerMobileScrollCleanup() {
+    _drawerScrollListeners.forEach(function(pair) {
+      pair.el.removeEventListener('scroll', pair.handler);
+    });
+    _drawerScrollListeners = [];
+  }
+
+  window._drawerMobileHeaderRestore = function() {
+    if (window.innerWidth > 768) return;
+    // Only restore if no drawers are still open
+    var anyOpen = ['seqDrawer', 'looperDrawer', 'keyboardDrawer', 'backendDrawer',
+                   'inspoDrawer', 'practiceDrawer', 'runThroughDrawer'].some(function(id) {
+      var el = document.getElementById(id);
+      return el && el.classList.contains('open');
+    });
+    if (anyOpen) return;
+    _drawerMobileScrollCleanup();
+    hidden = false;
+    document.body.classList.remove('header-scrolled-away');
+    lastY = window.scrollY || 0;
+  };
 })();
 
 /* ── Desktop: move control bar out of header DOM ─────────────────── */
@@ -29127,6 +29221,7 @@ function openLooperDrawer() {
   loopUpdateMonitorPill();
   loopCheckMicStatus(); // update mic pill and warm up stream if already granted
   // VU meter starts only when record is clicked — not on open
+  _drawerMobileHeaderHide();
 }
 function closeLooperDrawer() {
   if (_splitActive && _splitCurrentTool === 'looper') { splitExpandPane('left'); return; }
@@ -29135,6 +29230,7 @@ function closeLooperDrawer() {
   document.getElementById('looperOverlay').classList.remove('open');
   _vuMaybeStop();
   _sharedHeaderClose();
+  _drawerMobileHeaderRestore();
 }
 
 function loopOnSongChange(song) {
@@ -30233,6 +30329,8 @@ function openBackendDrawer() {
   var beEl   = document.getElementById('songViewBackend');
   var tabs   = document.getElementById('detailTabs');
   if (!drawer || !body || !beEl) return;
+  // Close any other open drawers first
+  closeAllDrawers('backendDrawer');
   // Store original DOM position for restoration on close
   _backendDrawerOrigParent = beEl.parentNode;
   _backendDrawerOrigNext   = beEl.nextSibling;
@@ -30245,6 +30343,7 @@ function openBackendDrawer() {
   // Animate open
   drawer.classList.add('open');
   document.body.classList.add('backend-drawer-open');
+  _drawerMobileHeaderHide();
   _syncStickyNavBtns();
 }
 
@@ -30265,6 +30364,7 @@ function closeBackendDrawer() {
   _backendDrawerOrigNext   = null;
   drawer.classList.remove('open');
   document.body.classList.remove('backend-drawer-open');
+  _drawerMobileHeaderRestore();
   _syncStickyNavBtns();
 }
 
@@ -32845,6 +32945,7 @@ function closeAllDrawers(exceptId) {
     ['practiceDrawer',     closePracticeDrawer],
     ['runThroughDrawer',   closeRunThroughDrawer],
     ['keyboardDrawer',     closeKeyboardDrawer],
+    ['backendDrawer',      closeBackendDrawer],
     // mixDrawer intentionally omitted — it floats over other drawers
   ];
   pairs.forEach(([id, closeFn]) => {
