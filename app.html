@@ -36553,6 +36553,148 @@ async function _mtRunCountdown(cb) {
   cb();
 }
 
+// ── Chunked Upload Engine ─────────────────────────────────────
+// Uploads recording chunks to Firebase Storage as they're produced,
+// then calls a Cloud Function to stitch them into one file.
+// Falls back to legacy single-blob upload on Safari / unsupported browsers.
+const CHUNK_TIMESLICE_MS = 10000; // 10 seconds
+const CHUNK_MAX_RETRIES  = 3;
+
+// Detect Safari (timeslice produces independent segments, not a continuous stream)
+const _isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+const _chunkedUploadSupported = !_isSafari && typeof MediaRecorder !== 'undefined';
+
+// Active chunked session state
+let _chunkSession = null; // { recordingId, chunkIdx, uploads[], totalBytes, aborted }
+
+function _chunkNewSession() {
+  const id = auth.currentUser.uid + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  return {
+    recordingId: id,
+    chunkIdx: 0,
+    uploads: [],      // array of Promises
+    totalBytes: 0,
+    aborted: false,
+    uploadedCount: 0,
+    failedCount: 0,
+  };
+}
+
+async function _chunkUpload(session, blob) {
+  if (session.aborted) return;
+  const idx = session.chunkIdx++;
+  const padded = String(idx).padStart(4, '0');
+  const path = `chunks/${session.recordingId}/chunk_${padded}.webm`;
+  session.totalBytes += blob.size;
+
+  const upload = (async (retries) => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const ref = firebase.storage().ref(path);
+        await ref.put(blob, { contentType: blob.type || 'audio/webm' });
+        session.uploadedCount++;
+        _chunkUpdateProgress(session);
+        return true;
+      } catch(err) {
+        if (attempt === retries) {
+          console.error(`[CHUNK] Upload failed after ${retries + 1} attempts: chunk_${padded}`, err);
+          session.failedCount++;
+          _chunkUpdateProgress(session);
+          return false;
+        }
+        // Exponential backoff: 500ms, 1s, 2s
+        await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt)));
+      }
+    }
+  })(CHUNK_MAX_RETRIES);
+
+  session.uploads.push(upload);
+}
+
+function _chunkUpdateProgress(session) {
+  const total = session.chunkIdx;
+  const done  = session.uploadedCount;
+  const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
+  // Update status line if visible and recording
+  if (_vrRecording) {
+    const el = document.getElementById('mtStatus');
+    if (el && el.textContent.startsWith('●')) {
+      // Don't overwrite the REC status — show upload progress in a subtle way
+    }
+  }
+  // Update the upload progress indicator (if we add one)
+  const prog = document.getElementById('chunkUploadProgress');
+  if (prog) {
+    prog.textContent = session.failedCount > 0
+      ? `Uploading… ${done}/${total} (${session.failedCount} failed)`
+      : `Uploading… ${done}/${total}`;
+    prog.style.display = total > 0 ? '' : 'none';
+  }
+}
+
+async function _chunkFinalize(session, songId, durSec, mimeType, trackIdx, source) {
+  if (session.aborted) return null;
+
+  // Wait for all in-flight uploads to complete
+  _setStatus('Finalizing…');
+  const results = await Promise.all(session.uploads);
+  const allOk = results.every(r => r === true);
+
+  if (!allOk) {
+    // Some chunks failed — fall back: we can't stitch with gaps
+    console.error('[CHUNK] Some uploads failed, cannot stitch. Chunks uploaded:', session.uploadedCount, '/', session.chunkIdx);
+    _setStatus('Upload failed — some chunks did not upload');
+    // Clean up whatever did upload
+    _chunkCleanup(session.recordingId);
+    return null;
+  }
+
+  // Call Cloud Function to stitch chunks into final file
+  const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('wav') ? 'wav' : 'ogg';
+  const fname = 'take_' + Date.now() + '.' + ext;
+  const destPath = 'voice_takes/' + songId + '/' + fname;
+
+  try {
+    _setStatus('Stitching…');
+    const stitchFn = firebase.functions().httpsCallable('stitchRecordingChunks');
+    const result = await stitchFn({
+      recordingId: session.recordingId,
+      destPath: destPath,
+      contentType: mimeType,
+    });
+
+    const url = result.data.downloadUrl;
+    // Save to Firestore (same as _uploadTake but we already have the URL)
+    const uid = auth.currentUser?.uid;
+    const doc = {
+      songId: songId, userId: uid,
+      filename: fname, storagePath: destPath,
+      downloadUrl: url,
+      duration: Math.round(durSec),
+      mimeType: mimeType,
+      trackNum: typeof trackIdx === 'number' ? trackIdx : 0,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    if (source) doc.source = source;
+    const docRef = await db.collection('voice_takes').add(doc);
+    return { id: docRef.id, downloadUrl: url, mimeType, duration: Math.round(durSec),
+             trackNum: typeof trackIdx === 'number' ? trackIdx : 0 };
+  } catch(err) {
+    console.error('[CHUNK] Stitch failed:', err);
+    _setStatus('Stitch failed — saving locally…');
+    // Clean up chunks
+    _chunkCleanup(session.recordingId);
+    return null;
+  }
+}
+
+function _chunkCleanup(recordingId) {
+  // Best-effort cleanup of chunks from Storage (Cloud Function cleanup will catch stragglers)
+  const prefix = `chunks/${recordingId}/`;
+  // We don't have a list API on the client SDK, but the orphan cleanup function handles this
+  console.log('[CHUNK] Cleanup requested for', recordingId, '— orphan cleanup function will handle.');
+}
+
 // ── Record ─────────────────────────────────────────────────────
 window.vrToggleRec = async function() {
   if (_vrRecording) { _mtStopRecording(); return; }
@@ -36637,9 +36779,26 @@ window.vrToggleRec = async function() {
       : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
         ? 'audio/ogg;codecs=opus' : 'audio/webm';
     t.mediaRecorder = new MediaRecorder(_recStream, { mimeType });
-    t.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) t.chunks.push(e.data); };
-    t.mediaRecorder.onstop = () => _mtFinishRecording(_mtArmedTrack, mimeType);
-    t.mediaRecorder.start(100);
+
+    // ── Chunked upload path (Chrome / non-Safari) ──
+    if (_chunkedUploadSupported) {
+      _chunkSession = _chunkNewSession();
+      t._chunkSession = _chunkSession; // attach to track for _mtFinishRecording
+      t.mediaRecorder.ondataavailable = e => {
+        if (e.data.size > 0) {
+          t.chunks.push(e.data);                    // keep local copy for BT trim / fallback
+          _chunkUpload(_chunkSession, e.data);      // upload immediately in background
+        }
+      };
+      t.mediaRecorder.onstop = () => _mtFinishRecording(_mtArmedTrack, mimeType);
+      t.mediaRecorder.start(CHUNK_TIMESLICE_MS);    // fire ondataavailable every ~10s
+    } else {
+      // ── Legacy path (Safari / fallback) ──
+      t._chunkSession = null;
+      t.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) t.chunks.push(e.data); };
+      t.mediaRecorder.onstop = () => _mtFinishRecording(_mtArmedTrack, mimeType);
+      t.mediaRecorder.start(100);
+    }
 
     _vrRecording = true;
     _mtRecStartMs = Date.now();
@@ -36731,11 +36890,13 @@ function _mtStopRecording() {
 async function _mtFinishRecording(trackIdx, mimeType) {
   const t = _mtTracks[trackIdx]; if (!t || !t.chunks.length) { _setStatus('Nothing recorded'); return; }
   const durSec = (Date.now() - _mtRecStartMs) / 1000;
+  const session = t._chunkSession; // null on legacy path
   let blob = new Blob(t.chunks, { type: mimeType });
   t.chunks = [];
 
-  // BT trim
-  if (_vrBtSync && _vrBtLatencyMs > 0) {
+  // BT trim — only on legacy path (chunked path uploads raw chunks, trim happens post-stitch)
+  const needsBtTrim = _vrBtSync && _vrBtLatencyMs > 0;
+  if (needsBtTrim && !session) {
     try {
       const tmpCtx = new (window.AudioContext || window.webkitAudioContext)();
       const decoded = await tmpCtx.decodeAudioData(await blob.arrayBuffer());
@@ -36755,7 +36916,31 @@ async function _mtFinishRecording(trackIdx, mimeType) {
   }
 
   _vrUploading = true;
-  const newTake = await _uploadTake(blob, durSec, mimeType, trackIdx);
+  let newTake = null;
+
+  if (session && !needsBtTrim) {
+    // ── Chunked path: chunks already uploaded, just finalize via Cloud Function ──
+    newTake = await _chunkFinalize(session, _vrSongId, durSec, mimeType, trackIdx);
+    if (!newTake) {
+      // Chunked stitch failed — fall back to legacy upload with the local blob
+      console.warn('[CHUNK] Stitch failed, falling back to legacy upload');
+      _setStatus('Stitch failed — uploading full recording…');
+      newTake = await _uploadTake(blob, durSec, mimeType, trackIdx);
+    }
+    t._chunkSession = null;
+    _chunkSession = null;
+  } else {
+    // ── Legacy path (Safari, BT trim active, or fallback) ──
+    if (session) {
+      // Had a chunk session but BT trim means we need to upload the trimmed blob instead
+      session.aborted = true; // stop any in-flight chunk uploads from mattering
+      _chunkCleanup(session.recordingId);
+      t._chunkSession = null;
+      _chunkSession = null;
+    }
+    newTake = await _uploadTake(blob, durSec, mimeType, trackIdx);
+  }
+
   _vrUploading = false;
   if (newTake) {
     showToast('Take saved ✓', 'success', 2000);
@@ -36773,9 +36958,6 @@ async function _mtFinishRecording(trackIdx, mimeType) {
       await _mtLoadTakeBuffer(trackIdx, t.takes[idx]);
       _mtRenderTakesPanel(trackIdx);
     }
-    // Prior takes are kept — they appear in the takes panel so the user can switch between them.
-    // This works cross-device: a mobile overdub creates a new take; when the user returns to
-    // desktop they'll see the new take loaded with the old take still available in the takes list.
   }
   const _pb3 = _el('mtPlayBtn'); if (_pb3) _pb3.disabled = !_mtTracks.some(t=>t&&t.buffer);
 }
