@@ -24393,8 +24393,20 @@ function initApp() {
   }, 1500);
 
   // Show onboarding for first-time users
+  // Check both localStorage and Firestore flag (guests may lose localStorage between sessions)
   if (!localStorage.getItem('drafthaus-onboarding-done')) {
-    setTimeout(obOpen, 800);
+    const _uid = auth.currentUser?.uid;
+    if (_uid) {
+      db.collection('users').doc(_uid).get().then(doc => {
+        if (doc.exists && doc.data().onboardingDone) {
+          localStorage.setItem('drafthaus-onboarding-done', '1'); // restore local flag
+        } else {
+          setTimeout(obOpen, 800);
+        }
+      }).catch(() => setTimeout(obOpen, 800));
+    } else {
+      setTimeout(obOpen, 800);
+    }
   }
 }
 
@@ -27548,6 +27560,9 @@ function obOpen() {
 function obClose() {
   document.getElementById('onboardingOverlay').classList.remove('open');
   localStorage.setItem('drafthaus-onboarding-done', '1');
+  // Persist to Firestore so guests don't re-see the tutorial if localStorage is cleared
+  const _uid = auth.currentUser?.uid;
+  if (_uid) db.collection('users').doc(_uid).set({ onboardingDone: true }, { merge: true }).catch(() => {});
 }
 
 function obNext() {
