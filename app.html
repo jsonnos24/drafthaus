@@ -24421,31 +24421,35 @@ function _setupNewUserState() {
   var _nuPresets = ['rock1', 'rock2', 'hiphop', 'pop', 'rnb', 'edm', 'motown', 'altrock', 'country'];
   var _nuPreset  = _nuPresets[Math.floor(Math.random() * _nuPresets.length)];
 
-  // Common chord progressions (1 chord per bar × 4 bars, 16 steps at grid=1)
-  var _nuProgressions = [
-    ['C','G','Am','F'],
-    ['C','Am','F','G'],
-    ['Am','F','C','G'],
-    ['D','A','Bm','G'],
-    ['G','D','Em','C'],
-    ['Am','G','F','E'],
-    ['Dm','Am','Bb','C'],
-  ];
-  var _nuProg = _nuProgressions[Math.floor(Math.random() * _nuProgressions.length)];
+  // ── Intro sequence: chord progression + drums ──
+  var _nuIntroProg = ['C', 'G', 'Am', 'F'];
+  var _nuIntroChordSlots = new Array(16).fill('');
+  _nuIntroProg.forEach(function(ch, i) { if (i < 4) _nuIntroChordSlots[i * 4] = ch; });
 
-  // Build chord slots array: 16 steps, chords at 0/4/8/12
-  var _nuChordSlots = new Array(16).fill('');
-  _nuProg.forEach(function(ch, i) { if (i < 4) _nuChordSlots[i * 4] = ch; });
-
-  var _nuSeqId = 'seq_' + Date.now();
-  var _nuSeq = {
-    id: _nuSeqId, bpm: '125', time: '4', bars: '4', grid: '1',
+  var _nuIntroSeqId = 'seq_' + Date.now();
+  var _nuIntroSeq = {
+    id: _nuIntroSeqId, partId: 'intro', part: 'intro',
+    bpm: '125', time: '4', bars: '4', grid: '1',
     swing: '0', vel: '0.8', wave: 'triangle', instrument: 'piano+synth',
-    chordSlots: _nuChordSlots, chordDegrees: [],
+    chordSlots: _nuIntroChordSlots, chordDegrees: [],
     kick: [], snare: [], hat: [], crash: [], clap: [], hitom: [], lotom: [], melody: []
   };
 
-  // Apply drum pattern directly into the sequencer data
+  // ── Verse 1 sequence: different chord progression + drums ──
+  var _nuVerseProg = ['Am', 'F', 'C', 'G'];
+  var _nuVerseChordSlots = new Array(16).fill('');
+  _nuVerseProg.forEach(function(ch, i) { if (i < 4) _nuVerseChordSlots[i * 4] = ch; });
+
+  var _nuVerseSeqId = 'seq_' + (Date.now() + 1);
+  var _nuVerseSeq = {
+    id: _nuVerseSeqId, partId: 'verse-1', part: 'verse-1',
+    bpm: '125', time: '4', bars: '4', grid: '1',
+    swing: '0', vel: '0.8', wave: 'triangle', instrument: 'piano+synth',
+    chordSlots: _nuVerseChordSlots, chordDegrees: [],
+    kick: [], snare: [], hat: [], crash: [], clap: [], hitom: [], lotom: [], melody: []
+  };
+
+  // Apply drum pattern to both sequences
   var _nuPattern = (typeof DRUM_PATTERNS !== 'undefined') ? DRUM_PATTERNS[_nuPreset] : null;
   if (_nuPattern) {
     var _nuSteps = 16;
@@ -24455,19 +24459,35 @@ function _setupNewUserState() {
       for (var i = 0; i < s; i++) out.push(arr[Math.floor(i * arr.length / s)] || 0);
       return out;
     }
-    _nuSeq.kick  = _nuFit(_nuPattern.kick,  _nuSteps);
-    _nuSeq.snare = _nuFit(_nuPattern.snare, _nuSteps);
-    _nuSeq.hat   = _nuFit(_nuPattern.hat,   _nuSteps);
-    _nuSeq.crash = _nuFit(_nuPattern.crash, _nuSteps);
-    _nuSeq.clap  = _nuFit(_nuPattern.clap,  _nuSteps);
-    _nuSeq.hitom = _nuFit(_nuPattern.hitom || [], _nuSteps);
-    _nuSeq.lotom = _nuFit(_nuPattern.lotom || [], _nuSteps);
+    [_nuIntroSeq, _nuVerseSeq].forEach(function(seq) {
+      seq.kick  = _nuFit(_nuPattern.kick,  _nuSteps);
+      seq.snare = _nuFit(_nuPattern.snare, _nuSteps);
+      seq.hat   = _nuFit(_nuPattern.hat,   _nuSteps);
+      seq.crash = _nuFit(_nuPattern.crash, _nuSteps);
+      seq.clap  = _nuFit(_nuPattern.clap,  _nuSteps);
+      seq.hitom = _nuFit(_nuPattern.hitom || [], _nuSteps);
+      seq.lotom = _nuFit(_nuPattern.lotom || [], _nuSteps);
+    });
   }
 
   var _nuSong = {
-    id: genId(), workingTitle: '', title: '', bpm: '125', key: 'C major', tuning: '',
-    project: '', status: 'idea', structure: {}, sectionOrder: [], chords: {}, instruments: {},
-    sequencer: _nuSeq, sequences: [_nuSeq], notes: '', moods: [],
+    id: genId(), workingTitle: 'First Idea', title: '', bpm: '125', key: 'C major', tuning: '',
+    project: '', status: 'idea',
+    structure: {
+      'intro':   { checked: true, count: 1 },
+      'verse-1': { checked: true, count: 1 },
+    },
+    sectionOrder: ['intro', 'verse-1'],
+    chords: {
+      'intro':   [{ root: 'C', quality: 'maj' }, { root: 'G', quality: 'maj' }, { root: 'A', quality: 'min' }, { root: 'F', quality: 'maj' }],
+      'verse-1': [{ root: 'A', quality: 'min' }, { root: 'F', quality: 'maj' }, { root: 'C', quality: 'maj' }, { root: 'G', quality: 'maj' }],
+    },
+    lyrics: {
+      'intro':   'Once upon a time\nI had an idea I lost',
+      'verse-1': 'But never again, 3 cheers for Drafthaus.\nClick to edit',
+    },
+    instruments: {},
+    sequencer: _nuIntroSeq, sequences: [_nuIntroSeq, _nuVerseSeq], notes: '', moods: [],
     createdAt: Date.now(), updatedAt: Date.now()
   };
   songs.unshift(_nuSong);
@@ -24477,11 +24497,11 @@ function _setupNewUserState() {
   // Step 1 (150ms): Open the layout
   setTimeout(function() {
     if (window.innerWidth >= 900) {
-      // Desktop: split view — lyrics edit left, drum machine right
-      if (typeof openSplitMode === 'function') openSplitMode('sequencer');
+      // Desktop: split view — song list left, keys drawer right
+      if (typeof openSplitMode === 'function') openSplitMode('keyboard');
     } else {
-      // Mobile: open 4-track drawer
-      if (typeof vrOpen === 'function') vrOpen();
+      // Mobile: open keyboard drawer
+      if (typeof openKeyboardDrawer === 'function') openKeyboardDrawer();
     }
   }, 150);
 
@@ -24493,6 +24513,7 @@ function _setupNewUserState() {
     // seqBpm lives inside the drawer (injected by initSequencer); update if present
     var _bpmEl  = document.getElementById('seqBpm');  if (_bpmEl)  _bpmEl.value  = '125';
     // Rebuild drum + chord grids with the pre-populated data
+    if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
     if (typeof seqBuildGrids === 'function')       seqBuildGrids(_nuSong);
     if (typeof seqRenderChordPills === 'function') seqRenderChordPills(_nuSong);
     // Also trigger the auto-fit zoom so the grid fills the pane
