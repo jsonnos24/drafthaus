@@ -36784,8 +36784,10 @@ window.vrToggleRec = async function() {
     if (_chunkedUploadSupported) {
       _chunkSession = _chunkNewSession();
       t._chunkSession = _chunkSession; // attach to track for _mtFinishRecording
+      console.log('[CHUNK] Chunked upload enabled, timeslice:', CHUNK_TIMESLICE_MS, 'ms, session:', _chunkSession.recordingId);
       t.mediaRecorder.ondataavailable = e => {
         if (e.data.size > 0) {
+          console.log('[CHUNK] ondataavailable fired — chunk #' + _chunkSession.chunkIdx + ', size:', e.data.size, 'bytes');
           t.chunks.push(e.data);                    // keep local copy for BT trim / fallback
           _chunkUpload(_chunkSession, e.data);      // upload immediately in background
         }
@@ -36794,6 +36796,7 @@ window.vrToggleRec = async function() {
       t.mediaRecorder.start(CHUNK_TIMESLICE_MS);    // fire ondataavailable every ~10s
     } else {
       // ── Legacy path (Safari / fallback) ──
+      console.log('[CHUNK] Legacy path — chunked upload not supported on this browser');
       t._chunkSession = null;
       t.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) t.chunks.push(e.data); };
       t.mediaRecorder.onstop = () => _mtFinishRecording(_mtArmedTrack, mimeType);
