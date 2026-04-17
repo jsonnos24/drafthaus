@@ -35894,6 +35894,16 @@ function _vrStartTakesListener(songId) {
         t.takes = byTrack[i];
         _mtRenderTakesPanel(i);
         _mtUpdateTakesBtn(i);
+        if (typeof _mtUpdateInlineTakesLabel === 'function') _mtUpdateInlineTakesLabel(i);
+        if (t.takes.length === 0 && prevCount > 0) {
+          // All takes deleted — clear buffer and waveform canvas immediately
+          t.buffer = null; t.duration = 0; t.activeTakeIdx = -1;
+          const _wc = _el('mt-wave-'+i);
+          if (_wc) { const _cx = _wc.getContext('2d'); _cx.clearRect(0, 0, _wc.width, _wc.height); }
+        } else if (t.takes.length > 0 && t.activeTakeIdx >= t.takes.length) {
+          // Active take was deleted but others remain — adjust index
+          t.activeTakeIdx = t.takes.length - 1;
+        }
         // If a new take appeared on a track with no buffer, auto-load it so it shows immediately
         if (t.takes.length > prevCount && !t.buffer && t.takes.length > 0) {
           const latestIdx = t.takes.length - 1;
@@ -37351,6 +37361,26 @@ window.vrDeleteTake = async function(takeId, storagePath) {
     await db.collection('voice_takes').doc(takeId).delete();
     // Evict from local audio cache so deleted takes don't linger on disk
     _mtAudioCache.del(takeId).catch(() => {});
+    // Clean per-take waveform cache entry
+    _vrWaveformCache.delete(takeId);
+    // Immediately clear the track waveform if this was the active take,
+    // so the user sees instant feedback before vrLoadTakes() finishes.
+    const _delTrackIdx = typeof d.trackNum === 'number' ? Math.min(3, Math.max(0, d.trackNum)) : 0;
+    const _delTrack = _mtTracks[_delTrackIdx];
+    if (_delTrack) {
+      // Remove this take from the local array so waveform isn't stale
+      _delTrack.takes = _delTrack.takes.filter(tk => tk.id !== takeId);
+      if (_delTrack.takes.length === 0) {
+        _delTrack.buffer = null; _delTrack.duration = 0; _delTrack.activeTakeIdx = -1;
+        const _dwc = _el('mt-wave-' + _delTrackIdx);
+        if (_dwc) { const _dcx = _dwc.getContext('2d'); _dcx.clearRect(0, 0, _dwc.width, _dwc.height); }
+      } else if (_delTrack.activeTakeIdx >= _delTrack.takes.length) {
+        _delTrack.activeTakeIdx = _delTrack.takes.length - 1;
+      }
+      _mtRenderTakesPanel(_delTrackIdx);
+      _mtUpdateTakesBtn(_delTrackIdx);
+      if (typeof _mtUpdateInlineTakesLabel === 'function') _mtUpdateInlineTakesLabel(_delTrackIdx);
+    }
     vrLoadTakes();
   } catch(e) { console.error('[MT] delete error', e); }
 };
