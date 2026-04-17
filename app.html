@@ -9302,6 +9302,38 @@ body.il-perf-active #ilScrollFloat { display: none; }
 }
 #vrMonPill .vr-mon-icon { font-size: 13px; }
 
+/* ── Input Monitor Toggle Button (shared by Looper + 4-Track) ── */
+.input-mon-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-left: 12px;
+  padding: 3px 10px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  background: rgba(255,255,255,0.04);
+  color: #666;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  user-select: none;
+  -webkit-user-select: none;
+  line-height: 1.4;
+}
+.input-mon-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: #999;
+  border-color: rgba(255,255,255,0.2);
+}
+.input-mon-btn.mon-active {
+  color: #00e87a;
+  border-color: rgba(0,232,122,0.4);
+  background: rgba(0,232,122,0.08);
+}
+.input-mon-btn.mon-active:hover {
+  background: rgba(0,232,122,0.14);
+}
+.input-mon-btn .mon-btn-icon { font-size: 11px; }
+
 .vr-feedback-warn {
   margin: 0 12px 6px;
   padding: 6px 10px;
@@ -30099,6 +30131,8 @@ async function loopStartRecording(i){
   const t=loopTracks[i];const stream=await loopEnsureMicStream();if(!stream)return;
   // Start VU meter now that mic is live (deferred to record click, not drawer open)
   _vuStart();
+  // Start input monitor if enabled (mic → speakers)
+  _inputMonOnStreamReady();
   // One-time hint: explain monitor muting on first ever recording
   if (!localStorage.getItem('loop_rec_hint_shown')) {
     localStorage.setItem('loop_rec_hint_shown', '1');
@@ -35232,7 +35266,7 @@ window.mtArmTrack = function(i) {
   _setStatus(_mtArmedTrack >= 0 ? 'Track '+MT_NAMES[_mtArmedTrack]+' armed — press ⏺ to record' : 'Arm a track to record');
   _el('mtRecBtn')?.classList.toggle('mt-active', _mtArmedTrack >= 0);
   // Start VU meter (requests mic) only when a track is armed
-  if (_mtArmedTrack >= 0) { _vuStart(); } else { _vuMaybeStop(); }
+  if (_mtArmedTrack >= 0) { _vuStart(); _inputMonOnStreamReady(); } else { _vuMaybeStop(); _inputMonOnStreamReleased(); }
   // Keep shared transport Rec button in sync
   if (typeof _syncSharedRecBtnState === 'function') _syncSharedRecBtnState();
 };
@@ -35897,6 +35931,110 @@ function _vuDrawBar(id, level, clipping) {
   }
 }
 
+// ── Input Monitor (mic → speakers) ────────────────────────────
+// Routes the live mic signal to the audio output so the user can hear
+// themselves while a track is armed or recording.  Toggled by the
+// "Input Mon" button next to the Monitor: Auto pill.
+var _inputMonEnabled = localStorage.getItem('drafthaus-input-mon') === '1';
+var _inputMonCtx     = null;   // AudioContext (shared w/ _vuCtx when possible)
+var _inputMonSrc     = null;   // MediaStreamSource
+var _inputMonGain    = null;   // GainNode — 0 = muted, 1 = live
+
+function _inputMonSyncUI() {
+  var btns   = [document.getElementById('loopInputMonBtn'), document.getElementById('vrInputMonBtn')];
+  var labels = [document.getElementById('loopInputMonLabel'), document.getElementById('vrInputMonLabel')];
+  btns.forEach(function(btn, idx) {
+    if (!btn) return;
+    var iconEl = btn.querySelector('.mon-btn-icon');
+    if (_inputMonEnabled) {
+      btn.classList.add('mon-active');
+      if (iconEl) iconEl.textContent = '🔊';
+      if (labels[idx]) labels[idx].textContent = 'Input Mon';
+    } else {
+      btn.classList.remove('mon-active');
+      if (iconEl) iconEl.textContent = '🔇';
+      if (labels[idx]) labels[idx].textContent = 'Input Mon';
+    }
+  });
+}
+
+async function _inputMonStart() {
+  // Build or resume the monitoring audio graph: mic → gain → destination
+  try {
+    // Prefer an existing mic stream (4-track → looper → standalone VU)
+    var stream = (_mtStream && _mtStream.active) ? _mtStream
+               : (typeof loopSharedStream !== 'undefined' && loopSharedStream && loopSharedStream.active)
+                 ? loopSharedStream
+               : (_vuStream && _vuStream.active) ? _vuStream : null;
+    if (!stream) {
+      // Fall back to own getUserMedia
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { noiseSuppression: false, echoCancellation: false, autoGainControl: false },
+        video: false
+      });
+    }
+    if (!_inputMonCtx || _inputMonCtx.state === 'closed') {
+      _inputMonCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (_inputMonCtx.state === 'suspended') await _inputMonCtx.resume();
+
+    // Disconnect old source if stream changed
+    if (_inputMonSrc) { try { _inputMonSrc.disconnect(); } catch(e){} }
+
+    _inputMonSrc  = _inputMonCtx.createMediaStreamSource(stream);
+    if (!_inputMonGain) {
+      _inputMonGain = _inputMonCtx.createGain();
+      _inputMonGain.connect(_inputMonCtx.destination);
+    }
+    _inputMonGain.gain.setValueAtTime(_inputMonEnabled ? 1 : 0, _inputMonCtx.currentTime);
+    _inputMonSrc.connect(_inputMonGain);
+  } catch(e) {
+    console.warn('Input monitor start failed:', e);
+  }
+}
+
+function _inputMonStop() {
+  if (_inputMonSrc) { try { _inputMonSrc.disconnect(); } catch(e){} _inputMonSrc = null; }
+  if (_inputMonGain) { _inputMonGain.gain.value = 0; }
+}
+
+function _inputMonApplyGain() {
+  // Smoothly ramp gain to avoid click
+  if (_inputMonGain && _inputMonCtx && _inputMonCtx.state === 'running') {
+    _inputMonGain.gain.linearRampToValueAtTime(
+      _inputMonEnabled ? 1 : 0,
+      _inputMonCtx.currentTime + 0.015
+    );
+  }
+}
+
+window.toggleInputMonitor = function() {
+  _inputMonEnabled = !_inputMonEnabled;
+  localStorage.setItem('drafthaus-input-mon', _inputMonEnabled ? '1' : '0');
+  _inputMonSyncUI();
+  if (_inputMonEnabled) {
+    // If a stream is already live (armed/recording), start monitoring now
+    var hasStream = (_mtStream && _mtStream.active)
+                 || (typeof loopSharedStream !== 'undefined' && loopSharedStream && loopSharedStream.active);
+    if (hasStream && !_inputMonSrc) _inputMonStart();
+    else _inputMonApplyGain();
+  } else {
+    _inputMonApplyGain();
+  }
+};
+
+// Hook: call after mic stream is acquired (arm, record) to auto-start if enabled
+function _inputMonOnStreamReady() {
+  if (_inputMonEnabled) _inputMonStart();
+}
+// Hook: call when all streams released
+function _inputMonOnStreamReleased() {
+  _inputMonStop();
+}
+
+// Sync UI on page load
+document.addEventListener('DOMContentLoaded', function() { _inputMonSyncUI(); });
+
 // ── Real-time takes listener (keeps takes panel in sync while overlay is open) ──
 function _vrStartTakesListener(songId) {
   _vrStopTakesListener(); // clear any previous listener first
@@ -36487,6 +36625,9 @@ window.vrToggleRec = async function() {
       console.warn('AudioContext not running (' + _ctx.state + ') — recording raw stream without gain boost');
     }
     const _recStream = _vrInputDestNode ? _vrInputDestNode.stream : stream;
+
+    // Start input monitor if enabled (mic → speakers)
+    _inputMonOnStreamReady();
 
     // Start MediaRecorder
     const t = _mtTracks[_mtArmedTrack];
@@ -38006,6 +38147,8 @@ function _releaseMicStreams() {
     try { _vuStream.getTracks().forEach(t => t.stop()); } catch(e) {}
     _vuStream = null;
   }
+  // Stop input monitor when all mic streams are released
+  if (typeof _inputMonOnStreamReleased === 'function') _inputMonOnStreamReleased();
 }
 window.addEventListener('beforeunload', _releaseMicStreams);
 window.addEventListener('pagehide',    _releaseMicStreams); // iOS Safari fallback
@@ -38264,7 +38407,7 @@ Object.defineProperty(window, '_mtArmedTrack', {
 <!-- ══ Floating transport panel — SEQ + Keys + Looper all use this one ══ -->
 <div class="looper-drawer" id="looperDrawer">
   <!-- Monitor status strip — always visible below header -->
-  <div id="loopMonPill" title="Monitor is auto-muted while recording to prevent feedback, and live during playback"><span class="mon-icon">🎧</span><span id="loopMonLabel">Monitor: Auto</span></div>
+  <div id="loopMonPill" title="Monitor is auto-muted while recording to prevent feedback, and live during playback"><span class="mon-icon">🎧</span><span id="loopMonLabel">Monitor: Auto</span><button class="input-mon-btn" id="loopInputMonBtn" onclick="toggleInputMonitor()" title="Route mic input to speakers so you can hear yourself while armed/recording"><span class="mon-btn-icon">🔇</span><span id="loopInputMonLabel">Input Mon</span></button></div>
   <!-- Mic permission status pill -->
   <div id="loopMicPill" onclick="loopMicPillClick()"><span id="loopMicPillIcon">🎤</span><span id="loopMicPillLabel">Mic: Checking…</span></div>
   <div class="looper-drawer-body" id="looperBody">
@@ -38840,7 +38983,7 @@ Object.defineProperty(window, '_mtArmedTrack', {
     <div id="seqLinkModeBanner" style="display:none;align-items:center;padding:6px 14px;background:rgba(10,10,16,0.97);border-bottom:1px solid var(--border);font-family:'IBM Plex Mono',monospace;font-size:11px;gap:0;flex-shrink:0;"></div>
 
     <!-- Monitor pill -->
-    <div id="vrMonPill"><span class="vr-mon-icon">🎧</span><span id="vrMonLabel">Monitor: Auto</span></div>
+    <div id="vrMonPill"><span class="vr-mon-icon">🎧</span><span id="vrMonLabel">Monitor: Auto</span><button class="input-mon-btn" id="vrInputMonBtn" onclick="toggleInputMonitor()" title="Route mic input to speakers so you can hear yourself while armed/recording"><span class="mon-btn-icon">🔇</span><span id="vrInputMonLabel">Input Mon</span></button></div>
     <div class="vr-feedback-warn" id="vrFeedbackWarn">
       ⚠ Input &amp; output on same device — use your interface's direct monitor to avoid feedback
     </div>
