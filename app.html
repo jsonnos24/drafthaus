@@ -976,18 +976,25 @@ button, select, input, textarea { touch-action: manipulation; }
     border-radius: 7px !important;
   }
   .seq-grid { gap: 4px !important; }
-  /* Chord sequence grid — fill available width so all 8 fit on screen */
+  /* Chord sequence grid — extend nearly edge-to-edge, bigger cells */
+  .kbd-chord-seq-wrapper {
+    margin-left: -14px !important;
+    margin-right: -14px !important;
+    padding-left: 2px !important;
+    padding-right: 2px !important;
+  }
   .kbd-chord-seq-wrapper .seq-grid,
   #seqChordGrid {
     grid-template-columns: repeat(8, 1fr) !important;
-    gap: 4px !important;
+    gap: 3px !important;
     width: 100% !important;
   }
-  /* Let chord slots fill their grid cell instead of fixed 46px */
+  /* Let chord slots fill their grid cell — taller for easier tapping */
   .kbd-chord-seq-wrapper .seq-slot,
   #seqChordGrid .seq-slot {
     width: 100% !important;
-    height: 40px !important;
+    height: 44px !important;
+    font-size: 11px !important;
   }
   .seq-grid-row { margin-bottom: 8px !important; gap: 0 !important; }
   .seq-bar-sep { width: 8px !important; }
@@ -1037,6 +1044,8 @@ button, select, input, textarea { touch-action: manipulation; }
     overflow-y: auto !important;
     overflow-x: hidden !important;
     -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior-y: contain !important;
+    padding-bottom: 80px !important;
   }
 
   /* Grid pane: full width, shrinks to content */
@@ -2052,7 +2061,8 @@ button, select, input, textarea { touch-action: manipulation; }
   .kbd-chord-grid-mode .seq-chord-pill-col { flex: 0 0 auto; min-width: 64px; }
   .kbd-chord-grid-mode .seq-chord-pill { font-size: 13px; padding: 8px 6px; text-align: center; white-space: nowrap; }
   .kbd-chord-grid-mode .seq-chord-var-pill { font-size: 10px; padding: 5px 4px; text-align: center; white-space: nowrap; }
-  /* Key trigger slots (1-8) */
+  /* Key trigger slots (1-9) — shown on desktop, hidden on mobile via @media rule */
+  #seqKeyTriggerRow { margin-bottom: 6px; }
   .seq-key-slot {
     display: flex; flex-direction: column; align-items: center; gap: 1px;
     min-width: 46px; padding: 5px 8px; border-radius: 5px; cursor: pointer;
@@ -4523,6 +4533,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .keyboard-drawer-close:hover { color: var(--text); }
   .keyboard-drawer-body {
     flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
     padding: 8px 16px 120px;
   }
   .kbd-open-seq-hint {
@@ -5638,6 +5649,12 @@ button, select, input, textarea { touch-action: manipulation; }
     height: calc(100dvh - 44px - env(safe-area-inset-bottom, 0px)) !important;
   }
 
+  /* ── Keyboard drawer body: fix mobile scroll bounce ── */
+  .keyboard-drawer-body {
+    padding: 8px 16px 80px !important;
+    overscroll-behavior-y: contain !important;
+  }
+
   /* ── Big tappable close buttons on all drawers ── */
   .seq-drawer-close,
   .practice-drawer-close,
@@ -6570,12 +6587,14 @@ button, select, input, textarea { touch-action: manipulation; }
 body.split-active #splitLeftHeader { display: flex; }
 /* Both views are now fixed containers starting just below the seq strip */
 @media (min-width: 900px) {
+  /* Override song-bar-visible padding — the sticky bar is hidden in split mode */
   body.split-active #viewList .container,
-  body.split-active #viewDetail .container { padding-top: 8px; }
+  body.split-active #viewDetail .container { padding-top: 8px !important; }
+  body.split-active.song-bar-visible #viewDetail .container { padding-top: 8px !important; }
 
-  /* Trim internal stacked paddings */
-  body.split-active .detail-body { padding-top: 8px; }
-  body.split-active #songViewRunthrough { padding-top: 12px !important; }
+  /* Trim internal stacked paddings — sticky bar is hidden, no extra clearance needed */
+  body.split-active .detail-body { padding-top: 8px !important; }
+  body.split-active #songViewRunthrough { padding-top: 4px !important; }
 }
 #splitLeftSelect {
   flex: 1;
@@ -8322,6 +8341,24 @@ body.il-perf-active:not(.split-active) .global-seq-strip { top: env(safe-area-in
 
 /* ── Global seq strip ── */
 .global-seq-strip { transition: top 0.28s cubic-bezier(0.34,1.56,0.64,1); }
+
+/* ── Desktop drum grid: 16-column wrapped layout ─────────────────── */
+@media (min-width: 701px) {
+  .seq-grid-pane .seq-grid {
+    display: grid !important;
+    grid-template-columns: repeat(16, var(--drum-slot-px, 28px));
+    gap: 3px;
+  }
+  .seq-grid-pane .seq-slot.bar-start {
+    margin-left: 0;
+  }
+  .seq-grid-pane .seq-bar-sep {
+    display: none;
+  }
+  .seq-grid-pane .seq-row-label {
+    padding-top: calc(var(--drum-slot-px, 28px) / 2 - 5px);
+  }
+}
 
 /* ── Desktop chord chart: tighter spacing between chord pills and syllable text ── */
 @media (min-width: 701px) {
@@ -27228,7 +27265,10 @@ function switchSplitSides() {
 /* Central router for all desktop tool clicks */
 function _desktopOpenTool(toolKey) {
   if (window.innerWidth < 900) return false; // let caller handle mobile
-  if (document.body.classList.contains('il-perf-active')) return false; // rehearse mode → always use drawers
+  // In rehearse mode on desktop: exit perf mode and open the tool in the split pane
+  if (document.body.classList.contains('il-perf-active')) {
+    if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
+  }
   // Same tool clicked while visible in right pane → collapse/toggle
   if (_splitActive && _splitCurrentTool === toolKey && _splitExpandedSide !== 'left') {
     splitExpandPane('left'); // collapses right pane; pressing again restores it
@@ -27814,12 +27854,12 @@ function renderKeyboardDrawerHtml(song) {
         <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;margin-left:auto;" onclick="seqClearAllChordSlots()" title="Clear all chord grid slots">Clear</button>
       </div>
       <div id="seqChordModeHint" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:0.08em;margin-bottom:8px;">Preview Mode — Click chord to preview · Drag into grid to compose</div>
+      <!-- Finger chord slots (1–9) — above diatonic chords, desktop only -->
+      <div class="seq-chord-section-title" style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint);margin-bottom:4px;">Finger Chords · Keys 1–9 · Drag to reassign</div>
+      <div class="seq-chords-row" id="seqKeyTriggerRow"></div>
       <!-- Chord pills container -->
       <div class="seq-chords-row" id="seqChordPills"></div>
     </div>
-
-    <!-- Finger chord slots (1–9) — hidden, kept for key-binding logic -->
-    <div class="seq-chords-row" id="seqKeyTriggerRow" style="display:none;"></div>
 
     <!-- ═══ 4. CHORDS instrument dropdown ═══ -->
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
