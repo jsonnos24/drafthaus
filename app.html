@@ -6494,7 +6494,7 @@ button, select, input, textarea { touch-action: manipulation; }
   body.split-active #viewList,
   body.split-active #viewDetail {
     position: fixed !important;
-    top: calc(140px + env(safe-area-inset-top, 0px)); /* 96px header-stack + 44px splitLeftHeader */
+    top: calc(96px + env(safe-area-inset-top, 0px)); /* header (48px) + seq strip (48px) */
     left: 0;
     bottom: 0;
     max-width: var(--split-left) !important;
@@ -6549,23 +6549,26 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Divider stays at the same visual position regardless of side */
 }
 
-/* Left panel header (split mode only) */
+/* Left panel header (split mode only) — overlaid on content */
 #splitLeftHeader {
   display: none;
   position: fixed;
   top: calc(96px + env(safe-area-inset-top, 0px)); left: 0;
   width: var(--split-left);
-  height: 44px;
-  background: var(--card);
-  border-bottom: 1px solid var(--border);
-  border-right: 1px solid var(--border);
+  height: 28px;
+  background: transparent;
+  border-bottom: none;
+  border-right: none;
   z-index: 10001;
   align-items: center;
-  padding: 0 14px;
-  gap: 8px;
+  justify-content: flex-end;
+  padding: 0 10px;
+  gap: 6px;
+  pointer-events: none;
 }
+#splitLeftHeader > * { pointer-events: auto; }
 body.split-active #splitLeftHeader { display: flex; }
-/* Both views are now fixed containers starting at 140px — only need minimal padding. */
+/* Both views are now fixed containers starting just below the seq strip */
 @media (min-width: 900px) {
   body.split-active #viewList .container,
   body.split-active #viewDetail .container { padding-top: 8px; }
@@ -6601,13 +6604,16 @@ body.split-active #splitLeftHeader { display: flex; }
 }
 body.split-active #splitRightPanel { display: flex; }
 
-/* Right panel header bar — now only holds expand/help controls */
+/* Right panel header bar — compact overlay for expand/help controls */
 #splitRightHeader {
-  display: flex; align-items: center; gap: 8px;
-  padding: 0 10px; height: 44px; flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-  background: var(--card);
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 10px; height: 28px; flex-shrink: 0;
+  border-bottom: none;
+  background: transparent;
+  position: relative; z-index: 2;
+  pointer-events: none;
 }
+#splitRightHeader > * { pointer-events: auto; }
 
 /* ── Drawer transport dock — sits above bottom nav (desktop only) ── */
 #splitTransportDock {
@@ -13239,9 +13245,12 @@ function renderGrid() {
         (part?.beats?.length > 0) || (part?.chords?.length > 0) || (part?.tab && String(part.tab).trim().length > 0)
       )
     );
+    const hasSeqContent = Array.isArray(song.sequences) && song.sequences.some(sq => sq &&
+      ((sq.chordSlots && sq.chordSlots.some(s => s)) || (sq.kick && sq.kick.some(v => v)) || (sq.snare && sq.snare.some(v => v)) || (sq.melody && sq.melody.length > 0)));
+    const hasChordContent = song.chords && Object.values(song.chords).some(arr => Array.isArray(arr) && arr.length > 0);
     const hasRecordings = localStorage.getItem('dh_rec_' + song.id) === '1' ||
       (song.id === currentId && typeof _mtTracks !== 'undefined' && _mtTracks.some(t => t.takes && t.takes.length > 0));
-    const hasMusic = hasInstContent || hasRecordings;
+    const hasMusic = hasInstContent || hasSeqContent || hasChordContent || hasRecordings;
     const checkBadges = (hasLyrics || hasMusic) ? `<span class="sl-checks">${hasLyrics ? '<span class="sl-check sl-check-lyr" title="Has lyrics">✓ Lyr</span>' : ''}${hasMusic ? '<span class="sl-check sl-check-mus" title="Has music/recordings">✓ Mus</span>' : ''}</span>` : '';
     const draggable = (!isShared && !isViewOnly) ? `draggable="true" ondragstart="_slDragStart('${song.id}',event)" ondragend="_slDragEnd('${song.id}')" ondragover="_slRowDragOver(this,event)" ondragleave="_slRowDragLeave(this,event)" ondrop="_slRowDrop(this,event)"` : '';
     const projKey = (song.project||'').trim();
@@ -13433,7 +13442,9 @@ function renderGrid() {
       Object.values(inst || {}).some(part =>
         (part?.chords||[]).length > 0 || (part?.beats||[]).length > 0
       )
-    );
+    ) || (Array.isArray(song.sequences) && song.sequences.some(sq => sq &&
+        ((sq.chordSlots && sq.chordSlots.some(s => s)) || (sq.kick && sq.kick.some(v => v)) || (sq.snare && sq.snare.some(v => v)) || (sq.melody && sq.melody.length > 0))))
+      || (song.chords && Object.values(song.chords).some(arr => Array.isArray(arr) && arr.length > 0));
     setTimeout(() => {
       const lEl = document.getElementById(`ck-l-${song.id}`);
       const mEl = document.getElementById(`ck-m-${song.id}`);
@@ -19035,8 +19046,6 @@ function _seqRenderChordWheelInner(el, names, roman, QUAL_VARIANTS, parseChord) 
       title="${roman[i]}: ${displayName}"
       ondragstart="this.classList.add('dragging');event.dataTransfer.setData('text/plain',JSON.stringify({chord:'${name}',degree:${i}}))"
       ondragend="this.classList.remove('dragging')"
-      ontouchstart="window._seqPt=Date.now();seqWheelSelectDeg(${i});seqPillPress('${name}',${i})"
-      ontouchend="seqPillRelease()"
       onmousedown="seqWheelSelectDeg(${i});if(Date.now()-(window._seqPt||0)>350)seqPillPress('${name}',${i})"
       onmouseup="seqPillRelease()"
       onmouseleave="if(!seqSweepMode)seqPillRelease()">
@@ -19071,11 +19080,9 @@ function _seqWheelVarHtml(names, QUAL_VARIANTS, parseChord) {
   const variants = (QV[qual] || []).map(sfx => root + sfx);
   if (!variants.length) return '<span style="font-family:monospace;font-size:10px;color:var(--faint);">—</span>';
   return variants.map(vname =>
-    `<div class="seq-chord-var-pill" draggable="true"
+    `<div class="seq-chord-var-pill" draggable="true" data-chord="${vname}"
       ondragstart="this.classList.add('dragging');event.dataTransfer.setData('text/plain',JSON.stringify({chord:'${vname}',degree:''}))"
       ondragend="this.classList.remove('dragging')"
-      ontouchstart="window._seqPt=Date.now();seqPillPress('${vname}','')"
-      ontouchend="seqPillRelease()"
       onmousedown="if(Date.now()-(window._seqPt||0)>350)seqPillPress('${vname}','')"
       onmouseup="seqPillRelease()"
       onmouseleave="if(!seqSweepMode)seqPillRelease()">
@@ -19172,8 +19179,6 @@ function seqRenderChordPills(song) {
         title="Click to fill next slot · Drag into grid"
         ondragstart="this.classList.add('dragging');event.dataTransfer.setData('text/plain',JSON.stringify({chord:'${vname}',degree:''}))"
         ondragend="this.classList.remove('dragging')"
-        ontouchstart="window._seqPt=Date.now();seqPillPress('${vname}','')"
-        ontouchend="seqPillRelease()"
         onmousedown="if(Date.now()-(window._seqPt||0)>350)seqPillPress('${vname}','')"
         onmouseup="seqPillRelease()" onmouseleave="if(!seqSweepMode)seqPillRelease()"
         onmouseenter="if(seqSweepMode)seqPillPress('${vname}','')">
@@ -19185,8 +19190,6 @@ function seqRenderChordPills(song) {
         title="Hold to preview on keyboard · Drag into grid"
         ondragstart="this.classList.add('dragging');event.dataTransfer.setData('text/plain',JSON.stringify({chord:'${name}',degree:${i}}))"
         ondragend="this.classList.remove('dragging')"
-        ontouchstart="window._seqPt=Date.now();seqPillPress('${name}',${i})"
-        ontouchend="seqPillRelease()"
         onmousedown="if(Date.now()-(window._seqPt||0)>350)seqPillPress('${name}',${i})"
         onmouseup="seqPillRelease()" onmouseleave="if(!seqSweepMode)seqPillRelease()"
         onmouseenter="if(seqSweepMode)seqPillPress('${name}',${i})">
@@ -19223,6 +19226,30 @@ function seqRenderChordPills(song) {
   // Render keyboard
   seqRenderKeyboard();
 }
+
+// ── Delegated passive touch listeners for chord pills ──────────────
+// Replaces inline ontouchstart/ontouchend to avoid Chrome scroll-blocking violations
+(function _initChordPillTouchDelegation() {
+  const container = document.getElementById('seqChordPills');
+  if (!container) return;
+  container.addEventListener('touchstart', function(e) {
+    const pill = e.target.closest('.seq-chord-pill, .seq-chord-var-pill, .wheel-pill');
+    if (!pill) return;
+    window._seqPt = Date.now();
+    const chord = pill.getAttribute('data-chord');
+    const degAttr = pill.getAttribute('data-degree');
+    const degree = (degAttr !== null && degAttr !== '') ? Number(degAttr) : '';
+    if (pill.classList.contains('wheel-pill') && degree !== '') {
+      seqWheelSelectDeg(degree);
+    }
+    if (chord) seqPillPress(chord, degree);
+  }, { passive: true });
+  container.addEventListener('touchend', function(e) {
+    const pill = e.target.closest('.seq-chord-pill, .seq-chord-var-pill, .wheel-pill');
+    if (!pill) return;
+    seqPillRelease();
+  }, { passive: true });
+})();
 
 // ── Key trigger bank (keys 1-8) ────────────────────────────────────
 function seqRenderKeyTriggers() {
@@ -24472,7 +24499,7 @@ function _setupNewUserState() {
 
   var _nuSong = {
     id: genId(), workingTitle: 'First Idea', title: '', bpm: '125', key: 'C major', tuning: '',
-    project: '', status: 'idea',
+    project: 'My Drafts', status: 'idea',
     structure: {
       'intro':   { checked: true, count: 1 },
       'verse-1': { checked: true, count: 1 },
@@ -24483,14 +24510,19 @@ function _setupNewUserState() {
       'verse-1': [{ root: 'A', quality: 'min' }, { root: 'F', quality: 'maj' }, { root: 'C', quality: 'maj' }, { root: 'G', quality: 'maj' }],
     },
     lyrics: {
-      'intro':   'Once upon a time\nI had an idea I lost',
-      'verse-1': 'But never again, 3 cheers for Drafthaus.\nClick to edit',
+      'intro':   'Welcome to Drafthaus! (Click to edit lyrics inline)',
+      'verse-1': 'I am a verse (Click to edit lyrics inline)',
     },
     instruments: {},
     sequencer: _nuIntroSeq, sequences: [_nuIntroSeq, _nuVerseSeq], notes: '', moods: [],
     createdAt: Date.now(), updatedAt: Date.now()
   };
   songs.unshift(_nuSong);
+  // Ensure the default project folder exists
+  if (!userProjects.includes('My Drafts')) {
+    userProjects.push('My Drafts');
+    saveUserProjects();
+  }
   save();
   openSong(_nuSong.id);
 
