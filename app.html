@@ -35266,7 +35266,14 @@ window.mtArmTrack = function(i) {
   _setStatus(_mtArmedTrack >= 0 ? 'Track '+MT_NAMES[_mtArmedTrack]+' armed — press ⏺ to record' : 'Arm a track to record');
   _el('mtRecBtn')?.classList.toggle('mt-active', _mtArmedTrack >= 0);
   // Start VU meter (requests mic) only when a track is armed
-  if (_mtArmedTrack >= 0) { _vuStart(); _inputMonOnStreamReady(); } else { _vuMaybeStop(); _inputMonOnStreamReleased(); }
+  if (_mtArmedTrack >= 0) {
+    _vuStart(); _inputMonOnStreamReady();
+    // Warm up the stitch Cloud Function on arm so it's hot by the time recording stops
+    if (typeof _chunkedUploadSupported !== 'undefined' && _chunkedUploadSupported) {
+      firebase.functions().httpsCallable('stitchRecordingChunks')({ recordingId: '_ping', destPath: '_ping', contentType: '' })
+        .catch(() => {}); // just waking the instance
+    }
+  } else { _vuMaybeStop(); _inputMonOnStreamReleased(); }
   // Keep shared transport Rec button in sync
   if (typeof _syncSharedRecBtnState === 'function') _syncSharedRecBtnState();
 };
@@ -36806,11 +36813,7 @@ window.vrToggleRec = async function() {
     _vrRecording = true;
     _mtRecStartMs = Date.now();
 
-    // Warm up the stitch Cloud Function so it's hot by the time recording stops
-    if (_chunkedUploadSupported) {
-      firebase.functions().httpsCallable('stitchRecordingChunks')({ recordingId: '_ping', destPath: '_ping', contentType: '' })
-        .catch(() => {}); // expected to fail — just waking the instance
-    }
+    // (Warm-up ping moved to arm handler for more lead time)
 
     // Start header timecode clock
     if (typeof htStartClock === 'function') htStartClock();
