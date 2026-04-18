@@ -15717,6 +15717,29 @@ var _seqStepIndex = 0;
 var _seqSchedulerCtx = null;
 var seqCurrentStep = -1;
 var seqSongId = null; // track which song the sequencer belongs to
+// ── Audio buffer fetch with expired-URL refresh ───────────────────
+// Firebase Storage download URLs carry a token that can expire.
+// This helper tries the stored URL first; on 403 it refreshes via
+// storagePath → getDownloadURL(), retries the fetch, and persists the
+// new URL so subsequent plays don't need to refresh again.
+async function _seqFetchAudioBuffer(downloadUrl, storagePath, audioCtx, onUrlRefreshed) {
+  var resp = await fetch(downloadUrl);
+  if (resp.ok) {
+    var arrayBuf = await resp.arrayBuffer();
+    return await audioCtx.decodeAudioData(arrayBuf);
+  }
+  // 403 / 401 — token probably expired; refresh if we have a storagePath
+  if ((resp.status === 403 || resp.status === 401) && storagePath) {
+    var freshUrl = await firebase.storage().ref(storagePath).getDownloadURL();
+    if (typeof onUrlRefreshed === 'function') onUrlRefreshed(freshUrl);
+    var resp2 = await fetch(freshUrl);
+    if (!resp2.ok) throw new Error('Fetch failed after URL refresh: ' + resp2.status);
+    var arrayBuf2 = await resp2.arrayBuffer();
+    return await audioCtx.decodeAudioData(arrayBuf2);
+  }
+  throw new Error('Fetch failed: ' + resp.status);
+}
+
 // ── Multi-sequence ─────────────────────────────────────────────────
 var seqActiveIdx = 0;          // which sequence is currently being edited
 var _seqPlayMode = 'loop';     // 'loop' | 'song'
@@ -15841,16 +15864,17 @@ function _seqTriggerLoopsForPart(partId) {
       try { loopUpdateTrackUI(i); } catch(e) {}
       _seqTriggeredLoopTracks.add(i);
     } else {
-      // Buffer not in memory — fetch from saved download URL
+      // Buffer not in memory — fetch from saved download URL (with 403 refresh)
       var savedUrl = _syncSong?.loopTracks?.[i]?.downloadUrl;
       if (!savedUrl) return;
+      var savedPath = _syncSong?.loopTracks?.[i]?.storagePath || null;
       _seqTriggeredLoopTracks.add(i); // reserve slot; async fill below
-      (async function(trackIdx, dlUrl, triggerGen) {
+      (async function(trackIdx, dlUrl, sp, triggerGen) {
         try {
           await loopEnsureAudioCtx();
-          const resp = await fetch(dlUrl);
-          const arrayBuf = await resp.arrayBuffer();
-          const audioBuf = await loopAudioCtx.decodeAudioData(arrayBuf);
+          const audioBuf = await _seqFetchAudioBuffer(dlUrl, sp, loopAudioCtx, function(freshUrl) {
+            loopSaveTrackSetting(trackIdx, 'downloadUrl', freshUrl);
+          });
           const tr = loopTracks[trackIdx];
           if (!tr) return;
           tr.buffer = audioBuf;
@@ -15866,7 +15890,7 @@ function _seqTriggerLoopsForPart(partId) {
           console.warn('[Looper] auto-load buffer failed for track', trackIdx, err);
           _seqTriggeredLoopTracks.delete(trackIdx);
         }
-      })(i, savedUrl, gen);
+      })(i, savedUrl, savedPath, gen);
     }
   });
 }
@@ -20361,15 +20385,17 @@ async function seqPlaySong() {
           if (!t || t.buffer || t.state === 'recording') return;
           var dlUrl = song.loopTracks?.[i]?.downloadUrl;
           if (!dlUrl) return;
-          _prefetchPromises.push((async function(trackIdx, url) {
+          var stPath = song.loopTracks?.[i]?.storagePath || null;
+          _prefetchPromises.push((async function(trackIdx, url, sp) {
             try {
-              const resp = await fetch(url);
-              const arrayBuf = await resp.arrayBuffer();
-              const audioBuf = await loopAudioCtx.decodeAudioData(arrayBuf);
+              const audioBuf = await _seqFetchAudioBuffer(url, sp, loopAudioCtx, function(freshUrl) {
+                // Persist refreshed URL so next play is instant
+                loopSaveTrackSetting(trackIdx, 'downloadUrl', freshUrl);
+              });
               var tr = loopTracks[trackIdx];
               if (tr && !tr.buffer) { tr.buffer = audioBuf; tr.recDuration = audioBuf.duration; }
             } catch(e) { console.warn('[SeqPrefetch] loop track', trackIdx, e); }
-          })(i, dlUrl));
+          })(i, dlUrl, stPath));
         });
       }
       // 4-track
@@ -20379,15 +20405,17 @@ async function seqPlaySong() {
           if (!t || t.buffer) return;
           var take = t.takes && t.takes[t.activeTakeIdx];
           if (!take || !take.downloadUrl) return;
-          _prefetchPromises.push((async function(tIdx, url) {
+          var takesp = take.storagePath || null;
+          _prefetchPromises.push((async function(tIdx, url, sp, takeObj) {
             try {
-              const resp = await fetch(url);
-              const arrayBuf = await resp.arrayBuffer();
-              const audioBuf = await _mtAudioCtx.decodeAudioData(arrayBuf);
+              const audioBuf = await _seqFetchAudioBuffer(url, sp, _mtAudioCtx, function(freshUrl) {
+                // Update the take's URL in memory so future fetches work
+                takeObj.downloadUrl = freshUrl;
+              });
               var tr = _mtTracks[tIdx];
               if (tr && !tr.buffer) { tr.buffer = audioBuf; }
             } catch(e) { console.warn('[SeqPrefetch] 4-track', tIdx, e); }
-          })(i, take.downloadUrl));
+          })(i, take.downloadUrl, takesp, take));
         });
       }
       if (_prefetchPromises.length > 0) {
@@ -30875,7 +30903,18 @@ async function loopPreloadForSong(songId) {
       try {
         let arrayBuf = await _mtAudioCache.get('loop_' + loopDoc.id);
         if (!arrayBuf) {
-          const resp = await fetch(loopDoc.downloadUrl);
+          let _dlUrl = loopDoc.downloadUrl;
+          let resp = await fetch(_dlUrl);
+          // Refresh expired Firebase Storage token via storagePath
+          if ((resp.status === 403 || resp.status === 401) && loopDoc.storagePath) {
+            _dlUrl = await firebase.storage().ref(loopDoc.storagePath).getDownloadURL();
+            resp = await fetch(_dlUrl);
+            // Update Firestore doc and song.loopTracks with the fresh URL
+            try {
+              db.collection('song_loops').doc(loopDoc.id).update({ downloadUrl: _dlUrl }).catch(() => {});
+              if (song) loopSaveTrackSetting(ti, 'downloadUrl', _dlUrl);
+            } catch(e2) {}
+          }
           arrayBuf = await resp.arrayBuffer();
           _mtAudioCache.set('loop_' + loopDoc.id, arrayBuf.slice(0)).catch(() => {});
         }
