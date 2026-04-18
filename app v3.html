@@ -12102,6 +12102,20 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   .songs-kanban { grid-template-columns: 1fr; }
 }
 
+/* ── v3 Kanban project headings ── */
+.kb-proj-head {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint, var(--faint));
+  padding: 14px 4px 8px;
+  border-top: 1px solid var(--divider, rgba(255,240,210,0.06));
+  margin-top: 6px;
+}
+.kb-cards > .kb-proj-head:first-child { border-top: 0; margin-top: 0; padding-top: 4px; }
+
 /* ── v3 Overflow menu panel ── */
 .v3-overflow-panel {
   position: absolute; top: calc(100% + 8px); right: 0;
@@ -40462,9 +40476,21 @@ function v3RenderGridKanban() {
 
   var mySongs = songs.filter(function(s) { return !s.ownerId || s.ownerId === uid; });
 
-  // Normalize status
+  // Normalize status — map every possible legacy/in-flight status to one of
+  // the three kanban columns. Anything unknown is bucketed as "drafting" and
+  // logged so we can discover it.
   function normStatus(s) {
-    return (s.status === 'song') ? 'finished' : (s.status || 'idea');
+    var raw = (s.status || '').toLowerCase().trim();
+    if (!raw) return 'idea';
+    if (raw === 'idea') return 'idea';
+    if (raw === 'drafting' || raw === 'recording' || raw === 'mixing') return 'drafting';
+    if (raw === 'finished' || raw === 'song' || raw === 'done') return 'finished';
+    if (window._v3WarnedStatuses == null) window._v3WarnedStatuses = {};
+    if (!window._v3WarnedStatuses[raw]) {
+      window._v3WarnedStatuses[raw] = true;
+      console.warn('[kanban] unknown status bucketed as "drafting":', raw, s);
+    }
+    return 'drafting';
   }
 
   // Update stat counts
@@ -40505,7 +40531,8 @@ function v3RenderGridKanban() {
   var cols = { idea: [], drafting: [], finished: [] };
   displaySongs.forEach(function(s) {
     var status = normStatus(s);
-    (cols[status] || cols.idea).push(s);
+    var bucket = cols[status] || cols.drafting || cols.idea;
+    bucket.push(s);
   });
   Object.keys(cols).forEach(function(k) {
     cols[k].sort(function(a,b){ return (b.updatedAt||0) - (a.updatedAt||0); });
@@ -40524,13 +40551,34 @@ function v3RenderGridKanban() {
       '</div><div class="kb-cards" data-status="finished"></div></div>' +
     '</div>';
 
-  // Use the existing buildSongRow to render each card
+  // Render cards grouped by project inside each column
   ['idea','drafting','finished'].forEach(function(status) {
     var host = grid.querySelector('.kb-cards[data-status="' + status + '"]');
-    cols[status].forEach(function(song) {
+    var list = cols[status];
+    // Group by project
+    var groups = {};
+    var noProject = [];
+    list.forEach(function(song) {
+      var p = (song.project || '').trim();
+      if (!p) { noProject.push(song); return; }
+      (groups[p] = groups[p] || []).push(song);
+    });
+    // Render ungrouped first, then each project group
+    noProject.forEach(function(song) {
       var tmp = document.createElement('div');
       tmp.innerHTML = buildSongRow(song, true, false);
       while (tmp.firstChild) host.appendChild(tmp.firstChild);
+    });
+    Object.keys(groups).sort().forEach(function(projName) {
+      var head = document.createElement('div');
+      head.className = 'kb-proj-head';
+      head.textContent = projName + ' \u00b7 ' + groups[projName].length;
+      host.appendChild(head);
+      groups[projName].forEach(function(song) {
+        var tmp = document.createElement('div');
+        tmp.innerHTML = buildSongRow(song, true, false);
+        while (tmp.firstChild) host.appendChild(tmp.firstChild);
+      });
     });
   });
 }
