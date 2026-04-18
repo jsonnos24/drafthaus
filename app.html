@@ -15724,6 +15724,7 @@ var _seqSongSections = [];     // pre-loaded section data for full-song play
 var _seqSongSectionIdx = 0;    // which section we're currently playing
 var _seqSongSectionStep = 0;   // step within the current section
 var _seqTriggeredLoopTracks = new Set(); // loop track indices started by sequencer
+var _seqLoopTriggerGen = 0;             // generation counter to avoid stale fade-out callbacks
 
 // ── Chord pill mode: 'compose' fills next grid slot, 'preview' just plays ──
 var seqChordMode = 'preview';
@@ -15774,6 +15775,8 @@ var _kbdActiveSustain = new Map(); // "note:oct" → {src, gain} for live sustai
 // Start looper tracks whose assigned parts include partId; fade out and stop any previously triggered ones.
 // Tracks restart from the beginning on every part transition (even if assigned to both parts).
 function _seqTriggerLoopsForPart(partId) {
+  // Bump generation so stale fade-out callbacks become no-ops
+  var gen = ++_seqLoopTriggerGen;
   // Fade out all currently triggered tracks then stop them
   var fadingTracks = new Set(_seqTriggeredLoopTracks);
   _seqTriggeredLoopTracks.clear();
@@ -15785,6 +15788,8 @@ function _seqTriggerLoopsForPart(partId) {
         t.gainNode.gain.exponentialRampToValueAtTime(0.001, loopAudioCtx.currentTime + 0.5);
       } catch(e) {}
       setTimeout(function() {
+        // Only stop if no newer trigger has started on this track
+        if (_seqLoopTriggerGen !== gen) return;
         loopStopPlayback(i);
         t.state = 'idle';
         try { loopUpdateTrackUI(i); loopDrawRing(t, 0); } catch(e) {}
@@ -15840,7 +15845,7 @@ function _seqTriggerLoopsForPart(partId) {
       var savedUrl = _syncSong?.loopTracks?.[i]?.downloadUrl;
       if (!savedUrl) return;
       _seqTriggeredLoopTracks.add(i); // reserve slot; async fill below
-      (async function(trackIdx, dlUrl) {
+      (async function(trackIdx, dlUrl, triggerGen) {
         try {
           await loopEnsureAudioCtx();
           const resp = await fetch(dlUrl);
@@ -15850,8 +15855,9 @@ function _seqTriggerLoopsForPart(partId) {
           if (!tr) return;
           tr.buffer = audioBuf;
           tr.recDuration = audioBuf.duration;
-          // Only start if the sequencer is still playing and this slot is still triggered
-          if (seqIsPlaying && _seqTriggeredLoopTracks.has(trackIdx)) {
+          // Only start if the sequencer is still playing, this slot is still
+          // triggered, and no newer trigger generation has superseded us
+          if (seqIsPlaying && _seqTriggeredLoopTracks.has(trackIdx) && _seqLoopTriggerGen === triggerGen) {
             tr.state = 'playing';
             loopStartPlayback(trackIdx);
             try { loopUpdateTrackUI(trackIdx); } catch(e) {}
@@ -15860,7 +15866,7 @@ function _seqTriggerLoopsForPart(partId) {
           console.warn('[Looper] auto-load buffer failed for track', trackIdx, err);
           _seqTriggeredLoopTracks.delete(trackIdx);
         }
-      })(i, savedUrl);
+      })(i, savedUrl, gen);
     }
   });
 }
@@ -20052,7 +20058,7 @@ function sharedPlay() {
 }
 
 // Full song play — SEQ full-song mode; also coordinates 4-track if visible
-function sharedPlaySong() {
+async function sharedPlaySong() {
   if (seqIsPlaying) { sharedStop(); return; }
   // Disable 4-track loop when playing full song
   if (typeof _mtLoopEnabled !== 'undefined' && _mtLoopEnabled) {
@@ -20062,7 +20068,7 @@ function sharedPlaySong() {
       if (el) { el.classList.remove('mt-loop-active'); el.title = 'Loop playback (L)'; }
     });
   }
-  seqPlaySong();
+  await seqPlaySong();
   const vrOpen = document.getElementById('vrOverlay')?.classList.contains('vr-open');
   const miniVisible = (function() {
     const mb = document.getElementById('vrMiniBar');
@@ -20262,7 +20268,7 @@ function seqPlay() {
   _seqTriggerMtTracksForPart(_loopPartId);
 }
 
-function seqPlaySong() {
+async function seqPlaySong() {
   if (seqIsPlaying) { seqStop(); return; }
   const song = getCurrentSong();
   if (!song) return;
@@ -20326,6 +20332,78 @@ function seqPlaySong() {
       _seqIdx: seqs.indexOf(seq),
     };
   });
+
+  // ── Pre-fetch loop track & 4-track buffers for ALL sections before starting ──
+  // This avoids mid-playback async fetch+decode delays (3-4s on mobile).
+  try {
+    const _allPartIds = new Set(_seqSongSections.map(s => s.partId).filter(Boolean));
+    const _prefetchPromises = [];
+    // Loop tracks: ensure buffer is loaded for any track assigned to a section's part
+    if (loopTracks.length && loopAudioCtx || typeof loopEnsureAudioCtx === 'function') {
+      await loopEnsureAudioCtx();
+      const _allSeqs = getSongSequences(song);
+      const _loopLinks = typeof _seqLinksLoad === 'function' ? _seqLinksLoad('loop') : {};
+      loopTracks.forEach(function(t, i) {
+        if (!t || t.buffer || t.state === 'recording') return;
+        // Check if this track is assigned to any section's part via parts array or seq-link
+        var assigned = false;
+        if (t.parts && t.parts.length) {
+          assigned = t.parts.some(function(p) { return _allPartIds.has(p); });
+        }
+        if (!assigned) {
+          // Check seq-link assignments
+          var linkedSids = _loopLinks[i] || [];
+          if (linkedSids.length) {
+            var _seqPartSet = new Set();
+            _allSeqs.forEach(function(s) { if (_allPartIds.has(s.partId || s.part)) _seqPartSet.add(s.id); });
+            assigned = linkedSids.some(function(sid) { return _seqPartSet.has(sid); });
+          }
+        }
+        if (!assigned) return;
+        var dlUrl = song.loopTracks?.[i]?.downloadUrl;
+        if (!dlUrl) return;
+        _prefetchPromises.push((async function(trackIdx, url) {
+          try {
+            const resp = await fetch(url);
+            const arrayBuf = await resp.arrayBuffer();
+            const audioBuf = await loopAudioCtx.decodeAudioData(arrayBuf);
+            var tr = loopTracks[trackIdx];
+            if (tr && !tr.buffer) { tr.buffer = audioBuf; tr.recDuration = audioBuf.duration; }
+          } catch(e) { console.warn('[SeqPrefetch] loop track', trackIdx, e); }
+        })(i, dlUrl));
+      });
+    }
+    // 4-track: ensure buffer is loaded for any track linked to a section's part
+    if (typeof _mtTracks !== 'undefined' && _mtTracks.length) {
+      var _4tLinks = typeof _seqLinksLoad === 'function' ? _seqLinksLoad('4t') : {};
+      var _allSeqs4t = getSongSequences(song);
+      var _seqPartSet4t = new Set();
+      _allSeqs4t.forEach(function(s) { if (_allPartIds.has(s.partId || s.part)) _seqPartSet4t.add(s.id); });
+      Object.keys(_4tLinks).forEach(function(tidx) {
+        var linked = (_4tLinks[tidx] || []).some(function(sid) { return _seqPartSet4t.has(sid); });
+        if (!linked) return;
+        var t = _mtTracks[parseInt(tidx, 10)];
+        if (!t || t.buffer) return;
+        // Find the active take's download URL
+        var take = t.takes && t.takes[t.activeTakeIdx];
+        if (!take || !take.downloadUrl) return;
+        _prefetchPromises.push((async function(tIdx, url) {
+          try {
+            if (typeof _mtSeqEnsureAudio === 'function') _mtSeqEnsureAudio();
+            const resp = await fetch(url);
+            const arrayBuf = await resp.arrayBuffer();
+            const audioBuf = await _mtAudioCtx.decodeAudioData(arrayBuf);
+            var tr = _mtTracks[tIdx];
+            if (tr && !tr.buffer) { tr.buffer = audioBuf; }
+          } catch(e) { console.warn('[SeqPrefetch] 4-track', tIdx, e); }
+        })(parseInt(tidx, 10), take.downloadUrl));
+      });
+    }
+    if (_prefetchPromises.length > 0) {
+      showToast('Loading audio tracks…', 'info', 2000);
+      await Promise.all(_prefetchPromises);
+    }
+  } catch(e) { console.warn('[SeqPrefetch] error:', e); }
 
   _seqSongSectionIdx  = 0;
   _seqSongSectionStep = 0;
