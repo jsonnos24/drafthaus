@@ -6591,6 +6591,9 @@ body.split-active #splitLeftHeader { display: flex; }
      The sticky song bar is hidden (display:none) but several CSS rules
      still add clearance padding for it. Override everything. */
 
+  /* Clear the global 99px padding-top on #viewDetail (line 5475) — not needed in split mode */
+  body.split-active #viewDetail { padding-top: 0 !important; }
+
   /* Container padding (base 0, but song-bar-visible adds 48px) */
   body.split-active #viewList .container,
   body.split-active #viewDetail .container,
@@ -6603,9 +6606,8 @@ body.split-active #splitLeftHeader { display: flex; }
   /* Detail body wraps all detail views (runthrough, backend, etc.) */
   body.split-active .detail-body { padding-top: 0 !important; }
 
-  /* Rehearse / runthrough view — tight top to sit just below splitLeftHeader */
-  body.split-active #songViewRunthrough { padding-top: 32px !important; }
-  body.split-active .il-song-title { margin-top: 0 !important; }
+  /* Rehearse / runthrough view */
+  body.split-active #songViewRunthrough { padding-top: 4px !important; }
 
   /* Edit-lyrics / draft-info backend view — tabs should sit tight */
   body.split-active #songViewBackend .detail-tabs { margin-top: 0; }
@@ -24172,6 +24174,16 @@ function rtMetroDelta(d) {
     const el = document.getElementById(id);
     if (el) el.textContent = rtMetroBpm;
   });
+  // Persist to active sequence (per-sequence BPM)
+  syncSeqBpmUI(rtMetroBpm);
+  const song = getCurrentSong();
+  if (song) {
+    seqGetData(song);
+    song.sequencer.bpm = String(rtMetroBpm);
+    song.updatedAt = Date.now();
+    save();
+    scheduleSyncToSheet(song);
+  }
 }
 // Metronome settings overlay toggle
 function rtToggleMetroSettings() {
@@ -28123,7 +28135,9 @@ function kbdBpmChanged(callerVal) {
   if (!song) return;
   seqGetData(song);
   song.sequencer.bpm = val;
+  song.updatedAt = Date.now();
   save();
+  scheduleSyncToSheet(song);
 }
 
 function kbdTapTempo() {
@@ -36745,7 +36759,7 @@ async function _mtRunCountdown(cb) {
 // Uploads recording chunks to Firebase Storage as they're produced,
 // then calls a Cloud Function to stitch them into one file.
 // Falls back to legacy single-blob upload on Safari / unsupported browsers.
-const CHUNK_TIMESLICE_MS = 10000; // 10 seconds
+const CHUNK_TIMESLICE_MS = 5000; // 5 seconds
 const CHUNK_MAX_RETRIES  = 3;
 
 // Detect Safari (timeslice produces independent segments, not a continuous stream)
