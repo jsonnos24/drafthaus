@@ -16951,7 +16951,11 @@ function seqOnSongKeyChange(rawOldKey) {
 
 function seqCurrentKey() {
   const song = getCurrentSong();
-  const raw = song?.key || 'C';
+  // Read from song.key first; fall back to whichever key dropdown is live
+  const raw = song?.key
+           || document.getElementById('seqKeySelect')?.value
+           || document.getElementById('fKey')?.value
+           || 'C major';
   // Get just the root note (first word), strip slashes for e.g. "C# / Db"
   const root = raw.split(' ')[0].split('/')[0].trim() || 'C';
   // Normalize flats to sharps
@@ -16961,7 +16965,10 @@ function seqCurrentKey() {
 
 function seqCurrentMode() {
   const song = getCurrentSong();
-  const raw = song?.key || '';
+  const raw = song?.key
+           || document.getElementById('seqKeySelect')?.value
+           || document.getElementById('fKey')?.value
+           || '';
   return raw.toLowerCase().includes('minor') ? 'minor' : 'major';
 }
 
@@ -18870,12 +18877,9 @@ function _seqProgressionFill(progressionId) {
   const stepsPerBar = timeSig * gridSub;
   const beatStep    = gridSub; // one beat = gridSub steps
 
-  // Resolve song key
-  const keyRaw  = song.key || 'C major';
-  const keyRoot = keyRaw.split('/')[0].trim().split(' ')[0].trim();
-  const enhMap  = { 'Db':'C#','Eb':'D#','Fb':'E','Gb':'F#','Ab':'G#','Bb':'A#','Cb':'B' };
-  const key     = enhMap[keyRoot] || keyRoot;
-  const mode    = keyRaw.toLowerCase().includes('minor') ? 'minor' : 'major';
+  // Resolve song key — use canonical helpers (they read song.key + DOM fallback)
+  const key         = seqCurrentKey();
+  const mode        = seqCurrentMode();
   const scaleChords = seqGetScaleChords(key, mode);
 
   // Resolve progression tokens → chord names + degrees
@@ -28655,6 +28659,7 @@ function seqKeySelectChanged() {
   const oldMode = song.sequencer?.mode || seqCurrentMode();
 
   // Sync to song key field and save
+  song.key = newVal;  // update song object directly (in case saveField has stale DOM)
   const songKey = document.getElementById('fKey');
   if (songKey) {
     songKey.value = newVal;
