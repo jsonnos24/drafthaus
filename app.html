@@ -15715,6 +15715,7 @@ var _seqTimer = null;
 var _seqNextNoteTime = 0;
 var _seqStepIndex = 0;
 var _seqSchedulerCtx = null;
+var _seqStopGen = 0;  // bumped on every seqStop(); async callbacks bail out when stale
 var seqCurrentStep = -1;
 var seqSongId = null; // track which song the sequencer belongs to
 // ── Audio buffer fetch with expired-URL refresh ───────────────────
@@ -20093,6 +20094,8 @@ async function sharedPlaySong() {
     });
   }
   await seqPlaySong();
+  // If user stopped during the async seqPlaySong, don't start anything else
+  if (!seqIsPlaying) return;
   const vrOpen = document.getElementById('vrOverlay')?.classList.contains('vr-open');
   const miniVisible = (function() {
     const mb = document.getElementById('vrMiniBar');
@@ -20110,8 +20113,8 @@ async function sharedPlaySong() {
 }
 
 function sharedStop() {
-  const loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
-  if (loopOpen) loopMasterStop();
+  // Always stop looper — not just when drawer is open (seq song mode triggers loops without drawer)
+  if (typeof loopMasterStop === 'function') { try { loopMasterStop(); } catch(e) {} }
   seqStop(); // always stop sequencer playback too
   // Also stop 4-track if playing
   if (typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying && typeof _mtStopAll === 'function') {
@@ -20266,6 +20269,8 @@ function seqPlay() {
   if (seqIsPlaying) return;
   _seqPlayMode = 'loop';
   seqIsPlaying = true;
+  // Restore master gain (seqStop mutes it for instant silence)
+  if (seqMasterGain) { try { seqMasterGain.gain.cancelScheduledValues(0); seqMasterGain.gain.setValueAtTime(1.0, 0); } catch(e) {} }
   document.getElementById('seqDrawerTab')?.classList.add('playing');
   if (typeof htStartClock === 'function') htStartClock();
   if (typeof _bgEnsureKeepAlive === 'function') _bgEnsureKeepAlive();
@@ -20294,6 +20299,7 @@ function seqPlay() {
 
 async function seqPlaySong() {
   if (seqIsPlaying) { seqStop(); return; }
+  var _myGen = _seqStopGen;  // snapshot: if seqStop() bumps this, our async work is stale
   const song = getCurrentSong();
   if (!song) return;
   // Flush DOM state for the active sequence before reading section data,
@@ -20426,11 +20432,13 @@ async function seqPlaySong() {
   } catch(e) { console.warn('[SeqPrefetch] error:', e); }
 
   // If seqStop() was called during the async prefetch, bail out
-  if (!seqIsPlaying) return;
+  if (!seqIsPlaying || _myGen !== _seqStopGen) return;
 
   _seqSongSectionIdx  = 0;
   _seqSongSectionStep = 0;
   _seqPlayMode = 'song';
+  // Restore master gain (seqStop mutes it for instant silence)
+  if (seqMasterGain) { try { seqMasterGain.gain.cancelScheduledValues(0); seqMasterGain.gain.setValueAtTime(1.0, 0); } catch(e) {} }
   document.getElementById('seqDrawerTab')?.classList.add('playing');
   if (typeof htStartClock === 'function') htStartClock();
   if (typeof _bgEnsureKeepAlive === 'function') _bgEnsureKeepAlive();
@@ -21648,10 +21656,17 @@ function seqStop() {
   seqIsPlaying = false;
   clearInterval(_seqTimer);
   _seqTimer = null;
+  // Bump generation so any in-flight seqPlaySong() or pending setTimeout callbacks bail out
+  _seqStopGen++;
   if (typeof htStopClock === 'function') htStopClock();
   if (typeof _bgMaybeRelease === 'function') _bgMaybeRelease();
+  // Immediately mute sequencer output for instant silence (ringing sampler notes, oscillators)
+  if (seqMasterGain) {
+    try { seqMasterGain.gain.cancelScheduledValues(0); seqMasterGain.gain.setValueAtTime(0, 0); } catch(e) {}
+  }
   // Reset song-play state
   _seqPlayMode = 'loop';
+  _seqSongSections    = [];
   _seqSongSectionIdx  = 0;
   _seqSongSectionStep = 0;
   document.querySelectorAll('.seq-slot.playing').forEach(s => s.classList.remove('playing'));
@@ -21664,6 +21679,14 @@ function seqStop() {
   if (typeof loopRenderPartsStrip === 'function') loopRenderPartsStrip();
   // Stop any looper tracks that the sequencer triggered
   _seqStopTriggeredLoops();
+  // Also stop ALL playing looper tracks (catches any that escaped the triggered-set)
+  if (typeof loopTracks !== 'undefined') {
+    loopTracks.forEach(function(t, i) {
+      if (t && t.state === 'playing') {
+        try { loopStopPlayback(i); t.state = 'idle'; loopUpdateTrackUI(i); } catch(e) {}
+      }
+    });
+  }
   // Stop any 4-track lanes that the sequencer triggered
   if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
   // Update the play button in the song list row
