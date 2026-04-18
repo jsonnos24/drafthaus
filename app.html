@@ -6037,7 +6037,7 @@ button, select, input, textarea { touch-action: manipulation; }
 
 /* ── Toast Notifications ─────────────────────────────────────── */
 #toast-container {
-  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: 140px; left: 50%; transform: translateX(-50%);
   z-index: 99999; display: flex; flex-direction: column; align-items: center;
   gap: 8px; pointer-events: none;
 }
@@ -6060,7 +6060,7 @@ button, select, input, textarea { touch-action: manipulation; }
 @keyframes toastIn  { from{opacity:0;transform:translateY(10px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }
 @keyframes toastOut { from{opacity:1;transform:translateY(0) scale(1)} to{opacity:0;transform:translateY(6px) scale(0.97)} }
 @media(max-width:700px) {
-  #toast-container { bottom: 90px; width: calc(100% - 28px); }
+  #toast-container { bottom: 150px; width: calc(100% - 28px); }
   .toast { width: 100%; max-width: 100%; font-size: 12px; }
 }
 
@@ -6603,8 +6603,9 @@ body.split-active #splitLeftHeader { display: flex; }
   /* Detail body wraps all detail views (runthrough, backend, etc.) */
   body.split-active .detail-body { padding-top: 0 !important; }
 
-  /* Rehearse / runthrough view */
-  body.split-active #songViewRunthrough { padding-top: 4px !important; }
+  /* Rehearse / runthrough view — tight top to sit just below splitLeftHeader */
+  body.split-active #songViewRunthrough { padding-top: 32px !important; }
+  body.split-active .il-song-title { margin-top: 0 !important; }
 
   /* Edit-lyrics / draft-info backend view — tabs should sit tight */
   body.split-active #songViewBackend .detail-tabs { margin-top: 0; }
@@ -14145,7 +14146,8 @@ function saveField() {
   song.title        = document.getElementById('fTitle').value;
   _updateDraftingHeader();
   song.bpm          = document.getElementById('fBpm').value;
-  syncBpmUI(song.bpm);
+  // Only sync song-level BPM display; don't push into the active sequence
+  syncSongBpmUI(song.bpm);
   song.key          = document.getElementById('fKey').value;
   song.tuning       = document.getElementById('fTuning').value;
   song.notes        = document.getElementById('fNotes').value;
@@ -17812,8 +17814,9 @@ function seqSaveAllToCurrent(song) {
 
 function seqLoadSequenceIntoDOM(seq, song) {
   if (!seq) return;
-  // Update BPM/time/bars/grid controls
+  // Update BPM/time/bars/grid controls — per-sequence BPM
   const bpmEl = document.getElementById('seqBpm');   if (bpmEl) bpmEl.value = seq.bpm || '100';
+  syncSeqBpmUI(seq.bpm || song?.bpm || '100');
   const timeEl = document.getElementById('seqTime');  if (timeEl) timeEl.value = seq.time || '4';
   const barsEl = document.getElementById('seqBars');  if (barsEl) barsEl.value = seq.bars || '8';
   const gridEl = document.getElementById('seqGrid');  if (gridEl) gridEl.value = seq.grid || '2';
@@ -17837,7 +17840,7 @@ function seqAddSequence(partId) {
     id: 'seq_' + Date.now(),
     partId: partId || null,
     part:   partId || '',
-    bpm:    cur.bpm   || '120',
+    bpm:    song.bpm  || '120',
     time:   cur.time  || '4',
     bars:   cur.bars  || '4',
     grid:   cur.grid  || '1',
@@ -18433,8 +18436,9 @@ function seqSaveSettings() {
   // Re-render tabs and chord progression if part assignment changed
   seqRenderSequenceTabs();
   if (typeof renderStructure === 'function') renderStructure(song);
-  song.bpm = song.sequencer.bpm; // keep song BPM in sync with sequencer
-  syncBpmUI(song.sequencer.bpm);
+  // Sequence BPM is per-sequence; don't overwrite song.bpm here.
+  // Only sync the transport/UI to show the active sequence's tempo.
+  syncSeqBpmUI(song.sequencer.bpm);
   syncTimeSigUI();
   song.sequencer.swing = document.getElementById('seqSwing')?.value || sd.swing || '0';
   song.sequencer.vel   = document.getElementById('seqVel')?.value   || sd.vel   || '0.8';
@@ -18461,6 +18465,37 @@ function syncBpmUI(rawBpm) {
   // Mobile control bar tap button display
   const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) ktEl.textContent = bpm;
   // Sync mobile dock summary
+  if (typeof _syncMobileDock === 'function') _syncMobileDock();
+}
+
+// Syncs song-level BPM display (fBpm field, header) WITHOUT touching the
+// active sequence's BPM input.  Used when song.bpm is changed from song info.
+function syncSongBpmUI(rawBpm) {
+  const bpm = Math.max(40, Math.min(240, parseInt(rawBpm, 10) || 100));
+  const fEl = document.getElementById('fBpm');
+  if (fEl && document.activeElement !== fEl && parseInt(fEl.value) !== bpm) fEl.value = bpm;
+  // Header transport shows active sequence BPM during editing — only update
+  // if no sequence is loaded (e.g. on song open before sequencer is rendered).
+  if (!document.getElementById('seqBpm')) {
+    const htEl = document.getElementById('htBpmDisplay'); if (htEl) htEl.textContent = bpm;
+    const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) ktEl.textContent = bpm;
+    loopBpm = bpm;
+    const lEl = document.getElementById('loopBpmDisplay'); if (lEl) lEl.textContent = bpm;
+    const kEl = document.getElementById('kbdBpm'); if (kEl && parseInt(kEl.value) !== bpm) kEl.value = bpm;
+    if (typeof _syncMobileDock === 'function') _syncMobileDock();
+  }
+}
+
+// Syncs transport/playback UI to the active sequence's BPM WITHOUT touching
+// the song-info fBpm field or song.bpm.  Used when sequencer BPM changes.
+function syncSeqBpmUI(rawBpm) {
+  const bpm = Math.max(40, Math.min(240, parseInt(rawBpm, 10) || 100));
+  const sEl = document.getElementById('seqBpm'); if (sEl && parseInt(sEl.value) !== bpm) sEl.value = bpm;
+  loopBpm = bpm;
+  const lEl = document.getElementById('loopBpmDisplay'); if (lEl) lEl.textContent = bpm;
+  const kEl = document.getElementById('kbdBpm'); if (kEl && parseInt(kEl.value) !== bpm) kEl.value = bpm;
+  const htEl = document.getElementById('htBpmDisplay'); if (htEl) htEl.textContent = bpm;
+  const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) ktEl.textContent = bpm;
   if (typeof _syncMobileDock === 'function') _syncMobileDock();
 }
 
@@ -24180,11 +24215,10 @@ function rtTapTempo() {
       const el = document.getElementById(id);
       if (el) el.textContent = rtMetroBpm;
     });
-    // Sync to sequencer, looper, keyboard, and save to song
-    syncBpmUI(rtMetroBpm);
+    // Sync sequencer/transport UI — per-sequence BPM, don't touch song.bpm
+    syncSeqBpmUI(rtMetroBpm);
     const song = getCurrentSong();
     if (song) {
-      song.bpm = String(rtMetroBpm);
       if (!song.sequencer) song.sequencer = {};
       song.sequencer.bpm = String(rtMetroBpm);
       save(); scheduleSyncToSheet(song);
@@ -28079,17 +28113,16 @@ function kbdBpmChanged(callerVal) {
   const val = (callerVal != null && callerVal !== '') ? String(callerVal)
               : document.getElementById('kbdBpm')?.value;
   if (!val) return;
-  // ── Always sync every BPM display/input immediately ──
+  // ── Sync sequencer/transport UI — per-sequence BPM only ──
   document.querySelectorAll('[id="kbdBpm"]').forEach(el => { if (el.value !== val) el.value = val; });
-  syncBpmUI(val);
+  syncSeqBpmUI(val);
   const seqBpmEl = document.getElementById('seqBpm');
   if (seqBpmEl && seqBpmEl.value !== val) seqBpmEl.value = val;
-  // ── Persist to song if one is open ──
+  // ── Persist to active sequence only (not song.bpm) ──
   const song = getCurrentSong();
   if (!song) return;
   seqGetData(song);
   song.sequencer.bpm = val;
-  song.bpm = val;
   save();
 }
 
@@ -28215,7 +28248,7 @@ function openKeyboardDrawer() {
     const sd = song.sequencer || {};
     const keyEl = document.getElementById('seqKeySelect');
     if (keyEl) keyEl.value = song.key || '';
-    syncBpmUI(sd.bpm || song.bpm || 100);
+    syncSeqBpmUI(sd.bpm || song.bpm || 100);
     syncTimeSigUI();
     const barsEl = document.getElementById('kbdBars');
     if (barsEl && sd.bars) barsEl.value = String(sd.bars);
@@ -29853,7 +29886,7 @@ function openLooperDrawer() {
   const sd = song?.sequencer || {};
   const keyEl = document.getElementById('seqKeySelect');
   if (keyEl) keyEl.value = song.key || '';
-  syncBpmUI(sd.bpm || song.bpm || 100);
+  syncSeqBpmUI(sd.bpm || song.bpm || 100);
   syncTimeSigUI();
   const barsEl = document.getElementById('kbdBars');
   if (barsEl && sd.bars) barsEl.value = String(sd.bars);
@@ -30422,7 +30455,7 @@ function _stopTuningFork() {
   }, 80);
 }
 
-function loopChangeBpm(delta){loopBpm=Math.max(40,Math.min(240,loopBpm+delta));const song=getCurrentSong();if(song){song.bpm=String(loopBpm);if(!song.sequencer)song.sequencer={};song.sequencer.bpm=String(loopBpm);save();scheduleSyncToSheet(song);}syncBpmUI(loopBpm);}
+function loopChangeBpm(delta){loopBpm=Math.max(40,Math.min(240,loopBpm+delta));const song=getCurrentSong();if(song){if(!song.sequencer)song.sequencer={};song.sequencer.bpm=String(loopBpm);save();scheduleSyncToSheet(song);}syncSeqBpmUI(loopBpm);}
 function loopTapTempo() {
   const now = Date.now();
   clearTimeout(_tapTempoResetTimer);
@@ -30438,8 +30471,8 @@ function loopTapTempo() {
   const bpm = Math.min(240, Math.max(40, Math.round(60000 / avg)));
   loopBpm = bpm;
   const song = getCurrentSong();
-  if (song) { song.bpm = String(bpm); if (!song.sequencer) song.sequencer = {}; song.sequencer.bpm = String(bpm); save(); scheduleSyncToSheet(song); }
-  syncBpmUI(bpm);
+  if (song) { if (!song.sequencer) song.sequencer = {}; song.sequencer.bpm = String(bpm); save(); scheduleSyncToSheet(song); }
+  syncSeqBpmUI(bpm);
   _flashAllTapBtns('loopTapBtn');
 }
 function loopSetBars(n){loopBars=n;document.querySelectorAll('#loopBarsRow .bar-btn').forEach(b=>b.classList.toggle('active',parseInt(b.textContent)===n));}
@@ -30610,6 +30643,7 @@ async function loopAutoSave(trackIdx, blob, mimeType, duration, source) {
   const ext = mimeType.includes('webm') ? 'webm' : (mimeType.includes('mp3') || mimeType.includes('mpeg')) ? 'mp3' : 'ogg';
   const fname = 'loop_' + Date.now() + '.' + ext;
   const path = 'loop_tracks/' + songId + '/' + fname;
+  if (typeof setSyncStatus === 'function') setSyncStatus('syncing', 'Looper: Saving…');
   try {
     const storageRef = firebase.storage().ref(path);
     const snap = await storageRef.put(blob, { contentType: mimeType });
@@ -30632,6 +30666,7 @@ async function loopAutoSave(trackIdx, blob, mimeType, duration, source) {
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     showToast('Loop saved ✓', 'success', 2000);
+    if (typeof setSyncStatus === 'function') setSyncStatus('saved', 'Looper: Saved ✓');
     // Persist the download URL on the song's loopTrack slot so the sequencer
     // can reload the buffer automatically when triggering loops for a part.
     if (song) {
@@ -30643,6 +30678,7 @@ async function loopAutoSave(trackIdx, blob, mimeType, duration, source) {
   } catch(err) {
     console.error('[Looper] save error', err);
     showToast('Loop save failed — check connection', 'error', 4000);
+    if (typeof setSyncStatus === 'function') setSyncStatus('saved', 'Looper: Save failed');
   }
 }
 
@@ -30776,6 +30812,7 @@ async function loopLoadFromSaved(docId, downloadUrl, duration) {
   // Find the first idle track, or use track 0 if none
   let targetIdx = loopTracks.findIndex(t => t.state === 'idle');
   if (targetIdx === -1) targetIdx = 0;
+  if (typeof setSyncStatus === 'function') setSyncStatus('syncing', 'Looper: Loading…');
   try {
     const resp = await fetch(downloadUrl);
     const arrayBuf = await resp.arrayBuffer();
@@ -30795,9 +30832,11 @@ async function loopLoadFromSaved(docId, downloadUrl, duration) {
     if (dl) dl.disabled = true; // blob not available for download
     loopStartPlayback(targetIdx);
     loopStartMetronome();
+    if (typeof setSyncStatus === 'function') setSyncStatus('saved', 'Looper: Loaded ✓');
   } catch(e) {
     console.error('[Looper] load from saved error', e);
     showToast('Could not load loop — try again.', 'error');
+    if (typeof setSyncStatus === 'function') setSyncStatus('saved', 'Looper: Load failed');
   }
 }
 
@@ -34388,7 +34427,7 @@ function seqTapTempo() {
   const bpm = Math.min(240, Math.max(40, Math.round(60000 / avg)));
   const bpmEl = document.getElementById('seqBpm');
   if (bpmEl) { bpmEl.value = bpm; seqSaveSettings(); }
-  syncBpmUI(bpm);
+  syncSeqBpmUI(bpm);
   _flashAllTapBtns('seqTapBtn');
 }
 
@@ -34522,7 +34561,20 @@ var _mtLoopEnabled    = false; // true = restart 4-track from beginning when pla
 // ── Helpers ────────────────────────────────────────────────────
 function _el(id) { return document.getElementById(id); }
 function _fmtDur(sec) { const m=Math.floor(sec/60); return m+':'+String(Math.floor(sec%60)).padStart(2,'0'); }
-function _setStatus(msg) { const e=_el('mtStatus'); if(e) e.textContent=msg; }
+function _setStatus(msg) {
+  const e=_el('mtStatus'); if(e) e.textContent=msg;
+  // Mirror 4-track save/load states into the header status pill
+  var lower = (msg || '').toLowerCase();
+  if (lower.indexOf('saving') >= 0 || lower.indexOf('finaliz') >= 0 || lower.indexOf('stitch') >= 0) {
+    if (typeof setSyncStatus === 'function') setSyncStatus('syncing', '4-Track: ' + msg);
+  } else if (lower.indexOf('loading') >= 0) {
+    if (typeof setSyncStatus === 'function') setSyncStatus('syncing', '4-Track: ' + msg);
+  } else if (lower.indexOf('saved') >= 0 || lower === 'done') {
+    if (typeof setSyncStatus === 'function') setSyncStatus('saved', '4-Track: Saved ✓');
+  } else if (lower.indexOf('upload failed') >= 0 || lower.indexOf('stitch failed') >= 0 || lower.indexOf('save failed') >= 0) {
+    if (typeof setSyncStatus === 'function') setSyncStatus('saved', '4-Track: ' + msg);
+  }
+}
 function _fmtQuotaTime(sec) {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
