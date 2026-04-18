@@ -20303,6 +20303,9 @@ async function seqPlaySong() {
 
   if (sorted.length < 1) { showToast('No sequences to play.', 'info', 3000); return; }
 
+  // Mark as playing BEFORE async prefetch so seqStop() can cancel us
+  seqIsPlaying = true;
+
   // Pre-load all section data (not from DOM — avoids DOM reads during playback)
   const key  = seqCurrentKey();
   const mode = seqCurrentMode();
@@ -20333,82 +20336,73 @@ async function seqPlaySong() {
     };
   });
 
-  // ── Pre-fetch loop track & 4-track buffers for ALL sections before starting ──
-  // This avoids mid-playback async fetch+decode delays (3-4s on mobile).
+  // ── Pre-fetch loop track & 4-track buffers before starting ──
+  // Loads only tracks that have a downloadUrl but no buffer yet.
+  // On repeat presses buffers are already in memory so this block is skipped entirely.
   try {
-    const _allPartIds = new Set(_seqSongSections.map(s => s.partId).filter(Boolean));
-    const _prefetchPromises = [];
-    // Loop tracks: ensure buffer is loaded for any track assigned to a section's part
-    if (loopTracks.length && loopAudioCtx || typeof loopEnsureAudioCtx === 'function') {
-      await loopEnsureAudioCtx();
-      const _allSeqs = getSongSequences(song);
-      const _loopLinks = typeof _seqLinksLoad === 'function' ? _seqLinksLoad('loop') : {};
-      loopTracks.forEach(function(t, i) {
-        if (!t || t.buffer || t.state === 'recording') return;
-        // Check if this track is assigned to any section's part via parts array or seq-link
-        var assigned = false;
-        if (t.parts && t.parts.length) {
-          assigned = t.parts.some(function(p) { return _allPartIds.has(p); });
-        }
-        if (!assigned) {
-          // Check seq-link assignments
-          var linkedSids = _loopLinks[i] || [];
-          if (linkedSids.length) {
-            var _seqPartSet = new Set();
-            _allSeqs.forEach(function(s) { if (_allPartIds.has(s.partId || s.part)) _seqPartSet.add(s.id); });
-            assigned = linkedSids.some(function(sid) { return _seqPartSet.has(sid); });
-          }
-        }
-        if (!assigned) return;
-        var dlUrl = song.loopTracks?.[i]?.downloadUrl;
-        if (!dlUrl) return;
-        _prefetchPromises.push((async function(trackIdx, url) {
-          try {
-            const resp = await fetch(url);
-            const arrayBuf = await resp.arrayBuffer();
-            const audioBuf = await loopAudioCtx.decodeAudioData(arrayBuf);
-            var tr = loopTracks[trackIdx];
-            if (tr && !tr.buffer) { tr.buffer = audioBuf; tr.recDuration = audioBuf.duration; }
-          } catch(e) { console.warn('[SeqPrefetch] loop track', trackIdx, e); }
-        })(i, dlUrl));
-      });
-    }
-    // 4-track: ensure buffer is loaded for any track linked to a section's part
-    if (typeof _mtTracks !== 'undefined' && _mtTracks.length) {
-      var _4tLinks = typeof _seqLinksLoad === 'function' ? _seqLinksLoad('4t') : {};
-      var _allSeqs4t = getSongSequences(song);
-      var _seqPartSet4t = new Set();
-      _allSeqs4t.forEach(function(s) { if (_allPartIds.has(s.partId || s.part)) _seqPartSet4t.add(s.id); });
-      Object.keys(_4tLinks).forEach(function(tidx) {
-        var linked = (_4tLinks[tidx] || []).some(function(sid) { return _seqPartSet4t.has(sid); });
-        if (!linked) return;
-        var t = _mtTracks[parseInt(tidx, 10)];
-        if (!t || t.buffer) return;
-        // Find the active take's download URL
-        var take = t.takes && t.takes[t.activeTakeIdx];
-        if (!take || !take.downloadUrl) return;
-        _prefetchPromises.push((async function(tIdx, url) {
-          try {
-            if (typeof _mtSeqEnsureAudio === 'function') _mtSeqEnsureAudio();
-            const resp = await fetch(url);
-            const arrayBuf = await resp.arrayBuffer();
-            const audioBuf = await _mtAudioCtx.decodeAudioData(arrayBuf);
-            var tr = _mtTracks[tIdx];
-            if (tr && !tr.buffer) { tr.buffer = audioBuf; }
-          } catch(e) { console.warn('[SeqPrefetch] 4-track', tIdx, e); }
-        })(parseInt(tidx, 10), take.downloadUrl));
-      });
-    }
-    if (_prefetchPromises.length > 0) {
-      showToast('Loading audio tracks…', 'info', 2000);
-      await Promise.all(_prefetchPromises);
+    // Sync loop track parts from saved song data (same as _seqTriggerLoopsForPart does)
+    loopTracks.forEach(function(t, i) {
+      var saved = song.loopTracks?.[i];
+      if (saved) t.parts = saved.parts || (saved.partId ? [saved.partId] : []);
+    });
+    // Quick check: do ANY tracks actually need loading?
+    var _needsLoopFetch = loopTracks.some(function(t, i) {
+      return t && !t.buffer && t.state !== 'recording' && song.loopTracks?.[i]?.downloadUrl;
+    });
+    var _needs4tFetch = (typeof _mtTracks !== 'undefined') && _mtTracks.some(function(t) {
+      return t && !t.buffer && t.takes && t.takes[t.activeTakeIdx]?.downloadUrl;
+    });
+    if (_needsLoopFetch || _needs4tFetch) {
+      const _prefetchPromises = [];
+      // Loop tracks
+      if (_needsLoopFetch) {
+        await loopEnsureAudioCtx();
+        loopTracks.forEach(function(t, i) {
+          if (!t || t.buffer || t.state === 'recording') return;
+          var dlUrl = song.loopTracks?.[i]?.downloadUrl;
+          if (!dlUrl) return;
+          _prefetchPromises.push((async function(trackIdx, url) {
+            try {
+              const resp = await fetch(url);
+              const arrayBuf = await resp.arrayBuffer();
+              const audioBuf = await loopAudioCtx.decodeAudioData(arrayBuf);
+              var tr = loopTracks[trackIdx];
+              if (tr && !tr.buffer) { tr.buffer = audioBuf; tr.recDuration = audioBuf.duration; }
+            } catch(e) { console.warn('[SeqPrefetch] loop track', trackIdx, e); }
+          })(i, dlUrl));
+        });
+      }
+      // 4-track
+      if (_needs4tFetch) {
+        if (typeof _mtSeqEnsureAudio === 'function') _mtSeqEnsureAudio();
+        _mtTracks.forEach(function(t, i) {
+          if (!t || t.buffer) return;
+          var take = t.takes && t.takes[t.activeTakeIdx];
+          if (!take || !take.downloadUrl) return;
+          _prefetchPromises.push((async function(tIdx, url) {
+            try {
+              const resp = await fetch(url);
+              const arrayBuf = await resp.arrayBuffer();
+              const audioBuf = await _mtAudioCtx.decodeAudioData(arrayBuf);
+              var tr = _mtTracks[tIdx];
+              if (tr && !tr.buffer) { tr.buffer = audioBuf; }
+            } catch(e) { console.warn('[SeqPrefetch] 4-track', tIdx, e); }
+          })(i, take.downloadUrl));
+        });
+      }
+      if (_prefetchPromises.length > 0) {
+        showToast('Loading audio tracks…', 'info', 2000);
+        await Promise.all(_prefetchPromises);
+      }
     }
   } catch(e) { console.warn('[SeqPrefetch] error:', e); }
+
+  // If seqStop() was called during the async prefetch, bail out
+  if (!seqIsPlaying) return;
 
   _seqSongSectionIdx  = 0;
   _seqSongSectionStep = 0;
   _seqPlayMode = 'song';
-  seqIsPlaying = true;
   document.getElementById('seqDrawerTab')?.classList.add('playing');
   if (typeof htStartClock === 'function') htStartClock();
   if (typeof _bgEnsureKeepAlive === 'function') _bgEnsureKeepAlive();
@@ -20542,6 +20536,8 @@ function seqScheduleNotes() {
         const _nextSectionIdx = _seqSongSectionIdx;
         const _nextPartId = _seqSongSections[_nextSectionIdx]?.partId || null;
         setTimeout(() => {
+          // Bail out if playback was stopped before this timeout fired
+          if (!seqIsPlaying || _seqPlayMode !== 'song') return;
           // Find which sequence tab corresponds to this section so we can highlight + load it
           const song = getCurrentSong();
           if (song && _nextSectionIdx < _seqSongSections.length) {
