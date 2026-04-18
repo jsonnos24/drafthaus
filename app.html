@@ -16897,6 +16897,19 @@ function seqOnSongKeyChange(rawOldKey) {
   const oldChords = seqGetScaleChords(oldKey, oldMode);
   const newChords = seqGetScaleChords(newKey, newMode);
 
+  // Chromatic transposition fallback: shift chord root by semitone interval
+  const _oldRootIdx = SEQ_NOTES.indexOf(oldKey);
+  const _newRootIdx = SEQ_NOTES.indexOf(newKey);
+  const _semiShift  = ((_newRootIdx - _oldRootIdx) + 12) % 12;
+
+  function _chromaticTranspose(rawName) {
+    const match = rawName.match(/^([A-G]#?)(.*)$/);
+    if (!match) return rawName;
+    const noteIdx = SEQ_NOTES.indexOf(match[1]);
+    if (noteIdx < 0) return rawName;
+    return SEQ_NOTES[(noteIdx + _semiShift) % 12] + match[2];
+  }
+
   function _resolveAndTranspose(rawName, storedDeg) {
     let degree;
     if (storedDeg !== undefined && storedDeg !== '') {
@@ -16905,7 +16918,9 @@ function seqOnSongKeyChange(rawOldKey) {
     } else {
       degree = oldChords.indexOf(rawName);
     }
-    return (degree >= 0 && degree < newChords.length) ? newChords[degree] : rawName;
+    if (degree >= 0 && degree < newChords.length) return newChords[degree];
+    // Fallback: chromatic transposition for chords not found in the old scale
+    return (_semiShift !== 0) ? _chromaticTranspose(rawName) : rawName;
   }
 
   // Transpose active sequence's DOM grid if visible
@@ -16944,7 +16959,8 @@ function seqOnSongKeyChange(rawOldKey) {
   seqKeySlots = seqKeySlots.map(name => {
     if (!name) return name;
     const degree = oldChords.indexOf(name);
-    return (degree >= 0 && degree < newChords.length) ? newChords[degree] : name;
+    if (degree >= 0 && degree < newChords.length) return newChords[degree];
+    return (_semiShift !== 0) ? _chromaticTranspose(name) : name;
   });
   seqSaveKeySlots();
   if (document.getElementById('seqKeyTriggers')) seqRenderKeyTriggers();
@@ -18864,11 +18880,19 @@ function seqClearAllChordSlots() {
 function _resolveProgressionToken(token, key, scaleChords) {
   const spec = PROGRESSION_TOKEN_MAP[token];
   if (!spec) return { chord: '', degree: '' };
+  // Map token to scale degree so progressions adapt to the current mode
+  const TOKEN_DEGREE = {'I':0,'i':0,'ii':1,'II':1,'iii':2,'III':2,'IV':3,'iv':3,'V':4,'v':4,'vi':5,'VI':5,'vii':6,'VII':6,'bVII':6};
+  const deg = TOKEN_DEGREE[token];
+  if (deg !== undefined && deg < scaleChords.length) {
+    const chord = scaleChords[deg].replace('_viii', '');
+    return { chord, degree: String(deg) };
+  }
+  // Fallback: absolute semitone resolution
   const rootIdx      = SEQ_NOTES.indexOf(key);
   const chordRootIdx = (rootIdx + spec.semis) % 12;
   const chord        = SEQ_NOTES[chordRootIdx] + spec.quality;
-  const deg          = scaleChords.indexOf(chord);
-  return { chord, degree: deg >= 0 ? String(deg) : '' };
+  const degIdx       = scaleChords.indexOf(chord);
+  return { chord, degree: degIdx >= 0 ? String(degIdx) : '' };
 }
 
 // Core fill — applies a progression to the chord grid with optional beat-offset humanization.
@@ -28731,6 +28755,19 @@ function seqKeySelectChanged(triggerEl) {
   const oldChords = seqGetScaleChords(oldKey, oldMode);
   const newChords = seqGetScaleChords(newKey, newMode);
 
+  // Chromatic transposition fallback: shift chord root by semitone interval
+  const _oldRI = SEQ_NOTES.indexOf(oldKey);
+  const _newRI = SEQ_NOTES.indexOf(newKey);
+  const _shift = ((_newRI - _oldRI) + 12) % 12;
+
+  function _chromatic(rawName) {
+    const m = rawName.match(/^([A-G]#?)(.*)$/);
+    if (!m) return rawName;
+    const ni = SEQ_NOTES.indexOf(m[1]);
+    if (ni < 0) return rawName;
+    return SEQ_NOTES[(ni + _shift) % 12] + m[2];
+  }
+
   function _resolveAndTranspose(rawName, storedDeg) {
     let degree;
     if (storedDeg !== undefined && storedDeg !== '') {
@@ -28739,7 +28776,9 @@ function seqKeySelectChanged(triggerEl) {
     } else {
       degree = oldChords.indexOf(rawName);
     }
-    return (degree >= 0 && degree < newChords.length) ? newChords[degree] : rawName;
+    if (degree >= 0 && degree < newChords.length) return newChords[degree];
+    // Fallback: chromatic transposition for chords not found in the old scale
+    return (_shift !== 0) ? _chromatic(rawName) : rawName;
   }
 
   // Transpose active sequence's DOM grid if visible
@@ -28779,7 +28818,8 @@ function seqKeySelectChanged(triggerEl) {
   seqKeySlots = seqKeySlots.map(name => {
     if (!name) return name;
     const degree = oldChords.indexOf(name);
-    return (degree >= 0 && degree < newChords.length) ? newChords[degree] : name;
+    if (degree >= 0 && degree < newChords.length) return newChords[degree];
+    return (_shift !== 0) ? _chromatic(name) : name;
   });
   seqSaveKeySlots();
   if (document.getElementById('seqKeyTriggers')) seqRenderKeyTriggers();
