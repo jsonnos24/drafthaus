@@ -12448,6 +12448,71 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   }
   .v4-auth-close:hover { background: var(--card); color: var(--text); }
 
+  /* Welcome prompt for returning users */
+  .v4-welcome-prompt {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 36px 24px 32px;
+    margin-bottom: 28px;
+    text-align: center;
+  }
+  .v4-welcome-greeting {
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0;
+  }
+  .v4-welcome-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .v4-welcome-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 22px;
+    border-radius: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .v4-welcome-btn:active { transform: scale(0.97); }
+  .v4-welcome-btn.wb-new {
+    background: rgba(245,166,35,0.14);
+    border: 1px solid rgba(245,166,35,0.45);
+    color: var(--gold);
+  }
+  .v4-welcome-btn.wb-new:hover { background: rgba(245,166,35,0.25); }
+  .v4-welcome-btn.wb-recent {
+    background: rgba(200,160,255,0.10);
+    border: 1px solid rgba(200,160,255,0.35);
+    color: #c4b5fd;
+  }
+  .v4-welcome-btn.wb-recent:hover { background: rgba(200,160,255,0.22); }
+  .v4-welcome-btn.wb-roll {
+    background: rgba(78,242,182,0.08);
+    border: 1px solid rgba(78,242,182,0.30);
+    color: #4ef2b6;
+  }
+  .v4-welcome-btn.wb-roll:hover { background: rgba(78,242,182,0.18); }
+  .v4-welcome-recent-title {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+    vertical-align: bottom;
+  }
+
   /* List view wrapper */
   .v4-list-wrap {
     max-width: 1440px;
@@ -14420,6 +14485,18 @@ html.slate-mode .ft-drawer {
         </span>
         <button class="v4-auth-close" onclick="v4DismissGoldBanner()">×</button>
       </div>
+      <!-- Welcome prompt for returning users -->
+      <div class="v4-welcome-prompt" id="v4WelcomePrompt">
+        <div class="v4-welcome-greeting" id="v4WelcomeGreeting">Welcome back.</div>
+        <div class="v4-welcome-actions" id="v4WelcomeActions">
+          <button class="v4-welcome-btn wb-new" onclick="if(!auth.currentUser){v4RequireAuth();return;}newSong()">+ New Idea</button>
+          <button class="v4-welcome-btn wb-recent" id="v4WelcomeRecentBtn" style="display:none;" onclick="v4OpenRecentSong()">
+            ↩ Open <span class="v4-welcome-recent-title" id="v4WelcomeRecentTitle"></span>
+          </button>
+          <button class="v4-welcome-btn wb-roll" onclick="if(!auth.currentUser){v4RequireAuth();return;}toggleDrawer('inspoDrawer', openInspoDrawer, closeInspoDrawer)">⚅ Roll for Inspiration</button>
+        </div>
+      </div>
+
       <div class="v4-list-head">
         <div>
           <div class="v4-list-subtitle" id="v4Subtitle">The workshop · <span id="v4DraftCount">0</span> drafts</div>
@@ -15908,6 +15985,39 @@ function v4RenderProjectTabs() {
   `;
 }
 
+// ── Welcome prompt for returning users ──────────────────────────
+function v4ShowWelcomePrompt() {
+  const prompt = document.getElementById('v4WelcomePrompt');
+  if (!prompt) return;
+  // Only show for logged-in users with songs
+  if (!auth.currentUser) { prompt.style.display = 'none'; return; }
+  const realSongs = songs.filter(s => !s._demo);
+  if (realSongs.length === 0) { prompt.style.display = 'none'; return; }
+
+  prompt.style.display = 'flex';
+
+  // Find the most recent song
+  const sorted = [...realSongs].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const lastId = _lastSongIdFromFirestore || localStorage.getItem('drafthaus-last-song');
+  const recentSong = lastId ? realSongs.find(s => s.id === lastId) : sorted[0];
+  const btn = document.getElementById('v4WelcomeRecentBtn');
+  const titleEl = document.getElementById('v4WelcomeRecentTitle');
+  if (recentSong && btn && titleEl) {
+    const title = recentSong.title || recentSong.workingTitle || 'Untitled Sketch';
+    titleEl.textContent = '"' + title + '"';
+    btn.style.display = '';
+    btn.dataset.songId = recentSong.id;
+  } else if (btn) {
+    btn.style.display = 'none';
+  }
+}
+
+function v4OpenRecentSong() {
+  const btn = document.getElementById('v4WelcomeRecentBtn');
+  const id = btn?.dataset.songId;
+  if (id) openSong(id);
+}
+
 // Master render function — call this instead of renderGrid for signed-out users
 function renderDraftsV4() {
   v4RenderProjectTabs();
@@ -15972,10 +16082,9 @@ function v4UpdateGoldBanner(mode) {
     if (msg) msg.textContent = 'A songwriter\'s sketchbook.';
     if (actions) actions.innerHTML = '<button class="v4-auth-link" onclick="submitLandingPassword()">Sign in</button><button class="v4-auth-link" onclick="toggleEmailSignUp()">Create account</button><button class="v4-auth-link" onclick="signInAsGuest()">Try free</button>';
   } else if (mode === 'guest') {
-    if (brand) brand.style.display = 'none';
-    if (sep) sep.style.display = 'none';
-    if (msg) msg.innerHTML = 'You\'re using Drafthaus as a guest. <strong style="cursor:pointer;text-decoration:underline;color:var(--gold);" onclick="openGuestUpgradeModal()">Create a free account</strong> to keep your drafts.';
-    if (actions) actions.innerHTML = '<button class="v4-auth-link" onclick="openGuestUpgradeModal()">Create Account</button>';
+    // Guest users already have the top-level guest-upgrade-banner — hide the in-list one
+    gb.style.display = 'none';
+    return;
   } else if (mode === 'free') {
     if (brand) brand.style.display = 'none';
     if (sep) sep.style.display = 'none';
@@ -16341,6 +16450,9 @@ document.addEventListener('touchstart', _warmUpAllAudioContexts, { capture: true
 
 function openSong(id) {
   _stopAllAudio();
+  // Hide welcome prompt when opening a song
+  var _wp = document.getElementById('v4WelcomePrompt');
+  if (_wp) _wp.style.display = 'none';
   document.getElementById('loadSheetBtn')?.classList.remove('load-btn-glow');
   // Dismiss the "no draft selected" modal if it was shown before songs finished loading
   if (document.getElementById('noSongModal')?.style.display !== 'none') closeNoSongModal();
@@ -16360,6 +16472,35 @@ function openSong(id) {
   setSongViewMode('runthrough');
   ilInitAndRender(song);
   showDetail();
+
+  // ── Default layout: Desktop = lyrics left + 4-track right, Mobile = 4-track ──
+  if (window.innerWidth >= 900) {
+    // Desktop: auto-enter split mode with 4-track in right pane
+    if (!_splitActive) {
+      _splitActive = true;
+      document.body.classList.add('split-active');
+      document.getElementById('splitBtn')?.classList.add('active');
+    }
+    // Ensure left pane shows lyrics (runthrough)
+    var _leftSel = document.getElementById('splitLeftSelect');
+    if (_leftSel) _leftSel.value = 'lyrics';
+    // Set right pane to 4-track
+    if (typeof setSplitRightTool === 'function') setSplitRightTool('4track');
+    var _rightSel = document.getElementById('splitRightSelect');
+    if (_rightSel) _rightSel.value = '4track';
+    // Reset any expanded pane so both are visible
+    if (_splitExpandedSide) {
+      _splitExpandedSide = null;
+      document.body.classList.remove('split-expanded-left', 'split-expanded-right');
+      if (typeof _syncExpandBtns === 'function') _syncExpandBtns();
+    }
+  } else {
+    // Mobile: open 4-track recorder overlay
+    setTimeout(function() {
+      if (typeof vrOpen === 'function') vrOpen();
+    }, 200);
+  }
+
   // Refresh split panel right tool with the new song
   if (_splitActive && _splitCurrentTool && _splitDrawerMap[_splitCurrentTool]) {
     const _sfn = _splitDrawerMap[_splitCurrentTool].openFn;
@@ -27511,6 +27652,9 @@ async function loadSongsFromSheet() {
         // Stay on song list — don't call openSong() which switches to edit view
       }
     }
+
+    // Show welcome prompt for returning users
+    if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
 
   } catch(e) {
     stopFunnyMessages();
