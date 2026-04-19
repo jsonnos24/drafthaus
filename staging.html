@@ -12920,7 +12920,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
 /* ── Mix grid layout ────────────────────────────────────────────────────────────────── */
 .ft-mix {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: 1fr;
   gap: 20px;
   flex: 1;
 }
@@ -13893,13 +13893,6 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
 
 /* ── Responsive ────────────────────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
-  .ft-mix {
-    grid-template-columns: 1fr;
-  }
-
-  .ft-master {
-    max-height: none;
-  }
 }
 
 @media (max-width: 760px) {
@@ -13941,12 +13934,6 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     width: 100%;
   }
 
-  .ft-master {
-    position: static;
-    border: none;
-    background: transparent;
-    padding: 0;
-  }
 }
 
 /* ── Warm mode specific ─────────────────────────────────────────────────────────────── */
@@ -42262,6 +42249,99 @@ function ftDrawAllWaveforms() {
   for (var i = 0; i < 4; i++) ftDrawWaveform(i);
 }
 
+/* ── Draw take waveform from audio buffer ──────────────────────────────────────── */
+function ftDrawTakeWaveform(div, take, idx) {
+  var canvas = div.querySelector('.ft-take-wave-canvas');
+  if (!canvas) return;
+  var wfDiv = canvas.parentElement;
+  var W = wfDiv ? wfDiv.offsetWidth : 0;
+  var H = wfDiv ? wfDiv.offsetHeight : 0;
+  if (W === 0 || H === 0) {
+    /* Wait for layout — retry after paint */
+    setTimeout(function() { ftDrawTakeWaveform(div, take, idx); }, 100);
+    return;
+  }
+
+  canvas.width = W * (window.devicePixelRatio || 1);
+  canvas.height = H * (window.devicePixelRatio || 1);
+  var ctx = canvas.getContext('2d');
+  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+  ctx.clearRect(0, 0, W, H);
+
+  var mid = H / 2;
+  /* Center zero line */
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.fillRect(0, mid - 0.5, W, 1);
+
+  /* Load audio and draw waveform.
+     _mtAudioCache stores ArrayBuffers, not AudioBuffers, so we must decode.
+     Check if the active track already has this take's buffer loaded. */
+  var drawn = false;
+  var t = _mtTracks[ftModalStripIdx];
+  if (t && t.activeTakeIdx === idx && t.buffer) {
+    _drawTakeWaveformBuffer(canvas, ctx, W, H, mid, t.buffer, ftModalStripIdx);
+    drawn = true;
+  }
+
+  if (!drawn && take.downloadUrl) {
+    /* Show loading hint while fetching */
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.font = '10px "IBM Plex Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Loading…', W / 2, mid + 4);
+
+    (async function() {
+      try {
+        var arrBuf = null;
+        if (typeof _mtAudioCache !== 'undefined' && take.id) {
+          arrBuf = await _mtAudioCache.get(take.id);
+        }
+        if (!arrBuf) {
+          var resp = await fetch(take.downloadUrl);
+          arrBuf = await resp.arrayBuffer();
+        }
+        if (typeof _mtCreateCtxSync === 'function') _mtCreateCtxSync();
+        var audioBuf = await _mtAudioCtx.decodeAudioData(arrBuf.slice(0));
+        /* Clear loading text and draw real waveform */
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(0, mid - 0.5, W, 1);
+        _drawTakeWaveformBuffer(canvas, ctx, W, H, mid, audioBuf, ftModalStripIdx);
+      } catch(err) {
+        console.warn('[FT] take waveform load error:', err);
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = 'rgba(255,255,255,0.1)';
+        ctx.font = '10px "IBM Plex Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Could not load', W / 2, mid + 4);
+      }
+    })();
+  } else if (!drawn) {
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.font = '10px "IBM Plex Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('No audio', W / 2, mid + 4);
+  }
+}
+
+function _drawTakeWaveformBuffer(canvas, ctx, W, H, mid, buffer, stripIdx) {
+  if (!buffer || !buffer.getChannelData) return;
+  var ch = buffer.getChannelData(0);
+  var step = Math.max(1, Math.floor(ch.length / W));
+  var color = FT_WAVE_COLORS[stripIdx] || '#4a5468';
+  ctx.fillStyle = color;
+
+  for (var x = 0; x < W; x++) {
+    var max = 0;
+    for (var j = 0; j < step; j++) {
+      var v = Math.abs(ch[x * step + j] || 0);
+      if (v > max) max = v;
+    }
+    var barH = Math.max(1, max * mid * 0.9);
+    ctx.fillRect(x, mid - barH, 1, barH * 2);
+  }
+}
+
 /* ── VU meter animation — reads real track volume ─────────────────────────────── */
 function ftAnimateVU() {
   document.querySelectorAll('[data-ft-vu]').forEach(function(meter, idx) {
@@ -42359,10 +42439,7 @@ function ftRenderTakes() {
     div.innerHTML = '<div class="ft-take-drag">☰</div>' +
       '<div class="ft-take-content">' +
         '<div class="ft-take-waveform" data-ft-take-waveform>' +
-          '<svg viewBox="0 0 800 80" preserveAspectRatio="xMidYMid meet">' +
-            '<path d="M0,40 L10,38 L20,35 L30,32 L40,35 L50,40 L60,48 L70,58 L80,65 L90,70 L100,72 L110,70 L120,65 L130,56 L140,45 L150,35 L160,28 L170,25 L180,28 L190,35 L200,45 L210,56 L220,65 L230,70 L240,72 L250,70 L260,65 L270,56 L280,45 L290,35 L300,28 L310,25 L320,28 L330,35 L340,45 L350,56 L360,65 L370,70 L380,72 L390,70 L400,65 L410,56 L420,45 L430,35 L440,28 L450,25 L460,28 L470,35 L480,45 L490,56 L500,65 L510,70 L520,72 L530,70 L540,65 L550,56 L560,45 L570,35 L580,28 L590,25 L600,28 L610,35 L620,45 L630,56 L640,65 L650,70 L660,72 L670,70 L680,65 L690,56 L700,45 L710,35 L720,28 L730,25 L740,28 L750,35 L760,45 L770,56 L780,65 L790,70 L800,72" ' +
-              'stroke="var(--gold)" stroke-width="1" fill="none" vector-effect="non-scaling-stroke"/>' +
-          '</svg>' +
+          '<canvas class="ft-take-wave-canvas" style="width:100%;height:100%;display:block;"></canvas>' +
         '</div>' +
         '<div class="ft-take-meta">' +
           '<div class="ft-take-name">Take ' + (idx + 1) + '</div>' +
@@ -42377,6 +42454,9 @@ function ftRenderTakes() {
       '</div>';
 
     list.appendChild(div);
+
+    /* Draw real waveform from take buffer */
+    ftDrawTakeWaveform(div, take, idx);
 
     var playBtn = div.querySelector('[data-ft-take-play]');
     var loadBtn = div.querySelector('[data-ft-take-load]');
@@ -42398,40 +42478,87 @@ function ftRenderTakes() {
       take.locked = !take.locked;
       lockBtn.classList.toggle('ok', take.locked);
       if (delBtn) delBtn.disabled = take.locked || idx === t.activeTakeIdx;
+      /* Persist to Firestore */
+      if (take.id && typeof db !== 'undefined') {
+        db.collection('voice_takes').doc(take.id).update({ locked: !!take.locked }).catch(function(e) {
+          console.error('[FT] lock persist error', e);
+        });
+      }
     });
 
     if (delBtn) delBtn.addEventListener('click', function() {
+      var wasActive = (idx === t.activeTakeIdx);
       mtDeleteTake(ftModalStripIdx, idx);  /* existing — Firestore delete + trash */
-      setTimeout(function() { ftOpenTakes(ftModalStripIdx); }, 500);
+      setTimeout(function() {
+        ftOpenTakes(ftModalStripIdx);
+        if (wasActive) {
+          ftDrawWaveform(ftModalStripIdx);
+        }
+      }, 500);
     });
 
-    /* Comp mode overlay on take waveforms */
+    /* Comp mode: add click handler to waveform for cut placement */
     if (ftCompMode) {
       var wf = div.querySelector('[data-ft-take-waveform]');
-      if (wf) ftRenderCompMode(wf, take, idx);
+      if (wf) {
+        wf.style.cursor = 'crosshair';
+        wf.addEventListener('click', function(e) {
+          var rect = wf.getBoundingClientRect();
+          var clickX = e.clientX - rect.left;
+          var pct = Math.max(0, Math.min(1, clickX / rect.width));
+          var dur = _mtMaxDuration();
+          var clickTime = pct * dur;
+
+          /* Find the cut region at this position and update its takeId */
+          var foundRegion = false;
+          for (var i = 0; i < ftCompCuts.length; i++) {
+            var cutStart = ftCompCuts[i].t;
+            var cutEnd = (i < ftCompCuts.length - 1) ? ftCompCuts[i + 1].t : dur;
+            if (clickTime >= cutStart && clickTime < cutEnd) {
+              ftCompCuts[i].takeId = take.id;
+              foundRegion = true;
+              break;
+            }
+          }
+
+          /* If not found, add a new cut at this position */
+          if (!foundRegion) {
+            ftCompCuts.push({ t: clickTime, takeId: take.id });
+            ftCompCuts.sort(function(a, b) { return a.t - b.t; });
+          }
+
+          ftUpdateCompSummary();
+          ftRenderTakes();
+        });
+      }
     }
   });
 }
 
 /* ── Comp mode — NEW FEATURE (cut markers, visual segments, commit stub) ───── */
 function ftRenderCompMode(wf, take, idx) {
-  var svgs = wf.querySelectorAll('svg');
-  svgs.forEach(function(svg) {
-    svg.querySelectorAll('.ft-comp-cut').forEach(function(cl) { cl.remove(); });
-  });
+  /* With canvas-based waveforms, we draw cut lines directly on the canvas.
+     This is called after ftDrawTakeWaveform, so we overlay the cuts. */
+  var canvas = wf.querySelector('.ft-take-wave-canvas');
+  if (!canvas) return;
 
   var dur = _mtMaxDuration();
   if (!dur || dur <= 0) return;
 
+  var ctx = canvas.getContext('2d');
+  var W = canvas.offsetWidth;
+  var H = canvas.offsetHeight;
+
+  /* Draw cut lines */
   ftCompCuts.forEach(function(cut) {
-    var cutPct = (cut.t / dur) * 100;
-    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', (cutPct * 8)); line.setAttribute('y1', 0);
-    line.setAttribute('x2', (cutPct * 8)); line.setAttribute('y2', 80);
-    line.setAttribute('stroke', 'var(--gold)');
-    line.setAttribute('stroke-width', 2);
-    line.classList.add('ft-comp-cut');
-    svgs.forEach(function(svg) { svg.appendChild(line.cloneNode()); });
+    var cutPct = cut.t / dur;
+    var cutX = cutPct * W;
+    ctx.strokeStyle = 'var(--gold)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cutX, 0);
+    ctx.lineTo(cutX, H);
+    ctx.stroke();
   });
 }
 
@@ -43343,51 +43470,6 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
       </div>
 
-      <!-- Master rack sidebar -->
-      <div class="ft-master">
-        <div class="ft-master-tc" id="ftTcMaster">
-          0:00.0
-          <div style="font-size: 10px; color: var(--muted); margin-top: 2px;">42.0s</div>
-        </div>
-
-        <div>
-          <div class="ft-master-label">Rec</div>
-          <div class="ft-master-btns">
-            <button class="ft-btn lg rec" data-ft-rec-big>● REC</button>
-          </div>
-        </div>
-
-        <div>
-          <div class="ft-master-label">Controls</div>
-          <div class="ft-master-btns triple">
-            <button class="ft-master-btn" data-ft-play-big>▶</button>
-            <button class="ft-master-btn" data-ft-stop-big>■</button>
-            <button class="ft-master-btn" data-ft-loop-big>⟲</button>
-          </div>
-        </div>
-
-        <div>
-          <div class="ft-master-label">I/O</div>
-          <div style="font-size: 11px; color: var(--muted); line-height: 1.4;">
-            <div style="margin-bottom: 4px;">Input Gain</div>
-            <div class="ft-input-gain" style="margin-bottom: 8px;">
-              <input type="range" min="0" max="100" value="72" style="flex: 1;">
-            </div>
-            <div style="margin-bottom: 4px;">Output</div>
-            <div style="padding: 4px; background: var(--panel); border-radius: 4px; border: 1px solid var(--border); font-size: 10px;">Speaker</div>
-          </div>
-        </div>
-
-        <div>
-          <div class="ft-master-label">Keys</div>
-          <div style="font-size: 10px; color: var(--muted); line-height: 1.6;">
-            <div><strong>Space</strong> Play/Stop</div>
-            <div><strong>R</strong> Record</div>
-            <div><strong>L</strong> Loop</div>
-            <div><strong>Esc</strong> Close</div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- Legend -->
