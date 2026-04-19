@@ -41130,6 +41130,852 @@ Object.defineProperty(window, '_mtArmedTrack', {
 
 })(); // end IIFE
 
+/* ════ 4-TRACK RECORDER REDESIGN — START ════ */
+/* ════════════════════════════════════════════════════════════════════════════════
+   4-TRACK RECORDER — JAVASCRIPT (ft- prefix)
+   ════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── ft- state (only things genuinely new to the redesign — everything else
+       reads from the battle-tested _mtTracks[] / _vrRecording / _mtIsPlaying) ── */
+var ftLoopRegion = null;        // {start:0-1, end:0-1} — new drag-to-loop feature
+var ftCountInBars = 0;          // 0 | 1 | 2 — new count-in segmented control
+var ftLastFrameTime = 0;
+var ftCompMode = false;         // new comp mode
+var ftModalStripIdx = 0;
+var ftCompCuts = [];            // [{t, takeId}] — new comp cut markers
+var ftCompDragStart = null;
+var ftCompDragTakeId = null;
+var ftTickActive = false;
+
+/* ── Drawer open/close ────────────────────────────────────────────────────────────────── */
+function ftOpen() {
+  if (!currentId) { showToast('Select a song first', 'warn', 2000); return; }
+  _vrSongId = currentId;
+  _mtEnsureTrackObjects();
+  var overlay = document.getElementById('ftOverlay');
+  var drawer = document.getElementById('ftDrawer');
+  if (!overlay || !drawer) return;
+  overlay.classList.add('open');
+  drawer.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  /* Load real takes from Firestore, then sync the ft- UI */
+  vrLoadTakes().then(function() {
+    ftSyncUI();
+    ftTickStart();
+  }).catch(function(e) {
+    console.error('[FT] vrLoadTakes error:', e);
+    ftSyncUI();
+    ftTickStart();
+  });
+}
+
+function ftClose() {
+  var overlay = document.getElementById('ftOverlay');
+  var drawer = document.getElementById('ftDrawer');
+  if (!overlay || !drawer) return;
+  overlay.classList.remove('open');
+  drawer.classList.remove('open');
+  document.body.style.overflow = '';
+  if (_vrRecording || _mtIsPlaying) vrStop();
+  ftTickStop();
+  ftCloseTakes();
+}
+
+/* ── RAF tick — drives timecodes, playheads, VU while drawer is open ────────── */
+function ftTickStart() {
+  if (ftTickActive) return;
+  ftTickActive = true;
+  ftLastFrameTime = 0;
+  requestAnimationFrame(ftTick);
+}
+function ftTickStop() { ftTickActive = false; }
+
+function ftTick(now) {
+  if (!ftTickActive) return;
+  ftUpdateTimecodes();
+  ftUpdatePlayheads();
+  ftAnimateVU();
+  ftUpdateTransport();
+  if (ftTickActive) requestAnimationFrame(ftTick);
+}
+
+/* ── Transport controls — delegate to existing engine ──────────────────────────── */
+function ftPlayClick() {
+  if (_vrRecording) return;
+  mtPlay();              /* existing toggle — plays or stops */
+}
+
+function ftSeqClick() {
+  mtPlayWithSeq();       /* existing — syncs 4-track + sequencer */
+}
+
+function ftRecClick() {
+  if (ftCountInBars > 0 && !_vrRecording) {
+    ftShowCountIn();     /* new count-in overlay, then delegates to vrToggleRec */
+  } else {
+    vrToggleRec();       /* existing full recording engine */
+  }
+}
+
+function ftStopClick() {
+  vrStop();              /* existing — stops recording + playback + sequencer */
+}
+
+function ftLoopClick() {
+  if (ftLoopRegion) {
+    ftLoopRegion = null;
+  } else {
+    /* Toggle on = full song loop */
+    ftLoopRegion = { start: 0, end: 1 };
+    _mtLoopEnabled = true;
+  }
+  if (!ftLoopRegion) _mtLoopEnabled = false;
+  ftUpdateLoopUI();
+}
+
+function ftMetroClick() {
+  if (typeof seqMetOn !== 'undefined') seqMetOn = !seqMetOn;
+  var btn = document.querySelector('[data-ft-metro]');
+  if (btn) btn.classList.toggle('on', seqMetOn);
+}
+
+function ftBpmMinus() {
+  var song = getCurrentSong(); if (!song) return;
+  song.bpm = Math.max(40, (song.bpm || 120) - 1);
+  save();
+  var el = document.getElementById('ftBpm'); if (el) el.textContent = song.bpm;
+}
+
+function ftBpmPlus() {
+  var song = getCurrentSong(); if (!song) return;
+  song.bpm = Math.min(240, (song.bpm || 120) + 1);
+  save();
+  var el = document.getElementById('ftBpm'); if (el) el.textContent = song.bpm;
+}
+
+function ftCountInChange(bars) {
+  ftCountInBars = parseInt(bars);
+  document.querySelectorAll('.ft-seg-btn').forEach(function(btn) { btn.classList.remove('active'); });
+  var activeBtn = document.querySelector('[data-ft-countin="' + ftCountInBars + '"]');
+  if (activeBtn) activeBtn.classList.add('active');
+}
+
+function ftMonClick() {
+  /* Toggle the existing input monitor — uses _inputMonEnabled from the old 4-track */
+  if (typeof _inputMonEnabled !== 'undefined') {
+    _inputMonEnabled = !_inputMonEnabled;
+    try { localStorage.setItem('drafthaus-input-mon', _inputMonEnabled ? '1' : '0'); } catch(e) {}
+    if (typeof _inputMonSyncUI === 'function') _inputMonSyncUI();
+  }
+  var btn = document.querySelector('[data-ft-mon]');
+  if (btn) btn.classList.toggle('on', !!_inputMonEnabled);
+  if (typeof _mtUpdateMonPill === 'function') _mtUpdateMonPill(_vrRecording ? 'recording' : (_mtIsPlaying ? 'playing' : ''));
+}
+
+function ftUpdateTransport() {
+  var playBtn = document.querySelector('[data-ft-play]');
+  var recBtn = document.querySelector('[data-ft-rec]');
+  if (playBtn) playBtn.classList.toggle('on', _mtIsPlaying);
+  if (recBtn) {
+    recBtn.classList.toggle('on', _vrRecording);
+    recBtn.classList.toggle('red', _vrRecording);
+  }
+}
+
+/* ── Timecodes and playheads — driven by real AudioContext clock ────────────── */
+function _ftElapsed() {
+  if ((_mtIsPlaying || _vrRecording) && _mtAudioCtx && _mtPlayStartCtx !== undefined) {
+    return Math.max(0, _mtAudioCtx.currentTime - _mtPlayStartCtx);
+  }
+  return 0;
+}
+
+function ftUpdateTimecodes() {
+  var dur = _mtMaxDuration();
+  var elapsed = _ftElapsed();
+  var tc = document.getElementById('ftTc');
+  if (tc) tc.textContent = ftFormatTime(elapsed) + ' / ' + ftFormatTime(dur);
+  var tcM = document.getElementById('ftTcMaster');
+  if (tcM) tcM.innerHTML = ftFormatTime(elapsed) +
+    '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + ftFormatTime(dur) + 's</div>';
+}
+
+function ftUpdatePlayheads() {
+  var dur = _mtMaxDuration();
+  var elapsed = _ftElapsed();
+  var pct = dur > 0 ? Math.min(100, (elapsed / dur) * 100) : 0;
+
+  document.querySelectorAll('[data-ft-waveform-idx]').forEach(function(wf) {
+    var ph = wf.querySelector('.ft-waveform-playhead');
+    if (ph) ph.style.left = pct + '%';
+  });
+  document.querySelectorAll('[data-ft-take-waveform]').forEach(function(wf) {
+    var ph = wf.querySelector('.ft-waveform-playhead');
+    if (!ph) { ph = document.createElement('div'); ph.className = 'ft-waveform-playhead'; wf.appendChild(ph); }
+    ph.style.left = pct + '%';
+  });
+}
+
+function ftFormatTime(seconds) {
+  if (!seconds || seconds < 0) seconds = 0;
+  var m = Math.floor(seconds / 60);
+  var s = Math.floor(seconds % 60);
+  var d = Math.floor((seconds % 1) * 10);
+  return m + ':' + (s < 10 ? '0' : '') + s + '.' + d;
+}
+
+/* ── Volume and pan — delegate to existing mtSetVolume / mtSetPan ───────────── */
+function ftSetupVolumeSlidersAndPan() {
+  document.querySelectorAll('[data-ft-volume]').forEach(function(slider, idx) {
+    slider.addEventListener('input', function() {
+      var vol = parseInt(this.value);
+      mtSetVolume(idx, vol);            /* updates gain node + localStorage */
+      var dbDisplay = document.querySelectorAll('[data-ft-vol-db]')[idx];
+      if (dbDisplay) dbDisplay.textContent = ftVolToDB(vol);
+    });
+    slider.addEventListener('dblclick', function() {
+      this.value = 85;
+      mtSetVolume(idx, 85);
+      var dbDisplay = document.querySelectorAll('[data-ft-vol-db]')[idx];
+      if (dbDisplay) dbDisplay.textContent = '0 dB';
+    });
+  });
+
+  document.querySelectorAll('[data-ft-pan]').forEach(function(panBar, idx) {
+    var thumb = panBar.querySelector('.ft-pan-thumb');
+    var label = document.querySelectorAll('[data-ft-pan-label]')[idx];
+    var isDragging = false;
+
+    panBar.addEventListener('pointerdown', function(e) {
+      isDragging = true;
+      ftUpdatePan(panBar, thumb, label, idx, e);
+    });
+    document.addEventListener('pointermove', function(e) {
+      if (!isDragging) return;
+      ftUpdatePan(panBar, thumb, label, idx, e);
+    });
+    document.addEventListener('pointerup', function() { isDragging = false; });
+    panBar.addEventListener('dblclick', function() {
+      mtSetPan(idx, 0);                /* existing — updates pan node + localStorage */
+      thumb.style.left = '50%';
+      if (label) label.textContent = 'C';
+    });
+  });
+}
+
+function ftUpdatePan(panBar, thumb, label, idx, e) {
+  var rect = panBar.getBoundingClientRect();
+  var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  var panVal = Math.round((pct * 2 - 1) * 100);  /* -100 to +100 to match mtSetPan */
+  mtSetPan(idx, panVal);
+  thumb.style.left = (pct * 100) + '%';
+  if (label) {
+    if (Math.abs(panVal) < 5) label.textContent = 'C';
+    else if (panVal < 0) label.textContent = 'L' + Math.abs(panVal);
+    else label.textContent = 'R' + panVal;
+  }
+}
+
+function ftVolToDB(vol) {
+  if (vol === 0) return '-∞';
+  var db = 20 * Math.log10(vol / 85);
+  if (db >= 0) return '+' + db.toFixed(1) + ' dB';
+  return db.toFixed(1) + ' dB';
+}
+
+/* ── Input gain — delegate to existing vrGainChange (dB scale -24..+24) ─────── */
+function ftSetupInputGain() {
+  var inputSlider = document.querySelector('[data-ft-input-gain]');
+  if (!inputSlider) return;
+  inputSlider.addEventListener('input', function() {
+    vrGainChange(this.value);           /* existing — converts dB → linear, saves to localStorage */
+    var dbVal = parseInt(this.value);
+    var el = document.getElementById('ftInputDb');
+    if (el) el.textContent = (dbVal >= 0 ? '+' : '') + dbVal + ' dB';
+  });
+  inputSlider.addEventListener('dblclick', function() {
+    this.value = 10;                    /* default = +10 dB */
+    vrGainChange(10);
+    var el = document.getElementById('ftInputDb');
+    if (el) el.textContent = '+10 dB';
+  });
+}
+
+/* ── Strip buttons — delegate to existing mt* functions ────────────────────── */
+function ftSetupStripButtons() {
+  document.querySelectorAll('[data-ft-strip]').forEach(function(strip, idx) {
+    var armBtn = strip.querySelector('[data-ft-arm]');
+    var muteBtn = strip.querySelector('[data-ft-mute]');
+    var soloBtn = strip.querySelector('[data-ft-solo]');
+    var lockBtn = strip.querySelector('[data-ft-lock]');
+    var delBtn = strip.querySelector('[data-ft-delete]');
+
+    if (armBtn) armBtn.addEventListener('click', function() {
+      mtArmTrack(idx);                  /* existing — tier gate, lock check, VU start, CF warmup */
+      ftSyncAllStrips();
+    });
+    if (muteBtn) muteBtn.addEventListener('click', function() {
+      mtToggleMute(idx);                /* existing — Firestore persist */
+      ftSyncAllStrips();
+    });
+    if (soloBtn) soloBtn.addEventListener('click', function() {
+      mtToggleSolo(idx);                /* existing — Firestore persist */
+      ftSyncAllStrips();
+    });
+    if (lockBtn) lockBtn.addEventListener('click', function() {
+      mtMobileLockTrack(idx);           /* existing — Firestore persist, disarm if locked */
+      ftSyncAllStrips();
+    });
+    if (delBtn) delBtn.addEventListener('click', function() {
+      mtMobileTrashTrack(idx).then(function() {   /* existing — moves takes to trash */
+        ftSyncAllStrips();
+      });
+    });
+
+    /* Track name editing — save on blur via existing mtSaveLabel */
+    var nameEl = strip.querySelector('.ft-strip-name');
+    if (nameEl) {
+      nameEl.addEventListener('blur', function() { mtSaveLabel(idx, this); });
+      nameEl.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); this.blur(); } });
+    }
+  });
+}
+
+function ftUpdateStripUI(idx) {
+  if (idx < 0 || idx >= 4 || !_mtTracks[idx]) return;
+  var strip = document.querySelector('[data-ft-strip="' + idx + '"]');
+  if (!strip) return;
+  var t = _mtTracks[idx];
+
+  strip.classList.remove('armed', 'locked');
+  if (_mtArmedTrack === idx) strip.classList.add('armed');
+  if (t.locked) strip.classList.add('locked');
+
+  var armBtn = strip.querySelector('[data-ft-arm]');
+  var muteBtn = strip.querySelector('[data-ft-mute]');
+  var soloBtn = strip.querySelector('[data-ft-solo]');
+  var lockBtn = strip.querySelector('[data-ft-lock]');
+  var delBtn = strip.querySelector('[data-ft-delete]');
+
+  if (armBtn) { armBtn.classList.toggle('on', _mtArmedTrack === idx); armBtn.disabled = t.locked; }
+  if (muteBtn) { muteBtn.classList.toggle('on', !!t.muted); muteBtn.disabled = t.locked; }
+  if (soloBtn) { soloBtn.classList.toggle('on', !!t.soloed); }
+  if (lockBtn) { lockBtn.classList.toggle('on', !!t.locked); }
+  if (delBtn) { delBtn.disabled = t.locked || !t.takes || t.takes.length === 0; }
+
+  /* Sync strip name */
+  var nameEl = strip.querySelector('.ft-strip-name');
+  if (nameEl && nameEl !== document.activeElement) {
+    nameEl.textContent = t.name || _mtSavedLabel(idx);
+  }
+
+  /* Sync takes row badge */
+  var takesRow = strip.querySelector('[data-ft-takes-btn="' + idx + '"]');
+  if (takesRow) {
+    var countEl = takesRow.querySelector('.ft-takes-count');
+    var nameEl2 = takesRow.querySelector('.ft-takes-name');
+    if (countEl) countEl.textContent = t.takes ? t.takes.length : 0;
+    if (nameEl2) {
+      if (t.takes && t.activeTakeIdx >= 0 && t.takes[t.activeTakeIdx]) {
+        nameEl2.textContent = 'Take ' + (t.activeTakeIdx + 1);
+      } else {
+        nameEl2.textContent = '—';
+      }
+    }
+  }
+
+  /* Sync boost */
+  var boostBtn = strip.querySelector('[data-ft-boost]');
+  if (boostBtn) boostBtn.classList.toggle('on', !!t.boostActive);
+
+  /* Sync volume slider */
+  var volSliders = document.querySelectorAll('[data-ft-volume]');
+  if (volSliders[idx]) {
+    volSliders[idx].value = t.volume;
+    var dbDisplays = document.querySelectorAll('[data-ft-vol-db]');
+    if (dbDisplays[idx]) dbDisplays[idx].textContent = ftVolToDB(t.volume);
+  }
+
+  /* Sync pan thumb */
+  var panBars = document.querySelectorAll('[data-ft-pan]');
+  var panLabels = document.querySelectorAll('[data-ft-pan-label]');
+  if (panBars[idx]) {
+    var thumb = panBars[idx].querySelector('.ft-pan-thumb');
+    var pct = ((t.pan || 0) / 100 + 1) / 2;  /* -100..100 → 0..1 */
+    if (thumb) thumb.style.left = (pct * 100) + '%';
+    if (panLabels[idx]) {
+      var p = t.pan || 0;
+      if (Math.abs(p) < 5) panLabels[idx].textContent = 'C';
+      else if (p < 0) panLabels[idx].textContent = 'L' + Math.abs(p);
+      else panLabels[idx].textContent = 'R' + p;
+    }
+  }
+}
+
+function ftSyncAllStrips() {
+  for (var i = 0; i < 4; i++) ftUpdateStripUI(i);
+}
+
+/* ── Waveform interactions: tap-to-seek, drag-to-loop (NEW FEATURE) ─────────── */
+function ftSetupWaveforms() {
+  document.querySelectorAll('[data-ft-waveform-idx]').forEach(function(wf, idx) {
+    var isDragging = false;
+    var dragStart = null;
+
+    wf.addEventListener('pointerdown', function(e) {
+      var rect = wf.getBoundingClientRect();
+      dragStart = (e.clientX - rect.left) / rect.width;
+      isDragging = true;
+    });
+
+    document.addEventListener('pointermove', function(e) {
+      if (!isDragging) return;
+      var wfRect = wf.getBoundingClientRect();
+      var pct = Math.max(0, Math.min(1, (e.clientX - wfRect.left) / wfRect.width));
+      if (Math.abs(pct - dragStart) > 0.02) {
+        ftSetLoopRegion({ start: Math.min(dragStart, pct), end: Math.max(dragStart, pct) });
+      }
+    });
+
+    document.addEventListener('pointerup', function(e) {
+      if (!isDragging) return;
+      isDragging = false;
+      var wfRect = wf.getBoundingClientRect();
+      var pct = Math.max(0, Math.min(1, (e.clientX - wfRect.left) / wfRect.width));
+      /* Tap (not drag) → seek to that position */
+      if (Math.abs(pct - dragStart) < 0.02) {
+        var dur = _mtMaxDuration();
+        if (dur > 0) {
+          /* Set the seek position for the existing engine */
+          if (typeof _mtScrubOffset !== 'undefined') _mtScrubOffset = pct * dur;
+          if (typeof _mtSeekPos !== 'undefined') _mtSeekPos = pct * dur;
+          /* If not playing, start playback from that point */
+          if (!_mtIsPlaying && !_vrRecording) mtPlay(pct * dur);
+        }
+      }
+    });
+
+    var clearBtn = wf.querySelector('.ft-waveform-loop-clear');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        ftLoopRegion = null;
+        _mtLoopEnabled = false;
+        ftUpdateLoopUI();
+      });
+    }
+  });
+}
+
+function ftSetLoopRegion(region) {
+  ftLoopRegion = region;
+  _mtLoopEnabled = true;
+  ftUpdateLoopUI();
+}
+
+function ftUpdateLoopUI() {
+  var loopBtn = document.querySelector('[data-ft-loop]');
+  if (loopBtn) loopBtn.classList.toggle('on', !!ftLoopRegion);
+
+  document.querySelectorAll('[data-ft-waveform-idx]').forEach(function(wf) {
+    var loopDiv = wf.querySelector('.ft-waveform-loop');
+    var clearBtn = wf.querySelector('.ft-waveform-loop-clear');
+    if (ftLoopRegion) {
+      if (loopDiv) { loopDiv.style.display = 'block'; loopDiv.style.left = (ftLoopRegion.start * 100) + '%'; loopDiv.style.right = ((1 - ftLoopRegion.end) * 100) + '%'; }
+      if (clearBtn) clearBtn.style.display = 'block';
+    } else {
+      if (loopDiv) loopDiv.style.display = 'none';
+      if (clearBtn) clearBtn.style.display = 'none';
+    }
+  });
+}
+
+/* ── VU meter animation — reads real track volume ─────────────────────────────── */
+function ftAnimateVU() {
+  document.querySelectorAll('[data-ft-vu]').forEach(function(meter, idx) {
+    var bars = meter.querySelectorAll('.ft-vu-bar');
+    if (!_mtTracks[idx]) return;
+    var t = _mtTracks[idx];
+    var isArmedRec = (_mtArmedTrack === idx) && _vrRecording;
+    var baseVol = (t.volume || 0) / 100;
+    bars.forEach(function(bar) {
+      var env;
+      if (isArmedRec) env = baseVol + (Math.random() * 0.25 - 0.12);
+      else if (_mtIsPlaying && t.buffer && !t.muted) env = baseVol * (0.3 + Math.random() * 0.15);
+      else env = 0;
+      bar.style.height = Math.max(0, Math.min(1, env)) * 100 + '%';
+    });
+  });
+}
+
+/* ── Takes modal — reads real takes from _mtTracks[].takes ─────────────────── */
+function ftOpenTakes(stripIdx) {
+  ftModalStripIdx = stripIdx;
+  var modal = document.getElementById('ftTakesModal');
+  if (!modal) return;
+  modal.classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  var t = _mtTracks[stripIdx];
+  if (!t) return;
+
+  var titleEl = document.getElementById('ftModalTrackName');
+  if (titleEl) titleEl.textContent = t.name || MT_NAMES[stripIdx];
+
+  var countEl = document.getElementById('ftTakesCount');
+  if (countEl) countEl.textContent = t.takes ? t.takes.length : 0;
+
+  var loadedEl = document.getElementById('ftTakesLoaded');
+  if (loadedEl) {
+    var active = (t.takes && t.activeTakeIdx >= 0 && t.takes[t.activeTakeIdx]);
+    loadedEl.textContent = active ? 'Take ' + (t.activeTakeIdx + 1) : '—';
+  }
+
+  var lockedEl = document.getElementById('ftTakesLocked');
+  if (lockedEl && t.takes) {
+    lockedEl.textContent = t.takes.filter(function(tk) { return tk && tk.locked; }).length;
+  }
+
+  var durEl = document.getElementById('ftTakesTotalDur');
+  if (durEl && t.takes) {
+    var totalDur = t.takes.reduce(function(sum, tk) { return sum + (tk && tk.duration ? tk.duration : 0); }, 0);
+    durEl.textContent = ftFormatTime(totalDur);
+  }
+
+  ftRenderTakes();
+  ftUpdateCompSummary();
+}
+
+function ftCloseTakes() {
+  var modal = document.getElementById('ftTakesModal');
+  if (modal) modal.classList.remove('open');
+  document.body.style.overflow = '';
+  ftCompMode = false;
+  ftCompCuts = [];
+  ftUpdateCompSummary();
+}
+
+function ftRenderTakes() {
+  var list = document.getElementById('ftTakesList');
+  if (!list || !_mtTracks[ftModalStripIdx]) return;
+  list.innerHTML = '';
+  var t = _mtTracks[ftModalStripIdx];
+
+  if (!t.takes || t.takes.length === 0) {
+    list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px;">No takes yet — press ● REC to start recording.</div>';
+    return;
+  }
+
+  t.takes.forEach(function(take, idx) {
+    if (!take) return;
+    var div = document.createElement('div');
+    div.className = 'ft-take';
+    div.setAttribute('data-ft-take-idx', idx);
+    div.setAttribute('data-ft-take-id', take.id);
+
+    var loadClass = (idx === t.activeTakeIdx) ? 'on' : '';
+    var lockClass = take.locked ? 'ok' : '';
+    var dur = take.duration || 0;
+    var dateStr = '—';
+    try {
+      if (take.createdAt) {
+        var d = take.createdAt.toDate ? take.createdAt.toDate() : new Date(take.createdAt);
+        dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      }
+    } catch(e) {}
+
+    div.innerHTML = '<div class="ft-take-drag">☰</div>' +
+      '<div class="ft-take-content">' +
+        '<div class="ft-take-waveform" data-ft-take-waveform>' +
+          '<svg viewBox="0 0 800 80" preserveAspectRatio="xMidYMid meet">' +
+            '<path d="M0,40 L10,38 L20,35 L30,32 L40,35 L50,40 L60,48 L70,58 L80,65 L90,70 L100,72 L110,70 L120,65 L130,56 L140,45 L150,35 L160,28 L170,25 L180,28 L190,35 L200,45 L210,56 L220,65 L230,70 L240,72 L250,70 L260,65 L270,56 L280,45 L290,35 L300,28 L310,25 L320,28 L330,35 L340,45 L350,56 L360,65 L370,70 L380,72 L390,70 L400,65 L410,56 L420,45 L430,35 L440,28 L450,25 L460,28 L470,35 L480,45 L490,56 L500,65 L510,70 L520,72 L530,70 L540,65 L550,56 L560,45 L570,35 L580,28 L590,25 L600,28 L610,35 L620,45 L630,56 L640,65 L650,70 L660,72 L670,70 L680,65 L690,56 L700,45 L710,35 L720,28 L730,25 L740,28 L750,35 L760,45 L770,56 L780,65 L790,70 L800,72" ' +
+              'stroke="var(--gold)" stroke-width="1" fill="none" vector-effect="non-scaling-stroke"/>' +
+          '</svg>' +
+        '</div>' +
+        '<div class="ft-take-meta">' +
+          '<div class="ft-take-name">Take ' + (idx + 1) + '</div>' +
+          '<div class="ft-take-info">' + Math.round(dur) + 's · ' + dateStr + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="ft-take-actions">' +
+        '<button class="ft-btn sm" data-ft-take-play>▶</button>' +
+        '<button class="ft-btn sm ' + loadClass + '" data-ft-take-load>LOAD</button>' +
+        '<button class="ft-btn sm ' + lockClass + '" data-ft-take-lock>🔒</button>' +
+        '<button class="ft-btn sm ghost" data-ft-take-delete' + (take.locked || idx === t.activeTakeIdx ? ' disabled' : '') + '>🗑</button>' +
+      '</div>';
+
+    list.appendChild(div);
+
+    var playBtn = div.querySelector('[data-ft-take-play]');
+    var loadBtn = div.querySelector('[data-ft-take-load]');
+    var lockBtn = div.querySelector('[data-ft-take-lock]');
+    var delBtn = div.querySelector('[data-ft-take-delete]');
+
+    if (playBtn) playBtn.addEventListener('click', function() {
+      if (_mtIsPlaying) { _mtStopAll(); playBtn.classList.remove('on'); }
+      else { mtPlay(); playBtn.classList.add('on'); }
+    });
+
+    if (loadBtn) loadBtn.addEventListener('click', function() {
+      mtLoadTake(ftModalStripIdx, idx);   /* existing — loads buffer, redraws waveform */
+      setTimeout(function() { ftOpenTakes(ftModalStripIdx); }, 200);
+    });
+
+    if (lockBtn) lockBtn.addEventListener('click', function() {
+      take.locked = !take.locked;
+      lockBtn.classList.toggle('ok', take.locked);
+      if (delBtn) delBtn.disabled = take.locked || idx === t.activeTakeIdx;
+    });
+
+    if (delBtn) delBtn.addEventListener('click', function() {
+      mtDeleteTake(ftModalStripIdx, idx);  /* existing — Firestore delete + trash */
+      setTimeout(function() { ftOpenTakes(ftModalStripIdx); }, 500);
+    });
+
+    /* Comp mode overlay on take waveforms */
+    if (ftCompMode) {
+      var wf = div.querySelector('[data-ft-take-waveform]');
+      if (wf) ftRenderCompMode(wf, take, idx);
+    }
+  });
+}
+
+/* ── Comp mode — NEW FEATURE (cut markers, visual segments, commit stub) ───── */
+function ftRenderCompMode(wf, take, idx) {
+  var svgs = wf.querySelectorAll('svg');
+  svgs.forEach(function(svg) {
+    svg.querySelectorAll('.ft-comp-cut').forEach(function(cl) { cl.remove(); });
+  });
+
+  var dur = _mtMaxDuration();
+  if (!dur || dur <= 0) return;
+
+  ftCompCuts.forEach(function(cut) {
+    var cutPct = (cut.t / dur) * 100;
+    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', (cutPct * 8)); line.setAttribute('y1', 0);
+    line.setAttribute('x2', (cutPct * 8)); line.setAttribute('y2', 80);
+    line.setAttribute('stroke', 'var(--gold)');
+    line.setAttribute('stroke-width', 2);
+    line.classList.add('ft-comp-cut');
+    svgs.forEach(function(svg) { svg.appendChild(line.cloneNode()); });
+  });
+}
+
+function ftToggleCompMode() {
+  ftCompMode = !ftCompMode;
+  var toggle = document.getElementById('ftCompModeToggle');
+  if (toggle) toggle.classList.toggle('on', ftCompMode);
+  ftUpdateCompSummary();
+
+  if (ftCompMode) {
+    var activeTake = null;
+    var t = _mtTracks[ftModalStripIdx];
+    if (t && t.activeTakeIdx >= 0 && t.takes[t.activeTakeIdx]) {
+      activeTake = t.takes[t.activeTakeIdx];
+    }
+    ftCompCuts = [{ t: 0, takeId: activeTake ? activeTake.id : null }];
+  } else {
+    ftCompCuts = [];
+  }
+  ftRenderTakes();
+}
+
+function ftUpdateCompSummary() {
+  var summary = document.getElementById('ftCompSummary');
+  if (!summary) return;
+  if (ftCompMode && ftCompCuts.length > 0) {
+    summary.classList.add('show');
+    var bar = document.getElementById('ftCompBar');
+    if (!bar) return;
+    bar.innerHTML = '';
+    var dur = _mtMaxDuration();
+
+    var regions = [];
+    for (var i = 0; i < ftCompCuts.length; i++) {
+      regions.push({
+        startT: ftCompCuts[i].t,
+        endT: (i < ftCompCuts.length - 1) ? ftCompCuts[i + 1].t : dur,
+        takeId: ftCompCuts[i].takeId
+      });
+    }
+    regions.forEach(function(r, ridx) {
+      var seg = document.createElement('div');
+      seg.className = 'ft-comp-segment';
+      seg.style.flex = r.endT - r.startT;
+      seg.classList.add('t' + ((ridx % 4) + 1));
+      seg.innerHTML = '<span class="ft-comp-segment-label">T' + ((ridx % 4) + 1) + '</span>';
+      bar.appendChild(seg);
+    });
+  } else {
+    summary.classList.remove('show');
+  }
+}
+
+function ftCompClear() {
+  ftCompCuts = [];
+  ftUpdateCompSummary();
+  ftRenderTakes();
+}
+
+function ftCompCommit() {
+  /* Stub — real stitching is a Cloud Function (see STATE.md "Committing a comp") */
+  showToast('Comp saved — Cloud Function will stitch audio.', 'info', 3000);
+  ftCompCuts = [];
+  ftCompMode = false;
+  var toggle = document.getElementById('ftCompModeToggle');
+  if (toggle) toggle.classList.remove('on');
+  ftUpdateCompSummary();
+  ftRenderTakes();
+}
+
+/* ── Count-in overlay (NEW FEATURE — visual countdown before recording) ────── */
+function ftShowCountIn() {
+  var overlay = document.getElementById('ftCountIn');
+  if (!overlay) { vrToggleRec(); return; }  /* fallback: skip count-in if DOM missing */
+  overlay.classList.add('show');
+
+  var song = getCurrentSong();
+  var bpm = song ? (song.bpm || 120) : 120;
+  var beatNum = ftCountInBars * 4;
+  var interval = 60000 / bpm;
+  var currentBeat = 0;
+
+  function countBeat() {
+    var barNum = Math.floor(currentBeat / 4) + 1;
+    var beatInBar = (currentBeat % 4);
+    var num = 4 - beatInBar;
+
+    var numEl = document.getElementById('ftCountInNumber');
+    if (numEl) numEl.textContent = num;
+    var subEl = document.getElementById('ftCountInSubtitle');
+    if (subEl) subEl.textContent = 'Bar ' + barNum + ' of ' + ftCountInBars + ' · ' + bpm + ' BPM';
+
+    document.querySelectorAll('.ft-countin-beat').forEach(function(b, i) {
+      b.classList.toggle('active', i === beatInBar);
+    });
+
+    currentBeat++;
+    if (currentBeat >= beatNum) {
+      overlay.classList.remove('show');
+      vrToggleRec();                    /* delegate to real recording engine */
+    } else {
+      setTimeout(countBeat, interval);
+    }
+  }
+  countBeat();
+}
+
+/* ── Sync entire ft- UI from _mtTracks[] backend state ─────────────────────── */
+function ftSyncUI() {
+  var song = getCurrentSong();
+  var bpmEl = document.getElementById('ftBpm');
+  if (bpmEl && song) bpmEl.textContent = song.bpm || 120;
+
+  /* Sync input gain slider to existing dB value */
+  var inputSlider = document.querySelector('[data-ft-input-gain]');
+  if (inputSlider && typeof _vrInputGainDb !== 'undefined') {
+    inputSlider.value = _vrInputGainDb;
+    var igEl = document.getElementById('ftInputDb');
+    if (igEl) igEl.textContent = (_vrInputGainDb >= 0 ? '+' : '') + _vrInputGainDb + ' dB';
+  }
+
+  /* Sync metro button to existing seqMetOn */
+  var metroBtn = document.querySelector('[data-ft-metro]');
+  if (metroBtn && typeof seqMetOn !== 'undefined') metroBtn.classList.toggle('on', seqMetOn);
+
+  ftSyncAllStrips();
+  ftUpdateTransport();
+  ftUpdateLoopUI();
+  ftUpdateTimecodes();
+}
+
+/* ── Keyboard shortcuts (only when 4-track drawer is open) ─────────────────── */
+document.addEventListener('keydown', function(e) {
+  var drawer = document.getElementById('ftDrawer');
+  if (!drawer || !drawer.classList.contains('open')) return;
+  var target = document.activeElement;
+  if (target.contentEditable === 'true' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+  if (e.code === 'Space') { e.preventDefault(); ftPlayClick(); }
+  else if (e.key === 'r' || e.key === 'R') { ftRecClick(); }
+  else if (e.key === 'l' || e.key === 'L') { ftLoopClick(); }
+  else if (e.key === 'Escape') { ftCloseTakes(); }
+});
+
+/* ── Event listener wiring (safe — null-checks on every querySelector) ─────── */
+function _ftOn(sel, evt, fn) {
+  var el = document.querySelector(sel);
+  if (el) el.addEventListener(evt, fn);
+}
+
+/* ── Initialization — all event wiring deferred until DOM is ready ──────────── */
+function ftInit() {
+  ftSetupVolumeSlidersAndPan();
+  ftSetupInputGain();
+  ftSetupStripButtons();
+  ftSetupWaveforms();
+
+  /* Takes buttons per strip */
+  document.querySelectorAll('[data-ft-takes-btn]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      ftOpenTakes(parseInt(this.getAttribute('data-ft-takes-btn')));
+    });
+  });
+
+  /* Boost buttons — delegate to existing mtToggleBoost */
+  document.querySelectorAll('[data-ft-boost]').forEach(function(btn, idx) {
+    btn.addEventListener('click', function() {
+      mtToggleBoost(idx);
+      ftUpdateStripUI(idx);
+    });
+  });
+
+  /* Comp mode */
+  _ftOn('#ftCompModeToggle', 'click', ftToggleCompMode);
+  _ftOn('[data-ft-comp-clear]', 'click', ftCompClear);
+  _ftOn('[data-ft-comp-commit]', 'click', ftCompCommit);
+
+  /* Transport */
+  _ftOn('[data-ft-play]', 'click', ftPlayClick);
+  _ftOn('[data-ft-rec]', 'click', ftRecClick);
+  _ftOn('[data-ft-stop]', 'click', ftStopClick);
+  _ftOn('[data-ft-seq]', 'click', ftSeqClick);
+  _ftOn('[data-ft-loop]', 'click', ftLoopClick);
+  _ftOn('[data-ft-metro]', 'click', ftMetroClick);
+  _ftOn('[data-ft-bpm-minus]', 'click', ftBpmMinus);
+  _ftOn('[data-ft-bpm-plus]', 'click', ftBpmPlus);
+  _ftOn('[data-ft-mon]', 'click', ftMonClick);
+
+  document.querySelectorAll('[data-ft-countin]').forEach(function(btn) {
+    btn.addEventListener('click', function() { ftCountInChange(this.getAttribute('data-ft-countin')); });
+  });
+
+  /* Big transport buttons (mobile / master strip) */
+  _ftOn('[data-ft-rec-big]', 'click', ftRecClick);
+  _ftOn('[data-ft-play-big]', 'click', ftPlayClick);
+  _ftOn('[data-ft-stop-big]', 'click', ftStopClick);
+  _ftOn('[data-ft-loop-big]', 'click', ftLoopClick);
+
+  /* REC NEW TAKE in takes modal */
+  _ftOn('[data-ft-rec-new-take]', 'click', function() {
+    if (_mtArmedTrack !== ftModalStripIdx) mtArmTrack(ftModalStripIdx);
+    ftRecClick();
+  });
+
+  ftUpdateLoopUI();
+  ftUpdateTimecodes();
+  ftUpdateTransport();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', ftInit);
+} else {
+  ftInit();
+}
+
+/* ════ 4-TRACK RECORDER REDESIGN — END ════ */
+
 </script>
 
 
@@ -43209,852 +44055,6 @@ Object.defineProperty(window, '_mtArmedTrack', {
 </div>
 
 
-<script>
-/* ════ 4-TRACK RECORDER REDESIGN — START ════ */
-/* ════════════════════════════════════════════════════════════════════════════════
-   4-TRACK RECORDER — JAVASCRIPT (ft- prefix)
-   ════════════════════════════════════════════════════════════════════════════════ */
-
-/* ── ft- state (only things genuinely new to the redesign — everything else
-       reads from the battle-tested _mtTracks[] / _vrRecording / _mtIsPlaying) ── */
-var ftLoopRegion = null;        // {start:0-1, end:0-1} — new drag-to-loop feature
-var ftCountInBars = 0;          // 0 | 1 | 2 — new count-in segmented control
-var ftLastFrameTime = 0;
-var ftCompMode = false;         // new comp mode
-var ftModalStripIdx = 0;
-var ftCompCuts = [];            // [{t, takeId}] — new comp cut markers
-var ftCompDragStart = null;
-var ftCompDragTakeId = null;
-var ftTickActive = false;
-
-/* ── Drawer open/close ────────────────────────────────────────────────────────────────── */
-function ftOpen() {
-  if (!currentId) { showToast('Select a song first', 'warn', 2000); return; }
-  _vrSongId = currentId;
-  _mtEnsureTrackObjects();
-  var overlay = document.getElementById('ftOverlay');
-  var drawer = document.getElementById('ftDrawer');
-  if (!overlay || !drawer) return;
-  overlay.classList.add('open');
-  drawer.classList.add('open');
-  document.body.style.overflow = 'hidden';
-  /* Load real takes from Firestore, then sync the ft- UI */
-  vrLoadTakes().then(function() {
-    ftSyncUI();
-    ftTickStart();
-  }).catch(function(e) {
-    console.error('[FT] vrLoadTakes error:', e);
-    ftSyncUI();
-    ftTickStart();
-  });
-}
-
-function ftClose() {
-  var overlay = document.getElementById('ftOverlay');
-  var drawer = document.getElementById('ftDrawer');
-  if (!overlay || !drawer) return;
-  overlay.classList.remove('open');
-  drawer.classList.remove('open');
-  document.body.style.overflow = '';
-  if (_vrRecording || _mtIsPlaying) vrStop();
-  ftTickStop();
-  ftCloseTakes();
-}
-
-/* ── RAF tick — drives timecodes, playheads, VU while drawer is open ────────── */
-function ftTickStart() {
-  if (ftTickActive) return;
-  ftTickActive = true;
-  ftLastFrameTime = 0;
-  requestAnimationFrame(ftTick);
-}
-function ftTickStop() { ftTickActive = false; }
-
-function ftTick(now) {
-  if (!ftTickActive) return;
-  ftUpdateTimecodes();
-  ftUpdatePlayheads();
-  ftAnimateVU();
-  ftUpdateTransport();
-  if (ftTickActive) requestAnimationFrame(ftTick);
-}
-
-/* ── Transport controls — delegate to existing engine ──────────────────────────── */
-function ftPlayClick() {
-  if (_vrRecording) return;
-  mtPlay();              /* existing toggle — plays or stops */
-}
-
-function ftSeqClick() {
-  mtPlayWithSeq();       /* existing — syncs 4-track + sequencer */
-}
-
-function ftRecClick() {
-  if (ftCountInBars > 0 && !_vrRecording) {
-    ftShowCountIn();     /* new count-in overlay, then delegates to vrToggleRec */
-  } else {
-    vrToggleRec();       /* existing full recording engine */
-  }
-}
-
-function ftStopClick() {
-  vrStop();              /* existing — stops recording + playback + sequencer */
-}
-
-function ftLoopClick() {
-  if (ftLoopRegion) {
-    ftLoopRegion = null;
-  } else {
-    /* Toggle on = full song loop */
-    ftLoopRegion = { start: 0, end: 1 };
-    _mtLoopEnabled = true;
-  }
-  if (!ftLoopRegion) _mtLoopEnabled = false;
-  ftUpdateLoopUI();
-}
-
-function ftMetroClick() {
-  if (typeof seqMetOn !== 'undefined') seqMetOn = !seqMetOn;
-  var btn = document.querySelector('[data-ft-metro]');
-  if (btn) btn.classList.toggle('on', seqMetOn);
-}
-
-function ftBpmMinus() {
-  var song = getCurrentSong(); if (!song) return;
-  song.bpm = Math.max(40, (song.bpm || 120) - 1);
-  save();
-  var el = document.getElementById('ftBpm'); if (el) el.textContent = song.bpm;
-}
-
-function ftBpmPlus() {
-  var song = getCurrentSong(); if (!song) return;
-  song.bpm = Math.min(240, (song.bpm || 120) + 1);
-  save();
-  var el = document.getElementById('ftBpm'); if (el) el.textContent = song.bpm;
-}
-
-function ftCountInChange(bars) {
-  ftCountInBars = parseInt(bars);
-  document.querySelectorAll('.ft-seg-btn').forEach(function(btn) { btn.classList.remove('active'); });
-  var activeBtn = document.querySelector('[data-ft-countin="' + ftCountInBars + '"]');
-  if (activeBtn) activeBtn.classList.add('active');
-}
-
-function ftMonClick() {
-  /* Toggle the existing input monitor — uses _inputMonEnabled from the old 4-track */
-  if (typeof _inputMonEnabled !== 'undefined') {
-    _inputMonEnabled = !_inputMonEnabled;
-    try { localStorage.setItem('drafthaus-input-mon', _inputMonEnabled ? '1' : '0'); } catch(e) {}
-    if (typeof _inputMonSyncUI === 'function') _inputMonSyncUI();
-  }
-  var btn = document.querySelector('[data-ft-mon]');
-  if (btn) btn.classList.toggle('on', !!_inputMonEnabled);
-  if (typeof _mtUpdateMonPill === 'function') _mtUpdateMonPill(_vrRecording ? 'recording' : (_mtIsPlaying ? 'playing' : ''));
-}
-
-function ftUpdateTransport() {
-  var playBtn = document.querySelector('[data-ft-play]');
-  var recBtn = document.querySelector('[data-ft-rec]');
-  if (playBtn) playBtn.classList.toggle('on', _mtIsPlaying);
-  if (recBtn) {
-    recBtn.classList.toggle('on', _vrRecording);
-    recBtn.classList.toggle('red', _vrRecording);
-  }
-}
-
-/* ── Timecodes and playheads — driven by real AudioContext clock ────────────── */
-function _ftElapsed() {
-  if ((_mtIsPlaying || _vrRecording) && _mtAudioCtx && _mtPlayStartCtx !== undefined) {
-    return Math.max(0, _mtAudioCtx.currentTime - _mtPlayStartCtx);
-  }
-  return 0;
-}
-
-function ftUpdateTimecodes() {
-  var dur = _mtMaxDuration();
-  var elapsed = _ftElapsed();
-  var tc = document.getElementById('ftTc');
-  if (tc) tc.textContent = ftFormatTime(elapsed) + ' / ' + ftFormatTime(dur);
-  var tcM = document.getElementById('ftTcMaster');
-  if (tcM) tcM.innerHTML = ftFormatTime(elapsed) +
-    '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + ftFormatTime(dur) + 's</div>';
-}
-
-function ftUpdatePlayheads() {
-  var dur = _mtMaxDuration();
-  var elapsed = _ftElapsed();
-  var pct = dur > 0 ? Math.min(100, (elapsed / dur) * 100) : 0;
-
-  document.querySelectorAll('[data-ft-waveform-idx]').forEach(function(wf) {
-    var ph = wf.querySelector('.ft-waveform-playhead');
-    if (ph) ph.style.left = pct + '%';
-  });
-  document.querySelectorAll('[data-ft-take-waveform]').forEach(function(wf) {
-    var ph = wf.querySelector('.ft-waveform-playhead');
-    if (!ph) { ph = document.createElement('div'); ph.className = 'ft-waveform-playhead'; wf.appendChild(ph); }
-    ph.style.left = pct + '%';
-  });
-}
-
-function ftFormatTime(seconds) {
-  if (!seconds || seconds < 0) seconds = 0;
-  var m = Math.floor(seconds / 60);
-  var s = Math.floor(seconds % 60);
-  var d = Math.floor((seconds % 1) * 10);
-  return m + ':' + (s < 10 ? '0' : '') + s + '.' + d;
-}
-
-/* ── Volume and pan — delegate to existing mtSetVolume / mtSetPan ───────────── */
-function ftSetupVolumeSlidersAndPan() {
-  document.querySelectorAll('[data-ft-volume]').forEach(function(slider, idx) {
-    slider.addEventListener('input', function() {
-      var vol = parseInt(this.value);
-      mtSetVolume(idx, vol);            /* updates gain node + localStorage */
-      var dbDisplay = document.querySelectorAll('[data-ft-vol-db]')[idx];
-      if (dbDisplay) dbDisplay.textContent = ftVolToDB(vol);
-    });
-    slider.addEventListener('dblclick', function() {
-      this.value = 85;
-      mtSetVolume(idx, 85);
-      var dbDisplay = document.querySelectorAll('[data-ft-vol-db]')[idx];
-      if (dbDisplay) dbDisplay.textContent = '0 dB';
-    });
-  });
-
-  document.querySelectorAll('[data-ft-pan]').forEach(function(panBar, idx) {
-    var thumb = panBar.querySelector('.ft-pan-thumb');
-    var label = document.querySelectorAll('[data-ft-pan-label]')[idx];
-    var isDragging = false;
-
-    panBar.addEventListener('pointerdown', function(e) {
-      isDragging = true;
-      ftUpdatePan(panBar, thumb, label, idx, e);
-    });
-    document.addEventListener('pointermove', function(e) {
-      if (!isDragging) return;
-      ftUpdatePan(panBar, thumb, label, idx, e);
-    });
-    document.addEventListener('pointerup', function() { isDragging = false; });
-    panBar.addEventListener('dblclick', function() {
-      mtSetPan(idx, 0);                /* existing — updates pan node + localStorage */
-      thumb.style.left = '50%';
-      if (label) label.textContent = 'C';
-    });
-  });
-}
-
-function ftUpdatePan(panBar, thumb, label, idx, e) {
-  var rect = panBar.getBoundingClientRect();
-  var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  var panVal = Math.round((pct * 2 - 1) * 100);  /* -100 to +100 to match mtSetPan */
-  mtSetPan(idx, panVal);
-  thumb.style.left = (pct * 100) + '%';
-  if (label) {
-    if (Math.abs(panVal) < 5) label.textContent = 'C';
-    else if (panVal < 0) label.textContent = 'L' + Math.abs(panVal);
-    else label.textContent = 'R' + panVal;
-  }
-}
-
-function ftVolToDB(vol) {
-  if (vol === 0) return '-∞';
-  var db = 20 * Math.log10(vol / 85);
-  if (db >= 0) return '+' + db.toFixed(1) + ' dB';
-  return db.toFixed(1) + ' dB';
-}
-
-/* ── Input gain — delegate to existing vrGainChange (dB scale -24..+24) ─────── */
-function ftSetupInputGain() {
-  var inputSlider = document.querySelector('[data-ft-input-gain]');
-  if (!inputSlider) return;
-  inputSlider.addEventListener('input', function() {
-    vrGainChange(this.value);           /* existing — converts dB → linear, saves to localStorage */
-    var dbVal = parseInt(this.value);
-    var el = document.getElementById('ftInputDb');
-    if (el) el.textContent = (dbVal >= 0 ? '+' : '') + dbVal + ' dB';
-  });
-  inputSlider.addEventListener('dblclick', function() {
-    this.value = 10;                    /* default = +10 dB */
-    vrGainChange(10);
-    var el = document.getElementById('ftInputDb');
-    if (el) el.textContent = '+10 dB';
-  });
-}
-
-/* ── Strip buttons — delegate to existing mt* functions ────────────────────── */
-function ftSetupStripButtons() {
-  document.querySelectorAll('[data-ft-strip]').forEach(function(strip, idx) {
-    var armBtn = strip.querySelector('[data-ft-arm]');
-    var muteBtn = strip.querySelector('[data-ft-mute]');
-    var soloBtn = strip.querySelector('[data-ft-solo]');
-    var lockBtn = strip.querySelector('[data-ft-lock]');
-    var delBtn = strip.querySelector('[data-ft-delete]');
-
-    if (armBtn) armBtn.addEventListener('click', function() {
-      mtArmTrack(idx);                  /* existing — tier gate, lock check, VU start, CF warmup */
-      ftSyncAllStrips();
-    });
-    if (muteBtn) muteBtn.addEventListener('click', function() {
-      mtToggleMute(idx);                /* existing — Firestore persist */
-      ftSyncAllStrips();
-    });
-    if (soloBtn) soloBtn.addEventListener('click', function() {
-      mtToggleSolo(idx);                /* existing — Firestore persist */
-      ftSyncAllStrips();
-    });
-    if (lockBtn) lockBtn.addEventListener('click', function() {
-      mtMobileLockTrack(idx);           /* existing — Firestore persist, disarm if locked */
-      ftSyncAllStrips();
-    });
-    if (delBtn) delBtn.addEventListener('click', function() {
-      mtMobileTrashTrack(idx).then(function() {   /* existing — moves takes to trash */
-        ftSyncAllStrips();
-      });
-    });
-
-    /* Track name editing — save on blur via existing mtSaveLabel */
-    var nameEl = strip.querySelector('.ft-strip-name');
-    if (nameEl) {
-      nameEl.addEventListener('blur', function() { mtSaveLabel(idx, this); });
-      nameEl.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); this.blur(); } });
-    }
-  });
-}
-
-function ftUpdateStripUI(idx) {
-  if (idx < 0 || idx >= 4 || !_mtTracks[idx]) return;
-  var strip = document.querySelector('[data-ft-strip="' + idx + '"]');
-  if (!strip) return;
-  var t = _mtTracks[idx];
-
-  strip.classList.remove('armed', 'locked');
-  if (_mtArmedTrack === idx) strip.classList.add('armed');
-  if (t.locked) strip.classList.add('locked');
-
-  var armBtn = strip.querySelector('[data-ft-arm]');
-  var muteBtn = strip.querySelector('[data-ft-mute]');
-  var soloBtn = strip.querySelector('[data-ft-solo]');
-  var lockBtn = strip.querySelector('[data-ft-lock]');
-  var delBtn = strip.querySelector('[data-ft-delete]');
-
-  if (armBtn) { armBtn.classList.toggle('on', _mtArmedTrack === idx); armBtn.disabled = t.locked; }
-  if (muteBtn) { muteBtn.classList.toggle('on', !!t.muted); muteBtn.disabled = t.locked; }
-  if (soloBtn) { soloBtn.classList.toggle('on', !!t.soloed); }
-  if (lockBtn) { lockBtn.classList.toggle('on', !!t.locked); }
-  if (delBtn) { delBtn.disabled = t.locked || !t.takes || t.takes.length === 0; }
-
-  /* Sync strip name */
-  var nameEl = strip.querySelector('.ft-strip-name');
-  if (nameEl && nameEl !== document.activeElement) {
-    nameEl.textContent = t.name || _mtSavedLabel(idx);
-  }
-
-  /* Sync takes row badge */
-  var takesRow = strip.querySelector('[data-ft-takes-btn="' + idx + '"]');
-  if (takesRow) {
-    var countEl = takesRow.querySelector('.ft-takes-count');
-    var nameEl2 = takesRow.querySelector('.ft-takes-name');
-    if (countEl) countEl.textContent = t.takes ? t.takes.length : 0;
-    if (nameEl2) {
-      if (t.takes && t.activeTakeIdx >= 0 && t.takes[t.activeTakeIdx]) {
-        nameEl2.textContent = 'Take ' + (t.activeTakeIdx + 1);
-      } else {
-        nameEl2.textContent = '—';
-      }
-    }
-  }
-
-  /* Sync boost */
-  var boostBtn = strip.querySelector('[data-ft-boost]');
-  if (boostBtn) boostBtn.classList.toggle('on', !!t.boostActive);
-
-  /* Sync volume slider */
-  var volSliders = document.querySelectorAll('[data-ft-volume]');
-  if (volSliders[idx]) {
-    volSliders[idx].value = t.volume;
-    var dbDisplays = document.querySelectorAll('[data-ft-vol-db]');
-    if (dbDisplays[idx]) dbDisplays[idx].textContent = ftVolToDB(t.volume);
-  }
-
-  /* Sync pan thumb */
-  var panBars = document.querySelectorAll('[data-ft-pan]');
-  var panLabels = document.querySelectorAll('[data-ft-pan-label]');
-  if (panBars[idx]) {
-    var thumb = panBars[idx].querySelector('.ft-pan-thumb');
-    var pct = ((t.pan || 0) / 100 + 1) / 2;  /* -100..100 → 0..1 */
-    if (thumb) thumb.style.left = (pct * 100) + '%';
-    if (panLabels[idx]) {
-      var p = t.pan || 0;
-      if (Math.abs(p) < 5) panLabels[idx].textContent = 'C';
-      else if (p < 0) panLabels[idx].textContent = 'L' + Math.abs(p);
-      else panLabels[idx].textContent = 'R' + p;
-    }
-  }
-}
-
-function ftSyncAllStrips() {
-  for (var i = 0; i < 4; i++) ftUpdateStripUI(i);
-}
-
-/* ── Waveform interactions: tap-to-seek, drag-to-loop (NEW FEATURE) ─────────── */
-function ftSetupWaveforms() {
-  document.querySelectorAll('[data-ft-waveform-idx]').forEach(function(wf, idx) {
-    var isDragging = false;
-    var dragStart = null;
-
-    wf.addEventListener('pointerdown', function(e) {
-      var rect = wf.getBoundingClientRect();
-      dragStart = (e.clientX - rect.left) / rect.width;
-      isDragging = true;
-    });
-
-    document.addEventListener('pointermove', function(e) {
-      if (!isDragging) return;
-      var wfRect = wf.getBoundingClientRect();
-      var pct = Math.max(0, Math.min(1, (e.clientX - wfRect.left) / wfRect.width));
-      if (Math.abs(pct - dragStart) > 0.02) {
-        ftSetLoopRegion({ start: Math.min(dragStart, pct), end: Math.max(dragStart, pct) });
-      }
-    });
-
-    document.addEventListener('pointerup', function(e) {
-      if (!isDragging) return;
-      isDragging = false;
-      var wfRect = wf.getBoundingClientRect();
-      var pct = Math.max(0, Math.min(1, (e.clientX - wfRect.left) / wfRect.width));
-      /* Tap (not drag) → seek to that position */
-      if (Math.abs(pct - dragStart) < 0.02) {
-        var dur = _mtMaxDuration();
-        if (dur > 0) {
-          /* Set the seek position for the existing engine */
-          if (typeof _mtScrubOffset !== 'undefined') _mtScrubOffset = pct * dur;
-          if (typeof _mtSeekPos !== 'undefined') _mtSeekPos = pct * dur;
-          /* If not playing, start playback from that point */
-          if (!_mtIsPlaying && !_vrRecording) mtPlay(pct * dur);
-        }
-      }
-    });
-
-    var clearBtn = wf.querySelector('.ft-waveform-loop-clear');
-    if (clearBtn) {
-      clearBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        ftLoopRegion = null;
-        _mtLoopEnabled = false;
-        ftUpdateLoopUI();
-      });
-    }
-  });
-}
-
-function ftSetLoopRegion(region) {
-  ftLoopRegion = region;
-  _mtLoopEnabled = true;
-  ftUpdateLoopUI();
-}
-
-function ftUpdateLoopUI() {
-  var loopBtn = document.querySelector('[data-ft-loop]');
-  if (loopBtn) loopBtn.classList.toggle('on', !!ftLoopRegion);
-
-  document.querySelectorAll('[data-ft-waveform-idx]').forEach(function(wf) {
-    var loopDiv = wf.querySelector('.ft-waveform-loop');
-    var clearBtn = wf.querySelector('.ft-waveform-loop-clear');
-    if (ftLoopRegion) {
-      if (loopDiv) { loopDiv.style.display = 'block'; loopDiv.style.left = (ftLoopRegion.start * 100) + '%'; loopDiv.style.right = ((1 - ftLoopRegion.end) * 100) + '%'; }
-      if (clearBtn) clearBtn.style.display = 'block';
-    } else {
-      if (loopDiv) loopDiv.style.display = 'none';
-      if (clearBtn) clearBtn.style.display = 'none';
-    }
-  });
-}
-
-/* ── VU meter animation — reads real track volume ─────────────────────────────── */
-function ftAnimateVU() {
-  document.querySelectorAll('[data-ft-vu]').forEach(function(meter, idx) {
-    var bars = meter.querySelectorAll('.ft-vu-bar');
-    if (!_mtTracks[idx]) return;
-    var t = _mtTracks[idx];
-    var isArmedRec = (_mtArmedTrack === idx) && _vrRecording;
-    var baseVol = (t.volume || 0) / 100;
-    bars.forEach(function(bar) {
-      var env;
-      if (isArmedRec) env = baseVol + (Math.random() * 0.25 - 0.12);
-      else if (_mtIsPlaying && t.buffer && !t.muted) env = baseVol * (0.3 + Math.random() * 0.15);
-      else env = 0;
-      bar.style.height = Math.max(0, Math.min(1, env)) * 100 + '%';
-    });
-  });
-}
-
-/* ── Takes modal — reads real takes from _mtTracks[].takes ─────────────────── */
-function ftOpenTakes(stripIdx) {
-  ftModalStripIdx = stripIdx;
-  var modal = document.getElementById('ftTakesModal');
-  if (!modal) return;
-  modal.classList.add('open');
-  document.body.style.overflow = 'hidden';
-
-  var t = _mtTracks[stripIdx];
-  if (!t) return;
-
-  var titleEl = document.getElementById('ftModalTrackName');
-  if (titleEl) titleEl.textContent = t.name || MT_NAMES[stripIdx];
-
-  var countEl = document.getElementById('ftTakesCount');
-  if (countEl) countEl.textContent = t.takes ? t.takes.length : 0;
-
-  var loadedEl = document.getElementById('ftTakesLoaded');
-  if (loadedEl) {
-    var active = (t.takes && t.activeTakeIdx >= 0 && t.takes[t.activeTakeIdx]);
-    loadedEl.textContent = active ? 'Take ' + (t.activeTakeIdx + 1) : '—';
-  }
-
-  var lockedEl = document.getElementById('ftTakesLocked');
-  if (lockedEl && t.takes) {
-    lockedEl.textContent = t.takes.filter(function(tk) { return tk && tk.locked; }).length;
-  }
-
-  var durEl = document.getElementById('ftTakesTotalDur');
-  if (durEl && t.takes) {
-    var totalDur = t.takes.reduce(function(sum, tk) { return sum + (tk && tk.duration ? tk.duration : 0); }, 0);
-    durEl.textContent = ftFormatTime(totalDur);
-  }
-
-  ftRenderTakes();
-  ftUpdateCompSummary();
-}
-
-function ftCloseTakes() {
-  var modal = document.getElementById('ftTakesModal');
-  if (modal) modal.classList.remove('open');
-  document.body.style.overflow = '';
-  ftCompMode = false;
-  ftCompCuts = [];
-  ftUpdateCompSummary();
-}
-
-function ftRenderTakes() {
-  var list = document.getElementById('ftTakesList');
-  if (!list || !_mtTracks[ftModalStripIdx]) return;
-  list.innerHTML = '';
-  var t = _mtTracks[ftModalStripIdx];
-
-  if (!t.takes || t.takes.length === 0) {
-    list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px;">No takes yet — press ● REC to start recording.</div>';
-    return;
-  }
-
-  t.takes.forEach(function(take, idx) {
-    if (!take) return;
-    var div = document.createElement('div');
-    div.className = 'ft-take';
-    div.setAttribute('data-ft-take-idx', idx);
-    div.setAttribute('data-ft-take-id', take.id);
-
-    var loadClass = (idx === t.activeTakeIdx) ? 'on' : '';
-    var lockClass = take.locked ? 'ok' : '';
-    var dur = take.duration || 0;
-    var dateStr = '—';
-    try {
-      if (take.createdAt) {
-        var d = take.createdAt.toDate ? take.createdAt.toDate() : new Date(take.createdAt);
-        dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-      }
-    } catch(e) {}
-
-    div.innerHTML = '<div class="ft-take-drag">☰</div>' +
-      '<div class="ft-take-content">' +
-        '<div class="ft-take-waveform" data-ft-take-waveform>' +
-          '<svg viewBox="0 0 800 80" preserveAspectRatio="xMidYMid meet">' +
-            '<path d="M0,40 L10,38 L20,35 L30,32 L40,35 L50,40 L60,48 L70,58 L80,65 L90,70 L100,72 L110,70 L120,65 L130,56 L140,45 L150,35 L160,28 L170,25 L180,28 L190,35 L200,45 L210,56 L220,65 L230,70 L240,72 L250,70 L260,65 L270,56 L280,45 L290,35 L300,28 L310,25 L320,28 L330,35 L340,45 L350,56 L360,65 L370,70 L380,72 L390,70 L400,65 L410,56 L420,45 L430,35 L440,28 L450,25 L460,28 L470,35 L480,45 L490,56 L500,65 L510,70 L520,72 L530,70 L540,65 L550,56 L560,45 L570,35 L580,28 L590,25 L600,28 L610,35 L620,45 L630,56 L640,65 L650,70 L660,72 L670,70 L680,65 L690,56 L700,45 L710,35 L720,28 L730,25 L740,28 L750,35 L760,45 L770,56 L780,65 L790,70 L800,72" ' +
-              'stroke="var(--gold)" stroke-width="1" fill="none" vector-effect="non-scaling-stroke"/>' +
-          '</svg>' +
-        '</div>' +
-        '<div class="ft-take-meta">' +
-          '<div class="ft-take-name">Take ' + (idx + 1) + '</div>' +
-          '<div class="ft-take-info">' + Math.round(dur) + 's · ' + dateStr + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="ft-take-actions">' +
-        '<button class="ft-btn sm" data-ft-take-play>▶</button>' +
-        '<button class="ft-btn sm ' + loadClass + '" data-ft-take-load>LOAD</button>' +
-        '<button class="ft-btn sm ' + lockClass + '" data-ft-take-lock>🔒</button>' +
-        '<button class="ft-btn sm ghost" data-ft-take-delete' + (take.locked || idx === t.activeTakeIdx ? ' disabled' : '') + '>🗑</button>' +
-      '</div>';
-
-    list.appendChild(div);
-
-    var playBtn = div.querySelector('[data-ft-take-play]');
-    var loadBtn = div.querySelector('[data-ft-take-load]');
-    var lockBtn = div.querySelector('[data-ft-take-lock]');
-    var delBtn = div.querySelector('[data-ft-take-delete]');
-
-    if (playBtn) playBtn.addEventListener('click', function() {
-      if (_mtIsPlaying) { _mtStopAll(); playBtn.classList.remove('on'); }
-      else { mtPlay(); playBtn.classList.add('on'); }
-    });
-
-    if (loadBtn) loadBtn.addEventListener('click', function() {
-      mtLoadTake(ftModalStripIdx, idx);   /* existing — loads buffer, redraws waveform */
-      setTimeout(function() { ftOpenTakes(ftModalStripIdx); }, 200);
-    });
-
-    if (lockBtn) lockBtn.addEventListener('click', function() {
-      take.locked = !take.locked;
-      lockBtn.classList.toggle('ok', take.locked);
-      if (delBtn) delBtn.disabled = take.locked || idx === t.activeTakeIdx;
-    });
-
-    if (delBtn) delBtn.addEventListener('click', function() {
-      mtDeleteTake(ftModalStripIdx, idx);  /* existing — Firestore delete + trash */
-      setTimeout(function() { ftOpenTakes(ftModalStripIdx); }, 500);
-    });
-
-    /* Comp mode overlay on take waveforms */
-    if (ftCompMode) {
-      var wf = div.querySelector('[data-ft-take-waveform]');
-      if (wf) ftRenderCompMode(wf, take, idx);
-    }
-  });
-}
-
-/* ── Comp mode — NEW FEATURE (cut markers, visual segments, commit stub) ───── */
-function ftRenderCompMode(wf, take, idx) {
-  var svgs = wf.querySelectorAll('svg');
-  svgs.forEach(function(svg) {
-    svg.querySelectorAll('.ft-comp-cut').forEach(function(cl) { cl.remove(); });
-  });
-
-  var dur = _mtMaxDuration();
-  if (!dur || dur <= 0) return;
-
-  ftCompCuts.forEach(function(cut) {
-    var cutPct = (cut.t / dur) * 100;
-    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', (cutPct * 8)); line.setAttribute('y1', 0);
-    line.setAttribute('x2', (cutPct * 8)); line.setAttribute('y2', 80);
-    line.setAttribute('stroke', 'var(--gold)');
-    line.setAttribute('stroke-width', 2);
-    line.classList.add('ft-comp-cut');
-    svgs.forEach(function(svg) { svg.appendChild(line.cloneNode()); });
-  });
-}
-
-function ftToggleCompMode() {
-  ftCompMode = !ftCompMode;
-  var toggle = document.getElementById('ftCompModeToggle');
-  if (toggle) toggle.classList.toggle('on', ftCompMode);
-  ftUpdateCompSummary();
-
-  if (ftCompMode) {
-    var activeTake = null;
-    var t = _mtTracks[ftModalStripIdx];
-    if (t && t.activeTakeIdx >= 0 && t.takes[t.activeTakeIdx]) {
-      activeTake = t.takes[t.activeTakeIdx];
-    }
-    ftCompCuts = [{ t: 0, takeId: activeTake ? activeTake.id : null }];
-  } else {
-    ftCompCuts = [];
-  }
-  ftRenderTakes();
-}
-
-function ftUpdateCompSummary() {
-  var summary = document.getElementById('ftCompSummary');
-  if (!summary) return;
-  if (ftCompMode && ftCompCuts.length > 0) {
-    summary.classList.add('show');
-    var bar = document.getElementById('ftCompBar');
-    if (!bar) return;
-    bar.innerHTML = '';
-    var dur = _mtMaxDuration();
-
-    var regions = [];
-    for (var i = 0; i < ftCompCuts.length; i++) {
-      regions.push({
-        startT: ftCompCuts[i].t,
-        endT: (i < ftCompCuts.length - 1) ? ftCompCuts[i + 1].t : dur,
-        takeId: ftCompCuts[i].takeId
-      });
-    }
-    regions.forEach(function(r, ridx) {
-      var seg = document.createElement('div');
-      seg.className = 'ft-comp-segment';
-      seg.style.flex = r.endT - r.startT;
-      seg.classList.add('t' + ((ridx % 4) + 1));
-      seg.innerHTML = '<span class="ft-comp-segment-label">T' + ((ridx % 4) + 1) + '</span>';
-      bar.appendChild(seg);
-    });
-  } else {
-    summary.classList.remove('show');
-  }
-}
-
-function ftCompClear() {
-  ftCompCuts = [];
-  ftUpdateCompSummary();
-  ftRenderTakes();
-}
-
-function ftCompCommit() {
-  /* Stub — real stitching is a Cloud Function (see STATE.md "Committing a comp") */
-  showToast('Comp saved — Cloud Function will stitch audio.', 'info', 3000);
-  ftCompCuts = [];
-  ftCompMode = false;
-  var toggle = document.getElementById('ftCompModeToggle');
-  if (toggle) toggle.classList.remove('on');
-  ftUpdateCompSummary();
-  ftRenderTakes();
-}
-
-/* ── Count-in overlay (NEW FEATURE — visual countdown before recording) ────── */
-function ftShowCountIn() {
-  var overlay = document.getElementById('ftCountIn');
-  if (!overlay) { vrToggleRec(); return; }  /* fallback: skip count-in if DOM missing */
-  overlay.classList.add('show');
-
-  var song = getCurrentSong();
-  var bpm = song ? (song.bpm || 120) : 120;
-  var beatNum = ftCountInBars * 4;
-  var interval = 60000 / bpm;
-  var currentBeat = 0;
-
-  function countBeat() {
-    var barNum = Math.floor(currentBeat / 4) + 1;
-    var beatInBar = (currentBeat % 4);
-    var num = 4 - beatInBar;
-
-    var numEl = document.getElementById('ftCountInNumber');
-    if (numEl) numEl.textContent = num;
-    var subEl = document.getElementById('ftCountInSubtitle');
-    if (subEl) subEl.textContent = 'Bar ' + barNum + ' of ' + ftCountInBars + ' · ' + bpm + ' BPM';
-
-    document.querySelectorAll('.ft-countin-beat').forEach(function(b, i) {
-      b.classList.toggle('active', i === beatInBar);
-    });
-
-    currentBeat++;
-    if (currentBeat >= beatNum) {
-      overlay.classList.remove('show');
-      vrToggleRec();                    /* delegate to real recording engine */
-    } else {
-      setTimeout(countBeat, interval);
-    }
-  }
-  countBeat();
-}
-
-/* ── Sync entire ft- UI from _mtTracks[] backend state ─────────────────────── */
-function ftSyncUI() {
-  var song = getCurrentSong();
-  var bpmEl = document.getElementById('ftBpm');
-  if (bpmEl && song) bpmEl.textContent = song.bpm || 120;
-
-  /* Sync input gain slider to existing dB value */
-  var inputSlider = document.querySelector('[data-ft-input-gain]');
-  if (inputSlider && typeof _vrInputGainDb !== 'undefined') {
-    inputSlider.value = _vrInputGainDb;
-    var igEl = document.getElementById('ftInputDb');
-    if (igEl) igEl.textContent = (_vrInputGainDb >= 0 ? '+' : '') + _vrInputGainDb + ' dB';
-  }
-
-  /* Sync metro button to existing seqMetOn */
-  var metroBtn = document.querySelector('[data-ft-metro]');
-  if (metroBtn && typeof seqMetOn !== 'undefined') metroBtn.classList.toggle('on', seqMetOn);
-
-  ftSyncAllStrips();
-  ftUpdateTransport();
-  ftUpdateLoopUI();
-  ftUpdateTimecodes();
-}
-
-/* ── Keyboard shortcuts (only when 4-track drawer is open) ─────────────────── */
-document.addEventListener('keydown', function(e) {
-  var drawer = document.getElementById('ftDrawer');
-  if (!drawer || !drawer.classList.contains('open')) return;
-  var target = document.activeElement;
-  if (target.contentEditable === 'true' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-  if (e.code === 'Space') { e.preventDefault(); ftPlayClick(); }
-  else if (e.key === 'r' || e.key === 'R') { ftRecClick(); }
-  else if (e.key === 'l' || e.key === 'L') { ftLoopClick(); }
-  else if (e.key === 'Escape') { ftCloseTakes(); }
-});
-
-/* ── Event listener wiring (safe — null-checks on every querySelector) ─────── */
-function _ftOn(sel, evt, fn) {
-  var el = document.querySelector(sel);
-  if (el) el.addEventListener(evt, fn);
-}
-
-/* Takes buttons per strip */
-document.querySelectorAll('[data-ft-takes-btn]').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    ftOpenTakes(parseInt(this.getAttribute('data-ft-takes-btn')));
-  });
-});
-
-/* Boost buttons — delegate to existing mtToggleBoost */
-document.querySelectorAll('[data-ft-boost]').forEach(function(btn, idx) {
-  btn.addEventListener('click', function() {
-    mtToggleBoost(idx);
-    ftUpdateStripUI(idx);
-  });
-});
-
-/* Comp mode */
-_ftOn('#ftCompModeToggle', 'click', ftToggleCompMode);
-_ftOn('[data-ft-comp-clear]', 'click', ftCompClear);
-_ftOn('[data-ft-comp-commit]', 'click', ftCompCommit);
-
-/* Transport */
-_ftOn('[data-ft-play]', 'click', ftPlayClick);
-_ftOn('[data-ft-rec]', 'click', ftRecClick);
-_ftOn('[data-ft-stop]', 'click', ftStopClick);
-_ftOn('[data-ft-seq]', 'click', ftSeqClick);         /* NEW — play with sequencer */
-_ftOn('[data-ft-loop]', 'click', ftLoopClick);
-_ftOn('[data-ft-metro]', 'click', ftMetroClick);
-_ftOn('[data-ft-bpm-minus]', 'click', ftBpmMinus);
-_ftOn('[data-ft-bpm-plus]', 'click', ftBpmPlus);
-_ftOn('[data-ft-mon]', 'click', ftMonClick);
-
-document.querySelectorAll('[data-ft-countin]').forEach(function(btn) {
-  btn.addEventListener('click', function() { ftCountInChange(this.getAttribute('data-ft-countin')); });
-});
-
-/* Big transport buttons (mobile / master strip) */
-_ftOn('[data-ft-rec-big]', 'click', ftRecClick);
-_ftOn('[data-ft-play-big]', 'click', ftPlayClick);
-_ftOn('[data-ft-stop-big]', 'click', ftStopClick);
-_ftOn('[data-ft-loop-big]', 'click', ftLoopClick);
-
-/* REC NEW TAKE in takes modal — arm this track and start recording */
-_ftOn('[data-ft-rec-new-take]', 'click', function() {
-  if (_mtArmedTrack !== ftModalStripIdx) mtArmTrack(ftModalStripIdx);
-  ftRecClick();
-});
-
-/* ── Initialization ────────────────────────────────────────────────────────── */
-function ftInit() {
-  ftSetupVolumeSlidersAndPan();
-  ftSetupInputGain();
-  ftSetupStripButtons();
-  ftSetupWaveforms();
-  ftUpdateLoopUI();
-  ftUpdateTimecodes();
-  ftUpdateTransport();
-}
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', ftInit);
-} else {
-  ftInit();
-}
-
-/* ════ 4-TRACK RECORDER REDESIGN — END ════ */
-</script>
 
 </body>
 </html>
