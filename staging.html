@@ -3814,17 +3814,13 @@ button, select, input, textarea { touch-action: manipulation; }
   #bartenderPassword {
     position: fixed; inset: 0; z-index: 9998; pointer-events: none;
     display: none; overflow: hidden;
-  }
-  #bartenderPassword img {
-    width: 100%; height: 100%; object-fit: cover; display: block;
-    filter: brightness(0.45) saturate(1.3);
-    transition: opacity 0.35s;
+    background: rgba(10,10,14,0.92); backdrop-filter: blur(8px);
+    align-items: center; justify-content: center;
   }
   #bartenderPassword .bp-label {
-    position: absolute; bottom: 28%; left: 50%; transform: translateX(-50%);
     font-family: 'IBM Plex Mono', monospace; font-size: 13px;
-    letter-spacing: 0.25em; text-transform: uppercase;
-    color: var(--gold); white-space: nowrap;
+    letter-spacing: 0.15em;
+    color: var(--gold); white-space: nowrap; text-align: center;
     animation: bpPulse 1.4s ease-in-out infinite;
   }
   @keyframes bpPulse { 0%,100%{opacity:0.3} 50%{opacity:1} }
@@ -14186,7 +14182,6 @@ html.slate-mode .ft-drawer {
 
 <!-- ── Bartender: password check overlay ── -->
 <div id="bartenderPassword">
-  <img src="./etherealbartenderinarustictavern.png" alt="">
   <div class="bp-label">Checking…</div>
 </div>
 
@@ -14412,24 +14407,18 @@ html.slate-mode .ft-drawer {
   <div class="container">
     <!-- Redesigned list view (v4) -->
     <div class="v4-list-wrap" id="v4ListWrap" style="display:none;">
-      <!-- Auth banner for signed-out users -->
-      <div class="v4-auth-banner" id="v4AuthBanner" style="display:none;">
+      <!-- Gold banner — shown for signed-out, guest, and free-tier users -->
+      <div class="v4-auth-banner" id="v4GoldBanner">
         <span class="v4-auth-brand">Drafthaus</span>
-        <span class="v4-auth-sep">—</span>
-        <span>A songwriter's sketchbook.</span>
+        <span class="v4-auth-sep" id="v4GoldSep">—</span>
+        <span id="v4GoldMsg">A songwriter's sketchbook.</span>
         <span style="flex:1"></span>
-        <button class="v4-auth-link" onclick="submitLandingPassword()">Sign in</button>
-        <button class="v4-auth-link" onclick="toggleEmailSignUp()">Create account</button>
-        <button class="v4-auth-link" onclick="signInAsGuest()">Try free</button>
-        <button class="v4-auth-close" onclick="v4DismissBanner()">×</button>
-      </div>
-      <!-- Upgrade banner for free-tier logged-in users -->
-      <div class="v4-auth-banner" id="v4FreeTierBanner" style="display:none;">
-        <span style="font-size:15px;">✦</span>
-        <span>You're on the <strong style="color:var(--gold);">Free</strong> plan.</span>
-        <span style="flex:1"></span>
-        <button class="v4-auth-link" onclick="showUpgradeModal('')">Upgrade →</button>
-        <button class="v4-auth-close" onclick="v4DismissFreeBanner()">×</button>
+        <span id="v4GoldActions">
+          <button class="v4-auth-link" onclick="submitLandingPassword()">Sign in</button>
+          <button class="v4-auth-link" onclick="toggleEmailSignUp()">Create account</button>
+          <button class="v4-auth-link" onclick="signInAsGuest()">Try free</button>
+        </span>
+        <button class="v4-auth-close" onclick="v4DismissGoldBanner()">×</button>
       </div>
       <div class="v4-list-head">
         <div>
@@ -14437,7 +14426,8 @@ html.slate-mode .ft-drawer {
           <h1 class="v4-list-title">Drafts</h1>
         </div>
         <div class="v4-list-actions">
-          <div class="v4-view-switch" id="v4ViewSwitch">
+          <!-- view toggle removed — kanban only -->
+          <div class="v4-view-switch" id="v4ViewSwitch" style="display:none;">
             <button class="active" data-layout="kanban" onclick="v4SetLayout('kanban')">⫴ Board</button>
             <button data-layout="grid" onclick="v4SetLayout('grid')">⊞ Grid</button>
           </div>
@@ -14478,7 +14468,7 @@ html.slate-mode .ft-drawer {
       </span>
       <span style="opacity:0.5;font-size:16px;">›</span>
     </button>
-    <div class="grid-header" id="gridHeader" style="display:flex;align-items:center;">
+    <div class="grid-header" id="gridHeader" style="display:none;align-items:center;">
       <div class="draft-stats-bar" id="draftStatsBar">
         <div class="draft-stat"><span class="draft-stat-count" id="statIdeas">0</span><span class="draft-stat-label">Ideas</span></div>
         <div class="draft-stat-divider"></div>
@@ -15925,7 +15915,7 @@ function renderDraftsV4() {
 }
 
 // Layout state
-let _v4Layout = localStorage.getItem('dh-v4-layout') || 'kanban';
+let _v4Layout = 'kanban'; // locked to kanban
 window._v4Layout = _v4Layout;
 let _v4ProjectFilter = 'recents';
 window._v4ProjectFilter = _v4ProjectFilter;
@@ -15952,24 +15942,46 @@ function v4RequireAuth() {
   document.getElementById('landingOverlay').classList.remove('hidden');
 }
 
-function v4DismissBanner() {
-  const ab = document.getElementById('v4AuthBanner');
-  if (ab) ab.style.display = 'none';
-  localStorage.setItem('dh-v4-banner-dismissed', '1');
+function v4DismissGoldBanner() {
+  const gb = document.getElementById('v4GoldBanner');
+  if (gb) gb.style.display = 'none';
+  localStorage.setItem('dh-v4-gold-banner-dismissed', '1');
 }
 
-function v4DismissFreeBanner() {
-  const fb = document.getElementById('v4FreeTierBanner');
-  if (fb) fb.style.display = 'none';
-  localStorage.setItem('dh-v4-free-banner-dismissed', '1');
-}
+function v4UpdateGoldBanner(mode) {
+  // mode: 'signed-out' | 'guest' | 'free' | 'paid'
+  const gb = document.getElementById('v4GoldBanner');
+  if (!gb) return;
+  const msg = document.getElementById('v4GoldMsg');
+  const sep = document.getElementById('v4GoldSep');
+  const actions = document.getElementById('v4GoldActions');
+  const brand = gb.querySelector('.v4-auth-brand');
 
-function v4ShowFreeTierBanner() {
-  if (typeof userTier === 'undefined' || userTier !== 'free') return;
-  if (!auth.currentUser || auth.currentUser.isAnonymous) return;
-  if (localStorage.getItem('dh-v4-free-banner-dismissed') === '1') return;
-  const fb = document.getElementById('v4FreeTierBanner');
-  if (fb) fb.style.display = '';
+  if (mode === 'paid') {
+    gb.style.display = 'none';
+    return;
+  }
+  if (localStorage.getItem('dh-v4-gold-banner-dismissed') === '1') {
+    gb.style.display = 'none';
+    return;
+  }
+  gb.style.display = '';
+  if (mode === 'signed-out') {
+    if (brand) brand.style.display = '';
+    if (sep) sep.style.display = '';
+    if (msg) msg.textContent = 'A songwriter\'s sketchbook.';
+    if (actions) actions.innerHTML = '<button class="v4-auth-link" onclick="submitLandingPassword()">Sign in</button><button class="v4-auth-link" onclick="toggleEmailSignUp()">Create account</button><button class="v4-auth-link" onclick="signInAsGuest()">Try free</button>';
+  } else if (mode === 'guest') {
+    if (brand) brand.style.display = 'none';
+    if (sep) sep.style.display = 'none';
+    if (msg) msg.innerHTML = 'You\'re using Drafthaus as a guest. <strong style="cursor:pointer;text-decoration:underline;color:var(--gold);" onclick="openGuestUpgradeModal()">Create a free account</strong> to keep your drafts.';
+    if (actions) actions.innerHTML = '<button class="v4-auth-link" onclick="openGuestUpgradeModal()">Create Account</button>';
+  } else if (mode === 'free') {
+    if (brand) brand.style.display = 'none';
+    if (sep) sep.style.display = 'none';
+    if (msg) msg.innerHTML = 'You\'re on the <strong style="color:var(--gold);">Free</strong> plan.';
+    if (actions) actions.innerHTML = '<button class="v4-auth-link" onclick="showUpgradeModal(\'\')">Upgrade →</button>';
+  }
 }
 
 // Drag and drop
@@ -25514,12 +25526,15 @@ auth.onAuthStateChanged(user => {
           // Reset to Recents tab for logged-in users
           _v4ProjectFilter = 'recents';
           window._v4ProjectFilter = 'recents';
-          // Hide v4 auth banner, show v4 list view, hide old grid
-          const ab = document.getElementById('v4AuthBanner');
-          if (ab) ab.style.display = 'none';
+          // Update gold banner for user's state
           document.getElementById('v4ListWrap').style.display = '';
-          // Show free-tier upgrade banner if applicable
-          v4ShowFreeTierBanner();
+          if (user.isAnonymous) {
+            v4UpdateGoldBanner('guest');
+          } else if (newTier === 'free') {
+            v4UpdateGoldBanner('free');
+          } else {
+            v4UpdateGoldBanner('paid');
+          }
           document.getElementById('songsGrid').style.display = 'none';
           const _gridHdr = document.getElementById('gridHeader');
           if (_gridHdr) _gridHdr.style.display = 'none';
@@ -25593,20 +25608,14 @@ auth.onAuthStateChanged(user => {
           // Tier changed after init (e.g. Stripe webhook updated Firestore) — prompt user to reload
           userTier = newTier;
           showToast('🎉 Upgrade confirmed! Reload the page to unlock your new features.', 'success', 10000);
-          // Hide free-tier banner if user upgraded
-          if (newTier !== 'free') {
-            const fb = document.getElementById('v4FreeTierBanner');
-            if (fb) fb.style.display = 'none';
-          }
+          v4UpdateGoldBanner(newTier === 'free' ? 'free' : 'paid');
         }
       }, () => {
         // Fallback: init app if snapshot fails — but only if user is still signed in
         if (!auth.currentUser) return;
         document.getElementById('landingOverlay').classList.add('hidden');
-        const ab2 = document.getElementById('v4AuthBanner');
-        if (ab2) ab2.style.display = 'none';
         document.getElementById('v4ListWrap').style.display = '';
-        v4ShowFreeTierBanner();
+        v4UpdateGoldBanner('free');
         document.getElementById('songsGrid').style.display = 'none';
         songs = songs.filter(s => !s._demo);
         const emailEl2 = document.getElementById('headerUserEmail');
@@ -25619,9 +25628,8 @@ auth.onAuthStateChanged(user => {
       console.warn('[auth] userRef.set failed, proceeding with defaults:', e?.code);
       if (!auth.currentUser) return;
       document.getElementById('landingOverlay').classList.add('hidden');
-      const ab3 = document.getElementById('v4AuthBanner');
-      if (ab3) ab3.style.display = 'none';
       document.getElementById('v4ListWrap').style.display = '';
+      v4UpdateGoldBanner(user.isAnonymous ? 'guest' : 'free');
       document.getElementById('songsGrid').style.display = 'none';
       songs = songs.filter(s => !s._demo);
       const emailEl3 = document.getElementById('headerUserEmail');
@@ -25638,14 +25646,9 @@ auth.onAuthStateChanged(user => {
     _dismissedShares = new Set();
     stopSyncPolling();
 
-    // Show auth banner unless dismissed, seed demo songs, and render v4 view
-    if (localStorage.getItem('dh-v4-banner-dismissed') !== '1') {
-      const ab = document.getElementById('v4AuthBanner');
-      if (ab) ab.style.display = '';
-    }
-    // Hide free-tier banner when logged out (auth banner takes priority)
-    const _ftb = document.getElementById('v4FreeTierBanner');
-    if (_ftb) _ftb.style.display = 'none';
+    // Show gold banner for signed-out users (reset any previous dismissal)
+    localStorage.removeItem('dh-v4-gold-banner-dismissed');
+    v4UpdateGoldBanner('signed-out');
     if (songs.length === 0) {
       songs = [...V4_DEMO_SONGS];
     }
@@ -25960,12 +25963,25 @@ function bartenderPulse(totalMs, onDone) {
   }, totalMs);
 }
 
+var _bartenderMsgInterval = null;
 function bartenderPasswordShow() {
   const el = document.getElementById('bartenderPassword');
-  if (el) el.style.display = 'block';
+  if (!el) return;
+  el.style.display = 'flex';
+  // Pick a random funny message to start
+  const label = el.querySelector('.bp-label');
+  if (label && typeof FUNNY_LOADING_MSGS !== 'undefined') {
+    label.textContent = FUNNY_LOADING_MSGS[Math.floor(Math.random() * FUNNY_LOADING_MSGS.length)];
+    // Cycle messages every 2s
+    clearInterval(_bartenderMsgInterval);
+    _bartenderMsgInterval = setInterval(() => {
+      label.textContent = FUNNY_LOADING_MSGS[Math.floor(Math.random() * FUNNY_LOADING_MSGS.length)];
+    }, 2000);
+  }
 }
 
 function bartenderPasswordHide() {
+  clearInterval(_bartenderMsgInterval);
   const el = document.getElementById('bartenderPassword');
   if (el) el.style.display = 'none';
 }
@@ -27448,8 +27464,7 @@ async function loadSongsFromSheet() {
     if (!allDocs.length && !readOnlySnap.docs.length) {
       setSyncStatus('saved', 'No drafts yet');
       renderGrid();
-      // First-time user with no drafts — set up the starter state
-      setTimeout(_setupNewUserState, 400);
+      // First-time user with no drafts — just show empty song list
       return;
     }
 
@@ -27479,19 +27494,23 @@ async function loadSongsFromSheet() {
     setSyncStatus('saved', 'Loaded ✓');
 
     // v4: Always land on the song list — don't auto-restore last song.
-    // Users pick a draft from the kanban board.
-    // (Original auto-restore commented out for reference)
-    // if (!currentId) {
-    //   const lastId = _lastSongIdFromFirestore || localStorage.getItem('drafthaus-last-song');
-    //   const uid    = auth.currentUser?.uid;
-    //   let restoreSong = lastId ? songs.find(s => s.id === lastId) : null;
-    //   if (!restoreSong && songs.length > 0) {
-    //     const ownedSongs = songs.filter(s => !uid || s.ownerId === uid);
-    //     const pool = ownedSongs.length > 0 ? ownedSongs : songs;
-    //     restoreSong = [...pool].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
-    //   }
-    //   if (restoreSong) openSong(restoreSong.id);
-    // }
+    // Auto-load the most recent song into memory but stay on the song list view
+    if (!currentId) {
+      const lastId = _lastSongIdFromFirestore || localStorage.getItem('drafthaus-last-song');
+      const uid    = auth.currentUser?.uid;
+      let restoreSong = lastId ? songs.find(s => s.id === lastId) : null;
+      if (!restoreSong && songs.length > 0) {
+        const ownedSongs = songs.filter(s => !uid || s.ownerId === uid);
+        const pool = ownedSongs.length > 0 ? ownedSongs : songs;
+        restoreSong = [...pool].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+      }
+      if (restoreSong) {
+        // Load song data into memory but do NOT switch to the editor view
+        currentId = restoreSong.id;
+        localStorage.setItem('drafthaus-last-song', restoreSong.id);
+        // Stay on song list — don't call openSong() which switches to edit view
+      }
+    }
 
   } catch(e) {
     stopFunnyMessages();
@@ -27552,19 +27571,7 @@ function initApp() {
     if (typeof loadAcoustic2Samples === 'function') loadAcoustic2Samples();
   }, 1500);
 
-  // Show onboarding for first-time users
-  // Check both localStorage and Firestore flag (guests may lose localStorage between sessions)
-  if (!localStorage.getItem('drafthaus-onboarding-done')) {
-    const _uid = auth.currentUser?.uid;
-    // Tutorial removed — will be redone later
-    if (_uid) {
-      db.collection('users').doc(_uid).get().then(doc => {
-        if (doc.exists && doc.data().onboardingDone) {
-          localStorage.setItem('drafthaus-onboarding-done', '1');
-        }
-      }).catch(() => {});
-    }
-  }
+  // Onboarding / tutorial removed
 }
 
 // ── New-user starter state ────────────────────────────────────────
