@@ -18921,6 +18921,7 @@ function _midiHandleMessage(msg) {
 // Route MIDI channel-10 (GM drum) notes to the sequencer drum sounds
 function _midiDrumNoteOn(midiNote, velocity) {
   const ctx = getSeqAudioCtx();
+  _seqEnsureMasterGain();
   const now = ctx.currentTime;
   // Standard GM drum map → our five drum voices
   if      (midiNote === 35 || midiNote === 36)                   seqPlayKick(now, velocity);
@@ -18934,7 +18935,9 @@ function _midiDrumNoteOn(midiNote, velocity) {
 }
 
 function _midiNoteOn(midiNote, velocity) {
-  getSeqAudioCtx();
+  const ctx = getSeqAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume();
+  _seqEnsureMasterGain();
   let samplerPlayed = false;
   if (_melodyInstrHas('piano') && _pianoLoaded) {
     playPianoNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
@@ -19105,6 +19108,21 @@ function getSeqAudioCtx() {
 function seqGetChordsOut() { getSeqAudioCtx(); return seqChordsGain || seqAudioCtx.destination; }
 function seqGetDrumsOut()  { getSeqAudioCtx(); return seqDrumsGain  || seqAudioCtx.destination; }
 function seqGetMelodyOut() { getSeqAudioCtx(); return seqMelodyGain || seqAudioCtx.destination; }
+
+// Restore master gain after seqStop zeroed it — safe to call from any user gesture.
+// seqStop sets seqMasterGain to 0 for instant silence, but interactive play paths
+// (keyboard taps, MIDI notes, chord pill clicks) need it back up.
+function _seqEnsureMasterGain() {
+  if (!seqMasterGain) return;
+  if (seqIsPlaying) return; // sequencer play already restores it
+  const cur = seqMasterGain.gain.value;
+  if (cur < 0.001) {
+    const song = getCurrentSong();
+    const vol = song?.sequencer?.masterVol !== undefined ? song.sequencer.masterVol : 1.0;
+    seqMasterGain.gain.cancelScheduledValues(0);
+    seqMasterGain.gain.setValueAtTime(vol, 0);
+  }
+}
 
 // ── Acoustic drum sample loader ────────────────────────────────────
 async function _loadKit(urls, rawStore, bufStore, stateRef, stateKey, fallbackMode) {
@@ -22192,6 +22210,7 @@ function seqPlayChordByName(name) {
   // Always called from a user gesture (chord pill tap/click) — safe to resume
   const _ctx = getSeqAudioCtx();
   if (_ctx.state === 'suspended') _ctx.resume();
+  _seqEnsureMasterGain();
   const key  = seqCurrentKey();
   const mode = seqCurrentMode();
   const t    = _ctx.currentTime;
@@ -23645,6 +23664,7 @@ function kbdPlayNote(note, octave, sustained = false) {
   const ctx = getSeqAudioCtx();
   // Always called from user gesture (key tap/click) — safe to resume suspended context
   if (ctx.state === 'suspended') ctx.resume();
+  _seqEnsureMasterGain();
   const midiNote = SEQ_NOTES.indexOf(note) + (octave + 1) * 12;
   const t = ctx.currentTime;
   const sustKey = note + ':' + octave;
