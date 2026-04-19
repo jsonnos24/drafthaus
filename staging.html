@@ -923,7 +923,7 @@ button, select, input, textarea { touch-action: manipulation; }
     color: var(--muted); border-radius: 8px; padding: 7px 10px;
     font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600;
     letter-spacing: 0.06em; cursor: pointer; transition: all 0.15s, opacity 0.5s; }
-  .hla-mob-status-pill.hdr-faded { opacity: 0.18; }
+  .hla-mob-status-pill.hdr-faded { opacity: 0.55; }
   .hla-mob-status-pill.hdr-active {
     opacity: 1 !important;
     border-color: rgba(255,209,102,0.55) !important;
@@ -6473,7 +6473,7 @@ button, select, input, textarea { touch-action: manipulation; }
 
 /* ── Header status dropdown ───────────────────────────────── */
 .header-status-wrap { position: relative; transition: opacity 0.5s; }
-.header-status-wrap.hdr-faded { opacity: 0.18; }
+.header-status-wrap.hdr-faded { opacity: 0.55; }
 /* Lit-up state: saving / loading activity */
 .header-status-wrap.hdr-active { opacity: 1 !important; }
 .header-status-wrap.hdr-active .header-status-btn {
@@ -6951,7 +6951,7 @@ body.split-active #splitTransportDock { display: flex; }
   opacity: 1;
   transition: opacity 0.6s ease;
 }
-.split-dock-io-pill.io-faded { opacity: 0.12; }
+.split-dock-io-pill.io-faded { opacity: 0.5; }
 .split-dock-io-pill:hover { opacity: 1 !important; }
 /* Strip inner-pill's own background when nested inside the io-pill */
 .split-dock-io-pill .split-io-pill {
@@ -8849,7 +8849,7 @@ body.il-perf-active:not(.split-active) .global-seq-strip { top: env(safe-area-in
 /* ── Perf controls inactivity fade (mobile only) ── */
 @media (max-width: 768px) {
   #ilPerfControls { transition: opacity 0.6s; }
-  #ilPerfControls.perf-ctrl-faded { opacity: 0.12; }
+  #ilPerfControls.perf-ctrl-faded { opacity: 0.5; }
 }
 
 /* Rehearse-mode lyrics: extra bottom clearance so content isn't hidden behind the rehearse bar */
@@ -25698,6 +25698,8 @@ function renderInspoAscii() {
 }
 
 function openInspoDrawer() {
+  // Mobile: only one drawer at a time
+  if (window.innerWidth < 768) closeAllDrawers('inspoDrawer');
   document.getElementById('inspoDrawer').classList.add('open');
   document.getElementById('inspoOverlay').classList.add('open');
   _inspoRestoreDice();
@@ -26676,6 +26678,8 @@ var rtForkCtx = null, rtForkOsc = null, rtForkGain = null, rtForkOn = false;
 var rtIsDirty = false;
 
 function openRunThroughDrawer() {
+  // Mobile: only one drawer at a time
+  if (window.innerWidth < 768) closeAllDrawers('runThroughDrawer');
   const song = getCurrentSong();
   if (!song) { showToast('Open a draft first.', 'warn'); return; }
   const activeParts = getActiveParts(song);
@@ -30830,6 +30834,8 @@ function openKeyboardDrawer() {
   if (window._ilPerfMode && document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
     vrClose();
   }
+  // Mobile: only one drawer at a time
+  if (window.innerWidth < 768) closeAllDrawers('keyboardDrawer');
   _setNavOpen('nav-keyboard', true);
   document.getElementById('keyboardDrawer').classList.add('open');
   document.getElementById('keyboardDrawerOverlay').classList.add('open');
@@ -30927,6 +30933,8 @@ function openSeqDrawer() {
   if (window._ilPerfMode && document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
     vrClose();
   }
+  // Mobile: only one drawer at a time
+  if (window.innerWidth < 768) closeAllDrawers('seqDrawer');
   _setNavOpen('nav-sequencer', true);
   document.getElementById('seqDrawer').classList.add('open');
   document.getElementById('seqDrawerOverlay').classList.add('open');
@@ -31031,49 +31039,17 @@ function _seqInitSwipeDown() { /* swipe handled by shared initDrawerSwipe */ }
   var _drawerScrollListeners = [];  // {el, handler} pairs for cleanup
 
   function applyState(scrollY) {
-    if (window.innerWidth > 768) {
-      // Desktop: always show header (remove class if somehow set)
-      if (document.body.classList.contains('header-scrolled-away')) {
-        document.body.classList.remove('header-scrolled-away');
-      }
-      lastY = scrollY;
-      return;
+    // Header always visible on all screen sizes
+    if (document.body.classList.contains('header-scrolled-away')) {
+      document.body.classList.remove('header-scrolled-away');
     }
-    var delta = scrollY - lastY;
+    hidden = false;
     lastY = scrollY;
-
-    if (delta > HIDE_THRESHOLD && !hidden && scrollY > 80) {
-      hidden = true;
-      document.body.classList.add('header-scrolled-away');
-    } else if (delta < -SHOW_THRESHOLD && hidden) {
-      hidden = false;
-      document.body.classList.remove('header-scrolled-away');
-    }
-    // Always show when near top of page
-    if (scrollY <= 10 && hidden) {
-      hidden = false;
-      document.body.classList.remove('header-scrolled-away');
-    }
   }
 
-  /* Drawer-specific scroll handler — works on scrollTop of drawer bodies */
+  /* Drawer-specific scroll handler — header always visible now */
   function applyDrawerScrollState(scrollY) {
-    if (window.innerWidth > 768) return;
-    var delta = scrollY - _drawerScrollLastY;
-    _drawerScrollLastY = scrollY;
-
-    if (delta > HIDE_THRESHOLD && !hidden && scrollY > 40) {
-      hidden = true;
-      document.body.classList.add('header-scrolled-away');
-    } else if (delta < -SHOW_THRESHOLD && hidden) {
-      hidden = false;
-      document.body.classList.remove('header-scrolled-away');
-    }
-    // Near top of drawer — show header
-    if (scrollY <= 10 && hidden) {
-      hidden = false;
-      document.body.classList.remove('header-scrolled-away');
-    }
+    // Header stays visible — no-op
   }
 
   function onScroll() {
@@ -31097,27 +31073,8 @@ function _seqInitSwipeDown() { /* swipe handled by shared initDrawerSwipe */ }
 
   /* ── Drawer header-hide helpers (called from drawer open/close) ── */
   window._drawerMobileHeaderHide = function() {
-    if (window.innerWidth > 768) return;
-    // Immediately hide header, move seq strip to top
-    hidden = true;
-    document.body.classList.add('header-scrolled-away');
-    // Attach scroll listeners to all known drawer scroll containers
-    _drawerMobileScrollCleanup();
-    var bodyIds = ['seqDrawerBody', 'keyboardDrawerBody', 'looperBody',
-                   'backendDrawerBody', 'practiceDrawerBody', 'inspoDrawerBody',
-                   'runThroughDrawerBody'];
-    bodyIds.forEach(function(id) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      var handler = function() {
-        requestAnimationFrame(function() {
-          applyDrawerScrollState(el.scrollTop);
-        });
-      };
-      el.addEventListener('scroll', handler, { passive: true });
-      _drawerScrollListeners.push({ el: el, handler: handler });
-    });
-    _drawerScrollLastY = 0;
+    // Header stays visible on mobile — no-op
+    return;
   };
 
   function _drawerMobileScrollCleanup() {
@@ -32493,6 +32450,8 @@ function collapseTab(tabId) {
 (function() {
   let lastY = 0;
   window.addEventListener('scroll', () => {
+    // Mobile: header always visible
+    if (window.innerWidth <= 768) return;
     const y = window.scrollY;
     const main    = document.getElementById('siteHeader');
     const sub     = document.getElementById('subHeader');
@@ -32533,6 +32492,8 @@ function openLooperDrawer() {
   if (window._ilPerfMode && document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
     vrClose();
   }
+  // Mobile: only one drawer at a time
+  if (window.innerWidth < 768) closeAllDrawers('looperDrawer');
   _setNavOpen('nav-looper', true);
   const song = songs.find(s => s.id === currentId) || null;
   if (!song) { showNoSongModal(openLooperDrawer); return; }
