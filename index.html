@@ -8394,6 +8394,124 @@ body.il-perf-active:not(.split-active) .global-seq-strip { top: env(safe-area-in
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   TAPE STACK — Drum Machine Redesign (Direction 3)
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Drum controls row (pattern + humanize + clear) ── */
+.seq-drum-controls{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;
+  border-bottom:1px solid var(--border2);flex-wrap:wrap;
+}
+
+/* ── Tape strip stack ── */
+.ts-stack{display:flex;flex-direction:column;gap:4px;padding:8px 0;}
+.ts-strip{
+  border:1.5px solid var(--border2);border-radius:8px;
+  background:var(--card);overflow:hidden;transition:opacity .2s;
+}
+.ts-strip.ts-muted{opacity:0.35}
+.ts-strip-head{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 12px;
+  background:linear-gradient(90deg,var(--card2) 0%,var(--card) 100%);
+  cursor:pointer;border-bottom:1px solid var(--border);
+  user-select:none;-webkit-user-select:none;
+}
+.ts-strip.ts-collapsed .ts-strip-head{border-bottom:0}
+.ts-dot{width:11px;height:11px;border-radius:3px;flex-shrink:0}
+.ts-name{font-size:11px;font-weight:600;letter-spacing:0.05em}
+.ts-sample-btn{
+  font-size:9px;color:var(--faint);margin-left:auto;
+  cursor:pointer;white-space:nowrap;background:none;border:none;
+  font-family:inherit;padding:2px 4px;
+}
+.ts-sample-btn:hover{color:var(--gold)}
+.ts-ctrls{display:flex;gap:3px;flex-shrink:0}
+.ts-ctrl{
+  width:22px;height:22px;border-radius:4px;
+  border:1px solid var(--border2);background:var(--card);
+  color:var(--muted);font-size:9px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all .12s;
+}
+.ts-ctrl:hover{border-color:var(--muted);color:var(--text)}
+.ts-ctrl.ts-m.on{background:var(--red);color:#fff;border-color:var(--red)}
+.ts-ctrl.ts-s.on{background:var(--gold);color:#1a0f05;border-color:var(--gold)}
+.ts-chev{color:var(--muted);font-size:10px;margin-left:2px;flex-shrink:0}
+
+/* ── Tape lane (step bars with velocity fill) ── */
+.ts-strip-body{
+  padding:6px 12px 10px;display:flex;gap:8px;align-items:end;
+}
+.ts-strip.ts-collapsed .ts-strip-body{display:none}
+.ts-hits{
+  font-size:9px;letter-spacing:0.08em;color:var(--muted);
+  min-width:36px;white-space:nowrap;flex-shrink:0;text-align:right;
+  padding-bottom:4px;
+}
+.ts-lane{
+  flex:1;display:grid;gap:2px;height:44px;align-items:end;padding:2px 0;
+  background:repeating-linear-gradient(
+    90deg,
+    transparent 0 calc(25% - 1px),
+    rgba(239,230,212,0.14) calc(25% - 1px) calc(25%)
+  );
+}
+/* Keep the seq-slot class so the scheduler can still find steps */
+.ts-lane .seq-slot{
+  position:relative;height:100%;width:auto !important;
+  border-radius:2px;display:flex;align-items:end;overflow:hidden;
+  cursor:pointer;transition:border-color .1s;
+  /* Reset old grid styles */
+  margin:0 !important;padding:0 !important;
+}
+.ts-lane .seq-slot.ts-off{
+  background:transparent;
+  border:1px dashed rgba(79,61,42,0.8);
+}
+.ts-lane .seq-slot.drum-on{
+  background:var(--card2) !important;
+  border:1px solid var(--gold) !important;
+  box-shadow:none !important;
+}
+.ts-lane .seq-slot .ts-fill{
+  width:100%;background:var(--gold);
+  border-radius:0 0 1px 1px;
+  transition:height .08s;
+  pointer-events:none;
+}
+.ts-lane .seq-slot.drum-on:hover{
+  border-color:#ffc04a !important;
+  box-shadow:0 0 6px rgba(245,166,35,0.25) !important;
+}
+/* Playhead highlight */
+.ts-lane .seq-slot.ts-playhead{
+  box-shadow:inset 0 0 0 2px var(--gold), 0 0 8px rgba(245,166,35,0.25) !important;
+}
+/* Beat line on first step of each beat group */
+.ts-lane .seq-slot.bar-start{
+  border-left:1px solid rgba(239,230,212,0.1) !important;
+  margin-left:0 !important;
+}
+
+/* Override old per-voice drum-on colors — tape stack uses gold fill bars */
+.ts-lane [data-row] .seq-slot.drum-on,
+.ts-strip .seq-slot.drum-on{
+  background:var(--card2) !important;
+  border-color:var(--gold) !important;
+}
+
+/* ── Mobile adjustments ── */
+@media (max-width:700px){
+  .ts-strip-head{padding:7px 10px;gap:6px}
+  .ts-strip-body{padding:5px 10px 8px;gap:6px}
+  .ts-lane{height:40px;gap:1px}
+  .ts-dot{width:9px;height:9px}
+  .ts-name{font-size:10px}
+  .ts-ctrl{width:20px;height:20px;font-size:8px}
+}
+
 /* ── Desktop chord chart: tighter spacing between chord pills and syllable text ── */
 @media (min-width: 701px) {
   .il-cc-slot { min-height: 18px; margin-bottom: 1px; }
@@ -15261,7 +15379,7 @@ function addSectionToSong(partId) {
       id: 'seq_' + Date.now(),
       partId: partId, part: partId,
       bpm: cur.bpm || '120', time: cur.time || '4',
-      bars: cur.bars || '4', grid: cur.grid || '1',
+      bars: cur.bars || '8', grid: cur.grid || '2',
       swing: cur.swing || '0', vel: cur.vel || '0.8',
       wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
       chordSlots: [], chordDegrees: [],
@@ -16503,10 +16621,18 @@ function _drumBankSelect(voice, idx) {
 }
 
 function _drumBankUpdateLabel(voice) {
+  // Update tape strip header sample label
+  const tsBtn = document.querySelector(`#tsStrip_${voice} .ts-sample-btn`);
+  if (tsBtn) {
+    const idx = _drumBankChoice[voice];
+    const entry = _DRUM_BANKS[voice][idx];
+    tsBtn.textContent = (entry ? entry.label : 'Synth') + ' ▾';
+  }
+  // Legacy: update old-style label if it exists
   const btn = document.querySelector(`.seq-grid-row[data-row="${voice}"] button.seq-row-label`);
   if (!btn) return;
-  const idx = _drumBankChoice[voice];
-  const entry = _DRUM_BANKS[voice][idx];
+  const idx2 = _drumBankChoice[voice];
+  const entry2 = _DRUM_BANKS[voice][idx2];
   const drumNames = { kick:'Kick', snare:'Snare', hat:'Hi Hat', crash:'Crash', clap:'Claps', hitom:'Hi Tom', lotom:'Lo Tom' };
   const drumName = drumNames[voice] || voice;
   btn.innerHTML = `${drumName}<span class="drum-label-arrow">▾</span>`;
@@ -17980,8 +18106,8 @@ function renderSequencerHtml(song) {
   const songObj = getCurrentSong();
   const key = (songObj?.key || 'C major').split(' ')[0];
   const time = seqData.time || '4';
-  const bars = seqData.bars || '16';
-  const grid = seqData.grid || '1';
+  const bars = seqData.bars || '8';
+  const grid = seqData.grid || '2';
   const bpm  = seqData.bpm  || song.bpm || '100';
 
   return `<div class="seq-panel" id="seqPanel">
@@ -18018,7 +18144,7 @@ function renderSequencerHtml(song) {
     </div>
 
     <!-- ── Drum controls (below tabs, above grid) ── -->
-    <div class="seq-instrument-row" style="flex-wrap:wrap;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border2);">
+    <div class="seq-drum-controls">
       <select class="seq-select" name="drum-pattern-sel" onchange="if(this.value){applyDrumPattern(this.value);this.value=''}" style="width:auto;">
         <option value="">— Drum pattern —</option>
         <option value="rock1">Rock 1</option>
@@ -18055,16 +18181,28 @@ function renderSequencerHtml(song) {
     <!-- ── Grid pane ── -->
     <div class="seq-grid-pane">
 
-    <!-- ── Drum pattern grid ── -->
-    <div class="seq-pattern-grid">
-      ${[['Kick','seqKick','kick'],['Snare','seqSnare','snare'],['Hi Hat','seqHat','hat'],['Hi Tom','seqHiTom','hitom'],['Lo Tom','seqLoTom','lotom'],['Crash','seqCrash','crash'],['Claps','seqClap','clap']].map(([label,id,row])=>`
-      <div class="seq-grid-row" data-row="${row}">
-        <button class="seq-row-label" onclick="_drumLabelClick(event,'${row}')" title="Change ${label} sample">${label}<span class="drum-label-arrow">▾</span></button>
-        <div class="seq-grid" id="${id}"></div>
+    <!-- ── Tape Stack: drum voices as collapsible strips ── -->
+    <div class="ts-stack" id="tsDrumStack">
+      ${[['Kick','seqKick','kick','#e8304a'],['Snare','seqSnare','snare','#87ceeb'],['Hi Hat','seqHat','hat','#f5a623'],['Hi Tom','seqHiTom','hitom','#ff9940'],['Lo Tom','seqLoTom','lotom','#cc7733'],['Crash','seqCrash','crash','#cc88ff'],['Claps','seqClap','clap','#00d26e']].map(([label,id,row,color])=>`
+      <div class="ts-strip" data-voice="${row}" id="tsStrip_${row}">
+        <div class="ts-strip-head" onclick="_tsToggleCollapse('${row}',event)">
+          <span class="ts-dot" style="background:${color}"></span>
+          <span class="ts-name" style="color:${color}">${label}</span>
+          <button class="ts-sample-btn" onclick="event.stopPropagation();_drumLabelClick(event,'${row}')" title="Change ${label} sample">${label} ▾</button>
+          <div class="ts-ctrls">
+            <span class="ts-ctrl ts-m" onclick="event.stopPropagation();_tsMute('${row}')" title="Mute">M</span>
+            <span class="ts-ctrl ts-s" onclick="event.stopPropagation();_tsSolo('${row}')" title="Solo">S</span>
+          </div>
+          <span class="ts-chev">▾</span>
+        </div>
+        <div class="ts-strip-body">
+          <span class="ts-hits" id="tsHits_${row}">—</span>
+          <div class="ts-lane seq-grid" id="${id}" data-row="${row}"></div>
+        </div>
       </div>`).join('')}
-      <!-- Shared drum bank popup (one reused for all voices) -->
-      <div id="drumBankPopup" class="drum-bank-popup"></div>
     </div>
+    <!-- Shared drum bank popup (one reused for all voices) -->
+    <div id="drumBankPopup" class="drum-bank-popup"></div>
 
     <div id="drumNotationWrap" style="display:none;margin-top:14px;overflow-x:auto;-webkit-overflow-scrolling:touch;">
       <canvas id="drumNotationCanvas" style="display:block;border-radius:6px;background:#1a1a1e;"></canvas>
@@ -18682,8 +18820,8 @@ function seqSaveAllToCurrent(song) {
   const sd = song.sequencer;
   sd.bpm   = document.getElementById('seqBpm')?.value  || sd.bpm   || '120';
   sd.time  = document.getElementById('seqTime')?.value || sd.time  || '4';
-  sd.bars  = document.getElementById('seqBars')?.value || sd.bars  || '4';
-  sd.grid  = document.getElementById('seqGrid')?.value || sd.grid  || '1';
+  sd.bars  = document.getElementById('seqBars')?.value || sd.bars  || '8';
+  sd.grid  = document.getElementById('seqGrid')?.value || sd.grid  || '2';
   sd.swing = document.getElementById('seqSwing')?.value|| sd.swing || '0';
   sd.vel   = document.getElementById('seqVel')?.value  || sd.vel   || '0.8';
   sd.part  = document.getElementById('seqPartAssign')?.value || sd.part || '';
@@ -18695,11 +18833,15 @@ function seqSaveAllToCurrent(song) {
     sd.chordDegrees   = slots.map(s => s.dataset.chordDegree ?? '');
     sd.chordContinued = slots.map(s => s.classList.contains('chord-tail'));
   }
-  // Save drum lanes
+  // Save drum lanes + velocity
   ['kick','snare','hat','crash','clap','hitom','lotom'].forEach((lane, li) => {
     const elId = ['seqKick','seqSnare','seqHat','seqCrash','seqClap','seqHiTom','seqLoTom'][li];
     const el = document.getElementById(elId);
-    if (el) sd[lane] = [...el.querySelectorAll('.seq-slot')].map(s => s.classList.contains('drum-on') ? 1 : 0);
+    if (el) {
+      const drumSlots = [...el.querySelectorAll('.seq-slot')];
+      sd[lane]          = drumSlots.map(s => s.classList.contains('drum-on') ? 1 : 0);
+      sd[lane + 'Vel']  = drumSlots.map(s => s.classList.contains('drum-on') ? parseFloat(s.dataset.vel || 0.8) : 0);
+    }
   });
   save();
 }
@@ -18734,8 +18876,8 @@ function seqAddSequence(partId) {
     part:   partId || '',
     bpm:    song.bpm  || '120',
     time:   cur.time  || '4',
-    bars:   cur.bars  || '4',
-    grid:   cur.grid  || '1',
+    bars:   cur.bars  || '8',
+    grid:   cur.grid  || '2',
     swing:  cur.swing || '0',
     vel:    cur.vel   || '0.8',
     wave:   cur.wave  || 'triangle',
@@ -19319,8 +19461,8 @@ function seqSaveSettings() {
     document.getElementById(kbdId)?.value ||
     fallback;
   song.sequencer.time  = _v('seqTime',  'kbdTimeSig', sd.time  || '4');
-  song.sequencer.bars  = _v('seqBars',  'kbdBars',    sd.bars  || '4');
-  song.sequencer.grid  = _v('seqGrid',  null,          sd.grid  || '1');
+  song.sequencer.bars  = _v('seqBars',  'kbdBars',    sd.bars  || '8');
+  song.sequencer.grid  = _v('seqGrid',  null,          sd.grid  || '2');
   song.sequencer.bpm   = _v('seqBpm',   'kbdBpm',     sd.bpm   || '120');
   const partVal = document.getElementById('seqPartAssign')?.value || sd.part || '';
   song.sequencer.part  = partVal;
@@ -19644,60 +19786,219 @@ function seqBuildGrids(song) {
     }
   }
 
-  // Drum grids — with drag-to-paint support
-  // A shared paint state: when the pointer goes down on a slot we record whether
-  // we're painting ON or OFF, then every slot entered during the drag gets the
-  // same treatment.  Works for both mouse and touch (via pointermove + elementFromPoint).
-  const _drumPaint = { active: false, paintOn: true, lane: null, elId: null, visited: new Set() };
+  // ── Tape Stack: build drum strips with velocity bars ──
+  // Paint state for drag-to-paint and velocity-drag
+  const _drumPaint = { active: false, mode: null, lane: null, elId: null, startY: 0, step: -1, visited: new Set() };
 
-  function _drumSlotPaint(slot, paintLane, paintElId) {
-    const key = paintLane + ':' + slot.dataset.idx;
-    if (_drumPaint.visited.has(key)) return;
-    _drumPaint.visited.add(key);
-    if (_drumPaint.paintOn) slot.classList.add('drum-on');
-    else slot.classList.remove('drum-on');
-    seqSaveDrumLane(paintLane, paintElId);
+  function _tsBuildSlot(slot, isOn, vel, lane, elId) {
+    if (isOn) {
+      slot.classList.add('drum-on');
+      slot.classList.remove('ts-off');
+      const h = Math.round((vel || 0.8) * 100);
+      slot.innerHTML = '<div class="ts-fill" style="height:' + h + '%"></div>';
+      slot.dataset.vel = (vel || 0.8).toFixed(2);
+    } else {
+      slot.classList.remove('drum-on');
+      slot.classList.add('ts-off');
+      slot.innerHTML = '';
+      slot.dataset.vel = '0';
+    }
   }
 
   [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqHiTom','hitom'],['seqLoTom','lotom'],['seqCrash','crash'],['seqClap','clap']].forEach(([elId, lane]) => {
     const el = document.getElementById(elId);
     if (!el) return;
     const savedLane = sd[lane] || [];
+    const savedVel  = sd[lane + 'Vel'] || [];
     el.innerHTML = '';
-    // Grid wraps into rows — no horizontal panning needed
     el.style.touchAction = 'auto';
+    el.style.gridTemplateColumns = 'repeat(' + totalSteps + ', 1fr)';
 
     for (let i = 0; i < totalSteps; i++) {
       const slot = document.createElement('div');
       slot.className = 'seq-slot' + (i % beatsPerBar === 0 && i > 0 ? ' bar-start' : '');
       slot.dataset.idx  = i;
       slot.dataset.beat = (i % beatsPerBar) % 8;
-      if (savedLane[i]) slot.classList.add('drum-on');
+      const isOn = !!savedLane[i];
+      const vel  = savedVel[i] || 0.8;
+      _tsBuildSlot(slot, isOn, vel, lane, elId);
 
+      // Pointer events: click to toggle, drag vertically to set velocity
       slot.addEventListener('pointerdown', e => {
-        _drumPaint.active  = true;
-        _drumPaint.paintOn = !slot.classList.contains('drum-on'); // toggle direction from first touch
-        _drumPaint.lane    = lane;
-        _drumPaint.elId    = elId;
+        e.preventDefault();
+        _drumPaint.active = true;
+        _drumPaint.lane   = lane;
+        _drumPaint.elId   = elId;
+        _drumPaint.step   = i;
+        _drumPaint.startY = e.clientY;
         _drumPaint.visited = new Set();
-        _drumSlotPaint(slot, lane, elId);
+
+        if (!slot.classList.contains('drum-on')) {
+          _drumPaint.mode = 'paint-on';
+          _tsBuildSlot(slot, true, 0.8, lane, elId);
+          _drumPaint.visited.add(i);
+          seqSaveDrumLane(lane, elId);
+        } else {
+          _drumPaint.mode = 'maybe-off'; // will become 'velocity' if dragged
+        }
+        slot.setPointerCapture?.(e.pointerId);
       });
 
       slot.addEventListener('pointermove', e => {
-        if (!_drumPaint.active || _drumPaint.lane !== lane) return;
-        // Find which slot is currently under the pointer (works for touch too)
-        const target = document.elementFromPoint(e.clientX, e.clientY);
-        if (target && target.classList.contains('seq-slot') && target.closest('#' + elId)) {
-          _drumSlotPaint(target, lane, elId);
+        if (!_drumPaint.active) return;
+
+        if (_drumPaint.mode === 'paint-on') {
+          // Drag to paint on adjacent slots
+          const target = document.elementFromPoint(e.clientX, e.clientY);
+          if (target && target.classList.contains('seq-slot') && target.closest('#' + elId)) {
+            const idx = parseInt(target.dataset.idx);
+            if (!_drumPaint.visited.has(idx) && !target.classList.contains('drum-on')) {
+              _drumPaint.visited.add(idx);
+              _tsBuildSlot(target, true, 0.8, lane, elId);
+              seqSaveDrumLane(lane, elId);
+            }
+          }
+          return;
+        }
+
+        const dy = _drumPaint.startY - e.clientY;
+        if (_drumPaint.mode === 'maybe-off' && Math.abs(dy) > 5) {
+          _drumPaint.mode = 'velocity';
+        }
+        if (_drumPaint.mode === 'velocity' && _drumPaint.lane === lane) {
+          const curVel = parseFloat(slot.dataset.vel || 0.8);
+          const newVel = Math.max(0.05, Math.min(1, curVel + dy * 0.005));
+          slot.dataset.vel = newVel.toFixed(2);
+          _drumPaint.startY = e.clientY;
+          const fill = slot.querySelector('.ts-fill');
+          if (fill) fill.style.height = Math.round(newVel * 100) + '%';
         }
       });
 
-      slot.addEventListener('pointerup',     () => { _drumPaint.active = false; });
-      slot.addEventListener('pointercancel', () => { _drumPaint.active = false; });
+      slot.addEventListener('pointerup', () => {
+        if (_drumPaint.active && _drumPaint.mode === 'maybe-off') {
+          // No drag happened — toggle off
+          _tsBuildSlot(slot, false, 0, lane, elId);
+        }
+        if (_drumPaint.active) seqSaveDrumLane(lane, elId);
+        _drumPaint.active = false;
+        _drumPaint.mode = null;
+      });
+      slot.addEventListener('pointercancel', () => {
+        _drumPaint.active = false;
+        _drumPaint.mode = null;
+      });
 
       el.appendChild(slot);
     }
+
+    // Update hit count display
+    _tsUpdateHits(lane, el);
   });
+
+  // Restore mute/solo/collapse state from song
+  _tsRestoreVoiceState(song);
+  // Update sample labels in strip headers
+  _tsUpdateAllSampleLabels();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// TAPE STACK — Mute / Solo / Collapse / Velocity helpers
+// ══════════════════════════════════════════════════════════════════
+
+// Per-voice state stored on the song object: song.sequencer.tsVoiceState = { kick: { muted, solo, collapsed }, ... }
+function _tsGetVoiceState(song) {
+  if (!song || !song.sequencer) return {};
+  if (!song.sequencer.tsVoiceState) song.sequencer.tsVoiceState = {};
+  return song.sequencer.tsVoiceState;
+}
+
+function _tsMute(voice) {
+  const song = getCurrentSong();
+  if (!song) return;
+  const vs = _tsGetVoiceState(song);
+  if (!vs[voice]) vs[voice] = {};
+  vs[voice].muted = !vs[voice].muted;
+  const strip = document.getElementById('tsStrip_' + voice);
+  if (strip) strip.classList.toggle('ts-muted', vs[voice].muted);
+  const btn = strip?.querySelector('.ts-ctrl.ts-m');
+  if (btn) btn.classList.toggle('on', vs[voice].muted);
+  save();
+}
+
+function _tsSolo(voice) {
+  const song = getCurrentSong();
+  if (!song) return;
+  const vs = _tsGetVoiceState(song);
+  if (!vs[voice]) vs[voice] = {};
+  vs[voice].solo = !vs[voice].solo;
+  const strip = document.getElementById('tsStrip_' + voice);
+  const btn = strip?.querySelector('.ts-ctrl.ts-s');
+  if (btn) btn.classList.toggle('on', vs[voice].solo);
+  save();
+}
+
+function _tsToggleCollapse(voice, e) {
+  if (e && (e.target.closest('.ts-ctrl') || e.target.closest('.ts-sample-btn'))) return;
+  const song = getCurrentSong();
+  if (!song) return;
+  const vs = _tsGetVoiceState(song);
+  if (!vs[voice]) vs[voice] = {};
+  vs[voice].collapsed = !vs[voice].collapsed;
+  const strip = document.getElementById('tsStrip_' + voice);
+  if (strip) {
+    strip.classList.toggle('ts-collapsed', vs[voice].collapsed);
+    const chev = strip.querySelector('.ts-chev');
+    if (chev) chev.textContent = vs[voice].collapsed ? '▸' : '▾';
+  }
+  save();
+}
+
+function _tsRestoreVoiceState(song) {
+  if (!song) return;
+  const vs = _tsGetVoiceState(song);
+  ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(voice => {
+    const s = vs[voice] || {};
+    const strip = document.getElementById('tsStrip_' + voice);
+    if (!strip) return;
+    strip.classList.toggle('ts-muted', !!s.muted);
+    strip.classList.toggle('ts-collapsed', !!s.collapsed);
+    const mBtn = strip.querySelector('.ts-ctrl.ts-m');
+    if (mBtn) mBtn.classList.toggle('on', !!s.muted);
+    const sBtn = strip.querySelector('.ts-ctrl.ts-s');
+    if (sBtn) sBtn.classList.toggle('on', !!s.solo);
+    const chev = strip.querySelector('.ts-chev');
+    if (chev) chev.textContent = s.collapsed ? '▸' : '▾';
+  });
+}
+
+function _tsUpdateHits(lane, el) {
+  if (!el) el = document.getElementById({kick:'seqKick',snare:'seqSnare',hat:'seqHat',hitom:'seqHiTom',lotom:'seqLoTom',crash:'seqCrash',clap:'seqClap'}[lane]);
+  const hitsEl = document.getElementById('tsHits_' + lane);
+  if (!hitsEl || !el) return;
+  const count = el.querySelectorAll('.seq-slot.drum-on').length;
+  hitsEl.textContent = count + ' hit' + (count !== 1 ? 's' : '');
+}
+
+function _tsUpdateAllSampleLabels() {
+  ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(voice => {
+    _drumBankUpdateLabel(voice);
+  });
+}
+
+// ── Check mute/solo when scheduling notes ──
+// Patch: the scheduler calls seqPlay* functions for each voice.
+// We intercept via a check function that returns true if voice should be silent.
+function _tsIsVoiceSilent(voice) {
+  const song = getCurrentSong ? getCurrentSong() : null;
+  if (!song) return false;
+  const vs = _tsGetVoiceState(song);
+  const s = vs[voice] || {};
+  if (s.muted) return true;
+  // Solo logic: if ANY voice is soloed, only soloed voices play
+  const anySolo = ['kick','snare','hat','hitom','lotom','crash','clap'].some(v => (vs[v] || {}).solo);
+  if (anySolo && !s.solo) return true;
+  return false;
 }
 
 function seqSaveChordSlots() {
@@ -19747,6 +20048,8 @@ function seqClearActiveSequence() {
       seq.chordContinued = [];
       seq.kick   = []; seq.snare  = []; seq.hat   = [];
       seq.crash  = []; seq.clap   = []; seq.hitom = []; seq.lotom = [];
+      seq.kickVel = []; seq.snareVel = []; seq.hatVel = [];
+      seq.crashVel = []; seq.clapVel = []; seq.hitomVel = []; seq.lotomVel = [];
       seq.melody = [];
     });
     // Rebuild visible grids
@@ -20199,10 +20502,14 @@ function seqSaveDrumLane(lane, elId) {
   if (!el) return;
   seqGetData(song); // ensure song.sequencer → active sequence
   seqPushUndo(); // snapshot BEFORE overwriting so undo restores previous state
-  song.sequencer[lane] =[...el.querySelectorAll('.seq-slot')].map(s => s.classList.contains('drum-on') ? 1 : 0);
+  const slots = [...el.querySelectorAll('.seq-slot')];
+  song.sequencer[lane]          = slots.map(s => s.classList.contains('drum-on') ? 1 : 0);
+  song.sequencer[lane + 'Vel']  = slots.map(s => s.classList.contains('drum-on') ? parseFloat(s.dataset.vel || 0.8) : 0);
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
+  // Update hit count in strip header
+  _tsUpdateHits(lane, el);
 }
 
 function seqRenderChordPills(song) {
@@ -21193,9 +21500,9 @@ async function seqPlaySong() {
   const mode = seqCurrentMode();
   _seqSongSections = sorted.map(seq => {
     const bpm  = parseFloat(seq.bpm || 100);
-    const grid = parseInt(seq.grid || 1);
+    const grid = parseInt(seq.grid || 2);
     const time = parseInt(seq.time || 4);
-    const bars = parseInt(seq.bars || 2);
+    const bars = parseInt(seq.bars || 8);
     const totalSteps = time * bars * grid;
     const stepDur    = (60 / bpm) / grid;
     return {
@@ -21373,14 +21680,14 @@ function seqScheduleNotes() {
           if (freqs) seqPlayChord(freqs, chordTime, velocity);
         }
       }
-      // Drums — per-instrument jitter
-      if (sec.kick[i])  seqPlayKick(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
-      if (sec.snare[i]) seqPlaySnare( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, velocity * 0.8);
-      if (sec.hat[i])   seqPlayHat(   seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, velocity * 0.6);
-      if (sec.hitom[i]) seqPlayHiTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, velocity * 0.75);
-      if (sec.lotom[i]) seqPlayLoTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, velocity * 0.75);
-      if (sec.crash[i]) seqPlayCrash( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, velocity * 0.9);
-      if (sec.clap[i])  seqPlayClap(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, velocity * 0.7);
+      // Drums — per-instrument jitter + mute/solo check + per-step velocity
+      if (sec.kick[i]  && !_tsIsVoiceSilent('kick'))  { const _v = (sec.kickVel?.[i]||1)*velocity; seqPlayKick(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, _v); }
+      if (sec.snare[i] && !_tsIsVoiceSilent('snare')) { const _v = (sec.snareVel?.[i]||1)*velocity*0.8; seqPlaySnare( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, _v); }
+      if (sec.hat[i]   && !_tsIsVoiceSilent('hat'))   { const _v = (sec.hatVel?.[i]||1)*velocity*0.6; seqPlayHat(   seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, _v); }
+      if (sec.hitom[i] && !_tsIsVoiceSilent('hitom')) { const _v = (sec.hitomVel?.[i]||1)*velocity*0.75; seqPlayHiTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, _v); }
+      if (sec.lotom[i] && !_tsIsVoiceSilent('lotom')) { const _v = (sec.lotomVel?.[i]||1)*velocity*0.75; seqPlayLoTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, _v); }
+      if (sec.crash[i] && !_tsIsVoiceSilent('crash')) { const _v = (sec.crashVel?.[i]||1)*velocity*0.9; seqPlayCrash( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, _v); }
+      if (sec.clap[i]  && !_tsIsVoiceSilent('clap'))  { const _v = (sec.clapVel?.[i]||1)*velocity*0.7; seqPlayClap(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, _v); }
       if (seqMetOn) seqClick(noteTime, _seqIsAccentBeat(i % beatsPerBar, beatsPerBar, sec.time));
 
       // Melody: schedule all notes once per section start
@@ -21551,13 +21858,14 @@ function seqScheduleNotes() {
       }
     }
     // Drums — each instrument gets its own jitter for a natural, imprecise feel
-    if (kickSlots[i]?.classList.contains('drum-on'))   seqPlayKick(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, velocity);
-    if (snareSlots[i]?.classList.contains('drum-on'))  seqPlaySnare( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, velocity * 0.8);
-    if (hatSlots[i]?.classList.contains('drum-on'))    seqPlayHat(   seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, velocity * 0.6);
-    if (hiTomSlots[i]?.classList.contains('drum-on'))  seqPlayHiTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, velocity * 0.75);
-    if (loTomSlots[i]?.classList.contains('drum-on'))  seqPlayLoTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, velocity * 0.75);
-    if (crashSlots[i]?.classList.contains('drum-on'))  seqPlayCrash( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, velocity * 0.9);
-    if (clapSlots[i]?.classList.contains('drum-on'))   seqPlayClap(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, velocity * 0.7);
+    // Per-step velocity: read from data-vel attribute if available, else use global velocity
+    if (kickSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('kick'))   { const _v = parseFloat(kickSlots[i].dataset.vel||1)*velocity; seqPlayKick(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, _v); }
+    if (snareSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('snare')) { const _v = parseFloat(snareSlots[i].dataset.vel||1)*velocity*0.8; seqPlaySnare( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(22)) : baseTime, _v); }
+    if (hatSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('hat'))     { const _v = parseFloat(hatSlots[i].dataset.vel||1)*velocity*0.6; seqPlayHat(   seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(14)) : baseTime, _v); }
+    if (hiTomSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('hitom')) { const _v = parseFloat(hiTomSlots[i].dataset.vel||1)*velocity*0.75; seqPlayHiTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, _v); }
+    if (loTomSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('lotom')) { const _v = parseFloat(loTomSlots[i].dataset.vel||1)*velocity*0.75; seqPlayLoTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, _v); }
+    if (crashSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('crash')) { const _v = parseFloat(crashSlots[i].dataset.vel||1)*velocity*0.9; seqPlayCrash( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, _v); }
+    if (clapSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('clap'))   { const _v = parseFloat(clapSlots[i].dataset.vel||1)*velocity*0.7; seqPlayClap(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, _v); }
     if (seqMetOn) seqClick(noteTime, _seqIsAccentBeat(i % beatsPerBar, beatsPerBar, time_sig));
 
     // Melody: schedule once per loop start
@@ -26563,7 +26871,7 @@ function fmtBytes(b) {
 
 function calcSongDuration(song) {
   const bpm = parseFloat(song.bpm) || 120;
-  const bars = parseInt(song.sequencer?.bars || 2);
+  const bars = parseInt(song.sequencer?.bars || 8);
   let totalCounts = 0;
   if (typeof STRUCTURE_PARTS !== 'undefined' && song.structure) {
     STRUCTURE_PARTS.forEach(p => {
@@ -27122,9 +27430,9 @@ async function exportWAV() {
 
   const sd = song.sequencer || {};
   const bpm      = parseFloat(sd.bpm  || 100);
-  const grid     = parseInt(sd.grid   || 1);
+  const grid     = parseInt(sd.grid   || 2);
   const timeSig  = parseInt(sd.time   || 4);
-  const bars     = parseInt(sd.bars   || 2);
+  const bars     = parseInt(sd.bars   || 8);
   const swing    = parseFloat(sd.swing || 0);
   const velBase  = parseFloat(sd.vel  || 0.8);
   const wave     = document.getElementById('seqWave')?.value || 'triangle';
@@ -27580,7 +27888,7 @@ async function exportMidiZip() {
 
     const sd      = song.sequencer || {};
     const bpm     = parseFloat(sd.bpm || song.bpm || 100);
-    const grid    = parseInt(sd.grid  || 1);
+    const grid    = parseInt(sd.grid  || 2);
     const timeSig = parseInt(sd.time  || 4);
     const TPB     = 480;
 
@@ -30258,19 +30566,44 @@ applyDrumPattern._redrawGrids = function(song) {
     const el = document.getElementById(elId);
     if (!el) return;
     const savedLane = song.sequencer[lane] || [];
+    const savedVel  = song.sequencer[lane + 'Vel'] || [];
     el.innerHTML = '';
+    el.style.gridTemplateColumns = 'repeat(' + totalSteps + ', 1fr)';
     for (let i = 0; i < totalSteps; i++) {
       const slot = document.createElement('div');
       slot.className = 'seq-slot' + (i % beatsPerBar === 0 && i > 0 ? ' bar-start' : '');
       slot.dataset.idx  = i;
       slot.dataset.beat = (i % beatsPerBar) % 8;
-      if (savedLane[i]) slot.classList.add('drum-on');
-      slot.addEventListener('click', () => {
-        slot.classList.toggle('drum-on');
+      const isOn = !!savedLane[i];
+      const vel  = savedVel[i] || 0.8;
+      if (isOn) {
+        slot.classList.add('drum-on');
+        const h = Math.round(vel * 100);
+        slot.innerHTML = '<div class="ts-fill" style="height:' + h + '%"></div>';
+        slot.dataset.vel = vel.toFixed(2);
+      } else {
+        slot.classList.add('ts-off');
+        slot.dataset.vel = '0';
+      }
+      slot.addEventListener('pointerdown', function(e) {
+        // Simple click toggle for pattern-applied grids (full interaction re-applied on next initSequencer)
+        e.preventDefault();
+        if (slot.classList.contains('drum-on')) {
+          slot.classList.remove('drum-on');
+          slot.classList.add('ts-off');
+          slot.innerHTML = '';
+          slot.dataset.vel = '0';
+        } else {
+          slot.classList.add('drum-on');
+          slot.classList.remove('ts-off');
+          slot.dataset.vel = '0.80';
+          slot.innerHTML = '<div class="ts-fill" style="height:80%"></div>';
+        }
         seqSaveDrumLane(lane, elId);
       });
       el.appendChild(slot);
     }
+    _tsUpdateHits(lane, el);
   });
 };
 
@@ -33746,7 +34079,7 @@ function ilAddSection(sel) {
       seqs.push({
         id: 'seq_' + Date.now(), partId, part: partId,
         bpm: cur.bpm || '100', time: cur.time || '4',
-        bars: cur.bars || '16', grid: cur.grid || '1',
+        bars: cur.bars || '16', grid: cur.grid || '2',
         swing: cur.swing || '0', vel: cur.vel || '0.8',
         wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
         chordSlots: [], chordDegrees: [],
@@ -34004,7 +34337,7 @@ function ilImportApply(sections, mode) {
       seqs.push({
         id: 'seq_' + Date.now() + '_' + idx, partId: part.id, part: part.id,
         bpm: cur.bpm || '100', time: cur.time || '4',
-        bars: cur.bars || '16', grid: cur.grid || '1',
+        bars: cur.bars || '16', grid: cur.grid || '2',
         swing: cur.swing || '0', vel: cur.vel || '0.8',
         wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
         chordSlots: [], chordDegrees: [],
