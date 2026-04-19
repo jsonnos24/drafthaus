@@ -12410,12 +12410,14 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 12px 20px;
-    background: var(--panel);
-    border-top: 2px solid rgba(245,166,35,0.4);
+    padding: 14px 20px;
+    background: linear-gradient(135deg, rgba(245,166,35,0.12), rgba(245,200,66,0.08));
+    border: 1px solid rgba(245,166,35,0.35);
+    border-radius: 10px;
+    margin-bottom: 18px;
     font-family: 'IBM Plex Sans', sans-serif;
     font-size: 13px;
-    color: var(--muted);
+    color: var(--text);
   }
   .v4-auth-banner.hidden { display: none; }
   .v4-auth-brand {
@@ -14408,20 +14410,27 @@ html.slate-mode .ft-drawer {
 <!-- ── List View ───────────────── -->
 <div class="view active" id="viewList">
   <div class="container">
-    <!-- Auth banner for signed-out users -->
-    <div class="v4-auth-banner" id="v4AuthBanner" style="display:none;">
-      <span class="v4-auth-brand">Drafthaus</span>
-      <span class="v4-auth-sep">—</span>
-      <span>A songwriter's sketchbook.</span>
-      <span style="flex:1"></span>
-      <button class="v4-auth-link" onclick="submitLandingPassword()">Sign in</button>
-      <button class="v4-auth-link" onclick="toggleEmailSignUp()">Create account</button>
-      <button class="v4-auth-link" onclick="signInAsGuest()">Try free</button>
-      <button class="v4-auth-close" onclick="v4DismissBanner()">×</button>
-    </div>
-
     <!-- Redesigned list view (v4) -->
     <div class="v4-list-wrap" id="v4ListWrap" style="display:none;">
+      <!-- Auth banner for signed-out users -->
+      <div class="v4-auth-banner" id="v4AuthBanner" style="display:none;">
+        <span class="v4-auth-brand">Drafthaus</span>
+        <span class="v4-auth-sep">—</span>
+        <span>A songwriter's sketchbook.</span>
+        <span style="flex:1"></span>
+        <button class="v4-auth-link" onclick="submitLandingPassword()">Sign in</button>
+        <button class="v4-auth-link" onclick="toggleEmailSignUp()">Create account</button>
+        <button class="v4-auth-link" onclick="signInAsGuest()">Try free</button>
+        <button class="v4-auth-close" onclick="v4DismissBanner()">×</button>
+      </div>
+      <!-- Upgrade banner for free-tier logged-in users -->
+      <div class="v4-auth-banner" id="v4FreeTierBanner" style="display:none;">
+        <span style="font-size:15px;">✦</span>
+        <span>You're on the <strong style="color:var(--gold);">Free</strong> plan.</span>
+        <span style="flex:1"></span>
+        <button class="v4-auth-link" onclick="showUpgradeModal('')">Upgrade →</button>
+        <button class="v4-auth-close" onclick="v4DismissFreeBanner()">×</button>
+      </div>
       <div class="v4-list-head">
         <div>
           <div class="v4-list-subtitle" id="v4Subtitle">The workshop · <span id="v4DraftCount">0</span> drafts</div>
@@ -15947,6 +15956,20 @@ function v4DismissBanner() {
   const ab = document.getElementById('v4AuthBanner');
   if (ab) ab.style.display = 'none';
   localStorage.setItem('dh-v4-banner-dismissed', '1');
+}
+
+function v4DismissFreeBanner() {
+  const fb = document.getElementById('v4FreeTierBanner');
+  if (fb) fb.style.display = 'none';
+  localStorage.setItem('dh-v4-free-banner-dismissed', '1');
+}
+
+function v4ShowFreeTierBanner() {
+  if (typeof userTier === 'undefined' || userTier !== 'free') return;
+  if (!auth.currentUser || auth.currentUser.isAnonymous) return;
+  if (localStorage.getItem('dh-v4-free-banner-dismissed') === '1') return;
+  const fb = document.getElementById('v4FreeTierBanner');
+  if (fb) fb.style.display = '';
 }
 
 // Drag and drop
@@ -25492,6 +25515,8 @@ auth.onAuthStateChanged(user => {
           const ab = document.getElementById('v4AuthBanner');
           if (ab) ab.style.display = 'none';
           document.getElementById('v4ListWrap').style.display = '';
+          // Show free-tier upgrade banner if applicable
+          v4ShowFreeTierBanner();
           document.getElementById('songsGrid').style.display = 'none';
           const _gridHdr = document.getElementById('gridHeader');
           if (_gridHdr) _gridHdr.style.display = 'none';
@@ -25565,6 +25590,11 @@ auth.onAuthStateChanged(user => {
           // Tier changed after init (e.g. Stripe webhook updated Firestore) — prompt user to reload
           userTier = newTier;
           showToast('🎉 Upgrade confirmed! Reload the page to unlock your new features.', 'success', 10000);
+          // Hide free-tier banner if user upgraded
+          if (newTier !== 'free') {
+            const fb = document.getElementById('v4FreeTierBanner');
+            if (fb) fb.style.display = 'none';
+          }
         }
       }, () => {
         // Fallback: init app if snapshot fails — but only if user is still signed in
@@ -25573,6 +25603,7 @@ auth.onAuthStateChanged(user => {
         const ab2 = document.getElementById('v4AuthBanner');
         if (ab2) ab2.style.display = 'none';
         document.getElementById('v4ListWrap').style.display = '';
+        v4ShowFreeTierBanner();
         document.getElementById('songsGrid').style.display = 'none';
         songs = songs.filter(s => !s._demo);
         const emailEl2 = document.getElementById('headerUserEmail');
@@ -25609,6 +25640,9 @@ auth.onAuthStateChanged(user => {
       const ab = document.getElementById('v4AuthBanner');
       if (ab) ab.style.display = '';
     }
+    // Hide free-tier banner when logged out (auth banner takes priority)
+    const _ftb = document.getElementById('v4FreeTierBanner');
+    if (_ftb) _ftb.style.display = 'none';
     if (songs.length === 0) {
       songs = [...V4_DEMO_SONGS];
     }
