@@ -12664,7 +12664,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
           <button class="header-dropdown-item" id="headerUpgradeGuestBtn" style="display:none;color:var(--gold);font-weight:700;" onclick="openGuestUpgradeModal();closeHeaderDropdown()">★ Create Account</button>
           <button class="header-dropdown-item" onclick="showUpgradeModal('');closeHeaderDropdown()">$ Pricing</button>
           <button class="header-dropdown-item" onclick="openAbout();closeHeaderDropdown()">ℹ About Drafthaus</button>
-          <button class="header-dropdown-item danger" onclick="auth.signOut().then(()=>{ window.location.href='https://drafthaus.ca'; })" id="headerSignOutBtn">Sign Out</button>
+          <button class="header-dropdown-item danger" onclick="auth.signOut().then(()=>{ window.location.href='index.html'; })" id="headerSignOutBtn">Sign Out</button>
         </div>
       </div>
       <a class="header-report-bug" href="mailto:hellojasoncraig@gmail.com?subject=Drafthaus%20Bug%20Report">Report a Bug</a>
@@ -12815,7 +12815,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
         <div class="mobile-menu-sep"></div>
         <button class="mobile-menu-item danger" onclick="vrEmptyAllTrashesConfirm();closeMobileMenu()">🗑 Empty All Trash</button>
         <button class="mobile-menu-item danger" onclick="emptyTrashAndSignOut();closeMobileMenu()">🗑 Empty All Trash &amp; Sign Out</button>
-        <button class="mobile-menu-item danger" onclick="auth.signOut().then(()=>{ window.location.href='https://drafthaus.ca'; });closeMobileMenu()">Sign Out</button>
+        <button class="mobile-menu-item danger" onclick="auth.signOut().then(()=>{ window.location.href='index.html'; });closeMobileMenu()">Sign Out</button>
       </div>
     </div>
   </div>
@@ -25539,24 +25539,20 @@ async function loadSongsFromSheet() {
     renderGrid();
     setSyncStatus('saved', 'Loaded ✓');
 
-    // Auto-restore last open song for returning users
-    if (!currentId) {
-      const lastId = _lastSongIdFromFirestore || localStorage.getItem('drafthaus-last-song');
-      const uid    = auth.currentUser?.uid;
-      // Primary: explicit last-opened ID (cross-device via Firestore, same-device via localStorage)
-      let restoreSong = lastId ? songs.find(s => s.id === lastId) : null;
-      // Fallback: most recently updated owned song (handles first login on a new device,
-      // or older accounts where lastSongId was never written)
-      if (!restoreSong && songs.length > 0) {
-        const ownedSongs = songs.filter(s => !uid || s.ownerId === uid);
-        const pool = ownedSongs.length > 0 ? ownedSongs : songs;
-        restoreSong = [...pool].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
-      }
-      if (restoreSong) {
-        openSong(restoreSong.id);
-        // openSong already calls showDetail() and setSongViewMode('runthrough') — no override
-      }
-    }
+    // v4: Always land on the song list — don't auto-restore last song.
+    // Users pick a draft from the kanban board.
+    // (Original auto-restore commented out for reference)
+    // if (!currentId) {
+    //   const lastId = _lastSongIdFromFirestore || localStorage.getItem('drafthaus-last-song');
+    //   const uid    = auth.currentUser?.uid;
+    //   let restoreSong = lastId ? songs.find(s => s.id === lastId) : null;
+    //   if (!restoreSong && songs.length > 0) {
+    //     const ownedSongs = songs.filter(s => !uid || s.ownerId === uid);
+    //     const pool = ownedSongs.length > 0 ? ownedSongs : songs;
+    //     restoreSong = [...pool].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+    //   }
+    //   if (restoreSong) openSong(restoreSong.id);
+    // }
 
   } catch(e) {
     stopFunnyMessages();
@@ -28551,44 +28547,13 @@ function _initSplitAlwaysOn() {
   document.body.classList.add('split-active');
   document.getElementById('splitBtn')?.classList.add('active');
 
-  // Restore saved state for paid users; default for free
-  var savedLeft  = 'list';
-  var savedRight = null;
-  if (typeof userTier !== 'undefined' && userTier !== 'free') {
-    try {
-      savedLeft  = localStorage.getItem('dh_split_left')  || 'list';
-      savedRight = localStorage.getItem('dh_split_right') || null;
-    } catch(e) {}
-  }
-
-  // Sync left dropdown (don't trigger a full view switch — page starts at list)
+  // v4: Always start on the song list expanded — no auto-restoring drawers/tools.
+  // User picks a song from the kanban, THEN split can open tools.
   var lSel = document.getElementById('splitLeftSelect');
-  if (lSel) lSel.value = savedLeft;
+  if (lSel) lSel.value = 'list';
 
-  // Apply left view only if not default (list)
-  if (savedLeft && savedLeft !== 'list') {
-    setSplitLeftView(savedLeft);
-  }
-
-  // Apply right tool or expand song list to full width by default
-  if (savedRight) {
-    setSplitRightTool(savedRight);
-  } else {
-    splitExpandPane('left');
-  }
-
-  // Restore user's per-tool saved split ratio (done after tool so it overrides default)
-  if (savedRight) {
-    var savedRatio = null;
-    try { savedRatio = localStorage.getItem('drafthaus_split_ratio_' + savedRight); } catch(e) {}
-    if (savedRatio) {
-      document.documentElement.style.setProperty('--split-left', savedRatio);
-      var _div = document.getElementById('splitDivider');
-      var _rp  = document.getElementById('splitRightPanel');
-      if (_div) _div.style.left = 'calc(' + savedRatio + ' - 3px)';
-      if (_rp)  _rp.style.left = savedRatio;
-    }
-  }
+  // Expand the list to full width (no right tool panel on load)
+  splitExpandPane('left');
 }
 
 // Track which split pane was last interacted with (for Enter key expand)
@@ -39094,7 +39059,7 @@ window.emptyTrashAndSignOut = async function() {
       });
       await batch.commit();
     }
-    auth.signOut().then(() => { window.location.href = 'https://drafthaus.ca'; });
+    auth.signOut().then(() => { window.location.href = 'index.html'; });
   } catch(e) { showToast('Something went wrong.','error'); }
 };
 
