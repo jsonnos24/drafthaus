@@ -18145,7 +18145,7 @@ function renderSequencerHtml(song) {
 
     <!-- ── Drum controls (below tabs, above grid) ── -->
     <div class="seq-drum-controls">
-      <select class="seq-select" name="drum-pattern-sel" onchange="if(this.value){applyDrumPattern(this.value);this.value=''}" style="width:auto;">
+      <select class="seq-select" id="seqDrumPatternSel" name="drum-pattern-sel" onchange="if(this.value){applyDrumPattern(this.value)}" style="width:auto;">
         <option value="">— Drum pattern —</option>
         <option value="rock1">Rock 1</option>
         <option value="rock2">Rock 2</option>
@@ -18857,6 +18857,7 @@ function seqLoadSequenceIntoDOM(seq, song) {
   const swingEl = document.getElementById('seqSwing'); if (swingEl) swingEl.value = seq.swing || '0';
   const velEl = document.getElementById('seqVel');    if (velEl) velEl.value = seq.vel || '0.8';
   const partEl = document.getElementById('seqPartAssign'); if (partEl) partEl.value = seq.part || seq.partId || '';
+  const dpEl = document.getElementById('seqDrumPatternSel'); if (dpEl) dpEl.value = seq.drumPattern || '';
   // Rebuild grids with this sequence's data
   seqBuildGrids({ sequencer: seq });
   seqRenderChordPills(song);
@@ -19572,9 +19573,79 @@ function seqChangeKey() {
 }
 
 function seqRebuild() {
-  seqSaveSettings();
   const song = getCurrentSong();
   if (!song) return;
+  const sd = song.sequencer || {};
+  const oldGrid = parseInt(sd.grid || 2);
+
+  seqSaveSettings(); // saves new grid value from DOM
+
+  const newGrid = parseInt(sd.grid || 2);
+
+  // Remap drum + chord data when grid resolution changes so patterns keep
+  // the same musical timing instead of playing at a different speed.
+  if (oldGrid !== newGrid && oldGrid > 0 && newGrid > 0) {
+    const ratio = newGrid / oldGrid; // e.g. 2 when going from 1/8 → 1/16
+
+    // Remap helper: stretch or compress an array by ratio
+    function _remapArray(arr, ratio, fillVal) {
+      if (!arr || !arr.length) return arr;
+      if (ratio >= 1) {
+        // Stretching: each old step becomes `ratio` new steps; first gets value, rest get fill
+        const out = [];
+        for (let i = 0; i < arr.length; i++) {
+          out.push(arr[i]);
+          for (let r = 1; r < ratio; r++) out.push(fillVal);
+        }
+        return out;
+      } else {
+        // Compressing: merge groups of 1/ratio old steps into one new step
+        const group = Math.round(1 / ratio);
+        const out = [];
+        for (let i = 0; i < arr.length; i += group) {
+          // For binary drums: keep a hit if ANY step in the group had one
+          // For velocity: take the max non-zero value
+          // For chords: take the first non-empty value
+          let best = fillVal;
+          for (let j = 0; j < group && i + j < arr.length; j++) {
+            const v = arr[i + j];
+            if (typeof fillVal === 'number') {
+              if (v > best) best = v;
+            } else {
+              if (v && !best) best = v;
+            }
+          }
+          out.push(best);
+        }
+        return out;
+      }
+    }
+
+    // Remap drum lanes (binary + velocity)
+    ['kick','snare','hat','crash','clap','hitom','lotom'].forEach(lane => {
+      if (sd[lane] && sd[lane].length)         sd[lane]         = _remapArray(sd[lane], ratio, 0);
+      if (sd[lane+'Vel'] && sd[lane+'Vel'].length) sd[lane+'Vel'] = _remapArray(sd[lane+'Vel'], ratio, 0);
+    });
+
+    // Remap chord slots
+    if (sd.chordSlots && sd.chordSlots.length) {
+      sd.chordSlots     = _remapArray(sd.chordSlots, ratio, '');
+      sd.chordDegrees   = _remapArray(sd.chordDegrees || [], ratio, '');
+      sd.chordContinued = _remapArray(sd.chordContinued || [], ratio, false);
+    }
+
+    // Remap melody note start/end times proportionally
+    if (sd.melody && sd.melody.length) {
+      sd.melody = sd.melody.map(n => ({
+        ...n,
+        start: n.start * ratio,
+        end:   n.end   * ratio,
+      }));
+    }
+
+    save();
+  }
+
   seqBuildGrids(song);
   seqRenderChordPills(song);
   setTimeout(seqRenderKeyboard, 30);
@@ -30523,6 +30594,7 @@ function applyDrumPattern(patternKey) {
     song.sequencer.clap  = clap;
     song.sequencer.hitom = hitom;
     song.sequencer.lotom = lotom;
+    song.sequencer.drumPattern = 'random';
     save();
     scheduleSyncToSheet(song);
     // Re-render drums directly
@@ -30552,6 +30624,9 @@ function applyDrumPattern(patternKey) {
   song.sequencer.clap  = fitPattern(pattern.clap,  totalSteps);
   song.sequencer.hitom = fitPattern(pattern.hitom || [], totalSteps);
   song.sequencer.lotom = fitPattern(pattern.lotom || [], totalSteps);
+  song.sequencer.drumPattern = (patternKey === 'clear') ? '' : patternKey;
+  const _dpSel = document.getElementById('seqDrumPatternSel');
+  if (_dpSel) _dpSel.value = song.sequencer.drumPattern;
 
   save();
   scheduleSyncToSheet(song);
