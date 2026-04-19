@@ -12568,10 +12568,13 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     transition: padding 0.25s ease, gap 0.25s ease;
   }
   .v4-roll-dismiss {
-    position: absolute; top: 8px; right: 10px;
-    background: none; border: none; color: var(--muted);
-    cursor: pointer; font-size: 18px; line-height: 1; padding: 4px 6px;
-    opacity: 0.5; transition: opacity 0.15s;
+    position: absolute; top: 6px; right: 8px; z-index: 10;
+    background: rgba(255,255,255,0.06); border: none; color: var(--muted);
+    cursor: pointer; font-size: 20px; line-height: 1; padding: 10px 13px;
+    opacity: 0.6; transition: opacity 0.15s;
+    pointer-events: auto !important; touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    border-radius: 6px;
   }
   .v4-roll-dismiss:hover { opacity: 1; }
   /* Collapsed state */
@@ -25775,7 +25778,11 @@ function openInspoDrawer() {
   // Require sign-in before rolling
   if (!auth.currentUser) { v4RequireAuth(); return; }
   // Mobile: only one drawer at a time
-  if (window.innerWidth < 768) closeAllDrawers('inspoDrawer');
+  if (window.innerWidth < 768) {
+    closeAllDrawers('inspoDrawer');
+    _drawerZCounter++;
+    document.getElementById('inspoDrawer').style.zIndex = _drawerZCounter;
+  }
   document.getElementById('inspoDrawer').classList.add('open');
   document.getElementById('inspoOverlay').classList.add('open');
   _inspoRestoreDice();
@@ -25784,7 +25791,8 @@ function openInspoDrawer() {
   _drawerMobileHeaderHide();
 }
 function closeInspoDrawer() {
-  document.getElementById('inspoDrawer').classList.remove('open');
+  var _insEl = document.getElementById('inspoDrawer');
+  if (_insEl) { _insEl.classList.remove('open'); _insEl.style.zIndex = ''; }
   document.getElementById('inspoOverlay').classList.remove('open');
   _inspoRestoreDice();
   _drawerMobileHeaderRestore();
@@ -26755,7 +26763,12 @@ var rtIsDirty = false;
 
 function openRunThroughDrawer() {
   // Mobile: only one drawer at a time
-  if (window.innerWidth < 768) closeAllDrawers('runThroughDrawer');
+  if (window.innerWidth < 768) {
+    closeAllDrawers('runThroughDrawer');
+    _drawerZCounter++;
+    var _rtEl = document.getElementById('runThroughDrawer');
+    if (_rtEl) _rtEl.style.zIndex = _drawerZCounter;
+  }
   const song = getCurrentSong();
   if (!song) { showToast('Open a draft first.', 'warn'); return; }
   const activeParts = getActiveParts(song);
@@ -30911,7 +30924,11 @@ function openKeyboardDrawer() {
     vrClose();
   }
   // Mobile: only one drawer at a time
-  if (window.innerWidth < 768) closeAllDrawers('keyboardDrawer');
+  if (window.innerWidth < 768) {
+    closeAllDrawers('keyboardDrawer');
+    _drawerZCounter++;
+    document.getElementById('keyboardDrawer').style.zIndex = _drawerZCounter;
+  }
   _setNavOpen('nav-keyboard', true);
   document.getElementById('keyboardDrawer').classList.add('open');
   document.getElementById('keyboardDrawerOverlay').classList.add('open');
@@ -30985,18 +31002,18 @@ function closeKeyboardDrawer() {
   if (_splitActive && _splitCurrentTool === 'keyboard') { splitExpandPane('left'); return; }
 
   // ── Flush all keyboard-drawer state before closing ──
-  const song = getCurrentSong();
-  if (song) {
-    // Save chord grid slots (progression + degrees + continued flags)
-    if (document.querySelector('#seqChordGrid .seq-slot')) seqSaveChordSlots();
-    // Save settings (bars, bpm, time sig, grid, instrument, etc.)
-    seqSaveSettings();
-    // Save melody notes currently in memory
-    if (typeof saveMelody === 'function') saveMelody();
-  }
+  try {
+    const song = getCurrentSong();
+    if (song) {
+      if (document.querySelector('#seqChordGrid .seq-slot')) seqSaveChordSlots();
+      seqSaveSettings();
+      if (typeof saveMelody === 'function') saveMelody();
+    }
+  } catch (e) { console.warn('closeKeyboardDrawer save error:', e); }
 
   _setNavOpen('nav-keyboard', false);
-  document.getElementById('keyboardDrawer').classList.remove('open');
+  var _kbdEl = document.getElementById('keyboardDrawer');
+  if (_kbdEl) { _kbdEl.classList.remove('open'); _kbdEl.style.zIndex = ''; }
   document.getElementById('keyboardDrawerOverlay').classList.remove('open');
   if (window.innerWidth < 900) document.getElementById('keyboardDrawerTab').style.display = '';
   document.getElementById('keyboardDrawerTab').classList.remove('tab-active');
@@ -31010,7 +31027,11 @@ function openSeqDrawer() {
     vrClose();
   }
   // Mobile: only one drawer at a time
-  if (window.innerWidth < 768) closeAllDrawers('seqDrawer');
+  if (window.innerWidth < 768) {
+    closeAllDrawers('seqDrawer');
+    _drawerZCounter++;
+    document.getElementById('seqDrawer').style.zIndex = _drawerZCounter;
+  }
   _setNavOpen('nav-sequencer', true);
   document.getElementById('seqDrawer').classList.add('open');
   document.getElementById('seqDrawerOverlay').classList.add('open');
@@ -31082,15 +31103,17 @@ function closeSeqDrawer() {
   if (_splitActive && _splitCurrentTool === 'sequencer') { splitExpandPane('left'); return; }
 
   // ── Flush sequencer state before closing ──
-  const song = getCurrentSong();
-  if (song) {
-    if (document.querySelector('#seqChordGrid .seq-slot')) seqSaveChordSlots();
-    seqSaveSettings();
-  }
+  try {
+    const song = getCurrentSong();
+    if (song) {
+      if (document.querySelector('#seqChordGrid .seq-slot')) seqSaveChordSlots();
+      seqSaveSettings();
+    }
+  } catch (e) { console.warn('closeSeqDrawer save error:', e); }
 
   _setNavOpen('nav-sequencer', false);
   const drawer = document.getElementById('seqDrawer');
-  if (drawer) drawer.style.transform = ''; // clear any mid-swipe transform
+  if (drawer) { drawer.style.transform = ''; drawer.style.zIndex = ''; }
   drawer.classList.remove('open');
   document.getElementById('seqDrawerOverlay').classList.remove('open');
   if (window.innerWidth < 900) document.getElementById('seqDrawerTab').style.display = '';
@@ -32569,7 +32592,12 @@ function openLooperDrawer() {
     vrClose();
   }
   // Mobile: only one drawer at a time
-  if (window.innerWidth < 768) closeAllDrawers('looperDrawer');
+  if (window.innerWidth < 768) {
+    closeAllDrawers('looperDrawer');
+    _drawerZCounter++;
+    var _looperEl = document.getElementById('looperDrawer');
+    if (_looperEl) _looperEl.style.zIndex = _drawerZCounter;
+  }
   _setNavOpen('nav-looper', true);
   const song = songs.find(s => s.id === currentId) || null;
   if (!song) { showNoSongModal(openLooperDrawer); return; }
@@ -32609,7 +32637,8 @@ function openLooperDrawer() {
 function closeLooperDrawer() {
   if (_splitActive && _splitCurrentTool === 'looper') { splitExpandPane('left'); return; }
   _setNavOpen('nav-looper', false);
-  document.getElementById('looperDrawer').classList.remove('open');
+  var _lpEl = document.getElementById('looperDrawer');
+  if (_lpEl) { _lpEl.classList.remove('open'); _lpEl.style.zIndex = ''; }
   document.getElementById('looperOverlay').classList.remove('open');
   _vuMaybeStop();
   _sharedHeaderClose();
@@ -36789,6 +36818,24 @@ function v4RestoreRollHero() {
 }
 document.addEventListener('DOMContentLoaded', v4RestoreRollHero);
 
+// ── Robust delegated click for roll hero dismiss (backup for inline onclick) ──
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('.v4-roll-dismiss');
+  if (!btn) return;
+  e.stopPropagation();
+  e.preventDefault();
+  v4ToggleRollHero();
+}, true); // useCapture = true so it fires before any parent handlers
+
+// Also handle touch for mobile
+document.addEventListener('touchend', function(e) {
+  var btn = e.target.closest('.v4-roll-dismiss');
+  if (!btn) return;
+  e.stopPropagation();
+  e.preventDefault();
+  v4ToggleRollHero();
+}, true);
+
 // ── Search / filter ───────────────────────────────────────────────
 window._searchTerm = '';
 function filterSongs(val) {
@@ -37106,33 +37153,54 @@ function closeAllDrawers(exceptId) {
     vrClose();
   }
   const pairs = [
-    ['seqDrawer',          closeSeqDrawer],
-    ['looperDrawer',       closeLooperDrawer],
-    ['inspoDrawer',        closeInspoDrawer],
-    ['practiceDrawer',     closePracticeDrawer],
-    ['runThroughDrawer',   closeRunThroughDrawer],
-    ['keyboardDrawer',     closeKeyboardDrawer],
-    ['backendDrawer',      closeBackendDrawer],
+    ['seqDrawer',          closeSeqDrawer,          'seqDrawerOverlay'],
+    ['looperDrawer',       closeLooperDrawer,        'looperOverlay'],
+    ['inspoDrawer',        closeInspoDrawer,         'inspoOverlay'],
+    ['practiceDrawer',     closePracticeDrawer,       null],
+    ['runThroughDrawer',   closeRunThroughDrawer,     null],
+    ['keyboardDrawer',     closeKeyboardDrawer,       'keyboardDrawerOverlay'],
+    ['backendDrawer',      closeBackendDrawer,        null],
     // mixDrawer intentionally omitted — it floats over other drawers
   ];
-  pairs.forEach(([id, closeFn]) => {
+  pairs.forEach(([id, closeFn, overlayId]) => {
     if (id === exceptId) return;
     const el = document.getElementById(id);
-    if (el && el.classList.contains('open')) closeFn();
+    if (el && el.classList.contains('open')) {
+      try {
+        closeFn();
+      } catch (err) {
+        // If close function throws (e.g. seqSaveSettings error), force-close the drawer
+        console.warn('closeAllDrawers: ' + id + ' close fn threw, force-closing.', err);
+        el.classList.remove('open');
+        el.style.transform = '';
+        if (overlayId) {
+          const ov = document.getElementById(overlayId);
+          if (ov) ov.classList.remove('open');
+        }
+      }
+    }
   });
   // Restore auto-scroll controls when all drawers close in perf mode
   if (!exceptId) _syncPerfControlsVisibility();
 }
 
+var _drawerZCounter = 980; // starts above all base drawer z-indexes (940-970)
 function toggleDrawer(drawerId, openFn, closeFn) {
   const drawer = document.getElementById(drawerId);
   if (drawer && drawer.classList.contains('open')) {
     closeFn();
+    // Reset z-index when closing
+    drawer.style.zIndex = '';
     // Restore auto-scroll controls if we're still in perf mode and no drawers remain open
     _syncPerfControlsVisibility();
   } else {
     closeAllDrawers(drawerId);
     openFn();
+    // On mobile, boost z-index so newly opened drawer is always on top
+    if (window.innerWidth < 768 && drawer) {
+      _drawerZCounter++;
+      drawer.style.zIndex = _drawerZCounter;
+    }
     // Hide auto-scroll when a drawer opens during rehearse mode
     if (window._ilPerfMode) {
       ilScrollStop();
