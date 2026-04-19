@@ -12451,33 +12451,34 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   /* Welcome prompt for returning users */
   .v4-welcome-prompt {
     display: none;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    gap: 20px;
-    padding: 10px 24px 8px;
-    margin-bottom: 6px;
-    text-align: center;
+    gap: 14px;
+    padding: 8px 0;
+    margin-bottom: 0;
+    text-align: left;
   }
   .v4-welcome-greeting {
     font-family: 'Playfair Display', serif;
     font-style: italic;
-    font-size: 22px;
+    font-size: 15px;
     font-weight: 700;
     color: var(--text);
     margin: 0;
+    white-space: nowrap;
   }
   .v4-welcome-actions {
     display: flex;
-    gap: 12px;
+    gap: 8px;
     flex-wrap: wrap;
-    justify-content: center;
+    justify-content: flex-start;
   }
   .v4-welcome-btn {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 12px 22px;
-    border-radius: 10px;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 8px;
     font-family: 'IBM Plex Mono', monospace;
     font-size: 12px;
     font-weight: 700;
@@ -12517,7 +12518,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   .v4-list-wrap {
     max-width: 1440px;
     margin: 0 auto;
-    padding: 12px 24px 140px;
+    padding: 4px 24px 140px;
   }
   .v4-list-head {
     display: flex;
@@ -12924,6 +12925,10 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     .v4-roll-title { font-size: 20px; }
     .v4-list-wrap { padding: 24px 14px 100px; }
     .v4-auth-banner { flex-wrap: wrap; gap: 10px; }
+    /* Stack welcome prompt vertically on mobile */
+    .v4-welcome-prompt { flex-direction: column; text-align: center; padding: 14px 16px 10px; gap: 10px; }
+    .v4-welcome-actions { justify-content: center; }
+    .v4-welcome-greeting { font-size: 18px; }
   }
   @media (max-width: 600px) {
     .v4-list-head { flex-direction: column; align-items: flex-start; }
@@ -14073,6 +14078,26 @@ html.warm-mode .ft-drawer {
 html.slate-mode .ft-drawer {
   border-left-color: rgba(100,160,255,0.15);
 }
+
+/* ── ft-drawer inside split right pane — static positioning, no transform ── */
+#splitRightContent > .ft-drawer {
+  position: static;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  transform: none !important;
+  transition: none;
+  border-left: none;
+  z-index: auto;
+  display: flex;
+  flex-direction: column;
+}
+#splitRightContent > .ft-drawer .ft-stage {
+  flex: 1;
+  overflow-y: auto;
+}
+/* Hide ft-overlay backdrop when in split mode */
+body.split-4track-active .ft-overlay { display: none !important; }
 
 /* ── Print / accessibility ─────────────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
@@ -16495,9 +16520,10 @@ function openSong(id) {
       if (typeof _syncExpandBtns === 'function') _syncExpandBtns();
     }
   } else {
-    // Mobile: open 4-track recorder overlay
+    // Mobile: open new 4-track recorder (ft- design)
     setTimeout(function() {
-      if (typeof vrOpen === 'function') vrOpen();
+      if (typeof ftOpen === 'function') ftOpen();
+      else if (typeof vrOpen === 'function') vrOpen();
     }, 200);
   }
 
@@ -30092,7 +30118,7 @@ var _splitDrawerMap = {
   keyboard:  { drawerId: 'keyboardDrawer',  overlayId: 'keyboardDrawerOverlay', openFn: openKeyboardDrawer,  closeFn: null },
   sequencer: { drawerId: 'seqDrawer',       overlayId: 'seqDrawerOverlay',      openFn: openSeqDrawer,      closeFn: null },
   looper:    { drawerId: 'looperDrawer',    overlayId: 'looperOverlay',         openFn: openLooperDrawer,   closeFn: null },
-  '4track':  { drawerId: 'vrOverlay',       overlayId: null,                    openFn: null,               closeFn: null, is4track: true }
+  '4track':  { drawerId: 'ftDrawer',        overlayId: 'ftOverlay',             openFn: null,               closeFn: null, is4track: true }
 };
 
 function openSplitMode(tool) {
@@ -30276,21 +30302,38 @@ function setSplitRightTool(tool) {
     var song2 = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
     if (song2 && typeof renderSectionOrderSidebar === 'function') renderSectionOrderSidebar(song2);
   } else if (tool === '4track') {
-    var overlay = document.getElementById('vrOverlay');
-    if (!overlay) return;
-    if (!_splitOrigParents['4track']) {
-      _splitOrigParents['4track'] = overlay.parentNode;
+    /* ── Use new ft- design in split pane ── */
+    var ftDrawerEl = document.getElementById('ftDrawer');
+    if (ftDrawerEl) {
+      if (!_splitOrigParents['4track']) {
+        _splitOrigParents['4track'] = ftDrawerEl.parentNode;
+      }
+      content.appendChild(ftDrawerEl);
+      ftDrawerEl.classList.add('open');
+      document.body.classList.add('split-4track-active');
+      /* Hide the overlay backdrop — not needed in split mode */
+      var ftOv = document.getElementById('ftOverlay');
+      if (ftOv) ftOv.classList.remove('open');
+      /* Initialize the ft- recorder with the current song */
+      try { ftOpen(); } catch(e) { console.warn('[split ftOpen error]', e); }
+      /* Don't lock body scroll in split mode */
+      document.body.style.overflow = '';
+    } else {
+      /* Fallback to old vr- design if ft- not found */
+      var overlay = document.getElementById('vrOverlay');
+      if (!overlay) return;
+      if (!_splitOrigParents['4track']) {
+        _splitOrigParents['4track'] = overlay.parentNode;
+      }
+      content.appendChild(overlay);
+      document.body.classList.add('split-4track-active');
+      if (window._vrInitGainUI) window._vrInitGainUI();
+      if (typeof _mtZoom12Bars === 'function') {
+        _mtZoomH = _mtZoom12Bars();
+        try { mtUpdateRuler(); _mtRedrawAllWv(); } catch(e) {}
+      }
+      try { vrOpen(); } catch(e) {}
     }
-    content.appendChild(overlay);
-    document.body.classList.add('split-4track-active');
-    if (window._vrInitGainUI) window._vrInitGainUI();
-    // Set zoom so 12 bars fill the ruler at current BPM
-    if (typeof _mtZoom12Bars === 'function') {
-      _mtZoomH = _mtZoom12Bars();
-      try { mtUpdateRuler(); _mtRedrawAllWv(); } catch(e) {}
-    }
-    // Initialize the 4-Track with the current song
-    try { vrOpen(); } catch(e) {}
   } else {
     var cfg = _splitDrawerMap[tool];
     if (!cfg) return;
@@ -30347,9 +30390,15 @@ function _splitReturnDrawer() {
     return;
   }
   if (_splitCurrentTool === '4track') {
+    /* Try new ft- drawer first, then fall back to old vr- overlay */
+    var ftEl = document.getElementById('ftDrawer');
     var vrOv = document.getElementById('vrOverlay');
     var origParent = _splitOrigParents['4track'];
-    if (vrOv && origParent) {
+    if (ftEl && origParent && ftEl.parentNode !== origParent) {
+      origParent.appendChild(ftEl);
+      ftEl.classList.remove('open');
+      try { ftClose(); } catch(e) {}
+    } else if (vrOv && origParent) {
       origParent.appendChild(vrOv);
       try { vrClose(); } catch(e) {}
     }
