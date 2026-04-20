@@ -44229,29 +44229,51 @@ function ftCompCommit() {
       }
     });
 
-    _compProgress('Building comp — encoding…');
+    // ── Instant local playback: assign the stitched buffer to the track now ──
+    t.buffer   = outputBuf;
+    t.duration = outputBuf.duration;
+    _mtDrawTrackWaveform(trackIdx, outputBuf, t.color);
+    if (typeof ftDrawWaveform === 'function') ftDrawWaveform(trackIdx);
+    var _pb = _el('mtPlayBtn'); if (_pb) _pb.disabled = false;
+    _compProgress('Comp ready — saving to cloud…');
 
-    /* Re-encode to WebM/Opus (matches recording format) via MediaRecorder */
+    /* Reset comp mode immediately — user can play back now */
+    ftCompCuts = [];
+    ftCompMode = false;
+    var toggle = document.getElementById('ftCompModeToggle');
+    if (toggle) toggle.classList.remove('on');
+    ftUpdateCompSummary();
+    ftRenderTakes();
+
+    // ── Encode + upload in background — doesn't block playback ──
     _ftEncodeViaMediaRecorder(outputBuf, function(blob, mimeType) {
       _compProgress('Building comp — uploading…');
       _uploadTake(blob, dur, mimeType, trackIdx, 'comp').then(function(result) {
         if (result) {
           _compProgress('Comp take saved ✓', true);
+          // Cache the blob in IndexedDB so reopening loads instantly
+          if (typeof _mtAudioCache !== 'undefined') {
+            blob.arrayBuffer().then(function(arrBuf) {
+              _mtAudioCache.set(result.id, arrBuf).catch(function() {});
+            }).catch(function() {});
+          }
           vrLoadTakes().then(function() {
+            // Re-assign the local buffer so vrLoadTakes doesn't trigger a re-download
+            if (_mtTracks[trackIdx]) {
+              var tr = _mtTracks[trackIdx];
+              var idx = tr.takes.findIndex(function(tk) { return tk.id === result.id; });
+              if (idx >= 0) {
+                tr.activeTakeIdx = idx;
+                tr.buffer = outputBuf;
+                tr.duration = outputBuf.duration;
+              }
+            }
             ftSyncUI();
             ftDrawWaveform(trackIdx);
           });
         } else {
           _compProgress('Comp upload failed', true);
         }
-
-        /* Reset comp mode */
-        ftCompCuts = [];
-        ftCompMode = false;
-        var toggle = document.getElementById('ftCompModeToggle');
-        if (toggle) toggle.classList.remove('on');
-        ftUpdateCompSummary();
-        ftRenderTakes();
       });
     });
   }).catch(function(e) {
