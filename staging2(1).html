@@ -13846,6 +13846,31 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   text-transform: uppercase; letter-spacing: 0.08em;
 }
 
+/* ── ft-drawer trash section ── */
+.ft-trash-toggle {
+  display: flex; align-items: center; gap: 6px;
+  background: none; border: none; cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #c0a878; padding: 8px 4px; transition: color 0.15s;
+}
+.ft-trash-toggle:hover { color: #e06060; }
+.ft-trash-section { display: none; padding: 0 4px 8px; }
+.ft-trash-section.open { display: block; }
+.ft-trash-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-bottom: 1px solid var(--border);
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #fff;
+}
+.ft-trash-row .vr-take-num { min-width: 28px; color: #c0a878; }
+.ft-trash-row .vr-take-dur { color: rgba(255,255,255,0.8); }
+.ft-trash-row .vr-trash-expiry { font-size: 10px; color: rgba(255,255,255,0.55); flex: 1; }
+.ft-trash-row .vr-trash-restore-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 14px; color: #c0a878; padding: 2px 6px; transition: color 0.15s;
+}
+.ft-trash-row .vr-trash-restore-btn:hover { color: #f0cc88; }
+
 /* ── Takes modal ────────────────────────────────────────────────────────────────── */
 .ft-modal {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -42195,32 +42220,60 @@ window.vrToggleTrash = function() {
   }
 };
 
+window.ftToggleTrash = function() {
+  const section = _el('ftTrashSection');
+  if (!section) return;
+  const isOpen = section.classList.toggle('open');
+  if (isOpen) {
+    vrLoadTrash(); // refresh data
+    setTimeout(() => section.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60);
+  }
+};
+
 window.vrLoadTrash = async function() {
   const list   = _el('vrTrashList');
   const toggle = _el('vrTrashToggleLabel');
-  if (!list || !_vrSongId) return;
+  const ftList   = _el('ftTrashList');
+  const ftToggle = _el('ftTrashToggleLabel');
+  if ((!list && !ftList) || !_vrSongId) return;
   try {
     await _vrCleanTrash();
     const snap = await db.collection('voice_trash')
       .where('songId', '==', _vrSongId)
       .orderBy('deletedAt', 'asc').get();
     if (toggle) toggle.textContent = 'Trash ('+snap.size+')';
-    if (snap.empty) { list.innerHTML='<div class="vr-no-takes">Trash is empty</div>'; return; }
-    list.innerHTML = '';
+    if (ftToggle) ftToggle.textContent = 'Trash ('+snap.size+')';
+    const emptyHtml = '<div class="vr-no-takes">Trash is empty</div>';
+    if (snap.empty) {
+      if (list) list.innerHTML = emptyHtml;
+      if (ftList) ftList.innerHTML = emptyHtml;
+      return;
+    }
+    if (list) list.innerHTML = '';
+    if (ftList) ftList.innerHTML = '';
     const now = Date.now();
     snap.docs.forEach(doc => {
       const d = doc.data();
       const deletedMs = d.deletedAt ? d.deletedAt.toMillis() : now;
       const expIn = VR_TRASH_TTL - (now - deletedMs);
       const expStr = expIn>0 ? 'Expires in '+_fmtTTL(expIn) : 'Expiring…';
-      const row = document.createElement('div');
-      row.className = 'vr-trash-row';
-      row.innerHTML = `
+      const rowHtml = `
         <span class="vr-take-num">${MT_NAMES[d.trackNum||0]||''}</span>
         <span class="vr-take-dur">${_fmtDur(d.duration||0)}</span>
         <span class="vr-trash-expiry">${expStr}</span>
         <button class="vr-trash-restore-btn" onclick="vrRestoreTake('${doc.id}')">↩</button>`;
-      list.appendChild(row);
+      if (list) {
+        const row = document.createElement('div');
+        row.className = 'vr-trash-row';
+        row.innerHTML = rowHtml;
+        list.appendChild(row);
+      }
+      if (ftList) {
+        const row2 = document.createElement('div');
+        row2.className = 'ft-trash-row';
+        row2.innerHTML = rowHtml;
+        ftList.appendChild(row2);
+      }
     });
   } catch(e) { console.error('[MT] loadTrash error', e); }
 };
@@ -44046,20 +44099,38 @@ function _ftRenderCompHandles(wf, take, idx) {
       function onMove(ev) {
         var newPct = Math.max(0.001, Math.min(0.999, (ev.clientX - rect.left) / rect.width));
         var newT = newPct * dur;
-        /* Clamp between neighbours */
-        var prevT = ci > 0 ? ftCompCuts[ci - 1].t + 0.001 : 0.001;
-        var nextT = ci < ftCompCuts.length - 1 ? ftCompCuts[ci + 1].t - 0.001 : dur - 0.001;
-        newT = Math.max(prevT, Math.min(nextT, newT));
+        /* Clamp only to absolute edges */
+        var MIN_GAP = 0.001;
+        newT = Math.max(MIN_GAP, Math.min(dur - MIN_GAP, newT));
         ftCompCuts[ci] = { t: newT, takeId: ftCompCuts[ci].takeId };
 
-        /* Move THIS handle in-place instead of destroying/recreating */
-        var newLeftPct = (newT / dur * 100) + '%';
+        /* ── Snowplow: push neighbours that we've run into ── */
+        /* Push right: if we moved past cuts to the right, shove them forward */
+        for (var ri = ci + 1; ri < ftCompCuts.length; ri++) {
+          var minT = ftCompCuts[ri - 1].t + MIN_GAP;
+          if (ftCompCuts[ri].t < minT) {
+            ftCompCuts[ri] = { t: Math.min(minT, dur - MIN_GAP * (ftCompCuts.length - ri)), takeId: ftCompCuts[ri].takeId };
+          } else break; /* no more to push */
+        }
+        /* Push left: if we moved past cuts to the left, shove them backward */
+        for (var li = ci - 1; li >= 0; li--) {
+          var maxT = ftCompCuts[li + 1].t - MIN_GAP;
+          if (ftCompCuts[li].t > maxT) {
+            ftCompCuts[li] = { t: Math.max(maxT, MIN_GAP * (li + 1)), takeId: ftCompCuts[li].takeId };
+          } else break;
+        }
+
+        /* Move THIS handle in-place */
+        var newLeftPct = (ftCompCuts[ci].t / dur * 100) + '%';
         handle.style.left = newLeftPct;
 
-        /* ── Magnetic sync: move the same cut handle on ALL other take rows ── */
-        document.querySelectorAll('.ft-comp-handle[data-ft-comp-cut="' + ci + '"]').forEach(function(sibling) {
-          if (sibling !== handle) sibling.style.left = newLeftPct;
-        });
+        /* ── Magnetic sync: move ALL handles on ALL take rows to match updated cuts ── */
+        for (var si = 0; si < ftCompCuts.length; si++) {
+          var siPct = (ftCompCuts[si].t / dur * 100) + '%';
+          document.querySelectorAll('.ft-comp-handle[data-ft-comp-cut="' + si + '"]').forEach(function(sib) {
+            if (sib !== handle || si !== ci) sib.style.left = siPct;
+          });
+        }
 
         /* Redraw canvas overlays on all take rows — but skip _ftRenderCompHandles
            to avoid destroying the handle we're currently dragging */
@@ -45279,12 +45350,16 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
     </div>
 
-    <!-- Legend -->
-    <div class="ft-legend">
-      <strong>4-Track Recorder</strong><br>
-      ARM: exclusive per track | SOLO: one at a time | LOCK: protect track<br>
-      LOOP: shared across all tracks | Volume unity: 85 | Pan center: 0<br>
-      TAP waveform to seek | DRAG to set loop region | DOUBLE-CLICK to reset
+    <!-- Trash section -->
+    <button class="ft-trash-toggle" id="ftTrashToggle" onclick="ftToggleTrash()">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14a2,2,0,0,1-2,2H8a2,2,0,0,1-2-2L5,6"/><path d="M10,11v6"/><path d="M14,11v6"/></svg>
+      <span id="ftTrashToggleLabel">Trash (0)</span>
+    </button>
+    <div class="ft-trash-section" id="ftTrashSection">
+      <div id="ftTrashList"><div class="vr-no-takes">Trash is empty</div></div>
+      <div style="padding:6px 0 4px;text-align:right;">
+        <button onclick="vrEmptyTrash()" style="background:none;border:none;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#ffffff;padding:4px 0;transition:color 0.15s;" onmouseover="this.style.color='#e06060'" onmouseout="this.style.color='#ffffff'">Empty Trash</button>
+      </div>
     </div>
 
   </div>
