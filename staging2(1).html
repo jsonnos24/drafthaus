@@ -41255,51 +41255,100 @@ async function _mtFinishRecording(trackIdx, mimeType) {
     } catch(err) { console.warn('[MT] BT trim failed:', err); }
   }
 
-  _vrUploading = true;
-  let newTake = null;
+  // ── Instant local playback: decode the blob we already have in memory ──
+  // Makes the take playable immediately — no waiting for cloud upload/stitch.
+  let localBuffer = null;
+  try {
+    _mtCreateCtxSync();
+    const localArrBuf = await blob.arrayBuffer();
+    localBuffer = await _mtAudioCtx.decodeAudioData(localArrBuf.slice(0));
+    t.buffer   = localBuffer;
+    t.duration = localBuffer.duration;
+    _mtDrawTrackWaveform(trackIdx, localBuffer, t.color);
+    if (typeof ftDrawWaveform === 'function') ftDrawWaveform(trackIdx);
+    const _pb = _el('mtPlayBtn'); if (_pb) _pb.disabled = false;
+    _setStatus('Ready — saving to cloud…');
+    console.log('[MT] Instant local playback ready for track', trackIdx);
+  } catch(decErr) {
+    console.warn('[MT] Local decode failed, will wait for cloud save:', decErr);
+  }
 
-  if (session && !needsBtTrim) {
-    // ── Chunked path: chunks already uploaded, just finalize via Cloud Function ──
-    newTake = await _chunkFinalize(session, _vrSongId, durSec, mimeType, trackIdx);
-    if (!newTake) {
-      // Chunked stitch failed — fall back to legacy upload with the local blob
-      console.warn('[CHUNK] Stitch failed, falling back to legacy upload');
-      _setStatus('Stitch failed — uploading full recording…');
-      newTake = await _uploadTake(blob, durSec, mimeType, trackIdx);
-    }
-    t._chunkSession = null;
-    _chunkSession = null;
-  } else {
-    // ── Legacy path (Safari, BT trim active, or fallback) ──
-    if (session) {
-      // Had a chunk session but BT trim means we need to upload the trimmed blob instead
-      session.aborted = true; // stop any in-flight chunk uploads from mattering
-      _chunkCleanup(session.recordingId);
+  // ── Cloud save runs in the background — doesn't block playback ──
+  _vrUploading = true;
+  const _cloudSongId = _vrSongId;
+
+  const _cloudSave = async () => {
+    let newTake = null;
+
+    if (session && !needsBtTrim) {
+      newTake = await _chunkFinalize(session, _cloudSongId, durSec, mimeType, trackIdx);
+      if (!newTake) {
+        console.warn('[CHUNK] Stitch failed, falling back to legacy upload');
+        _setStatus('Stitch failed — uploading full recording…');
+        newTake = await _uploadTake(blob, durSec, mimeType, trackIdx);
+      }
       t._chunkSession = null;
       _chunkSession = null;
+    } else {
+      if (session) {
+        session.aborted = true;
+        _chunkCleanup(session.recordingId);
+        t._chunkSession = null;
+        _chunkSession = null;
+      }
+      newTake = await _uploadTake(blob, durSec, mimeType, trackIdx);
     }
-    newTake = await _uploadTake(blob, durSec, mimeType, trackIdx);
-  }
 
-  _vrUploading = false;
-  if (newTake) {
-    showToast('Take saved ✓', 'success', 2000);
-  } else {
-    showToast('Save failed — check connection', 'error', 4000);
-  }
-  _setStatus(newTake ? 'Saved ✓' : 'Save failed');
-  // Reload the takes list, then load the newly recorded take directly by ID
-  await vrLoadTakes();
-  if (newTake && _mtTracks[trackIdx]) {
-    const t = _mtTracks[trackIdx];
-    const idx = t.takes.findIndex(tk => tk.id === newTake.id);
-    if (idx >= 0) {
-      t.activeTakeIdx = idx;
-      await _mtLoadTakeBuffer(trackIdx, t.takes[idx]);
-      _mtRenderTakesPanel(trackIdx);
+    _vrUploading = false;
+
+    if (newTake) {
+      showToast('Take saved ✓', 'success', 2000);
+      _setStatus('Saved ✓');
+
+      // ── Write to IndexedDB cache so reopening the song loads instantly ──
+      if (localBuffer) {
+        try {
+          const cacheBuf = await blob.arrayBuffer();
+          _mtAudioCache.set(newTake.id, cacheBuf).catch(() => {});
+          console.log('[MT] Cached take', newTake.id, 'in IndexedDB');
+        } catch(cacheErr) {
+          console.warn('[MT] Cache write failed:', cacheErr);
+        }
+      }
+
+      // Reload takes list to sync with Firestore, then point to the new take
+      await vrLoadTakes();
+      if (_mtTracks[trackIdx]) {
+        const tr = _mtTracks[trackIdx];
+        const idx = tr.takes.findIndex(tk => tk.id === newTake.id);
+        if (idx >= 0) {
+          tr.activeTakeIdx = idx;
+          // Buffer already loaded locally — skip re-download
+          if (localBuffer) {
+            tr.buffer = localBuffer;
+            tr.duration = localBuffer.duration;
+            _mtDrawTrackWaveform(trackIdx, localBuffer, tr.color);
+            if (typeof ftDrawWaveform === 'function') ftDrawWaveform(trackIdx);
+          } else {
+            await _mtLoadTakeBuffer(trackIdx, tr.takes[idx]);
+          }
+          _mtRenderTakesPanel(trackIdx);
+        }
+      }
+    } else {
+      showToast('Save failed — check connection', 'error', 4000);
+      _setStatus('Save failed');
     }
-  }
-  const _pb3 = _el('mtPlayBtn'); if (_pb3) _pb3.disabled = !_mtTracks.some(t=>t&&t.buffer);
+    const _pb3 = _el('mtPlayBtn'); if (_pb3) _pb3.disabled = !_mtTracks.some(t=>t&&t.buffer);
+  };
+
+  // Fire cloud save without blocking — playback is already live
+  _cloudSave().catch(err => {
+    console.error('[MT] Cloud save error:', err);
+    _vrUploading = false;
+    _setStatus('Save failed');
+    showToast('Save failed — check connection', 'error', 4000);
+  });
 }
 
 // ── Quota ──────────────────────────────────────────────────────
