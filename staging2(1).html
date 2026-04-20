@@ -12984,6 +12984,41 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     transform: scale(0.97);
   }
 
+  /* Card action buttons (top-right) */
+  .v4-card-actions {
+    position: absolute;
+    top: 6px; right: 6px;
+    display: flex; gap: 4px;
+    z-index: 2;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .v4-draft-card:hover .v4-card-actions { opacity: 1; }
+  .v4-card-btn {
+    width: 24px; height: 24px;
+    border: none;
+    border-radius: 50%;
+    font-size: 13px; line-height: 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.15s;
+  }
+  .v4-card-btn:hover { transform: scale(1.15); }
+  .v4-card-btn.share {
+    background: rgba(162,89,255,0.12);
+    color: #a259ff;
+  }
+  .v4-card-btn.share:hover { background: rgba(162,89,255,0.25); }
+  .v4-card-btn.delete {
+    background: rgba(220,20,60,0.12);
+    color: crimson;
+  }
+  .v4-card-btn.delete:hover { background: rgba(220,20,60,0.25); }
+  @media (max-width: 760px) {
+    .v4-card-actions { opacity: 0.8; }
+    .v4-card-btn { width: 28px; height: 28px; font-size: 15px; line-height: 28px; }
+  }
+
   /* Drop target highlight on columns */
   .v4-kanban-col.drag-over {
     background: rgba(245,166,35,0.04);
@@ -13735,6 +13770,18 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   border-color: var(--gold2);
 }
 
+.ft-btn.ok {
+  background: rgba(100,220,180,0.15);
+  border-color: rgba(100,220,180,0.5);
+  color: #64dcb4;
+  box-shadow: 0 0 6px rgba(100,220,180,0.25);
+}
+.ft-btn.ok:hover {
+  background: rgba(100,220,180,0.25);
+  border-color: rgba(100,220,180,0.7);
+  box-shadow: 0 0 10px rgba(100,220,180,0.35);
+}
+
 .ft-btn.on.red {
   background: var(--red);
   border-color: var(--red);
@@ -14362,8 +14409,29 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
 }
 
 @media (max-width: 760px) {
+  /* ── Horizontal swipe: one track at a time ── */
   .ft-console {
-    grid-template-columns: repeat(2, 1fr);
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    gap: 12px;
+    padding-bottom: 8px;
+  }
+  .ft-console::-webkit-scrollbar { display: none; }
+  .ft-console { scrollbar-width: none; }
+
+  .ft-strip {
+    flex: 0 0 85%;
+    min-width: 0;
+    scroll-snap-align: center;
+    padding: 10px;
+  }
+
+  /* ── Larger waveform tap targets on mobile ── */
+  .ft-waveform {
+    height: 80px;
+    min-height: 80px;
   }
 
   .ft-stage {
@@ -14371,24 +14439,53 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     gap: 12px;
   }
 
-  .ft-strip {
-    padding: 10px;
+  /* ── Track dot indicators (injected via JS) ── */
+  .ft-track-dots {
+    display: flex; justify-content: center; gap: 8px;
+    padding: 4px 0;
+  }
+  .ft-track-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--border2);
+    transition: background 0.2s, transform 0.2s;
+  }
+  .ft-track-dot.active {
+    background: var(--gold);
+    transform: scale(1.3);
+  }
+
+  /* ── Take waveforms larger on mobile ── */
+  .ft-take-waveform {
+    height: 56px;
+  }
+
+  /* ── Larger drag handles for touch ── */
+  .ft-take-drag {
+    width: 36px;
+    height: 36px;
+    font-size: 20px;
+    touch-action: none;
   }
 }
 
 @media (max-width: 460px) {
-  .ft-console {
-    grid-template-columns: 1fr;
+  .ft-strip {
+    flex: 0 0 92%;
   }
 
   .ft-modal {
     padding: 8px;
+    /* iOS safe area insets */
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
 
   .ft-sheet {
     padding: 14px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
     gap: 12px;
     max-height: 94vh;
+    max-height: calc(100dvh - 16px);
   }
 
   .ft-sheet-header {
@@ -14414,6 +14511,15 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     padding: 0 4px;
   }
 
+  .ft-waveform {
+    height: 90px;
+    min-height: 90px;
+  }
+}
+
+/* ── Comp mode: double-height take waveforms for easier comping ── */
+.ft-sheet.comp-active .ft-take-waveform {
+  height: 80px;
 }
 
 /* ── Warm mode specific ─────────────────────────────────────────────────────────────── */
@@ -16140,6 +16246,83 @@ async function deleteLocalSong(id) {
   }
 }
 
+/* ── v4 Song Delete (full cleanup: takes, loops, storage, trash, song doc) ── */
+async function v4DeleteSong(id) {
+  if (!auth.currentUser) { v4RequireAuth(); return; }
+  const song = songs.find(s => s.id === id);
+  const uid  = auth.currentUser.uid;
+  const isShared = song && song.ownerId && song.ownerId !== uid;
+
+  /* Shared song — just remove from local list */
+  if (isShared) {
+    if (!confirm('Remove "' + (song.title || 'Untitled') + '" from your list?\n(The owner\'s copy is not affected.)')) return;
+    songs = songs.filter(s => s.id !== id);
+    if (currentId === id) { currentId = null; showList(); }
+    save();
+    if (typeof v4RenderBoard === 'function') v4RenderBoard();
+    return;
+  }
+
+  /* Owner — full nuke */
+  const title = (song && song.title) ? song.title : 'this song';
+  if (!confirm('Permanently delete "' + title + '" and all its recordings?\n\nThis cannot be undone.')) return;
+
+  /* Remove from local state immediately */
+  songs = songs.filter(s => s.id !== id);
+  if (currentId === id) { currentId = null; showList(); }
+  save();
+  if (typeof v4RenderBoard === 'function') v4RenderBoard();
+  if (typeof renderGrid === 'function') renderGrid();
+  showToast('Deleting "' + title + '"…');
+
+  /* Background cleanup of Firestore + Storage */
+  try {
+    /* 1. Delete voice_takes + their storage files */
+    const takesSnap = await db.collection('voice_takes').where('songId', '==', id).get();
+    const takeDeletes = [];
+    takesSnap.forEach(function(doc) {
+      const d = doc.data();
+      if (d.storagePath) {
+        try { firebase.storage().ref(d.storagePath).delete().catch(function(){}); } catch(e){}
+      }
+      takeDeletes.push(doc.ref.delete());
+    });
+    await Promise.all(takeDeletes);
+
+    /* 2. Delete voice_trash for this song */
+    const trashSnap = await db.collection('voice_trash').where('songId', '==', id).get();
+    const trashDeletes = [];
+    trashSnap.forEach(function(doc) {
+      const d = doc.data();
+      if (d.storagePath) {
+        try { firebase.storage().ref(d.storagePath).delete().catch(function(){}); } catch(e){}
+      }
+      trashDeletes.push(doc.ref.delete());
+    });
+    await Promise.all(trashDeletes);
+
+    /* 3. Delete song_loops + their storage files */
+    const loopsSnap = await db.collection('song_loops').where('songId', '==', id).get();
+    const loopDeletes = [];
+    loopsSnap.forEach(function(doc) {
+      const d = doc.data();
+      if (d.storagePath) {
+        try { firebase.storage().ref(d.storagePath).delete().catch(function(){}); } catch(e){}
+      }
+      loopDeletes.push(doc.ref.delete());
+    });
+    await Promise.all(loopDeletes);
+
+    /* 4. Delete the song document itself */
+    await db.collection('songs').doc(id).delete();
+
+    showToast('"' + title + '" deleted');
+  } catch(e) {
+    console.error('[v4DeleteSong] cleanup error:', e);
+    showToast('Song removed locally. Some cloud data may remain.');
+  }
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    V4 Kanban/Grid List View — redesigned default landing
    ════════════════════════════════════════════════════════════════════════════ */
@@ -16232,11 +16415,17 @@ function v4RenderCard(card) {
     ? `◉ ${card.takes} take${card.takes > 1 ? 's' : ''}`
     : '— no takes';
 
+  const cardActions = card._demo ? '' : `<div class="v4-card-actions">
+      <button class="v4-card-btn share" title="Share song" onclick="event.stopPropagation();rowShareSong('${card.id}')">⬡</button>
+      <button class="v4-card-btn delete" title="Delete song" onclick="event.stopPropagation();v4DeleteSong('${card.id}')">✕</button>
+    </div>`;
+
   return `
     <div class="v4-draft-card" draggable="true" data-id="${card.id}"
          onclick="if(!auth.currentUser){v4RequireAuth();return;}openSong('${card.id}')"
          ondragstart="if(auth.currentUser){v4DragStart(event, '${card.id}');}else{event.preventDefault();}"
          ondragend="v4DragEnd(event)">
+      ${cardActions}
       ${playBtn}
       <div class="${titleClass}">${titleText}</div>
       <div class="v4-draft-card-meta">
@@ -44055,11 +44244,10 @@ function ftRenderTakes() {
       });
     });
 
-    /* ── Drag-to-reorder ── */
+    /* ── Drag-to-reorder (desktop: HTML5 drag-and-drop) ── */
     var dragHandle = div.querySelector('[data-ft-take-drag-handle]');
     if (dragHandle) {
       dragHandle.addEventListener('mousedown', function() { div.setAttribute('draggable', 'true'); });
-      dragHandle.addEventListener('touchstart', function() { div.setAttribute('draggable', 'true'); }, { passive: true });
     }
     div.addEventListener('dragstart', function(e) {
       div.classList.add('dragging');
@@ -44090,6 +44278,96 @@ function ftRenderTakes() {
       if (fromIdx < 0 || fromIdx === toIdx) return;
       _ftReorderTake(ftModalStripIdx, fromIdx, toIdx);
     });
+
+    /* ── Drag-to-reorder (mobile: touch events) ── */
+    if (dragHandle) {
+      (function(sourceDiv, sourceIdx) {
+        var _touchGhost = null;
+        var _touchStartY = 0;
+        var _touchActive = false;
+        var _touchOverEl = null;
+
+        dragHandle.addEventListener('touchstart', function(e) {
+          if (e.touches.length !== 1) return;
+          _touchActive = true;
+          _touchStartY = e.touches[0].clientY;
+          _ftDragIdx = sourceIdx;
+          /* Create ghost element */
+          _touchGhost = sourceDiv.cloneNode(true);
+          _touchGhost.style.cssText = 'position:fixed;left:8px;right:8px;opacity:0.85;z-index:99999;pointer-events:none;transform:scale(0.97);box-shadow:0 8px 24px rgba(0,0,0,0.4);border-radius:8px;';
+          _touchGhost.style.top = (sourceDiv.getBoundingClientRect().top) + 'px';
+          _touchGhost.style.width = sourceDiv.offsetWidth + 'px';
+          document.body.appendChild(_touchGhost);
+          sourceDiv.classList.add('dragging');
+          e.preventDefault();
+        }, { passive: false });
+
+        dragHandle.addEventListener('touchmove', function(e) {
+          if (!_touchActive || !_touchGhost) return;
+          e.preventDefault();
+          var touch = e.touches[0];
+          var dy = touch.clientY - _touchStartY;
+          _touchGhost.style.top = (sourceDiv.getBoundingClientRect().top + dy) + 'px';
+
+          /* Detect element under finger */
+          _touchGhost.style.display = 'none';
+          var elUnder = document.elementFromPoint(touch.clientX, touch.clientY);
+          _touchGhost.style.display = '';
+
+          /* Walk up to find .ft-take ancestor */
+          var takeEl = elUnder;
+          while (takeEl && !takeEl.classList.contains('ft-take')) {
+            takeEl = takeEl.parentElement;
+          }
+
+          /* Highlight drop target */
+          if (_touchOverEl && _touchOverEl !== takeEl) {
+            _touchOverEl.classList.remove('drag-over');
+          }
+          if (takeEl && takeEl !== sourceDiv) {
+            takeEl.classList.add('drag-over');
+            _touchOverEl = takeEl;
+          } else {
+            _touchOverEl = null;
+          }
+        }, { passive: false });
+
+        dragHandle.addEventListener('touchend', function(e) {
+          if (!_touchActive) return;
+          _touchActive = false;
+          sourceDiv.classList.remove('dragging');
+          if (_touchGhost && _touchGhost.parentNode) {
+            _touchGhost.parentNode.removeChild(_touchGhost);
+          }
+          _touchGhost = null;
+
+          /* Perform reorder if we have a valid target */
+          if (_touchOverEl) {
+            _touchOverEl.classList.remove('drag-over');
+            var toIdx = parseInt(_touchOverEl.getAttribute('data-ft-take-idx'), 10);
+            if (!isNaN(toIdx) && toIdx !== sourceIdx) {
+              _ftReorderTake(ftModalStripIdx, sourceIdx, toIdx);
+            }
+            _touchOverEl = null;
+          }
+          _ftDragIdx = -1;
+        }, { passive: true });
+
+        dragHandle.addEventListener('touchcancel', function() {
+          _touchActive = false;
+          sourceDiv.classList.remove('dragging');
+          if (_touchGhost && _touchGhost.parentNode) {
+            _touchGhost.parentNode.removeChild(_touchGhost);
+          }
+          _touchGhost = null;
+          if (_touchOverEl) {
+            _touchOverEl.classList.remove('drag-over');
+            _touchOverEl = null;
+          }
+          _ftDragIdx = -1;
+        }, { passive: true });
+      })(div, idx);
+    }
 
     /* Draw real waveform from take buffer */
     ftDrawTakeWaveform(div, take, idx);
@@ -44610,7 +44888,11 @@ function ftToggleCompMode() {
 function ftUpdateCompSummary() {
   var summary = document.getElementById('ftCompSummary');
   if (!summary) return;
-  if (ftCompMode && ftCompCuts.length > 0) {
+  /* Toggle comp-active class on the sheet for CSS (double-height waveforms) */
+  var sheet = summary.closest('.ft-sheet');
+  if (sheet) sheet.classList.toggle('comp-active', ftCompMode);
+
+  if (ftCompMode) {
     summary.classList.add('show');
     var bar = document.getElementById('ftCompBar');
     if (!bar) return;
@@ -44619,6 +44901,16 @@ function ftUpdateCompSummary() {
 
     var t = _mtTracks[ftModalStripIdx];
     var takes = (t && t.takes) ? t.takes : [];
+
+    /* Empty state — no cuts yet */
+    if (ftCompCuts.length === 0) {
+      var emptySeg = document.createElement('div');
+      emptySeg.className = 'ft-comp-segment empty';
+      emptySeg.style.flex = '1';
+      emptySeg.innerHTML = '<span class="ft-comp-segment-label">Drag on waveforms to define regions</span>';
+      bar.appendChild(emptySeg);
+      return;
+    }
 
     var regions = [];
     for (var i = 0; i < ftCompCuts.length; i++) {
@@ -45132,12 +45424,46 @@ function _ftOn(sel, evt, fn) {
 }
 
 /* ── Initialization — all event wiring deferred until DOM is ready ──────────── */
+function ftSetupTrackDots() {
+  var console = document.querySelector('.ft-console');
+  if (!console || window.innerWidth > 760) return;
+  /* Don't add twice */
+  if (document.querySelector('.ft-track-dots')) return;
+  var dotsDiv = document.createElement('div');
+  dotsDiv.className = 'ft-track-dots';
+  for (var i = 0; i < 4; i++) {
+    var dot = document.createElement('div');
+    dot.className = 'ft-track-dot' + (i === 0 ? ' active' : '');
+    dot.setAttribute('data-ft-dot', i);
+    dotsDiv.appendChild(dot);
+  }
+  console.parentNode.insertBefore(dotsDiv, console.nextSibling);
+  /* Update dots on scroll */
+  console.addEventListener('scroll', function() {
+    var stripW = console.firstElementChild ? console.firstElementChild.offsetWidth + 12 : 1;
+    var idx = Math.round(console.scrollLeft / stripW);
+    idx = Math.max(0, Math.min(3, idx));
+    dotsDiv.querySelectorAll('.ft-track-dot').forEach(function(d, di) {
+      d.classList.toggle('active', di === idx);
+    });
+  }, { passive: true });
+  /* Tap dot to scroll to track */
+  dotsDiv.addEventListener('click', function(e) {
+    var dot = e.target.closest('.ft-track-dot');
+    if (!dot) return;
+    var ti = parseInt(dot.getAttribute('data-ft-dot'), 10);
+    var strips = console.querySelectorAll('.ft-strip');
+    if (strips[ti]) strips[ti].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  });
+}
+
 function ftInit() {
   ftSetupVolumeSlidersAndPan();
   ftSetupInputGain();
   ftSetupStripButtons();
   ftSetupMiniVU();
   ftSetupWaveforms();
+  ftSetupTrackDots();
 
   /* Takes buttons per strip */
   document.querySelectorAll('[data-ft-takes-btn]').forEach(function(btn) {
