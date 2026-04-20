@@ -35168,8 +35168,10 @@ function navToolTap(toolKey) {
   // ── Desktop routing ──
   if (window.innerWidth >= 900) {
     var _onDetailView = document.getElementById('viewDetail')?.classList.contains('active');
+    var _fromSongList = !_onDetailView;
+
     if (toolKey === '4track') {
-      // No-op if lyrics + 4-track split already showing AND we're on the detail view
+      // No-op only if already fully visible in split on the detail view
       if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track') return;
       // Ensure lyrics/runthrough in left pane
       _ensureDetailView();
@@ -35178,26 +35180,59 @@ function navToolTap(toolKey) {
         var song = getCurrentSong();
         if (song) ilInitAndRender(song);
       }
+      // Coming from song list: split was silently pre-activated but layout not set.
+      // Force a fresh split setup so divider + ratio are properly configured.
+      if (_fromSongList && typeof _splitActive !== 'undefined' && _splitActive) {
+        closeSplitMode();
+      }
       _openLyrics4trackSplit();
       return;
     }
-    // Drums & looper: open in right split pane (75% right, 25% left lyrics)
-    if (toolKey === 'sequencer' || toolKey === 'looper') {
-      // No-op if already showing this tool in split AND we're on detail view
-      if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === toolKey) return;
+
+    // Keyboard: lyrics left + keys right (same split behavior as 4-track)
+    if (toolKey === 'keyboard') {
+      if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === 'keyboard') return;
       _ensureDetailView();
       if (window._songViewMode !== 'runthrough') {
         setSongViewMode('runthrough');
         var song = getCurrentSong();
         if (song) ilInitAndRender(song);
       }
-      _openLyricsToolSplit(toolKey);
+      if (_fromSongList && typeof _splitActive !== 'undefined' && _splitActive) {
+        closeSplitMode();
+      }
+      _openLyrics4trackSplit();
+      // Switch right pane from 4-track to keyboard
+      setSplitRightTool('keyboard');
+      _splitCurrentTool = 'keyboard';
+      var kbSel = document.getElementById('splitRightSelect');
+      if (kbSel) kbSel.value = 'keyboard';
       return;
     }
-    // Keyboard: use existing split behavior
-    if (toolKey === 'keyboard') {
-      if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === 'keyboard') return;
-      _desktopOpenTool('keyboard');
+
+    // Drums: open full width (no split)
+    if (toolKey === 'sequencer') {
+      if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === 'sequencer') return;
+      _ensureDetailView();
+      // Close any existing split — drums get full width
+      if (typeof _splitActive !== 'undefined' && _splitActive) closeSplitMode();
+      openSeqDrawer();
+      return;
+    }
+
+    // Looper: open in right split pane (75% right, 25% left lyrics)
+    if (toolKey === 'looper') {
+      if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === 'looper') return;
+      _ensureDetailView();
+      if (window._songViewMode !== 'runthrough') {
+        setSongViewMode('runthrough');
+        var song = getCurrentSong();
+        if (song) ilInitAndRender(song);
+      }
+      if (_fromSongList && typeof _splitActive !== 'undefined' && _splitActive) {
+        closeSplitMode();
+      }
+      _openLyricsToolSplit(toolKey);
       return;
     }
   }
@@ -44082,7 +44117,8 @@ function ftCompCommit() {
   var dur = _mtMaxDuration();
   if (!dur || dur <= 0) { showToast('No audio duration.', 'warn'); return; }
 
-  showToast('Building comp…', 'info', 2000);
+  // ── Persistent comp progress — stays visible until fully done ──
+  _setStatus('Building comp — loading takes…');
 
   /* Build regions from cuts */
   var regions = [];
@@ -44097,6 +44133,8 @@ function ftCompCommit() {
   /* Collect unique take IDs we need buffers for */
   var neededIds = {};
   regions.forEach(function(r) { if (r.takeId) neededIds[r.takeId] = true; });
+  var neededCount = Object.keys(neededIds).length;
+  var loadedCount = 0;
 
   /* Load all needed take buffers (may already be cached in IDB) */
   var bufferMap = {}; /* takeId → AudioBuffer */
@@ -44118,6 +44156,8 @@ function ftCompCommit() {
         }
         _mtCreateCtxSync();
         bufferMap[takeId] = await _mtAudioCtx.decodeAudioData(arrBuf.slice(0));
+        loadedCount++;
+        _setStatus('Building comp — loaded ' + loadedCount + '/' + neededCount + ' takes…');
       } catch(e) {
         console.error('[FT] Failed to load take buffer for comp:', takeId, e);
       }
@@ -44125,6 +44165,8 @@ function ftCompCommit() {
   });
 
   Promise.all(loadPromises).then(function() {
+    _setStatus('Building comp — stitching audio…');
+
     /* Create output buffer — same sample rate, mono or stereo matching first available buffer */
     var sampleRate = _mtAudioCtx.sampleRate;
     var totalSamples = Math.ceil(dur * sampleRate);
@@ -44162,17 +44204,22 @@ function ftCompCommit() {
       }
     });
 
+    _setStatus('Building comp — encoding…');
+
     /* Re-encode to WebM/Opus (matches recording format) via MediaRecorder */
     _ftEncodeViaMediaRecorder(outputBuf, function(blob, mimeType) {
+      _setStatus('Building comp — uploading…');
       _uploadTake(blob, dur, mimeType, trackIdx, 'comp').then(function(result) {
         if (result) {
-          showToast('Comp take saved!', 'ok', 2000);
+          showToast('Comp take saved ✓', 'success', 3000);
+          _setStatus('Comp saved ✓');
           vrLoadTakes().then(function() {
             ftSyncUI();
             ftDrawWaveform(trackIdx);
           });
         } else {
-          showToast('Comp upload failed.', 'warn');
+          showToast('Comp upload failed.', 'error', 4000);
+          _setStatus('Comp failed');
         }
 
         /* Reset comp mode */
@@ -44186,7 +44233,8 @@ function ftCompCommit() {
     });
   }).catch(function(e) {
     console.error('[FT] Comp commit error:', e);
-    showToast('Comp failed — see console.', 'warn');
+    showToast('Comp failed — see console.', 'error', 4000);
+    _setStatus('Comp failed');
   });
 }
 
