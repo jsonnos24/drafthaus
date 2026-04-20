@@ -44233,6 +44233,9 @@ function ftRenderTakes() {
             ftCompCuts[0].takeId = null;
           }
 
+          /* Snap new cut boundaries to zero crossings */
+          _ftSnapAllCutsToZeroCrossing(ftModalStripIdx);
+
           ftUpdateCompSummary();
           ftRefreshCompOverlays();
         });
@@ -44350,6 +44353,81 @@ function ftRenderCompMode(wf, take, idx) {
   _ftRenderCompHandles(wf, take, idx);
 }
 
+/* ── Zero-crossing snap: find the nearest zero crossing within ±windowMs of a time ── */
+var FT_ZC_WINDOW_MS = 5; /* search radius in milliseconds */
+
+/**
+ * Snap a single cut time to the nearest zero crossing in any neighbouring take's buffer.
+ * Looks at the LEFT-side take's buffer (the outgoing audio) for the most audible splice.
+ * Falls back to RIGHT-side take if left has no buffer. Returns the snapped time.
+ */
+function _ftFindZeroCrossing(cutTime, trackIdx) {
+  var t = _mtTracks[trackIdx];
+  if (!t || !t.takes || ftCompCuts.length === 0) return cutTime;
+
+  /* Find which take is on the LEFT of this cut (the outgoing audio) */
+  var leftTake = null, rightTake = null;
+  for (var ci = 0; ci < ftCompCuts.length; ci++) {
+    if (Math.abs(ftCompCuts[ci].t - cutTime) < 0.0001) {
+      /* The cut to the left owns the region before this one */
+      if (ci > 0 && ftCompCuts[ci - 1].takeId) {
+        var ltId = ftCompCuts[ci - 1].takeId;
+        for (var j = 0; j < t.takes.length; j++) {
+          if (t.takes[j] && t.takes[j].id === ltId && t.takes[j]._buffer) { leftTake = t.takes[j]; break; }
+        }
+      }
+      /* The current cut owns the region after it */
+      if (ftCompCuts[ci].takeId) {
+        var rtId = ftCompCuts[ci].takeId;
+        for (var k = 0; k < t.takes.length; k++) {
+          if (t.takes[k] && t.takes[k].id === rtId && t.takes[k]._buffer) { rightTake = t.takes[k]; break; }
+        }
+      }
+      break;
+    }
+  }
+
+  var buf = (leftTake && leftTake._buffer) ? leftTake._buffer : (rightTake && rightTake._buffer) ? rightTake._buffer : null;
+  if (!buf) return cutTime; /* no decoded buffer available — skip snap */
+
+  var sr = buf.sampleRate;
+  var data = buf.getChannelData(0); /* use first channel */
+  var centerSample = Math.round(cutTime * sr);
+  var windowSamples = Math.round((FT_ZC_WINDOW_MS / 1000) * sr);
+  var lo = Math.max(1, centerSample - windowSamples);
+  var hi = Math.min(data.length - 1, centerSample + windowSamples);
+
+  var bestDist = Infinity;
+  var bestSample = centerSample;
+
+  for (var s = lo; s <= hi; s++) {
+    /* Zero crossing: sign change between consecutive samples */
+    if ((data[s - 1] >= 0 && data[s] < 0) || (data[s - 1] < 0 && data[s] >= 0)) {
+      var dist = Math.abs(s - centerSample);
+      if (dist < bestDist) { bestDist = dist; bestSample = s; }
+    }
+  }
+
+  return bestSample / sr;
+}
+
+/**
+ * Snap all non-zero ftCompCuts to their nearest zero crossing.
+ * Called after handle drag ends and after new cuts are created.
+ */
+function _ftSnapAllCutsToZeroCrossing(trackIdx) {
+  var dur = _mtMaxDuration();
+  for (var ci = 0; ci < ftCompCuts.length; ci++) {
+    if (ftCompCuts[ci].t === 0) continue; /* never move the t=0 anchor */
+    var snapped = _ftFindZeroCrossing(ftCompCuts[ci].t, trackIdx);
+    /* Keep within bounds and MIN_GAP from neighbours */
+    var MIN_GAP = 0.001;
+    var lo = ci > 0 ? ftCompCuts[ci - 1].t + MIN_GAP : MIN_GAP;
+    var hi = ci < ftCompCuts.length - 1 ? ftCompCuts[ci + 1].t - MIN_GAP : dur - MIN_GAP;
+    ftCompCuts[ci] = { t: Math.max(lo, Math.min(hi, snapped)), takeId: ftCompCuts[ci].takeId };
+  }
+}
+
 /* ── Magnet handles: draggable DOM elements at each cut point ── */
 function _ftRenderCompHandles(wf, take, idx) {
   var dur = _mtMaxDuration();
@@ -44427,8 +44505,11 @@ function _ftRenderCompHandles(wf, take, idx) {
       function onUp() {
         handle.removeEventListener('pointermove', onMove);
         handle.removeEventListener('pointerup', onUp);
+        /* Snap all cuts to nearest zero crossings for click-free splices */
+        _ftSnapAllCutsToZeroCrossing(ftModalStripIdx);
         /* Full refresh now that drag is done — handles can be safely rebuilt */
         ftRefreshCompOverlays();
+        ftUpdateCompSummary();
       }
       handle.addEventListener('pointermove', onMove);
       handle.addEventListener('pointerup', onUp);
