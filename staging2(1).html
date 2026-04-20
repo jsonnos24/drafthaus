@@ -42881,6 +42881,12 @@ Object.defineProperty(window, '_mtArmedTrack', {
   get() { return _mtArmedTrack; },
   configurable: true
 });
+// Expose recording state + stop function so global spacebar handler can stop recording
+Object.defineProperty(window, '_vrRecording', {
+  get() { return _vrRecording; },
+  configurable: true
+});
+window._mtStopRecording = _mtStopRecording;
 
 
 /* ════ 4-TRACK RECORDER REDESIGN — START ════ */
@@ -44117,8 +44123,27 @@ function ftCompCommit() {
   var dur = _mtMaxDuration();
   if (!dur || dur <= 0) { showToast('No audio duration.', 'warn'); return; }
 
-  // ── Persistent comp progress — stays visible until fully done ──
-  _setStatus('Building comp — loading takes…');
+  // ── Persistent comp progress overlay — stays visible until fully done ──
+  var _compToast = document.createElement('div');
+  _compToast.className = 'toast toast-info';
+  _compToast.style.pointerEvents = 'none';
+  _compToast.innerHTML = '<span style="flex-shrink:0;font-size:15px">⏳</span><span id="_compToastMsg">Building comp — loading takes…</span>';
+  var _compContainer = document.getElementById('toast-container');
+  if (_compContainer) _compContainer.appendChild(_compToast);
+  function _compProgress(msg, done) {
+    var el = document.getElementById('_compToastMsg');
+    if (el) el.textContent = msg;
+    _setStatus(msg);
+    if (done && _compToast.parentNode) {
+      _compToast.querySelector('span').textContent = '✓';
+      _compToast.className = 'toast toast-success';
+      setTimeout(function() {
+        _compToast.classList.add('toast-out');
+        _compToast.addEventListener('animationend', function() { _compToast.remove(); }, { once: true });
+      }, 2500);
+    }
+  }
+  _compProgress('Building comp — loading takes…');
 
   /* Build regions from cuts */
   var regions = [];
@@ -44157,7 +44182,7 @@ function ftCompCommit() {
         _mtCreateCtxSync();
         bufferMap[takeId] = await _mtAudioCtx.decodeAudioData(arrBuf.slice(0));
         loadedCount++;
-        _setStatus('Building comp — loaded ' + loadedCount + '/' + neededCount + ' takes…');
+        _compProgress('Building comp — loaded ' + loadedCount + '/' + neededCount + ' takes…');
       } catch(e) {
         console.error('[FT] Failed to load take buffer for comp:', takeId, e);
       }
@@ -44165,7 +44190,7 @@ function ftCompCommit() {
   });
 
   Promise.all(loadPromises).then(function() {
-    _setStatus('Building comp — stitching audio…');
+    _compProgress('Building comp — stitching audio…');
 
     /* Create output buffer — same sample rate, mono or stereo matching first available buffer */
     var sampleRate = _mtAudioCtx.sampleRate;
@@ -44204,22 +44229,20 @@ function ftCompCommit() {
       }
     });
 
-    _setStatus('Building comp — encoding…');
+    _compProgress('Building comp — encoding…');
 
     /* Re-encode to WebM/Opus (matches recording format) via MediaRecorder */
     _ftEncodeViaMediaRecorder(outputBuf, function(blob, mimeType) {
-      _setStatus('Building comp — uploading…');
+      _compProgress('Building comp — uploading…');
       _uploadTake(blob, dur, mimeType, trackIdx, 'comp').then(function(result) {
         if (result) {
-          showToast('Comp take saved ✓', 'success', 3000);
-          _setStatus('Comp saved ✓');
+          _compProgress('Comp take saved ✓', true);
           vrLoadTakes().then(function() {
             ftSyncUI();
             ftDrawWaveform(trackIdx);
           });
         } else {
-          showToast('Comp upload failed.', 'error', 4000);
-          _setStatus('Comp failed');
+          _compProgress('Comp upload failed', true);
         }
 
         /* Reset comp mode */
@@ -44233,8 +44256,7 @@ function ftCompCommit() {
     });
   }).catch(function(e) {
     console.error('[FT] Comp commit error:', e);
-    showToast('Comp failed — see console.', 'error', 4000);
-    _setStatus('Comp failed');
+    _compProgress('Comp failed — see console', true);
   });
 }
 
