@@ -34851,11 +34851,12 @@ function navLyricsTap() {
   if (!getCurrentSong || !getCurrentSong()) { showNoSongModal(navLyricsTap); return; }
   // Exit Action Mode first if active
   _exitActionMode();
-  // No-op if already in lyrics/runthrough (not backend, not perf)
-  var alreadyLyrics = !window._ilPerfMode &&
+  // No-op if already in lyrics + 4-track split
+  var _already = !window._ilPerfMode &&
     window._songViewMode === 'runthrough' &&
-    !document.getElementById('backendDrawer')?.classList.contains('open');
-  if (alreadyLyrics) return;
+    !document.getElementById('backendDrawer')?.classList.contains('open') &&
+    typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track';
+  if (_already) return;
   // If in backend, switch to editor/lyrics
   if (window._songViewMode === 'backend' || document.getElementById('backendDrawer')?.classList.contains('open')) {
     if (document.getElementById('backendDrawer')?.classList.contains('open')) closeBackendDrawer();
@@ -34869,6 +34870,10 @@ function navLyricsTap() {
     if (song) ilInitAndRender(song);
   }
   _syncStickyNavBtns();
+  // Desktop: open lyrics left + 4-track right in split
+  if (window.innerWidth >= 900) {
+    _openLyrics4trackSplit();
+  }
 }
 
 function navBackendTap() {
@@ -34892,31 +34897,82 @@ function navBackendTap() {
 }
 
 // ── Unified tool button handler — exit Action Mode, no-op guard ──
+// ── Helper: open lyrics left + 4-track right in split (desktop) ──
+function _openLyrics4trackSplit() {
+  if (window.innerWidth < 900) return;
+  // Already in this layout? no-op
+  if (typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track') return;
+  // Close existing split if any
+  if (typeof _splitActive !== 'undefined' && _splitActive) closeSplitMode();
+  var ratio;
+  try { ratio = localStorage.getItem('drafthaus_split_ratio_4track'); } catch(e) {}
+  ratio = ratio || '35%';
+  document.documentElement.style.setProperty('--split-left', ratio);
+  var div = document.getElementById('splitDivider');
+  var rp  = document.getElementById('splitRightPanel');
+  if (div) div.style.left = 'calc(' + ratio + ' - 3px)';
+  if (rp)  rp.style.left = ratio;
+  openSplitMode('4track');
+}
+
 function navToolTap(toolKey) {
   // Exit Action Mode first
   _exitActionMode();
 
-  // Check if this tool is already the active one — no-op if so
+  // ── Desktop routing ──
   if (window.innerWidth >= 900) {
-    // Desktop: tool is active if it's the current split-right tool
-    if (typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === toolKey) return;
-  } else {
-    // Mobile: check if the corresponding drawer/overlay is already open
-    if (toolKey === '4track' && typeof ftIsOpen === 'function' && ftIsOpen()) return;
-    if (toolKey === 'keyboard' && document.getElementById('keyboardDrawer')?.classList.contains('open')) return;
-    if (toolKey === 'sequencer' && document.getElementById('seqDrawer')?.classList.contains('open')) return;
-    if (toolKey === 'looper' && document.getElementById('looperDrawer')?.classList.contains('open')) return;
+    if (toolKey === '4track') {
+      // No-op if lyrics + 4-track split already showing
+      if (typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track') return;
+      // Ensure lyrics/runthrough in left pane
+      _ensureDetailView();
+      if (window._songViewMode !== 'runthrough') {
+        setSongViewMode('runthrough');
+        var song = getCurrentSong();
+        if (song) ilInitAndRender(song);
+      }
+      _openLyrics4trackSplit();
+      return;
+    }
+    // Drums & looper: expand fully (close split, open drawer full-screen)
+    if (toolKey === 'sequencer' || toolKey === 'looper') {
+      // No-op if this drawer is already open full-screen
+      if (toolKey === 'sequencer' && document.getElementById('seqDrawer')?.classList.contains('open')) return;
+      if (toolKey === 'looper' && document.getElementById('looperDrawer')?.classList.contains('open')) return;
+      // Close split mode if active
+      if (typeof _splitActive !== 'undefined' && _splitActive) closeSplitMode();
+      // Open the drawer fully
+      if (toolKey === 'sequencer') {
+        toggleDrawer('seqDrawer', openSeqDrawer, closeSeqDrawer);
+      } else {
+        toggleDrawer('looperDrawer', openLooperDrawer, closeLooperDrawer);
+      }
+      return;
+    }
+    // Keyboard: use existing split behavior
+    if (toolKey === 'keyboard') {
+      if (typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === 'keyboard') return;
+      _desktopOpenTool('keyboard');
+      return;
+    }
   }
 
-  // Route to the tool
+  // ── Mobile routing ──
+  // No-op if already open
+  if (toolKey === '4track' && typeof ftIsOpen === 'function' && ftIsOpen()) return;
+  if (toolKey === 'keyboard' && document.getElementById('keyboardDrawer')?.classList.contains('open')) return;
+  if (toolKey === 'sequencer' && document.getElementById('seqDrawer')?.classList.contains('open')) return;
+  if (toolKey === 'looper' && document.getElementById('looperDrawer')?.classList.contains('open')) return;
+
+  // Open on mobile
   if (toolKey === '4track') {
-    if (!_desktopOpenTool('4track')) ftToggle();
+    ftToggle();
   } else if (toolKey === 'keyboard') {
-    if (!_desktopOpenTool('keyboard')) toggleDrawer('keyboardDrawer', openKeyboardDrawer, closeKeyboardDrawer);
+    toggleDrawer('keyboardDrawer', openKeyboardDrawer, closeKeyboardDrawer);
   } else if (toolKey === 'sequencer') {
-    if (!_desktopOpenTool('sequencer')) toggleDrawer('seqDrawer', openSeqDrawer, closeSeqDrawer);
+    toggleDrawer('seqDrawer', openSeqDrawer, closeSeqDrawer);
   } else if (toolKey === 'looper') {
-    if (!_desktopOpenTool('looper')) toggleDrawer('looperDrawer', openLooperDrawer, closeLooperDrawer);
+    toggleDrawer('looperDrawer', openLooperDrawer, closeLooperDrawer);
   }
 }
 
