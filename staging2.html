@@ -43558,8 +43558,9 @@ function ftRenderTakes() {
 
     div.innerHTML = '<div class="ft-take-drag">☰</div>' +
       '<div class="ft-take-content">' +
-        '<div class="ft-take-waveform" data-ft-take-waveform>' +
+        '<div class="ft-take-waveform" data-ft-take-waveform style="position:relative;">' +
           '<canvas class="ft-take-wave-canvas" style="width:100%;height:100%;display:block;"></canvas>' +
+          '<canvas class="ft-take-comp-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>' +
         '</div>' +
         '<div class="ft-take-meta">' +
           '<div class="ft-take-name">Take ' + (idx + 1) + '</div>' +
@@ -43652,9 +43653,8 @@ function ftRenderTakes() {
           if (tEnd < dur) preview.push({ t: tEnd, takeId: null });
           preview.sort(function(a, b) { return a.t - b.t; });
 
-          /* Draw preview onto just this waveform */
-          var canvas = wf.querySelector('.ft-take-wave-canvas');
-          if (canvas) ftDrawCompPreview(canvas, take, idx, preview, dur);
+          /* Draw preview onto just this waveform's overlay */
+          ftDrawCompPreview(wf, take, idx, preview, dur);
         });
 
         wf.addEventListener('pointerup', function(e) {
@@ -43666,8 +43666,35 @@ function ftRenderTakes() {
           var tEnd   = Math.max(_dragStartPct, endPct) * dur;
           _dragStartPct = null;
 
-          /* Ignore tiny drags (< 1% of duration) — treat as misclick */
-          if ((tEnd - tStart) / dur < 0.01) return;
+          /* Ignore tiny drags (< 1% of duration) — treat as click */
+          if ((tEnd - tStart) / dur < 0.01) {
+            /* Click-to-fill: if this take has selections on both sides of the click point,
+               fill the gap between them with this take */
+            var clickT = (tStart + tEnd) / 2;
+            var dur2 = _mtMaxDuration();
+            /* Find the region at the click point */
+            var clickedCutIdx = -1;
+            for (var ci = 0; ci < ftCompCuts.length; ci++) {
+              var regionEnd = (ci < ftCompCuts.length - 1) ? ftCompCuts[ci + 1].t : dur2;
+              if (clickT >= ftCompCuts[ci].t && clickT < regionEnd) {
+                clickedCutIdx = ci;
+                break;
+              }
+            }
+            if (clickedCutIdx >= 0 && ftCompCuts[clickedCutIdx].takeId !== take.id) {
+              /* Check if any adjacent region (immediately before or after) belongs to this take */
+              var prevTakeMatch = clickedCutIdx > 0 && ftCompCuts[clickedCutIdx - 1].takeId === take.id;
+              var nextCutIdx = clickedCutIdx + 1;
+              var nextTakeMatch = nextCutIdx < ftCompCuts.length && ftCompCuts[nextCutIdx].takeId === take.id;
+              if (prevTakeMatch || nextTakeMatch) {
+                /* Fill this gap with this take */
+                ftCompCuts[clickedCutIdx].takeId = take.id;
+                ftUpdateCompSummary();
+                ftRefreshCompOverlays();
+              }
+            }
+            return;
+          }
 
           /* Remove any existing cuts inside [tStart, tEnd], then insert boundaries */
           ftCompCuts = ftCompCuts.filter(function(c) { return c.t <= tStart || c.t >= tEnd; });
@@ -43694,25 +43721,35 @@ function ftRenderTakes() {
 }
 
 /* ── Comp preview: draws a temporary overlay during drag, using a given cuts array ── */
-function ftDrawCompPreview(canvas, take, idx, cutsArr, dur) {
-  var W = canvas.width;
-  var H = canvas.height;
+function ftDrawCompPreview(wf, take, idx, cutsArr, dur) {
+  var canvas = wf.querySelector('.ft-take-comp-canvas');
+  if (!canvas) return;
+  var dpr = window.devicePixelRatio || 1;
+  var W = wf.offsetWidth;
+  var H = wf.offsetHeight;
   if (!W || !H || !dur) return;
+
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
   var ctx = canvas.getContext('2d');
-  var regionColors = ['rgba(107,181,255,0.25)', 'rgba(107,255,181,0.25)', 'rgba(255,107,157,0.25)', 'rgba(255,184,107,0.25)'];
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  var regionFill   = ['rgba(107,181,255,0.28)', 'rgba(107,255,181,0.28)', 'rgba(255,107,157,0.28)', 'rgba(255,184,107,0.28)'];
+  var regionBorder = ['rgba(107,181,255,0.80)', 'rgba(107,255,181,0.80)', 'rgba(255,107,157,0.80)', 'rgba(255,184,107,0.80)'];
   for (var i = 0; i < cutsArr.length; i++) {
     var cStart = cutsArr[i].t;
     var cEnd = (i < cutsArr.length - 1) ? cutsArr[i + 1].t : dur;
     var x1 = (cStart / dur) * W;
     var x2 = (cEnd / dur) * W;
     if (cutsArr[i].takeId === take.id) {
-      ctx.fillStyle = regionColors[idx % regionColors.length];
+      ctx.fillStyle = regionFill[idx % regionFill.length];
       ctx.fillRect(x1, 0, x2 - x1, H);
-      ctx.strokeStyle = regionColors[idx % regionColors.length].replace('0.25', '0.7');
+      ctx.strokeStyle = regionBorder[idx % regionBorder.length];
       ctx.lineWidth = 2;
       ctx.strokeRect(x1 + 1, 1, x2 - x1 - 2, H - 2);
     } else {
-      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillStyle = 'rgba(0,0,0,0.30)';
       ctx.fillRect(x1, 0, x2 - x1, H);
     }
   }
@@ -43730,39 +43767,43 @@ function ftDrawCompPreview(canvas, take, idx, cutsArr, dur) {
 
 /* ── Comp mode — NEW FEATURE (cut markers, visual segments, commit stub) ───── */
 function ftRenderCompMode(wf, take, idx) {
-  /* Overlay comp cut regions onto the take waveform canvas.
-     canvas.width/height are the physical pixel buffer dimensions
-     (already set to offsetWidth*dpr in ftDrawTakeWaveform) — use them
-     directly so we never multiply by dpr again here. */
-  var canvas = wf.querySelector('.ft-take-wave-canvas');
+  /* Use separate overlay canvas so the waveform below is always visible */
+  var canvas = wf.querySelector('.ft-take-comp-canvas');
   if (!canvas) return;
 
   var dur = _mtMaxDuration();
   if (!dur || dur <= 0) return;
 
-  /* canvas.width/height are the physical buffer size — no dpr multiply needed */
-  var W = canvas.width;
-  var H = canvas.height;
+  var dpr = window.devicePixelRatio || 1;
+  var W = wf.offsetWidth;
+  var H = wf.offsetHeight;
   if (!W || !H) return;
 
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
   var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
 
-  var regionColors = ['rgba(107,181,255,0.25)', 'rgba(107,255,181,0.25)', 'rgba(255,107,157,0.25)', 'rgba(255,184,107,0.25)'];
+  /* Color palette for each take (semi-transparent) */
+  var regionFill   = ['rgba(107,181,255,0.28)', 'rgba(107,255,181,0.28)', 'rgba(255,107,157,0.28)', 'rgba(255,184,107,0.28)'];
+  var regionBorder = ['rgba(107,181,255,0.80)', 'rgba(107,255,181,0.80)', 'rgba(255,107,157,0.80)', 'rgba(255,184,107,0.80)'];
+
   for (var i = 0; i < ftCompCuts.length; i++) {
     var cutStart = ftCompCuts[i].t;
     var cutEnd = (i < ftCompCuts.length - 1) ? ftCompCuts[i + 1].t : dur;
     var x1 = (cutStart / dur) * W;
     var x2 = (cutEnd / dur) * W;
     if (ftCompCuts[i].takeId === take.id) {
-      ctx.fillStyle = regionColors[idx % regionColors.length];
+      /* Selected region: tinted but waveform shows through */
+      ctx.fillStyle = regionFill[idx % regionFill.length];
       ctx.fillRect(x1, 0, x2 - x1, H);
-      /* Active region border */
-      ctx.strokeStyle = regionColors[idx % regionColors.length].replace('0.25', '0.7');
+      ctx.strokeStyle = regionBorder[idx % regionBorder.length];
       ctx.lineWidth = 2;
       ctx.strokeRect(x1 + 1, 1, x2 - x1 - 2, H - 2);
     } else {
-      /* Dim inactive regions */
-      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      /* Inactive regions: darken slightly but keep waveform visible */
+      ctx.fillStyle = 'rgba(0,0,0,0.30)';
       ctx.fillRect(x1, 0, x2 - x1, H);
     }
   }
@@ -43777,6 +43818,56 @@ function ftRenderCompMode(wf, take, idx) {
     ctx.moveTo(cutX, 0);
     ctx.lineTo(cutX, H);
     ctx.stroke();
+  });
+
+  /* ── Draw draggable magnet handles at each cut boundary ── */
+  _ftRenderCompHandles(wf, take, idx);
+}
+
+/* ── Magnet handles: draggable DOM elements at each cut point ── */
+function _ftRenderCompHandles(wf, take, idx) {
+  var dur = _mtMaxDuration();
+  if (!dur) return;
+
+  /* Remove old handles */
+  wf.querySelectorAll('.ft-comp-handle').forEach(function(h) { h.remove(); });
+
+  ftCompCuts.forEach(function(cut, ci) {
+    if (cut.t === 0) return; /* no handle at t=0 */
+    var pct = cut.t / dur;
+    var handle = document.createElement('div');
+    handle.className = 'ft-comp-handle';
+    handle.style.cssText = 'position:absolute;top:0;left:' + (pct * 100) + '%;width:10px;height:100%;' +
+      'transform:translateX(-50%);cursor:ew-resize;z-index:10;' +
+      'display:flex;align-items:center;justify-content:center;';
+    handle.innerHTML = '<div style="width:3px;height:70%;background:#f5a623;border-radius:2px;box-shadow:0 0 4px rgba(245,166,35,0.8);pointer-events:none;"></div>';
+
+    /* Drag to reposition cut */
+    handle.addEventListener('pointerdown', function(e) {
+      e.stopPropagation();
+      handle.setPointerCapture(e.pointerId);
+      var rect = wf.getBoundingClientRect();
+
+      function onMove(ev) {
+        var newPct = Math.max(0.001, Math.min(0.999, (ev.clientX - rect.left) / rect.width));
+        var newT = newPct * dur;
+        /* Clamp: must not cross adjacent cuts */
+        var prevT = ci > 0 ? ftCompCuts[ci - 1].t + 0.001 : 0.001;
+        var nextT = ci < ftCompCuts.length - 1 ? ftCompCuts[ci + 1].t - 0.001 : dur - 0.001;
+        newT = Math.max(prevT, Math.min(nextT, newT));
+        ftCompCuts[ci] = { t: newT, takeId: ftCompCuts[ci].takeId };
+        ftRefreshCompOverlays();
+        ftUpdateCompSummary();
+      }
+      function onUp() {
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+      }
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+    });
+
+    wf.appendChild(handle);
   });
 }
 
@@ -43820,6 +43911,9 @@ function ftUpdateCompSummary() {
     bar.innerHTML = '';
     var dur = _mtMaxDuration();
 
+    var t = _mtTracks[ftModalStripIdx];
+    var takes = (t && t.takes) ? t.takes : [];
+
     var regions = [];
     for (var i = 0; i < ftCompCuts.length; i++) {
       regions.push({
@@ -43828,12 +43922,22 @@ function ftUpdateCompSummary() {
         takeId: ftCompCuts[i].takeId
       });
     }
-    regions.forEach(function(r, ridx) {
+    regions.forEach(function(r) {
       var seg = document.createElement('div');
       seg.className = 'ft-comp-segment';
       seg.style.flex = r.endT - r.startT;
-      seg.classList.add('t' + ((ridx % 4) + 1));
-      seg.innerHTML = '<span class="ft-comp-segment-label">T' + ((ridx % 4) + 1) + '</span>';
+      /* Find the actual take index for this takeId so color matches the take row */
+      var takeIdx = -1;
+      for (var j = 0; j < takes.length; j++) {
+        if (takes[j] && takes[j].id === r.takeId) { takeIdx = j; break; }
+      }
+      if (takeIdx >= 0) {
+        seg.classList.add('t' + ((takeIdx % 4) + 1));
+        seg.innerHTML = '<span class="ft-comp-segment-label">T' + (takeIdx + 1) + '</span>';
+      } else {
+        seg.classList.add('empty');
+        seg.innerHTML = '<span class="ft-comp-segment-label">—</span>';
+      }
       bar.appendChild(seg);
     });
   } else {
