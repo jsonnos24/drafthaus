@@ -13521,11 +13521,11 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
 
 /* ── Vertical VU meter beside +12dB ── */
 .ft-vu-mini {
-  display: flex; gap: 2px; align-items: flex-end;
+  display: flex; gap: 2px; align-items: stretch;
   width: 20px; height: 28px;
 }
 .ft-vu-mini-bar {
-  flex: 1; min-width: 3px;
+  flex: 1; min-width: 3px; height: 100%;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 2px;
@@ -13916,7 +13916,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   padding: 20px;
   width: 100%;
   max-width: 920px;
-  max-height: 85vh;
+  max-height: 90vh;
   overflow-y: auto;
   display: flex; flex-direction: column;
   gap: 16px;
@@ -14074,6 +14074,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
 .ft-takes-list {
   display: flex; flex-direction: column; gap: 8px;
   flex: 1; overflow-y: auto;
+  padding-bottom: 80px;
 }
 
 .ft-take {
@@ -14231,6 +14232,15 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   padding: 1px 5px; border-radius: 3px;
   margin-left: 6px; vertical-align: middle;
 }
+.ft-take-comp-badge {
+  display: inline-block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: #fff; background: var(--teal);
+  padding: 1px 5px; border-radius: 3px;
+  margin-left: 6px; vertical-align: middle;
+}
 
 .ft-take.dragging {
   opacity: 0.4;
@@ -14371,9 +14381,14 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     grid-template-columns: 1fr;
   }
 
+  .ft-modal {
+    padding: 8px;
+  }
+
   .ft-sheet {
     padding: 14px;
     gap: 12px;
+    max-height: 94vh;
   }
 
   .ft-sheet-header {
@@ -38795,6 +38810,7 @@ var _mtMasterGain   = null;
 var _mtArmedTrack   = -1;   // 0–3 or -1
 var _mtIsPlaying    = false;
 var _mtPlayStartCtx = 0;    // audioCtx.currentTime when transport started
+var _mtPlayStartOffset = 0; // seek offset in seconds (so ft-drawer playhead accounts for it)
 var _mtPlayheadRaf  = null;
 var _mtRecTimer     = null;
 var _mtRecStartMs   = 0;
@@ -40012,6 +40028,7 @@ function _mtStartPlayback(offsetSec) {
   if (typeof htStartClock === 'function') htStartClock();
   _mtPlayStartCtx = _mtAudioCtx.currentTime;
   const offset = offsetSec || 0;
+  _mtPlayStartOffset = offset;
   _mtTracks.forEach((t, i) => {
     if (!t || !t.buffer) return;
     if (!t.gainNode) {
@@ -40066,6 +40083,7 @@ window.vrStop = function() {
 };
 function _mtStopAll() {
   _mtIsPlaying = false;
+  _mtPlayStartOffset = 0;
   if (typeof _bgMaybeRelease === 'function') _bgMaybeRelease();
   // Also clean up any seq-link per-track playback
   if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
@@ -40524,6 +40542,8 @@ function _vrStartTakesListener(songId) {
           _mtLoadTakeBuffer(i, t.takes[latestIdx]).catch(() => {});
         }
       }
+      // Sync ft-drawer strip badges
+      if (typeof ftSyncAllStrips === 'function') ftSyncAllStrips();
     }, err => {
       console.warn('[MT] takes listener error', err);
     });
@@ -41180,6 +41200,7 @@ window.vrToggleRec = async function() {
     // Start overdub playback for all other loaded tracks
     _mtIsPlaying = true;
     _mtPlayStartCtx = _mtAudioCtx.currentTime;
+    _mtPlayStartOffset = 0;
     const _anyODSolo = _mtTracks.some(tt => tt && tt.soloed);
     _mtTracks.forEach((t, i) => {
       if (!t || !t.buffer || i === _mtArmedTrack) return;
@@ -41399,6 +41420,8 @@ async function _mtFinishRecording(trackIdx, mimeType) {
       _mtRenderInlineTakes(trackIdx);
       _mtUpdateTakesBtn(trackIdx);
       if (typeof _mtUpdateInlineTakesLabel === 'function') _mtUpdateInlineTakesLabel(trackIdx);
+      // Sync ft-drawer strip badges (takes count, active take name)
+      if (typeof ftSyncAllStrips === 'function') ftSyncAllStrips();
       // Update dh_rec_ flag so song list checkmarks are accurate
       try { localStorage.setItem('dh_rec_' + _vrSongId, '1'); } catch(e) {}
       _setStatus('Ready — saving to cloud…');
@@ -41470,6 +41493,8 @@ async function _mtFinishRecording(trackIdx, mimeType) {
           _mtRenderTakesPanel(trackIdx);
         }
       }
+      // Sync ft-drawer after cloud save
+      if (typeof ftSyncAllStrips === 'function') ftSyncAllStrips();
     } else {
       showToast('Save failed — check connection', 'error', 4000);
       _setStatus('Save failed');
@@ -43231,7 +43256,7 @@ function ftUpdateTransport() {
 /* ── Timecodes and playheads — driven by real AudioContext clock ────────────── */
 function _ftElapsed() {
   if ((_mtIsPlaying || _vrRecording) && _mtAudioCtx && _mtPlayStartCtx !== undefined) {
-    return Math.max(0, _mtAudioCtx.currentTime - _mtPlayStartCtx);
+    return Math.max(0, (_mtAudioCtx.currentTime - _mtPlayStartCtx) + (_mtPlayStartOffset || 0));
   }
   return 0;
 }
@@ -43348,10 +43373,10 @@ function ftSetupInputGain() {
     if (el) el.textContent = (dbVal >= 0 ? '+' : '') + dbVal + ' dB';
   });
   inputSlider.addEventListener('dblclick', function() {
-    this.value = 10;                    /* default = +10 dB */
-    vrGainChange(10);
+    this.value = 0;
+    vrGainChange(0);
     var el = document.getElementById('ftInputDb');
-    if (el) el.textContent = '+10 dB';
+    if (el) el.textContent = '0 dB';
   });
 }
 
@@ -43913,8 +43938,12 @@ function ftRenderTakes() {
     return;
   }
 
-  t.takes.forEach(function(take, idx) {
-    if (!take) return;
+  /* Render newest first — build a reversed index array so idx still maps to t.takes[] */
+  var renderOrder = [];
+  for (var ri = t.takes.length - 1; ri >= 0; ri--) { if (t.takes[ri]) renderOrder.push(ri); }
+
+  renderOrder.forEach(function(idx) {
+    var take = t.takes[idx];
     var div = document.createElement('div');
     div.className = 'ft-take' + (idx === t.activeTakeIdx ? ' ft-take-active' : '');
     div.setAttribute('data-ft-take-idx', idx);
@@ -43933,11 +43962,16 @@ function ftRenderTakes() {
     } catch(e) {}
 
     var takeName = take.name || ('Take ' + (idx + 1));
+    var isComp = (take.source === 'comp');
     var rating = take.rating || 0;
     var starsHtml = '';
     for (var si = 1; si <= 5; si++) {
       starsHtml += '<button class="ft-take-star' + (rating >= si ? ' filled' : '') + '" data-ft-star="' + si + '">★</button>';
     }
+
+    var badges = '';
+    if (isComp) badges += '<span class="ft-take-comp-badge">COMP</span>';
+    if (idx === t.activeTakeIdx) badges += '<span class="ft-take-loaded-badge">LOADED</span>';
 
     div.innerHTML = '<div class="ft-take-drag" data-ft-take-drag-handle>☰</div>' +
       '<div class="ft-take-content">' +
@@ -43946,7 +43980,7 @@ function ftRenderTakes() {
           '<canvas class="ft-take-comp-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>' +
         '</div>' +
         '<div class="ft-take-meta">' +
-          '<div class="ft-take-name" contenteditable="false" data-ft-take-name>' + _escHtml(takeName) + (idx === t.activeTakeIdx ? '<span class="ft-take-loaded-badge">LOADED</span>' : '') + '</div>' +
+          '<div class="ft-take-name" contenteditable="false" data-ft-take-name>' + _escHtml(takeName) + badges + '</div>' +
           '<div class="ft-take-stars">' + starsHtml + '</div>' +
           '<div class="ft-take-info">' + Math.round(dur) + 's · ' + dateStr + '</div>' +
         '</div>' +
@@ -43955,7 +43989,7 @@ function ftRenderTakes() {
         '<button class="ft-btn sm" data-ft-take-play>▶</button>' +
         '<button class="ft-btn sm ' + loadClass + '" data-ft-take-load>LOAD</button>' +
         '<button class="ft-btn sm ' + lockClass + '" data-ft-take-lock>🔒</button>' +
-        '<button class="ft-btn sm ghost" data-ft-take-delete' + (take.locked || idx === t.activeTakeIdx ? ' disabled' : '') + '>🗑</button>' +
+        '<button class="ft-btn sm ghost" data-ft-take-delete' + (take.locked ? ' disabled' : '') + '>🗑</button>' +
       '</div>';
 
     list.appendChild(div);
@@ -43964,9 +43998,8 @@ function ftRenderTakes() {
     var nameEl = div.querySelector('[data-ft-take-name]');
     if (nameEl) {
       nameEl.addEventListener('click', function() {
-        /* Remove LOADED badge before editing */
-        var badge = nameEl.querySelector('.ft-take-loaded-badge');
-        if (badge) badge.remove();
+        /* Remove badges before editing */
+        nameEl.querySelectorAll('.ft-take-loaded-badge, .ft-take-comp-badge').forEach(function(b) { b.remove(); });
         nameEl.contentEditable = 'true';
         nameEl.focus();
         /* Select all text */
@@ -43979,11 +44012,13 @@ function ftRenderTakes() {
       nameEl.addEventListener('blur', function() {
         nameEl.contentEditable = 'false';
         /* Strip any leftover badge text */
-        var badge = nameEl.querySelector('.ft-take-loaded-badge');
-        if (badge) badge.remove();
+        nameEl.querySelectorAll('.ft-take-loaded-badge, .ft-take-comp-badge').forEach(function(b) { b.remove(); });
         var newName = nameEl.textContent.trim();
         if (!newName) { newName = 'Take ' + (idx + 1); nameEl.textContent = newName; }
-        /* Restore badge if this is the active take */
+        /* Restore badges */
+        if (take.source === 'comp') {
+          nameEl.insertAdjacentHTML('beforeend', '<span class="ft-take-comp-badge">COMP</span>');
+        }
         if (idx === t.activeTakeIdx) {
           nameEl.insertAdjacentHTML('beforeend', '<span class="ft-take-loaded-badge">LOADED</span>');
         }
@@ -44098,7 +44133,7 @@ function ftRenderTakes() {
     if (lockBtn) lockBtn.addEventListener('click', function() {
       take.locked = !take.locked;
       lockBtn.classList.toggle('ok', take.locked);
-      if (delBtn) delBtn.disabled = take.locked || idx === t.activeTakeIdx;
+      if (delBtn) delBtn.disabled = take.locked;
       /* Persist to Firestore */
       if (take.id && typeof db !== 'undefined') {
         db.collection('voice_takes').doc(take.id).update({ locked: !!take.locked }).catch(function(e) {
@@ -45346,7 +45381,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
       <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 140px;">
         <span class="ft-timecode" style="font-size: 11px; min-width: auto;">INPUT</span>
-        <input type="range" class="ft-vol-slider" data-ft-input-gain min="-24" max="24" step="1" value="10" style="flex: 1; height: 4px;">
+        <input type="range" class="ft-vol-slider" data-ft-input-gain min="-24" max="24" step="1" value="0" style="flex: 1; height: 4px;">
         <span class="ft-vol-db" id="ftInputDb">0 dB</span>
       </div>
 
@@ -46238,9 +46273,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       <div class="vr-gain-pill" id="vrGainPill" title="Input recording gain (pre-boost)">
         <span class="vr-gain-label">IN</span>
         <input type="range" class="vr-gain-slider" id="vrGainSlider"
-          min="-24" max="24" step="1" value="10"
+          min="-24" max="24" step="1" value="0"
           oninput="vrGainChange(this.value)">
-        <span class="vr-gain-db" id="vrGainDb">+10dB</span>
+        <span class="vr-gain-db" id="vrGainDb">0dB</span>
       </div>
     </div>
   </div>
