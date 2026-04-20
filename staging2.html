@@ -43623,42 +43623,108 @@ function ftRenderTakes() {
       }, 500);
     });
 
-    /* Comp mode: add click handler to waveform for cut placement */
+    /* Comp mode: drag on a waveform to mark a time range for this take */
     if (ftCompMode) {
       var wf = div.querySelector('[data-ft-take-waveform]');
       if (wf) {
         wf.style.cursor = 'crosshair';
-        wf.addEventListener('click', function(e) {
+
+        var _dragStartPct = null;
+
+        wf.addEventListener('pointerdown', function(e) {
+          e.preventDefault();
+          wf.setPointerCapture(e.pointerId);
           var rect = wf.getBoundingClientRect();
-          var clickX = e.clientX - rect.left;
-          var pct = Math.max(0, Math.min(1, clickX / rect.width));
+          _dragStartPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        });
+
+        wf.addEventListener('pointermove', function(e) {
+          if (_dragStartPct === null) return;
+          var rect = wf.getBoundingClientRect();
+          var curPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
           var dur = _mtMaxDuration();
-          var clickTime = pct * dur;
+          var tStart = Math.min(_dragStartPct, curPct) * dur;
+          var tEnd   = Math.max(_dragStartPct, curPct) * dur;
 
-          /* Find the cut region at this position and update its takeId */
-          var foundRegion = false;
-          for (var i = 0; i < ftCompCuts.length; i++) {
-            var cutStart = ftCompCuts[i].t;
-            var cutEnd = (i < ftCompCuts.length - 1) ? ftCompCuts[i + 1].t : dur;
-            if (clickTime >= cutStart && clickTime < cutEnd) {
-              ftCompCuts[i].takeId = take.id;
-              foundRegion = true;
-              break;
-            }
-          }
+          /* Live preview: build a temporary cuts array and overlay it */
+          var preview = ftCompCuts.filter(function(c) { return c.t < tStart || c.t >= tEnd; });
+          preview.push({ t: tStart, takeId: take.id });
+          if (tEnd < dur) preview.push({ t: tEnd, takeId: null });
+          preview.sort(function(a, b) { return a.t - b.t; });
 
-          /* If not found, add a new cut at this position */
-          if (!foundRegion) {
-            ftCompCuts.push({ t: clickTime, takeId: take.id });
-            ftCompCuts.sort(function(a, b) { return a.t - b.t; });
+          /* Draw preview onto just this waveform */
+          var canvas = wf.querySelector('.ft-take-wave-canvas');
+          if (canvas) ftDrawCompPreview(canvas, take, idx, preview, dur);
+        });
+
+        wf.addEventListener('pointerup', function(e) {
+          if (_dragStartPct === null) return;
+          var rect = wf.getBoundingClientRect();
+          var endPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          var dur = _mtMaxDuration();
+          var tStart = Math.min(_dragStartPct, endPct) * dur;
+          var tEnd   = Math.max(_dragStartPct, endPct) * dur;
+          _dragStartPct = null;
+
+          /* Ignore tiny drags (< 1% of duration) — treat as misclick */
+          if ((tEnd - tStart) / dur < 0.01) return;
+
+          /* Remove any existing cuts inside [tStart, tEnd], then insert boundaries */
+          ftCompCuts = ftCompCuts.filter(function(c) { return c.t <= tStart || c.t >= tEnd; });
+          ftCompCuts.push({ t: tStart, takeId: take.id });
+          if (tEnd < dur) ftCompCuts.push({ t: tEnd, takeId: null });
+          ftCompCuts.sort(function(a, b) { return a.t - b.t; });
+
+          /* If the very first cut is at t=0 with no takeId, give it null so it shows unassigned */
+          if (ftCompCuts.length && ftCompCuts[0].t === 0 && !ftCompCuts[0].takeId) {
+            ftCompCuts[0].takeId = null;
           }
 
           ftUpdateCompSummary();
-          /* Redraw overlays directly — avoids nuking the canvas via ftRenderTakes() */
+          ftRefreshCompOverlays();
+        });
+
+        wf.addEventListener('pointercancel', function() {
+          _dragStartPct = null;
           ftRefreshCompOverlays();
         });
       }
     }
+  });
+}
+
+/* ── Comp preview: draws a temporary overlay during drag, using a given cuts array ── */
+function ftDrawCompPreview(canvas, take, idx, cutsArr, dur) {
+  var W = canvas.width;
+  var H = canvas.height;
+  if (!W || !H || !dur) return;
+  var ctx = canvas.getContext('2d');
+  var regionColors = ['rgba(107,181,255,0.25)', 'rgba(107,255,181,0.25)', 'rgba(255,107,157,0.25)', 'rgba(255,184,107,0.25)'];
+  for (var i = 0; i < cutsArr.length; i++) {
+    var cStart = cutsArr[i].t;
+    var cEnd = (i < cutsArr.length - 1) ? cutsArr[i + 1].t : dur;
+    var x1 = (cStart / dur) * W;
+    var x2 = (cEnd / dur) * W;
+    if (cutsArr[i].takeId === take.id) {
+      ctx.fillStyle = regionColors[idx % regionColors.length];
+      ctx.fillRect(x1, 0, x2 - x1, H);
+      ctx.strokeStyle = regionColors[idx % regionColors.length].replace('0.25', '0.7');
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x1 + 1, 1, x2 - x1 - 2, H - 2);
+    } else {
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(x1, 0, x2 - x1, H);
+    }
+  }
+  cutsArr.forEach(function(cut) {
+    if (cut.t === 0) return;
+    var cutX = (cut.t / dur) * W;
+    ctx.strokeStyle = '#f5a623';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cutX, 0);
+    ctx.lineTo(cutX, H);
+    ctx.stroke();
   });
 }
 
@@ -43736,12 +43802,8 @@ function ftToggleCompMode() {
   ftUpdateCompSummary();
 
   if (ftCompMode) {
-    var activeTake = null;
-    var t = _mtTracks[ftModalStripIdx];
-    if (t && t.activeTakeIdx >= 0 && t.takes[t.activeTakeIdx]) {
-      activeTake = t.takes[t.activeTakeIdx];
-    }
-    ftCompCuts = [{ t: 0, takeId: activeTake ? activeTake.id : null }];
+    /* Start with no regions assigned — user drags to define selections */
+    ftCompCuts = [];
   } else {
     ftCompCuts = [];
   }
