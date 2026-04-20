@@ -4123,31 +4123,46 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .inspo-overlay.open { display: block; }
   .inspo-drawer {
-    position: fixed; top: 0; right: 0;
+    position: fixed; bottom: 0; left: 0; right: 0;
     width: 100vw; height: 100dvh;
     background: #0d0d14;
-    border-left: 1px solid rgba(200,160,255,0.3);
-    box-shadow: -8px 0 40px rgba(0,0,0,0.6);
-    transform: translateX(100%);
+    border-top: 1px solid rgba(200,160,255,0.3);
+    box-shadow: 0 -8px 40px rgba(0,0,0,0.6);
+    border-radius: 18px 18px 0 0;
+    transform: translateY(100%);
     transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
     z-index: 970; display: flex; flex-direction: column;
     overflow: hidden;
   }
-  .inspo-drawer.open { transform: translateX(0); }
+  .inspo-drawer.open { transform: translateY(0); }
+  .inspo-handle-bar {
+    display: flex; justify-content: center; align-items: center;
+    padding: 10px 0 4px; cursor: pointer; flex-shrink: 0;
+  }
+  .inspo-handle-pill {
+    width: 48px; height: 5px; border-radius: 3px;
+    background: #ff9900;
+  }
   .inspo-drawer-header {
-    padding: 16px 20px; border-bottom: 1px solid rgba(200,160,255,0.2);
+    padding: 12px 20px 16px; border-bottom: 1px solid rgba(200,160,255,0.2);
     display: flex; align-items: center; justify-content: space-between;
     flex-shrink: 0;
+  }
+  .inspo-close-btn {
+    background: none; border: 1px solid rgba(200,160,255,0.3);
+    color: var(--text); font-size: 18px; cursor: pointer;
+    padding: 4px 10px; border-radius: 6px;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .inspo-close-btn:hover {
+    background: rgba(200,160,255,0.15); border-color: rgba(200,160,255,0.5);
   }
   .inspo-drawer-title {
     font-family: 'IBM Plex Mono', monospace; font-size: 11px;
     font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
     color: var(--purple);
   }
-  .inspo-close-btn {
-    background: none; border: none; color: var(--faint);
-    font-size: 18px; cursor: pointer; padding: 4px 8px;
-  }
+  /* inspo-close-btn defined above with handle bar styles */
 
   /* DnD table */
   .inspo-table {
@@ -4300,18 +4315,7 @@ button, select, input, textarea { touch-action: manipulation; }
   }
 
 
-  /* ── Hide headers on scroll ── */
-  .site-header,
-  .sub-header {
-    transition: transform 0.3s ease, opacity 0.3s ease;
-  }
-  .site-header.header-hidden,
-  .sub-header.header-hidden,
-  .sticky-song-bar.header-hidden {
-    transform: translateY(-100%);
-    opacity: 0;
-    pointer-events: none;
-  }
+  /* ── Hide headers on scroll — DISABLED ── */
   /* Sub-header */
   .sub-header {
     position: sticky;
@@ -5815,14 +5819,23 @@ button, select, input, textarea { touch-action: manipulation; }
   .global-seq-strip::-webkit-scrollbar { display: none; }
 
 
-  /* ── Scroll-away header state ── */
-  body.header-scrolled-away .site-header {
-    transform: translateY(-100%);
-  }
-  body.header-scrolled-away .global-seq-strip {
-    top: env(safe-area-inset-top, 0px);
-  }
+  /* ── Scroll-away header state — DISABLED (always visible) ── */
 
+  /* ── Mobile drawers: respect iOS safe area + header + seq strip ── */
+  /* header (43px) + seq strip (56px) = 99px + safe-area-inset-top */
+  .ft-drawer,
+  .seq-drawer,
+  .keyboard-drawer,
+  .looper-drawer,
+  .backend-drawer,
+  .practice-drawer,
+  .inspo-drawer,
+  .mix-drawer {
+    top: calc(99px + env(safe-area-inset-top, 0px)) !important;
+    height: calc(100dvh - 99px - env(safe-area-inset-top, 0px)) !important;
+    max-height: calc(100dvh - 99px - env(safe-area-inset-top, 0px)) !important;
+    border-radius: 12px 12px 0 0;
+  }
 
   /* ── Bottom nav: icons-only redesign ─────────────────────────── */
 
@@ -27757,7 +27770,36 @@ async function loadSongsFromSheet() {
         // Load song data into memory but do NOT switch to the editor view
         currentId = restoreSong.id;
         localStorage.setItem('drafthaus-last-song', restoreSong.id);
-        // Stay on song list — don't call openSong() which switches to edit view
+        // Silently populate song fields so lyrics/4-track/drawers are ready
+        populateSongFields(restoreSong);
+        setSongViewMode('runthrough');
+        if (typeof ilInitAndRender === 'function') ilInitAndRender(restoreSong);
+        // Set up split mode silently on desktop so 4-track is ready
+        if (window.innerWidth >= 900) {
+          if (!_splitActive) {
+            _splitActive = true;
+            document.body.classList.add('split-active');
+            var _sb = document.getElementById('splitBtn');
+            if (_sb) _sb.classList.add('active');
+          }
+          if (typeof setSplitRightTool === 'function') setSplitRightTool('4track');
+        }
+        // Preload 4-track takes and loops in background
+        if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+        setTimeout(function() {
+          if (typeof mtPreloadForSong === 'function') mtPreloadForSong(restoreSong.id);
+          if (typeof loopPreloadForSong === 'function') loopPreloadForSong(restoreSong.id);
+        }, 100);
+        // If stub, fetch full song data
+        if (restoreSong._fromSheet) {
+          fetchFullSongFromSheet(restoreSong.id).then(function(full) {
+            if (full && currentId === restoreSong.id) {
+              populateSongFields(full);
+              if (typeof ilInitAndRender === 'function') ilInitAndRender(full);
+            }
+          });
+        }
+        // Stay on song list — don't call showDetail()
       }
     }
 
@@ -32858,30 +32900,8 @@ function collapseTab(tabId) {
 }
 
 
-// ── Hide headers on scroll ────────────────────────────────────────
-(function() {
-  let lastY = 0;
-  window.addEventListener('scroll', () => {
-    // Mobile: header always visible
-    if (window.innerWidth <= 768) return;
-    const y = window.scrollY;
-    const main    = document.getElementById('siteHeader');
-    const sub     = document.getElementById('subHeader');
-    const songBar = document.getElementById('stickySongBar');
-    if (y > lastY && y > 60) {
-      // Scrolling down
-      main?.classList.add('header-hidden');
-      sub?.classList.add('header-hidden');
-      songBar?.classList.add('header-hidden');
-    } else {
-      // Scrolling up
-      main?.classList.remove('header-hidden');
-      sub?.classList.remove('header-hidden');
-      songBar?.classList.remove('header-hidden');
-    }
-    lastY = y;
-  }, { passive: true });
-})();
+// ── Hide headers on scroll — DISABLED (always visible) ────────────
+// Headers and global seq strip no longer hide on scroll.
 
 
 // ═══════════════════════════════════════════════════════
@@ -34902,6 +34922,8 @@ function _openLyrics4trackSplit() {
 }
 
 function navToolTap(toolKey) {
+  // New users with no current song: show prompt
+  if (!getCurrentSong || !getCurrentSong()) { showNoSongModal(function() { navToolTap(toolKey); }); return; }
   // Exit Action Mode first
   _exitActionMode();
 
@@ -43891,6 +43913,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 </div>
 
 <div class="inspo-drawer" id="inspoDrawer">
+  <div class="inspo-handle-bar" onclick="closeInspoDrawer()">
+    <div class="inspo-handle-pill"></div>
+  </div>
   <div class="inspo-drawer-header">
     <div>
       <div class="inspo-drawer-title">⚔ Inspiration Roll</div>
