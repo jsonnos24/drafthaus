@@ -1121,10 +1121,10 @@ button, select, input, textarea { touch-action: manipulation; }
      Tabs → Grid → Drummer controls stacked vertically
   ═══════════════════════════════════════════════════════ */
 
-  /* All full-screen drawers start BELOW the fixed header + seq strip (130px + safe-area) */
+  /* Seq drawer starts just below the compact seq strip (32px + safe-area) when header is hidden */
   .seq-drawer {
-    height: calc(100dvh - 130px - env(safe-area-inset-top, 0px)) !important;
-    max-height: calc(100dvh - 130px - env(safe-area-inset-top, 0px)) !important;
+    height: calc(100dvh - 32px - env(safe-area-inset-top, 0px)) !important;
+    max-height: calc(100dvh - 32px - env(safe-area-inset-top, 0px)) !important;
     border-radius: 0 !important;
   }
   /* Keyboard + looper drawers: offset top to clear header + seq strip */
@@ -1189,7 +1189,7 @@ button, select, input, textarea { touch-action: manipulation; }
     overflow-x: hidden !important;
     -webkit-overflow-scrolling: touch !important;
     overscroll-behavior-y: contain !important;
-    padding-bottom: 80px !important;
+    padding-bottom: 160px !important;
   }
 
   /* Grid pane: full width, shrinks to content */
@@ -7180,6 +7180,15 @@ body.split-active #splitRightPanel { display: flex; }
 body.split-active #splitTransportDock { display: flex; }
 @media (max-width: 768px) {
   #splitTransportDock { display: none !important; }
+  /* Show 4-track transport on mobile when ft-drawer is open */
+  body.ft-drawer-open #splitTransportDock {
+    display: flex !important;
+    bottom: calc(52px + env(safe-area-inset-bottom, 0px));
+    z-index: 99991;
+  }
+  body.ft-drawer-open #splitTransportDock .split-transport { display: none; }
+  body.ft-drawer-open #splitTransportDock .split-4t-transport { display: flex !important; }
+  body.ft-drawer-open #splitTransportDock .split-dock-right { display: none; }
 }
 /* Transport pill — wraps the button groups */
 .split-transport-pill {
@@ -14435,7 +14444,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   }
 
   .ft-stage {
-    padding: 12px;
+    padding: 12px 12px calc(120px + env(safe-area-inset-bottom, 0px));
     gap: 12px;
   }
 
@@ -20410,7 +20419,7 @@ function renderSequencerHtml(song) {
     <!-- ── Drum controls (below tabs, above grid) ── -->
     <div class="seq-drum-controls">
       <select class="seq-select" id="seqDrumPatternSel" name="drum-pattern-sel" onchange="if(this.value){applyDrumPattern(this.value)}" style="width:auto;">
-        <option value="">— Drum pattern —</option>
+        <option value="">— Pick a Drum Pattern —</option>
         <option value="rock1">Rock 1</option>
         <option value="rock2">Rock 2</option>
         <option value="waltz">Waltz</option>
@@ -35354,6 +35363,8 @@ function navLyricsTap() {
   if (!getCurrentSong || !getCurrentSong()) { showNoSongModal(navLyricsTap); return; }
   // Exit Action Mode first if active
   _exitActionMode();
+  // Close any open drawers (seq/drum, looper, keyboard, etc.)
+  closeAllDrawers();
   // If in backend, switch to editor/lyrics
   if (window._songViewMode === 'backend' || document.getElementById('backendDrawer')?.classList.contains('open')) {
     if (document.getElementById('backendDrawer')?.classList.contains('open')) closeBackendDrawer();
@@ -35378,6 +35389,8 @@ function navBackendTap() {
   if (!getCurrentSong || !getCurrentSong()) { showNoSongModal(navBackendTap); return; }
   // Exit Action Mode first if active
   _exitActionMode();
+  // Close any open drawers (seq/drum, looper, keyboard, etc.)
+  closeAllDrawers();
   // No-op if already in backend
   var isBackendDrawerOpen = !!(document.getElementById('backendDrawer')?.classList.contains('open'));
   var isBackendView = window._songViewMode === 'backend';
@@ -39095,13 +39108,19 @@ function _mtEnsureTrackObjects() {
   if (_mtTracks.length) return;
   for (let i = 0; i < 4; i++) {
     _mtTracks.push({
-      id: i, color: MT_COLORS[i], name: MT_NAMES[i],
+      id: i, color: MT_COLORS[i], name: _mtSavedLabel(i),
       buffer: null, gainNode: null, panNode: null, sourceNode: null,
       volume: _mtSavedVol(i), pan: _mtSavedPan(i),
       takes: [], activeTakeIdx: -1, duration: 0,
       mediaRecorder: null, chunks: [],
       waveCanvas: null, waveCtx: null
     });
+  }
+}
+/* Refresh track names from the current song (call when switching songs) */
+function _mtSyncTrackNames() {
+  for (var i = 0; i < _mtTracks.length; i++) {
+    _mtTracks[i].name = _mtSavedLabel(i);
   }
 }
 
@@ -43289,6 +43308,7 @@ function ftOpen() {
   if (!auth.currentUser) { showToast('Please sign in first', 'warn', 2000); return; }
   _vrSongId = currentId;
   _mtEnsureTrackObjects();
+  _mtSyncTrackNames();   // load per-song track names
 
   var overlay = document.getElementById('ftOverlay');
   var drawer = document.getElementById('ftDrawer');
@@ -43296,6 +43316,7 @@ function ftOpen() {
   overlay.classList.add('open');
   drawer.classList.add('open');
   document.body.style.overflow = 'hidden';
+  document.body.classList.add('ft-drawer-open');
 
   /* ── Critical setup from vrOpen — AudioContext + devices ── */
   /* Create AudioContext synchronously inside user gesture (iOS Safari requirement) */
@@ -43327,6 +43348,7 @@ function ftClose() {
   overlay.classList.remove('open');
   drawer.classList.remove('open');
   document.body.style.overflow = '';
+  document.body.classList.remove('ft-drawer-open');
   if (_vrRecording || _mtIsPlaying) vrStop();
   ftTickStop();
   ftCloseTakes();
