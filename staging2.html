@@ -43654,7 +43654,8 @@ function ftRenderTakes() {
           }
 
           ftUpdateCompSummary();
-          ftRenderTakes();
+          /* Redraw overlays directly — avoids nuking the canvas via ftRenderTakes() */
+          ftRefreshCompOverlays();
         });
       }
     }
@@ -43663,53 +43664,68 @@ function ftRenderTakes() {
 
 /* ── Comp mode — NEW FEATURE (cut markers, visual segments, commit stub) ───── */
 function ftRenderCompMode(wf, take, idx) {
-  /* With canvas-based waveforms, we draw cut lines directly on the canvas.
-     This is called after ftDrawTakeWaveform, so we overlay the cuts. */
+  /* Overlay comp cut regions onto the take waveform canvas.
+     canvas.width/height are the physical pixel buffer dimensions
+     (already set to offsetWidth*dpr in ftDrawTakeWaveform) — use them
+     directly so we never multiply by dpr again here. */
   var canvas = wf.querySelector('.ft-take-wave-canvas');
   if (!canvas) return;
 
   var dur = _mtMaxDuration();
   if (!dur || dur <= 0) return;
 
-  var ctx = canvas.getContext('2d');
-  var W = canvas.offsetWidth;
-  var H = canvas.offsetHeight;
-  var dpr = window.devicePixelRatio || 1;
+  /* canvas.width/height are the physical buffer size — no dpr multiply needed */
+  var W = canvas.width;
+  var H = canvas.height;
+  if (!W || !H) return;
 
-  /* Highlight regions assigned to this take */
+  var ctx = canvas.getContext('2d');
+
   var regionColors = ['rgba(107,181,255,0.25)', 'rgba(107,255,181,0.25)', 'rgba(255,107,157,0.25)', 'rgba(255,184,107,0.25)'];
   for (var i = 0; i < ftCompCuts.length; i++) {
     var cutStart = ftCompCuts[i].t;
     var cutEnd = (i < ftCompCuts.length - 1) ? ftCompCuts[i + 1].t : dur;
+    var x1 = (cutStart / dur) * W;
+    var x2 = (cutEnd / dur) * W;
     if (ftCompCuts[i].takeId === take.id) {
-      var x1 = (cutStart / dur) * W * dpr;
-      var x2 = (cutEnd / dur) * W * dpr;
       ctx.fillStyle = regionColors[idx % regionColors.length];
-      ctx.fillRect(x1, 0, x2 - x1, H * dpr);
+      ctx.fillRect(x1, 0, x2 - x1, H);
       /* Active region border */
       ctx.strokeStyle = regionColors[idx % regionColors.length].replace('0.25', '0.7');
       ctx.lineWidth = 2;
-      ctx.strokeRect(x1, 0, x2 - x1, H * dpr);
+      ctx.strokeRect(x1 + 1, 1, x2 - x1 - 2, H - 2);
     } else {
       /* Dim inactive regions */
-      var x1 = (cutStart / dur) * W * dpr;
-      var x2 = (cutEnd / dur) * W * dpr;
       ctx.fillStyle = 'rgba(0,0,0,0.4)';
-      ctx.fillRect(x1, 0, x2 - x1, H * dpr);
+      ctx.fillRect(x1, 0, x2 - x1, H);
     }
   }
 
   /* Draw cut lines */
   ftCompCuts.forEach(function(cut) {
-    if (cut.t === 0) return; /* skip the initial zero marker */
-    var cutPct = cut.t / dur;
-    var cutX = cutPct * W * dpr;
+    if (cut.t === 0) return;
+    var cutX = (cut.t / dur) * W;
     ctx.strokeStyle = '#f5a623';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(cutX, 0);
-    ctx.lineTo(cutX, H * dpr);
+    ctx.lineTo(cutX, H);
     ctx.stroke();
+  });
+}
+
+/* ── Redraw comp overlay on all currently-rendered take waveforms ── */
+function ftRefreshCompOverlays() {
+  if (!ftCompMode) return;
+  var t = _mtTracks[ftModalStripIdx];
+  if (!t || !t.takes) return;
+  /* Each take row in the DOM has data-ft-take-idx */
+  document.querySelectorAll('[data-ft-take-idx]').forEach(function(div) {
+    var idxAttr = parseInt(div.getAttribute('data-ft-take-idx'), 10);
+    var take = t.takes[idxAttr];
+    if (!take) return;
+    var wfEl = div.querySelector('[data-ft-take-waveform]');
+    if (wfEl) ftRenderCompMode(wfEl, take, idxAttr);
   });
 }
 
