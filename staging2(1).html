@@ -38634,7 +38634,7 @@ document.addEventListener('keydown', function(e) {
 // ── Constants ──────────────────────────────────────────────────
 const VR_MAX_DURATION  = 5 * 60; // 5 minutes per track
 function getVrQuotaSeconds() { return getTierLimits().recordingMinutes * 60; }
-const VR_TRASH_TTL     = 7 * 24 * 60 * 60 * 1000;
+const VR_TRASH_TTL     = 6 * 24 * 60 * 60 * 1000;
 const MT_COLORS = ['#ff6b9d','#6bc5ff','#a5ff6b','#ffb86b'];
 const MT_NAMES  = ['T1','T2','T3','T4'];
 
@@ -41305,6 +41305,16 @@ async function _mtFinishRecording(trackIdx, mimeType) {
       _mtDrawTrackWaveform(trackIdx, localBuffer, t.color);
       if (typeof ftDrawWaveform === 'function') ftDrawWaveform(trackIdx);
       const _pb = _el('mtPlayBtn'); if (_pb) _pb.disabled = false;
+      // Add a placeholder take so the count updates immediately
+      const _placeholderId = '_local_' + Date.now();
+      t.takes.push({ id: _placeholderId, duration: Math.round(durSec), trackNum: trackIdx, _local: true });
+      t.activeTakeIdx = t.takes.length - 1;
+      _mtRenderTakesPanel(trackIdx);
+      _mtRenderInlineTakes(trackIdx);
+      _mtUpdateTakesBtn(trackIdx);
+      if (typeof _mtUpdateInlineTakesLabel === 'function') _mtUpdateInlineTakesLabel(trackIdx);
+      // Update dh_rec_ flag so song list checkmarks are accurate
+      try { localStorage.setItem('dh_rec_' + _vrSongId, '1'); } catch(e) {}
       _setStatus('Ready — saving to cloud…');
       console.log('[MT] Instant local playback ready for track', trackIdx);
     }
@@ -43325,15 +43335,22 @@ function ftSetupWaveforms() {
       isDragging = false;
       var wfRect = wf.getBoundingClientRect();
       var pct = Math.max(0, Math.min(1, (e.clientX - wfRect.left) / wfRect.width));
-      /* Tap (not drag) → seek to that position */
+      /* Tap (not drag) → seek to that position and play */
       if (Math.abs(pct - dragStart) < 0.02) {
         var dur = _mtMaxDuration();
-        if (dur > 0) {
-          /* Set the seek position for the existing engine */
-          if (typeof _mtScrubOffset !== 'undefined') _mtScrubOffset = pct * dur;
-          if (typeof _mtSeekPos !== 'undefined') _mtSeekPos = pct * dur;
-          /* If not playing, start playback from that point */
-          if (!_mtIsPlaying && !_vrRecording) mtPlay(pct * dur);
+        if (dur > 0 && !_vrRecording) {
+          var seekTo = pct * dur;
+          if (_mtIsPlaying) {
+            /* Already playing — stop and restart from tapped position */
+            _mtTracks.forEach(function(tr) {
+              if (tr && tr.sourceNode) { try { tr.sourceNode.stop(); } catch(ex) {} tr.sourceNode = null; }
+            });
+            if (typeof _mtPlayheadRaf !== 'undefined' && _mtPlayheadRaf) { cancelAnimationFrame(_mtPlayheadRaf); _mtPlayheadRaf = null; }
+            _mtStartPlayback(seekTo);
+          } else {
+            /* Not playing — start from tapped position */
+            mtPlay(seekTo);
+          }
         }
       }
     });
@@ -43486,6 +43503,7 @@ function ftDrawTakeWaveform(div, take, idx) {
   var t = _mtTracks[ftModalStripIdx];
   if (t && t.activeTakeIdx === idx && t.buffer) {
     _drawTakeWaveformBuffer(canvas, ctx, W, H, mid, t.buffer, ftModalStripIdx);
+    take._buffer = t.buffer; /* cache for preview playback */
     drawn = true;
     /* Overlay comp regions immediately after sync draw */
     if (typeof ftCompMode !== 'undefined' && ftCompMode) {
@@ -43517,6 +43535,8 @@ function ftDrawTakeWaveform(div, take, idx) {
         ctx.fillStyle = 'rgba(255,255,255,0.06)';
         ctx.fillRect(0, mid - 0.5, W, 1);
         _drawTakeWaveformBuffer(canvas, ctx, W, H, mid, audioBuf, ftModalStripIdx);
+        /* Cache decoded buffer on take for instant preview playback */
+        take._buffer = audioBuf;
         /* Overlay comp regions after async draw completes */
         if (typeof ftCompMode !== 'undefined' && ftCompMode) {
           ftRenderCompMode(wfDiv, take, idx);
@@ -43618,7 +43638,71 @@ function ftCloseTakes() {
   document.body.style.overflow = '';
   ftCompMode = false;
   ftCompCuts = [];
+  ftCompStopPreview();
   ftUpdateCompSummary();
+  if (_ftPreviewSource) _ftStopPreview();
+}
+
+/* ── Take preview: play a single take directly without loading it onto the track ── */
+var _ftPreviewSource = null;
+var _ftPreviewGain   = null;
+var _ftPreviewBtn    = null;
+
+function _ftPreviewTake(take, offsetSec, btn) {
+  if (_ftPreviewSource) _ftStopPreview();
+
+  var buffer = take._buffer;
+  if (!buffer) {
+    /* Buffer not decoded yet — try loading from cache */
+    (async function() {
+      try {
+        if (typeof _mtCreateCtxSync === 'function') _mtCreateCtxSync();
+        var arrBuf = null;
+        if (typeof _mtAudioCache !== 'undefined' && take.id) arrBuf = await _mtAudioCache.get(take.id);
+        if (!arrBuf && take.downloadUrl) {
+          var resp = await fetch(take.downloadUrl);
+          arrBuf = await resp.arrayBuffer();
+        }
+        if (arrBuf) {
+          take._buffer = await _mtAudioCtx.decodeAudioData(arrBuf.slice(0));
+          _ftPreviewTake(take, offsetSec, btn);
+        }
+      } catch(e) { console.warn('[FT] preview load error', e); }
+    })();
+    return;
+  }
+
+  if (typeof _mtCreateCtxSync === 'function') _mtCreateCtxSync();
+  if (_mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(function(){});
+
+  _ftPreviewGain = _mtAudioCtx.createGain();
+  _ftPreviewGain.gain.value = 1.0;
+  _ftPreviewGain.connect(_mtMasterGain || _mtAudioCtx.destination);
+
+  _ftPreviewSource = _mtAudioCtx.createBufferSource();
+  _ftPreviewSource.buffer = buffer;
+  _ftPreviewSource.connect(_ftPreviewGain);
+  _ftPreviewSource.start(0, Math.min(offsetSec || 0, buffer.duration));
+  _ftPreviewSource.onended = function() { _ftStopPreview(); };
+
+  _ftPreviewBtn = btn;
+  if (btn) btn.classList.add('on');
+}
+
+function _ftStopPreview() {
+  if (_ftPreviewSource) {
+    try { _ftPreviewSource.stop(); } catch(e) {}
+    try { _ftPreviewSource.disconnect(); } catch(e) {}
+    _ftPreviewSource = null;
+  }
+  if (_ftPreviewGain) {
+    try { _ftPreviewGain.disconnect(); } catch(e) {}
+    _ftPreviewGain = null;
+  }
+  if (_ftPreviewBtn) {
+    _ftPreviewBtn.classList.remove('on');
+    _ftPreviewBtn = null;
+  }
 }
 
 function ftRenderTakes() {
@@ -43684,9 +43768,23 @@ function ftRenderTakes() {
     var lockBtn = div.querySelector('[data-ft-take-lock]');
     var delBtn = div.querySelector('[data-ft-take-delete]');
 
+    /* ── Preview this specific take (not just the loaded one) ── */
     if (playBtn) playBtn.addEventListener('click', function() {
-      if (_mtIsPlaying) { _mtStopAll(); playBtn.classList.remove('on'); }
-      else { mtPlay(); playBtn.classList.add('on'); }
+      if (_ftPreviewSource) { _ftStopPreview(); return; }
+      if (_mtIsPlaying) { _mtStopAll(); return; }
+      _ftPreviewTake(take, 0, playBtn);
+    });
+
+    /* ── Click on take waveform to preview from that position ── */
+    var wfEl = div.querySelector('[data-ft-take-waveform]');
+    if (wfEl) wfEl.addEventListener('click', function(e) {
+      var rect = wfEl.getBoundingClientRect();
+      var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      var takeDur = take.duration || (take._buffer ? take._buffer.duration : 0);
+      if (takeDur <= 0) return;
+      if (_ftPreviewSource) _ftStopPreview();
+      if (_mtIsPlaying) _mtStopAll();
+      _ftPreviewTake(take, pct * takeDur, playBtn);
     });
 
     if (loadBtn) loadBtn.addEventListener('click', function() {
@@ -43931,6 +44029,7 @@ function _ftRenderCompHandles(wf, take, idx) {
     var pct = cut.t / dur;
     var handle = document.createElement('div');
     handle.className = 'ft-comp-handle';
+    handle.setAttribute('data-ft-comp-cut', ci); /* tag so sibling handles can be found */
     handle.style.cssText = 'position:absolute;top:0;left:' + (pct * 100) + '%;width:14px;height:100%;' +
       'transform:translateX(-50%);cursor:ew-resize;z-index:10;' +
       'display:flex;align-items:center;justify-content:center;';
@@ -43954,7 +44053,13 @@ function _ftRenderCompHandles(wf, take, idx) {
         ftCompCuts[ci] = { t: newT, takeId: ftCompCuts[ci].takeId };
 
         /* Move THIS handle in-place instead of destroying/recreating */
-        handle.style.left = (newT / dur * 100) + '%';
+        var newLeftPct = (newT / dur * 100) + '%';
+        handle.style.left = newLeftPct;
+
+        /* ── Magnetic sync: move the same cut handle on ALL other take rows ── */
+        document.querySelectorAll('.ft-comp-handle[data-ft-comp-cut="' + ci + '"]').forEach(function(sibling) {
+          if (sibling !== handle) sibling.style.left = newLeftPct;
+        });
 
         /* Redraw canvas overlays on all take rows — but skip _ftRenderCompHandles
            to avoid destroying the handle we're currently dragging */
@@ -44048,6 +44153,7 @@ function _ftRedrawCompCanvasesOnly() {
 }
 
 function ftToggleCompMode() {
+  ftCompStopPreview();
   ftCompMode = !ftCompMode;
   var toggle = document.getElementById('ftCompModeToggle');
   if (toggle) toggle.classList.toggle('on', ftCompMode);
@@ -44108,11 +44214,183 @@ function ftUpdateCompSummary() {
 
 function ftCompClear() {
   ftCompCuts = [];
+  ftCompStopPreview();
   ftUpdateCompSummary();
   ftRenderTakes();
 }
 
+/* ── Live comp preview: schedule each comp region on the Web Audio timeline ── */
+var _ftCompPreviewSources = [];   /* active BufferSourceNodes */
+var _ftCompPreviewGain    = null;
+var _ftCompPreviewActive  = false;
+var _ftCompPreviewRaf     = null; /* playhead animation */
+var _ftCompPreviewStart   = 0;    /* audioCtx.currentTime when preview began */
+var _ftCompPreviewDur     = 0;    /* total preview duration */
+
+function ftCompPreview() {
+  /* Toggle off if already previewing */
+  if (_ftCompPreviewActive) { ftCompStopPreview(); return; }
+
+  if (!ftCompCuts || ftCompCuts.length === 0) { showToast('No comp cuts to preview.', 'warn'); return; }
+
+  /* Stop any single-take preview that might be playing */
+  if (_ftPreviewSource) _ftStopPreview();
+
+  var trackIdx = ftModalStripIdx;
+  var t = _mtTracks[trackIdx];
+  if (!t || !t.takes || t.takes.length === 0) { showToast('No takes to preview.', 'warn'); return; }
+
+  var dur = _mtMaxDuration();
+  if (!dur || dur <= 0) return;
+
+  /* Build regions */
+  var regions = [];
+  for (var i = 0; i < ftCompCuts.length; i++) {
+    regions.push({
+      startT: ftCompCuts[i].t,
+      endT: (i < ftCompCuts.length - 1) ? ftCompCuts[i + 1].t : dur,
+      takeId: ftCompCuts[i].takeId
+    });
+  }
+
+  /* Gather buffers — use take._buffer if cached, else load from IDB/network */
+  var bufferMap = {};
+  var neededIds = {};
+  regions.forEach(function(r) { if (r.takeId) neededIds[r.takeId] = true; });
+
+  var loadPromises = Object.keys(neededIds).map(function(takeId) {
+    /* Check if already cached on the take object */
+    for (var j = 0; j < t.takes.length; j++) {
+      if (t.takes[j] && t.takes[j].id === takeId && t.takes[j]._buffer) {
+        bufferMap[takeId] = t.takes[j]._buffer;
+        return Promise.resolve();
+      }
+    }
+    /* Not cached — load from IDB or network */
+    var take = null;
+    for (var j = 0; j < t.takes.length; j++) {
+      if (t.takes[j] && t.takes[j].id === takeId) { take = t.takes[j]; break; }
+    }
+    if (!take) return Promise.resolve();
+    return (async function() {
+      try {
+        var arrBuf = null;
+        if (typeof _mtAudioCache !== 'undefined' && take.id) arrBuf = await _mtAudioCache.get(take.id);
+        if (!arrBuf && take.downloadUrl) {
+          var resp = await fetch(take.downloadUrl);
+          arrBuf = await resp.arrayBuffer();
+        }
+        if (arrBuf) {
+          if (typeof _mtCreateCtxSync === 'function') _mtCreateCtxSync();
+          var decoded = await _mtAudioCtx.decodeAudioData(arrBuf.slice(0));
+          bufferMap[takeId] = decoded;
+          take._buffer = decoded; /* cache for future */
+        }
+      } catch(e) { console.warn('[FT] comp preview load error', e); }
+    })();
+  });
+
+  Promise.all(loadPromises).then(function() {
+    if (typeof _mtCreateCtxSync === 'function') _mtCreateCtxSync();
+    if (_mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(function(){});
+
+    _ftCompPreviewGain = _mtAudioCtx.createGain();
+    _ftCompPreviewGain.gain.value = 1.0;
+    _ftCompPreviewGain.connect(_mtMasterGain || _mtAudioCtx.destination);
+
+    var now = _mtAudioCtx.currentTime;
+    _ftCompPreviewStart = now;
+    _ftCompPreviewDur = dur;
+    _ftCompPreviewSources = [];
+
+    regions.forEach(function(r) {
+      var srcBuf = bufferMap[r.takeId];
+      if (!srcBuf) return;
+
+      var regionDur = r.endT - r.startT;
+      if (regionDur <= 0) return;
+
+      var source = _mtAudioCtx.createBufferSource();
+      source.buffer = srcBuf;
+      source.connect(_ftCompPreviewGain);
+
+      /* Schedule: play region of the source buffer at the matching point on the timeline */
+      var offset = r.startT;                     /* where in the buffer to start */
+      var when   = now + r.startT;               /* when on the audio timeline */
+      var clipDur = Math.min(regionDur, srcBuf.duration - offset);
+      if (clipDur > 0) {
+        source.start(when, offset, clipDur);
+        _ftCompPreviewSources.push(source);
+      }
+    });
+
+    _ftCompPreviewActive = true;
+
+    /* Update button state */
+    var btn = document.getElementById('ftCompPreviewBtn');
+    if (btn) { btn.textContent = '■ STOP'; btn.classList.add('on'); }
+
+    /* Animate a playhead cursor on the comp summary bar */
+    _ftCompPreviewAnimatePlayhead();
+
+    /* Auto-stop when preview finishes */
+    var lastSource = _ftCompPreviewSources[_ftCompPreviewSources.length - 1];
+    if (lastSource) {
+      lastSource.onended = function() {
+        if (_ftCompPreviewActive) ftCompStopPreview();
+      };
+    }
+  }).catch(function(e) {
+    console.error('[FT] comp preview error:', e);
+    showToast('Preview failed — see console', 'error', 3000);
+  });
+}
+
+function ftCompStopPreview() {
+  _ftCompPreviewSources.forEach(function(src) {
+    try { src.stop(); } catch(e) {}
+    try { src.disconnect(); } catch(e) {}
+  });
+  _ftCompPreviewSources = [];
+  if (_ftCompPreviewGain) {
+    try { _ftCompPreviewGain.disconnect(); } catch(e) {}
+    _ftCompPreviewGain = null;
+  }
+  _ftCompPreviewActive = false;
+  if (_ftCompPreviewRaf) { cancelAnimationFrame(_ftCompPreviewRaf); _ftCompPreviewRaf = null; }
+
+  /* Reset button */
+  var btn = document.getElementById('ftCompPreviewBtn');
+  if (btn) { btn.textContent = '▶ PREVIEW'; btn.classList.remove('on'); }
+
+  /* Remove playhead cursor */
+  var cursor = document.getElementById('ftCompPreviewCursor');
+  if (cursor) cursor.remove();
+}
+
+function _ftCompPreviewAnimatePlayhead() {
+  var bar = document.getElementById('ftCompBar');
+  if (!bar) return;
+  var cursor = document.getElementById('ftCompPreviewCursor');
+  if (!cursor) {
+    cursor = document.createElement('div');
+    cursor.id = 'ftCompPreviewCursor';
+    cursor.style.cssText = 'position:absolute;top:0;bottom:0;width:2px;background:#fff;z-index:5;pointer-events:none;transition:none;';
+    bar.style.position = 'relative';
+    bar.appendChild(cursor);
+  }
+  function tick() {
+    if (!_ftCompPreviewActive) return;
+    var elapsed = _mtAudioCtx.currentTime - _ftCompPreviewStart;
+    var pct = Math.min(elapsed / _ftCompPreviewDur, 1);
+    cursor.style.left = (pct * 100) + '%';
+    if (pct < 1) _ftCompPreviewRaf = requestAnimationFrame(tick);
+  }
+  _ftCompPreviewRaf = requestAnimationFrame(tick);
+}
+
 function ftCompCommit() {
+  ftCompStopPreview();
   if (!ftCompCuts || ftCompCuts.length === 0) { showToast('No comp cuts to commit.', 'warn'); return; }
   if (!auth.currentUser) { showToast('Please sign in first.', 'warn'); return; }
 
@@ -44235,7 +44513,7 @@ function ftCompCommit() {
     _mtDrawTrackWaveform(trackIdx, outputBuf, t.color);
     if (typeof ftDrawWaveform === 'function') ftDrawWaveform(trackIdx);
     var _pb = _el('mtPlayBtn'); if (_pb) _pb.disabled = false;
-    _compProgress('Comp ready — saving to cloud…');
+    _compProgress('Comp ready ✓', true);
 
     /* Reset comp mode immediately — user can play back now */
     ftCompCuts = [];
@@ -44247,10 +44525,8 @@ function ftCompCommit() {
 
     // ── Encode + upload in background — doesn't block playback ──
     _ftEncodeViaMediaRecorder(outputBuf, function(blob, mimeType) {
-      _compProgress('Building comp — uploading…');
       _uploadTake(blob, dur, mimeType, trackIdx, 'comp').then(function(result) {
         if (result) {
-          _compProgress('Comp take saved ✓', true);
           // Cache the blob in IndexedDB so reopening loads instantly
           if (typeof _mtAudioCache !== 'undefined') {
             blob.arrayBuffer().then(function(arrBuf) {
@@ -44272,13 +44548,13 @@ function ftCompCommit() {
             ftDrawWaveform(trackIdx);
           });
         } else {
-          _compProgress('Comp upload failed', true);
+          showToast('Comp upload failed', 'error', 4000);
         }
       });
     });
   }).catch(function(e) {
     console.error('[FT] Comp commit error:', e);
-    _compProgress('Comp failed — see console', true);
+    showToast('Comp failed — see console', 'error', 4000);
   });
 }
 
@@ -44441,6 +44717,7 @@ function ftInit() {
   /* Comp mode */
   _ftOn('#ftCompModeToggle', 'click', ftToggleCompMode);
   _ftOn('[data-ft-comp-clear]', 'click', ftCompClear);
+  _ftOn('[data-ft-comp-preview]', 'click', ftCompPreview);
   _ftOn('[data-ft-comp-commit]', 'click', ftCompCommit);
 
   /* Transport */
@@ -45055,6 +45332,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       </div>
       <div class="ft-comp-actions">
         <button class="ft-btn" data-ft-comp-clear>CLEAR</button>
+        <button class="ft-btn" id="ftCompPreviewBtn" data-ft-comp-preview>▶ PREVIEW</button>
         <button class="ft-btn on" data-ft-comp-commit>✓ COMMIT AS NEW TAKE</button>
       </div>
     </div>
