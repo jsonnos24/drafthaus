@@ -43913,8 +43913,6 @@ function ftRenderTakes() {
 
           /* Ignore tiny drags (< 1% of duration) — treat as click */
           if ((tEnd - tStart) / dur < 0.01) {
-            /* Click-to-fill: if this take has selections on both sides of the click point,
-               fill the gap between them with this take */
             var clickT = (tStart + tEnd) / 2;
             var dur2 = _mtMaxDuration();
             /* Find the region at the click point */
@@ -43927,16 +43925,15 @@ function ftRenderTakes() {
               }
             }
             if (clickedCutIdx >= 0 && ftCompCuts[clickedCutIdx].takeId !== take.id) {
-              /* Check if any adjacent region (immediately before or after) belongs to this take */
-              var prevTakeMatch = clickedCutIdx > 0 && ftCompCuts[clickedCutIdx - 1].takeId === take.id;
-              var nextCutIdx = clickedCutIdx + 1;
-              var nextTakeMatch = nextCutIdx < ftCompCuts.length && ftCompCuts[nextCutIdx].takeId === take.id;
-              if (prevTakeMatch && nextTakeMatch) {
-                /* Fill this gap with this take */
-                ftCompCuts[clickedCutIdx].takeId = take.id;
-                ftUpdateCompSummary();
-                ftRefreshCompOverlays();
-              }
+              /* Click on any region not owned by this take → assign it to this take */
+              ftCompCuts[clickedCutIdx].takeId = take.id;
+              ftUpdateCompSummary();
+              ftRefreshCompOverlays();
+            } else if (ftCompCuts.length === 0) {
+              /* No cuts yet — first click assigns the entire duration to this take */
+              ftCompCuts.push({ t: 0, takeId: take.id });
+              ftUpdateCompSummary();
+              ftRefreshCompOverlays();
             }
             return;
           }
@@ -44104,20 +44101,26 @@ function _ftRenderCompHandles(wf, take, idx) {
         newT = Math.max(MIN_GAP, Math.min(dur - MIN_GAP, newT));
         ftCompCuts[ci] = { t: newT, takeId: ftCompCuts[ci].takeId };
 
-        /* ── Snowplow: push neighbours that we've run into ── */
-        /* Push right: if we moved past cuts to the right, shove them forward */
+        /* ── Snowplow: push ALL neighbours in the drag direction ── */
+        /* Push right: shove every cut to the right that's too close */
         for (var ri = ci + 1; ri < ftCompCuts.length; ri++) {
           var minT = ftCompCuts[ri - 1].t + MIN_GAP;
           if (ftCompCuts[ri].t < minT) {
             ftCompCuts[ri] = { t: Math.min(minT, dur - MIN_GAP * (ftCompCuts.length - ri)), takeId: ftCompCuts[ri].takeId };
-          } else break; /* no more to push */
+          }
         }
-        /* Push left: if we moved past cuts to the left, shove them backward */
+        /* Push left: shove every cut to the left that's too close */
         for (var li = ci - 1; li >= 0; li--) {
           var maxT = ftCompCuts[li + 1].t - MIN_GAP;
           if (ftCompCuts[li].t > maxT) {
             ftCompCuts[li] = { t: Math.max(maxT, MIN_GAP * (li + 1)), takeId: ftCompCuts[li].takeId };
-          } else break;
+          }
+        }
+        /* Clamp the dragged handle itself if neighbours pushed back to the wall */
+        var wallMinT = ci > 0 ? ftCompCuts[ci - 1].t + MIN_GAP : MIN_GAP;
+        var wallMaxT = ci < ftCompCuts.length - 1 ? ftCompCuts[ci + 1].t - MIN_GAP : dur - MIN_GAP;
+        if (ftCompCuts[ci].t < wallMinT || ftCompCuts[ci].t > wallMaxT) {
+          ftCompCuts[ci] = { t: Math.max(wallMinT, Math.min(wallMaxT, ftCompCuts[ci].t)), takeId: ftCompCuts[ci].takeId };
         }
 
         /* Move THIS handle in-place */
