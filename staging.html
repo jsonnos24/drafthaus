@@ -5716,6 +5716,67 @@ button, select, input, textarea { touch-action: manipulation; }
   .bottom-nav-item.nav-keyboard .bottom-nav-label { color: #ffd166; }
   .bottom-nav-item.nav-keyboard .bottom-nav-icon { filter: drop-shadow(0 0 4px #ffd166); }
 
+  /* Songs button — gold/warm with music note icon */
+  .bottom-nav-item.nav-songs .bottom-nav-label { color: var(--gold); }
+  .bottom-nav-item.nav-songs .bottom-nav-icon {
+    color: var(--gold);
+    filter: drop-shadow(0 0 4px rgba(245,166,35,0.5));
+  }
+  .bottom-nav-item.nav-songs.active {
+    background: rgba(245,166,35,0.12);
+    border-radius: 8px;
+  }
+  .bottom-nav-item.nav-songs.active .bottom-nav-icon {
+    filter: drop-shadow(0 0 6px rgba(245,166,35,0.8));
+  }
+  /* Always show Songs label even in icons-only mode */
+  .bottom-nav-item.nav-songs .bottom-nav-label {
+    display: block !important;
+    color: var(--gold) !important;
+    font-size: 8px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.08em !important;
+  }
+
+  /* ── Mix edge tab — fixed right side ── */
+  .mix-edge-tab {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 9945;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 6px 10px 8px;
+    background: rgba(20,20,28,0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(200,160,255,0.25);
+    border-right: none;
+    border-radius: 10px 0 0 10px;
+    cursor: pointer;
+    color: #c8a0ff;
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  }
+  .mix-edge-tab:hover {
+    background: rgba(200,160,255,0.12);
+    border-color: rgba(200,160,255,0.5);
+    box-shadow: 0 0 10px rgba(200,160,255,0.2);
+  }
+  .mix-edge-tab svg { filter: drop-shadow(0 0 3px rgba(200,160,255,0.5)); }
+  .mix-edge-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    color: #c8a0ff;
+  }
+
   /* Push content down so it isn't hidden behind header + global strip; add bottom padding for bottom nav */
   body { padding-bottom: 0; }
   /* header (43px + safe-area) + seq strip (56px) = 99px + safe-area */
@@ -15322,6 +15383,11 @@ function showList() {
 function showDetail() {
   document.body.classList.remove('songlist-active');
   if (typeof _slHoverLeave === 'function') _slHoverLeave();
+  // Reset Songs button expanded state when leaving song list
+  if (typeof _songListExpanded !== 'undefined') {
+    _songListExpanded = false;
+    document.getElementById('navSongsBtn')?.classList.remove('active');
+  }
   updateSeqDrawerTab();
   document.getElementById('viewList').classList.remove('active');
   document.getElementById('viewDetail').classList.add('active');
@@ -34718,52 +34784,78 @@ function navToggleLyricsBackend() {
 }
 
 // ── 3-button bottom nav handlers ──────────────────────────────
+// ── Helper: exit Action Mode (rehearse/perf) + close its split ──
+function _exitActionMode() {
+  if (!window._ilPerfMode) return;
+  ilSetPerfMode(false);
+  if (typeof closeSplitMode === 'function' && typeof _splitActive !== 'undefined' && _splitActive) closeSplitMode();
+}
+
+// ── Track previous nav state for Songs toggle restore ──
+var _navPriorState = null; // 'action' | 'lyrics' | 'backend' | null
+
+function _navSetPriorState() {
+  if (window._ilPerfMode)           _navPriorState = 'action';
+  else if (window._songViewMode === 'backend' ||
+           document.getElementById('backendDrawer')?.classList.contains('open'))
+                                     _navPriorState = 'backend';
+  else                               _navPriorState = 'lyrics';
+}
+
 function navRehearseTap() {
   if (!getCurrentSong || !getCurrentSong()) { showNoSongModal(navRehearseTap); return; }
+  // No-op if already in Action Mode
+  if (window._ilPerfMode) return;
   // On desktop (≥900px): enter rehearse mode AND open 4-track in split pane
   if (window.innerWidth >= 900) {
-    if (window._ilPerfMode) {
-      // Already in rehearse → toggle off, close split
-      ilSetPerfMode(false);
-      if (typeof closeSplitMode === 'function' && typeof _splitActive !== 'undefined' && _splitActive) closeSplitMode();
-    } else {
-      _ensureDetailView();
-      // Close any open drawers but DON'T close split (we'll open it ourselves)
-      if (typeof _splitActive !== 'undefined' && _splitActive) closeSplitMode();
-      closeAllDrawers();
-      if (window._songViewMode !== 'runthrough') {
-        setSongViewMode('runthrough');
-        var song = getCurrentSong();
-        if (song) ilInitAndRender(song);
-      }
-      ilSetPerfMode(true);
-      // Open 4-track in split right pane — use openSplitMode directly
-      // (don't go through _desktopOpenTool which would exit perf mode)
-      setTimeout(function() {
-        // Set split ratio for 4-track
-        var ratio;
-        try { ratio = localStorage.getItem('drafthaus_split_ratio_4track'); } catch(e) {}
-        ratio = ratio || '35%';
-        document.documentElement.style.setProperty('--split-left', ratio);
-        var div = document.getElementById('splitDivider');
-        var rp  = document.getElementById('splitRightPanel');
-        if (div) div.style.left = 'calc(' + ratio + ' - 3px)';
-        if (rp)  rp.style.left = ratio;
-        openSplitMode('4track');
-        // Add perf-split hybrid class so rehearse view gets correct styling
-        document.body.classList.add('il-perf-split');
-      }, 80);
+    _ensureDetailView();
+    // Close any open split/drawers first
+    if (typeof _splitActive !== 'undefined' && _splitActive) closeSplitMode();
+    closeAllDrawers();
+    if (window._songViewMode !== 'runthrough') {
+      setSongViewMode('runthrough');
+      var song = getCurrentSong();
+      if (song) ilInitAndRender(song);
     }
+    ilSetPerfMode(true);
+    // Open 4-track in split right pane — use openSplitMode directly
+    // (don't go through _desktopOpenTool which would exit perf mode)
+    setTimeout(function() {
+      var ratio;
+      try { ratio = localStorage.getItem('drafthaus_split_ratio_4track'); } catch(e) {}
+      ratio = ratio || '35%';
+      document.documentElement.style.setProperty('--split-left', ratio);
+      var div = document.getElementById('splitDivider');
+      var rp  = document.getElementById('splitRightPanel');
+      if (div) div.style.left = 'calc(' + ratio + ' - 3px)';
+      if (rp)  rp.style.left = ratio;
+      openSplitMode('4track');
+      document.body.classList.add('il-perf-split');
+    }, 80);
   } else {
-    // Mobile: just toggle rehearse mode (no split)
-    ilTogglePerfMode();
+    // Mobile: enter rehearse mode (not a toggle — we already returned if active)
+    _ensureDetailView();
+    closeAllDrawers();
+    if (window._songViewMode !== 'runthrough') {
+      setSongViewMode('runthrough');
+      var song2 = getCurrentSong();
+      if (song2) ilInitAndRender(song2);
+      ilSetPerfMode(true);
+    } else {
+      ilSetPerfMode(true);
+    }
   }
 }
 
 function navLyricsTap() {
   if (!getCurrentSong || !getCurrentSong()) { showNoSongModal(navLyricsTap); return; }
-  // If in rehearse mode, exit first
-  if (window._ilPerfMode) ilSetPerfMode(false);
+  // Exit Action Mode first if active
+  _exitActionMode();
+  // No-op if already in lyrics/runthrough (not backend, not perf)
+  var alreadyLyrics = !window._ilPerfMode &&
+    window._songViewMode === 'runthrough' &&
+    !document.getElementById('backendDrawer')?.classList.contains('open');
+  if (alreadyLyrics) return;
   // If in backend, switch to editor/lyrics
   if (window._songViewMode === 'backend' || document.getElementById('backendDrawer')?.classList.contains('open')) {
     if (document.getElementById('backendDrawer')?.classList.contains('open')) closeBackendDrawer();
@@ -34781,25 +34873,84 @@ function navLyricsTap() {
 
 function navBackendTap() {
   if (!getCurrentSong || !getCurrentSong()) { showNoSongModal(navBackendTap); return; }
-  // If in rehearse mode, exit first
-  if (window._ilPerfMode) ilSetPerfMode(false);
-  // Toggle backend
+  // Exit Action Mode first if active
+  _exitActionMode();
+  // No-op if already in backend
   var isBackendDrawerOpen = !!(document.getElementById('backendDrawer')?.classList.contains('open'));
   var isBackendView = window._songViewMode === 'backend';
-  if (isBackendDrawerOpen) {
-    closeBackendDrawer();
-  } else if (isBackendView) {
-    stickyGoEditor();
+  if (isBackendDrawerOpen || isBackendView) return;
+  // Open backend
+  if (window.innerWidth >= 900) {
+    stickyGoBackend();
   } else {
-    if (window.innerWidth >= 900) {
-      stickyGoBackend();
+    _ensureDetailView();
+    _cleanupIlSplitMode && _cleanupIlSplitMode();
+    closeAllDrawers();
+    setSongViewMode('runthrough');
+    setTimeout(openBackendDrawer, 50);
+  }
+}
+
+// ── Unified tool button handler — exit Action Mode, no-op guard ──
+function navToolTap(toolKey) {
+  // Exit Action Mode first
+  _exitActionMode();
+
+  // Check if this tool is already the active one — no-op if so
+  if (window.innerWidth >= 900) {
+    // Desktop: tool is active if it's the current split-right tool
+    if (typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === toolKey) return;
+  } else {
+    // Mobile: check if the corresponding drawer/overlay is already open
+    if (toolKey === '4track' && typeof ftIsOpen === 'function' && ftIsOpen()) return;
+    if (toolKey === 'keyboard' && document.getElementById('keyboardDrawer')?.classList.contains('open')) return;
+    if (toolKey === 'sequencer' && document.getElementById('seqDrawer')?.classList.contains('open')) return;
+    if (toolKey === 'looper' && document.getElementById('looperDrawer')?.classList.contains('open')) return;
+  }
+
+  // Route to the tool
+  if (toolKey === '4track') {
+    if (!_desktopOpenTool('4track')) ftToggle();
+  } else if (toolKey === 'keyboard') {
+    if (!_desktopOpenTool('keyboard')) toggleDrawer('keyboardDrawer', openKeyboardDrawer, closeKeyboardDrawer);
+  } else if (toolKey === 'sequencer') {
+    if (!_desktopOpenTool('sequencer')) toggleDrawer('seqDrawer', openSeqDrawer, closeSeqDrawer);
+  } else if (toolKey === 'looper') {
+    if (!_desktopOpenTool('looper')) toggleDrawer('looperDrawer', openLooperDrawer, closeLooperDrawer);
+  }
+}
+
+// ── Songs button: expand song list, toggle back to prior state ──
+var _songListExpanded = false;
+
+function navSongsTap() {
+  if (_songListExpanded) {
+    // Restore prior state
+    _songListExpanded = false;
+    document.getElementById('navSongsBtn')?.classList.remove('active');
+    var prior = _navPriorState || 'lyrics';
+    if (prior === 'action') {
+      navRehearseTap();
+    } else if (prior === 'backend') {
+      if (getCurrentSong && getCurrentSong()) {
+        showDetail();
+        navBackendTap();
+      }
     } else {
-      _ensureDetailView();
-      _cleanupIlSplitMode && _cleanupIlSplitMode();
-      closeAllDrawers();
-      setSongViewMode('runthrough');
-      setTimeout(openBackendDrawer, 50);
+      // lyrics
+      if (getCurrentSong && getCurrentSong()) {
+        showDetail();
+        navLyricsTap();
+      }
     }
+    _navPriorState = null;
+  } else {
+    // Save current state, then show song list
+    _navSetPriorState();
+    _exitActionMode();
+    _songListExpanded = true;
+    document.getElementById('navSongsBtn')?.classList.add('active');
+    showList();
   }
 }
 
@@ -44473,7 +44624,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
   </div>
 
-  <button class="bottom-nav-item nav-mic" onclick="_exitPerfIfMobile();ftToggle()">
+  <button class="bottom-nav-item nav-mic" onclick="navToolTap('4track')">
     <span class="bottom-nav-icon">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffb8d8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="9" y="2" width="6" height="12" rx="3"/>
@@ -44484,11 +44635,11 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     </span>
     <span class="bottom-nav-label">4-Track</span>
   </button>
-  <button class="bottom-nav-item nav-keyboard" onclick="_exitPerfIfMobile();if(!_desktopOpenTool('keyboard'))toggleDrawer('keyboardDrawer',openKeyboardDrawer,closeKeyboardDrawer)">
+  <button class="bottom-nav-item nav-keyboard" onclick="navToolTap('keyboard')">
     <span class="bottom-nav-icon">🎹</span>
     <span class="bottom-nav-label">Keyboard</span>
   </button>
-  <button class="bottom-nav-item nav-sequencer" onclick="_exitPerfIfMobile();if(!_desktopOpenTool('sequencer'))toggleDrawer('seqDrawer',openSeqDrawer,closeSeqDrawer)">
+  <button class="bottom-nav-item nav-sequencer" onclick="navToolTap('sequencer')">
     <span class="bottom-nav-icon">
       <svg width="28" height="28" viewBox="0 0 100 100" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
         <!-- Snare drum shell (ellipse body) -->
@@ -44508,21 +44659,32 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     </span>
     <span class="bottom-nav-label">Drums</span>
   </button>
-  <button class="bottom-nav-item nav-looper" onclick="_exitPerfIfMobile();if(!_desktopOpenTool('looper'))toggleDrawer('looperDrawer',openLooperDrawer,closeLooperDrawer)">
+  <!-- ── Songs button — center of nav, toggles song list ── -->
+  <button class="bottom-nav-item nav-songs" id="navSongsBtn" onclick="navSongsTap()">
+    <span class="bottom-nav-icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 18V5l12-2v13"/>
+        <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+      </svg>
+    </span>
+    <span class="bottom-nav-label">Songs</span>
+  </button>
+
+  <button class="bottom-nav-item nav-looper" onclick="navToolTap('looper')">
     <span class="bottom-nav-icon">⍜</span>
     <span class="bottom-nav-label">Looper</span>
   </button>
-  <button class="bottom-nav-item nav-mix" onclick="mixToggle()">
-    <span class="bottom-nav-icon">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="currentColor"/>
-        <line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="currentColor"/>
-        <line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="currentColor"/>
-      </svg>
-    </span>
-    <span class="bottom-nav-label">Mix</span>
-  </button>
 </nav>
+
+<!-- ── Mix tab — fixed on right edge, slides drawer in from right ── -->
+<button class="mix-edge-tab" id="mixEdgeTab" onclick="mixToggle()" title="Mix">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="currentColor"/>
+    <line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="currentColor"/>
+    <line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="currentColor"/>
+  </svg>
+  <span class="mix-edge-label">Mix</span>
+</button>
 
 <!-- ── Global sequence strip — one unified tab strip below nav bar ── -->
 <div id="globalSeqStrip" class="global-seq-strip"></div>
