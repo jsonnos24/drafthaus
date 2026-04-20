@@ -926,6 +926,9 @@ select.si-tile-input { cursor: pointer; }
 /* Version badge — hidden on desktop, shown on mobile */
 .header-version { display: none; }
 
+/* Portrait drum machine hint — hidden by default, shown on mobile portrait only */
+.seq-portrait-hint { display: none; }
+
 /* Responsive */
 /* ── Responsive ────────────────────────────────────────── */
 
@@ -949,7 +952,7 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ── Header: mobile layout ── */
   /* Row 1: show Drafthaus wordmark (compact) + New + Roll + right controls */
   #headerDimGroup > div:first-child { display: flex !important; flex-direction: row !important; align-items: center !important; gap: 0 !important; }
-  #headerDimGroup > div:first-child span:last-child { display: none !important; } /* hide "Beta Build 1.5" sub-line */
+  #headerDimGroup > div:first-child > span:last-child { display: none !important; } /* hide "Beta Build 1.5" sub-line */
   .header-logo { font-size: 14px !important; }
   .header-version {
     display: inline !important;
@@ -1137,6 +1140,43 @@ button, select, input, textarea { touch-action: manipulation; }
     height: 100% !important;
     overflow: hidden !important;
     flex: 1 !important;
+  }
+
+  /* Portrait drum machine hint — shown only in portrait when seq drawer is open */
+  .seq-portrait-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 32px 24px;
+    text-align: center;
+    background: rgba(74,158,255,0.06);
+    border: 1px solid rgba(74,158,255,0.2);
+    border-radius: 12px;
+    margin: 16px;
+  }
+  .seq-portrait-hint-icon {
+    font-size: 36px;
+    color: #4a9eff;
+    animation: seqHintPulse 2s ease-in-out infinite;
+  }
+  @keyframes seqHintPulse {
+    0%, 100% { transform: rotate(0deg); opacity: 0.7; }
+    50% { transform: rotate(15deg); opacity: 1; }
+  }
+  .seq-portrait-hint-text {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: rgba(255,255,255,0.7);
+    letter-spacing: 0.03em;
+  }
+
+  /* Hide the hint in landscape — drum machine is fully usable */
+  @media (orientation: landscape) {
+    .seq-portrait-hint { display: none !important; }
   }
 
   /* Panel: vertical column stack */
@@ -13353,10 +13393,11 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
 .ft-waveform-loop {
   position: absolute;
   top: 0; bottom: 0;
-  background: rgba(126,184,255,0.15);
+  background: rgba(126,184,255,0.3);
   border-left: 2px solid var(--blue);
   border-right: 2px solid var(--blue);
   z-index: 5;
+  pointer-events: none;
 }
 
 .ft-waveform-loop-handle {
@@ -13395,6 +13436,32 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
 .ft-waveform-loop-clear:hover {
   background: rgba(255,95,95,0.2);
   border-color: var(--red);
+}
+
+.ft-waveform-loop-play {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 15;
+  width: 28px; height: 28px;
+  background: rgba(245,166,35,0.85);
+  border: none;
+  border-radius: 50%;
+  color: #0a0a0c;
+  font-size: 12px;
+  cursor: pointer;
+  display: none; align-items: center; justify-content: center;
+  transition: all 0.15s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  pointer-events: auto;
+  padding: 0 0 0 2px;
+}
+.ft-waveform-loop-play:hover {
+  background: var(--gold);
+  transform: translate(-50%, -50%) scale(1.1);
+}
+.ft-waveform-loop-play.visible {
+  display: flex;
 }
 
 .ft-waveform-hint {
@@ -15093,7 +15160,7 @@ let userTier = 'free'; // 'free' | 'basic' | 'plus' | 'pro' — loaded from Fire
 
 // ── Tier helpers ───────────────────────────────────────────────────
 const TIER_LIMITS = {
-  free:  { songs: Infinity, recordingMinutes: 15, loops: 4, tracks: 4, exports: Infinity, collab: false, uploadsPerSong: Infinity },
+  free:  { songs: Infinity, recordingMinutes: 10, loops: 4, tracks: 4, exports: Infinity, collab: false, uploadsPerSong: Infinity },
   basic: { songs: Infinity, recordingMinutes: 240, loops: 4, tracks: 4, exports: Infinity, collab: true, uploadsPerSong: Infinity },
   plus:  { songs: Infinity, recordingMinutes: 420, loops: 4, tracks: 4, exports: Infinity, collab: true, uploadsPerSong: Infinity },
   pro:   { songs: Infinity, recordingMinutes: 600, loops: 4, tracks: 4, exports: Infinity, collab: true, uploadsPerSong: Infinity },
@@ -35100,9 +35167,10 @@ function navToolTap(toolKey) {
 
   // ── Desktop routing ──
   if (window.innerWidth >= 900) {
+    var _onDetailView = document.getElementById('viewDetail')?.classList.contains('active');
     if (toolKey === '4track') {
-      // No-op if lyrics + 4-track split already showing
-      if (typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track') return;
+      // No-op if lyrics + 4-track split already showing AND we're on the detail view
+      if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track') return;
       // Ensure lyrics/runthrough in left pane
       _ensureDetailView();
       if (window._songViewMode !== 'runthrough') {
@@ -35115,8 +35183,8 @@ function navToolTap(toolKey) {
     }
     // Drums & looper: open in right split pane (75% right, 25% left lyrics)
     if (toolKey === 'sequencer' || toolKey === 'looper') {
-      // No-op if already showing this tool in split
-      if (typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === toolKey) return;
+      // No-op if already showing this tool in split AND we're on detail view
+      if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === toolKey) return;
       _ensureDetailView();
       if (window._songViewMode !== 'runthrough') {
         setSongViewMode('runthrough');
@@ -35128,7 +35196,7 @@ function navToolTap(toolKey) {
     }
     // Keyboard: use existing split behavior
     if (toolKey === 'keyboard') {
-      if (typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === 'keyboard') return;
+      if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === 'keyboard') return;
       _desktopOpenTool('keyboard');
       return;
     }
@@ -40328,8 +40396,8 @@ function _vrStartTakesListener(songId) {
           // Active take was deleted but others remain — adjust index
           t.activeTakeIdx = t.takes.length - 1;
         }
-        // If a new take appeared on a track with no buffer, auto-load it so it shows immediately
-        if (t.takes.length > prevCount && !t.buffer && t.takes.length > 0) {
+        // If a new take appeared, auto-load it so the waveform shows immediately
+        if (t.takes.length > prevCount && t.takes.length > 0) {
           const latestIdx = t.takes.length - 1;
           t.activeTakeIdx = latestIdx;
           _mtLoadTakeBuffer(i, t.takes[latestIdx]).catch(() => {});
@@ -40821,7 +40889,7 @@ async function _mtRunCountdown(cb) {
 // Uploads recording chunks to Firebase Storage as they're produced,
 // then calls a Cloud Function to stitch them into one file.
 // Falls back to legacy single-blob upload on Safari / unsupported browsers.
-const CHUNK_TIMESLICE_MS = 5000; // 5 seconds
+const CHUNK_TIMESLICE_MS = 2000; // 2 seconds
 const CHUNK_MAX_RETRIES  = 3;
 
 // Detect Safari (timeslice produces independent segments, not a continuous stream)
@@ -41160,6 +41228,8 @@ function _mtStopRecording() {
 async function _mtFinishRecording(trackIdx, mimeType) {
   const t = _mtTracks[trackIdx]; if (!t || !t.chunks.length) { _setStatus('Nothing recorded'); return; }
   const durSec = (Date.now() - _mtRecStartMs) / 1000;
+  /* Track recording time for unsigned users (no Firestore to query) */
+  if (!auth.currentUser?.uid) _unsignedRecordedSecs += durSec;
   const session = t._chunkSession; // null on legacy path
   let blob = new Blob(t.chunks, { type: mimeType });
   t.chunks = [];
@@ -41233,10 +41303,12 @@ async function _mtFinishRecording(trackIdx, mimeType) {
 }
 
 // ── Quota ──────────────────────────────────────────────────────
+var _unsignedRecordedSecs = 0; // track recording time for unsigned users in-session
+
 async function _vrGetQuota() {
   const uid = auth.currentUser?.uid;
   const quotaSecs = getTierLimits().recordingMinutes * 60;
-  if (!uid) return { used: 0, remaining: quotaSecs };
+  if (!uid) return { used: _unsignedRecordedSecs, remaining: Math.max(0, quotaSecs - _unsignedRecordedSecs) };
   try {
     const [takesSnap, trashSnap, loopsSnap] = await Promise.all([
       db.collection('voice_takes').where('userId', '==', uid).get(),
@@ -42470,9 +42542,47 @@ window.addEventListener('orientationchange', function() {
   }, 350); // wait for CSS transition + new flex sizes to settle
 });
 
-// ── Auto-open drum machine on landscape, close on portrait ──────
+// ── Auto-open drum machine on landscape, restore previous view on portrait ──────
 (function() {
   var _landscapeSeqAutoOpened = false;
+  // Snapshot of what was open before landscape auto-opened drum machine
+  var _preLandscapeState = null;
+
+  function _snapshotCurrentState() {
+    // Capture which drawers/overlays are currently open
+    var state = {
+      perfMode: !!window._ilPerfMode,
+      seqOpen: !!document.getElementById('seqDrawer')?.classList.contains('open'),
+      keyboardOpen: !!document.getElementById('keyboardDrawer')?.classList.contains('open'),
+      looperOpen: !!document.getElementById('looperDrawer')?.classList.contains('open'),
+      ftOpen: (typeof ftIsOpen === 'function' && ftIsOpen()),
+      vrOpen: !!document.getElementById('vrOverlay')?.classList.contains('vr-open'),
+    };
+    return state;
+  }
+
+  function _restoreState(state) {
+    if (!state) return;
+    // Re-open whatever was active before landscape
+    if (state.perfMode && !window._ilPerfMode) {
+      // Re-enter action/rehearse mode
+      var runBtn = document.querySelector('.nav-sub-run');
+      if (runBtn) runBtn.click();
+    }
+    if (state.keyboardOpen) {
+      if (typeof openKeyboardDrawer === 'function') openKeyboardDrawer();
+    } else if (state.looperOpen) {
+      if (typeof openLooperDrawer === 'function') openLooperDrawer();
+    } else if (state.ftOpen) {
+      if (typeof ftOpen === 'function') ftOpen();
+    } else if (state.vrOpen) {
+      if (typeof vrOpen === 'function') vrOpen();
+    } else if (state.seqOpen) {
+      // Drum machine was manually open before landscape — re-open it
+      if (typeof openSeqDrawer === 'function') openSeqDrawer();
+    }
+    // If nothing was open, just leave the user on whatever page they were on
+  }
 
   function _checkLandscapeDrumMachine() {
     var isLandscape = window.innerWidth > window.innerHeight && window.innerHeight <= 600;
@@ -42480,6 +42590,8 @@ window.addEventListener('orientationchange', function() {
     if (!isMobile) return;
 
     if (isLandscape && !_landscapeSeqAutoOpened) {
+      // Save current state before opening drum machine
+      _preLandscapeState = _snapshotCurrentState();
       // Auto-open drum machine
       var seqEl = document.getElementById('seqDrawer');
       if (seqEl && !seqEl.classList.contains('open')) {
@@ -42487,11 +42599,16 @@ window.addEventListener('orientationchange', function() {
       }
       _landscapeSeqAutoOpened = true;
     } else if (!isLandscape && _landscapeSeqAutoOpened) {
-      // Auto-close drum machine when going back to portrait
+      // Close the auto-opened drum machine
       var seqEl = document.getElementById('seqDrawer');
       if (seqEl && seqEl.classList.contains('open')) {
         if (typeof closeSeqDrawer === 'function') closeSeqDrawer();
       }
+      // Restore the previous view
+      setTimeout(function() {
+        _restoreState(_preLandscapeState);
+        _preLandscapeState = null;
+      }, 100);
       _landscapeSeqAutoOpened = false;
     }
   }
@@ -43152,14 +43269,41 @@ function ftUpdateLoopUI() {
   document.querySelectorAll('[data-ft-waveform-idx]').forEach(function(wf) {
     var loopDiv = wf.querySelector('.ft-waveform-loop');
     var clearBtn = wf.querySelector('.ft-waveform-loop-clear');
+    var playBtn = wf.querySelector('.ft-waveform-loop-play');
     if (ftLoopRegion) {
       if (loopDiv) { loopDiv.style.display = 'block'; loopDiv.style.left = (ftLoopRegion.start * 100) + '%'; loopDiv.style.right = ((1 - ftLoopRegion.end) * 100) + '%'; }
       if (clearBtn) clearBtn.style.display = 'block';
+      /* Show play button only for user-dragged sub-regions (not full-song loop) */
+      if (playBtn) playBtn.classList.toggle('visible', ftLoopRegion.start > 0.001 || ftLoopRegion.end < 0.999);
     } else {
       if (loopDiv) loopDiv.style.display = 'none';
       if (clearBtn) clearBtn.style.display = 'none';
+      if (playBtn) playBtn.classList.remove('visible');
     }
   });
+}
+
+/* ── Loop region play button — click to start looping the selected region ── */
+function ftLoopPlayClick(e) {
+  e.stopPropagation();
+  if (!ftLoopRegion) return;
+  /* Enable loop mode so the playback engine loops the region */
+  _mtLoopEnabled = true;
+  /* If already playing, stop first then restart from region start */
+  if (_mtIsPlaying) {
+    _mtTracks.forEach(function(t) { if (t && t.sourceNode) { try { t.sourceNode.stop(); } catch(ex) {} t.sourceNode = null; } });
+    if (_mtPlayheadRaf) { cancelAnimationFrame(_mtPlayheadRaf); _mtPlayheadRaf = null; }
+    _mtIsPlaying = false;
+  }
+  /* Calculate the start offset in seconds from the loop region */
+  var dur = 0;
+  _mtTracks.forEach(function(t) { if (t && t.duration && t.duration > dur) dur = t.duration; });
+  if (dur <= 0) return;
+  var startSec = ftLoopRegion.start * dur;
+  _mtStartPlayback(startSec);
+  /* Update loop button UI */
+  var loopBtnEl = document.querySelector('[data-ft-loop]');
+  if (loopBtnEl) loopBtnEl.classList.add('on');
 }
 
 /* ── Real waveform drawing — reads AudioBuffer data from _mtTracks[] ────────── */
@@ -43516,16 +43660,41 @@ function ftRenderCompMode(wf, take, idx) {
   var ctx = canvas.getContext('2d');
   var W = canvas.offsetWidth;
   var H = canvas.offsetHeight;
+  var dpr = window.devicePixelRatio || 1;
+
+  /* Highlight regions assigned to this take */
+  var regionColors = ['rgba(107,181,255,0.25)', 'rgba(107,255,181,0.25)', 'rgba(255,107,157,0.25)', 'rgba(255,184,107,0.25)'];
+  for (var i = 0; i < ftCompCuts.length; i++) {
+    var cutStart = ftCompCuts[i].t;
+    var cutEnd = (i < ftCompCuts.length - 1) ? ftCompCuts[i + 1].t : dur;
+    if (ftCompCuts[i].takeId === take.id) {
+      var x1 = (cutStart / dur) * W * dpr;
+      var x2 = (cutEnd / dur) * W * dpr;
+      ctx.fillStyle = regionColors[idx % regionColors.length];
+      ctx.fillRect(x1, 0, x2 - x1, H * dpr);
+      /* Active region border */
+      ctx.strokeStyle = regionColors[idx % regionColors.length].replace('0.25', '0.7');
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x1, 0, x2 - x1, H * dpr);
+    } else {
+      /* Dim inactive regions */
+      var x1 = (cutStart / dur) * W * dpr;
+      var x2 = (cutEnd / dur) * W * dpr;
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(x1, 0, x2 - x1, H * dpr);
+    }
+  }
 
   /* Draw cut lines */
   ftCompCuts.forEach(function(cut) {
+    if (cut.t === 0) return; /* skip the initial zero marker */
     var cutPct = cut.t / dur;
-    var cutX = cutPct * W;
-    ctx.strokeStyle = 'var(--gold)';
+    var cutX = cutPct * W * dpr;
+    ctx.strokeStyle = '#f5a623';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(cutX, 0);
-    ctx.lineTo(cutX, H);
+    ctx.lineTo(cutX, H * dpr);
     ctx.stroke();
   });
 }
@@ -44192,7 +44361,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <div class="ft-waveform-grid"></div>
             <canvas id="ft-wave-0" style="display:block;width:100%;height:100%;position:absolute;top:0;left:0;"></canvas>
             <div class="ft-waveform-playhead"></div>
-            <div class="ft-waveform-loop" style="display:none;"></div>
+            <div class="ft-waveform-loop" style="display:none;"><button class="ft-waveform-loop-play" onclick="ftLoopPlayClick(event)">▶</button></div>
             <div class="ft-waveform-loop-clear" style="display:none;">×</div>
             <div class="ft-waveform-hint">TAP · DRAG TO LOOP</div>
           </div>
@@ -44252,7 +44421,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <div class="ft-waveform-grid"></div>
             <canvas id="ft-wave-1" style="display:block;width:100%;height:100%;position:absolute;top:0;left:0;"></canvas>
             <div class="ft-waveform-playhead"></div>
-            <div class="ft-waveform-loop" style="display:none;"></div>
+            <div class="ft-waveform-loop" style="display:none;"><button class="ft-waveform-loop-play" onclick="ftLoopPlayClick(event)">▶</button></div>
             <div class="ft-waveform-loop-clear" style="display:none;">×</div>
             <div class="ft-waveform-hint">TAP · DRAG TO LOOP</div>
           </div>
@@ -44312,7 +44481,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <div class="ft-waveform-grid"></div>
             <canvas id="ft-wave-2" style="display:block;width:100%;height:100%;position:absolute;top:0;left:0;"></canvas>
             <div class="ft-waveform-playhead"></div>
-            <div class="ft-waveform-loop" style="display:none;"></div>
+            <div class="ft-waveform-loop" style="display:none;"><button class="ft-waveform-loop-play" onclick="ftLoopPlayClick(event)">▶</button></div>
             <div class="ft-waveform-loop-clear" style="display:none;">×</div>
             <div class="ft-waveform-hint">TAP · DRAG TO LOOP</div>
           </div>
@@ -44372,7 +44541,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <div class="ft-waveform-grid"></div>
             <canvas id="ft-wave-3" style="display:block;width:100%;height:100%;position:absolute;top:0;left:0;"></canvas>
             <div class="ft-waveform-playhead"></div>
-            <div class="ft-waveform-loop" style="display:none;"></div>
+            <div class="ft-waveform-loop" style="display:none;"><button class="ft-waveform-loop-play" onclick="ftLoopPlayClick(event)">▶</button></div>
             <div class="ft-waveform-loop-clear" style="display:none;">×</div>
             <div class="ft-waveform-hint">TAP · DRAG TO LOOP</div>
           </div>
@@ -44768,8 +44937,11 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 </div>
 
 <div class="seq-drawer" id="seqDrawer">
-  <!-- Portrait rotation prompt (mobile only) -->
-  <!-- Portrait rotation prompt removed — landscape auto-opens drum machine -->
+  <!-- Portrait rotation prompt (mobile only — visible when drum machine is open in portrait) -->
+  <div class="seq-portrait-hint" id="seqPortraitHint">
+    <div class="seq-portrait-hint-icon">↻</div>
+    <div class="seq-portrait-hint-text">Rotate your phone to landscape<br>for the best drum machine experience</div>
+  </div>
   <div class="seq-drawer-handle" id="seqDragHandle"></div>
   <div class="seq-drawer-body" id="seqDrawerBody">
     <div style="padding:40px;text-align:center;color:var(--faint);font-family:'IBM Plex Mono',monospace;font-size:11px;">
