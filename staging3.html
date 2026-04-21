@@ -7187,6 +7187,8 @@ body.split-active #splitRightPanel { display: flex; }
 body.split-active #splitTransportDock { display: flex; }
 @media (max-width: 768px) {
   #splitTransportDock { display: none !important; }
+  /* 4-track control bar — hidden by default, shown on mobile with ft-drawer */
+  .mt4t-settings-row { display: none !important; }
   /* Show 4-track transport on mobile ONLY when the actual ft-drawer is open
      — match shared-drawer-header bar pixel-for-pixel */
   body.ft-drawer-open:has(#ftDrawer.open) #splitTransportDock {
@@ -7196,15 +7198,25 @@ body.split-active #splitTransportDock { display: flex; }
     z-index: 99990;
     left: 0; right: 0; transform: none;
     width: 100% !important; max-width: 100% !important;
-    height: 48px; flex-shrink: 0;
+    flex-shrink: 0;
     border-radius: 0;
     background: #13141a;
     border: none; border-top: 1px solid rgba(255,255,255,0.15);
     box-shadow: 0 -4px 20px rgba(0,0,0,0.55);
     backdrop-filter: none; -webkit-backdrop-filter: none;
     padding: 0;
-    flex-direction: row; align-items: stretch !important;
+    flex-direction: column; align-items: stretch !important;
     overflow: hidden;
+  }
+  /* Show 4-track control bar on mobile */
+  body.ft-drawer-open:has(#ftDrawer.open) #splitTransportDock .mt4t-settings-row {
+    display: grid !important;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 4px 10px 4px !important;
+    gap: 6px !important;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
   }
   body.ft-drawer-open:has(#ftDrawer.open) #splitTransportDock .split-transport { display: none; }
   body.ft-drawer-open:has(#ftDrawer.open) #splitTransportDock .split-dock-right { display: none; }
@@ -7232,6 +7244,8 @@ body.split-active #splitTransportDock { display: flex; }
   }
   body.ft-drawer-open:has(#ftDrawer.open) #splitTransportDock .split-4t-transport .split-tap-desktop.split-transport-btn { display: none !important; }
 }
+/* Hide 4-track control bar on desktop — mobile only */
+.mt4t-settings-row { display: none !important; }
 /* Transport pill — wraps the button groups */
 .split-transport-pill {
   display: flex; align-items: center;
@@ -22365,6 +22379,7 @@ function syncBpmUI(rawBpm) {
   const htEl = document.getElementById('htBpmDisplay'); if (htEl) htEl.textContent = bpm;
   // Mobile control bar tap button display
   const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) ktEl.textContent = bpm;
+  const mt4tBpmEl = document.getElementById('mt4tTapBpmNum'); if (mt4tBpmEl) mt4tBpmEl.textContent = bpm;
   // Sync mobile dock summary
   if (typeof _syncMobileDock === 'function') _syncMobileDock();
 }
@@ -22380,6 +22395,7 @@ function syncSongBpmUI(rawBpm) {
   if (!document.getElementById('seqBpm')) {
     const htEl = document.getElementById('htBpmDisplay'); if (htEl) htEl.textContent = bpm;
     const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) ktEl.textContent = bpm;
+    const mt4tBpmEl2 = document.getElementById('mt4tTapBpmNum'); if (mt4tBpmEl2) mt4tBpmEl2.textContent = bpm;
     loopBpm = bpm;
     const lEl = document.getElementById('loopBpmDisplay'); if (lEl) lEl.textContent = bpm;
     const kEl = document.getElementById('kbdBpm'); if (kEl && parseInt(kEl.value) !== bpm) kEl.value = bpm;
@@ -24270,6 +24286,8 @@ function htStopClock() {
   const p = document.getElementById('htPos');  if (p) p.textContent  = '1.1';
   const st = document.getElementById('sharedTime'); if (st) st.textContent = '0:00';
   const sp = document.getElementById('sharedPos');  if (sp) sp.textContent  = '1.1';
+  const mt4tt = document.getElementById('mt4tTime'); if (mt4tt) mt4tt.textContent = '0:00';
+  const mt4tp = document.getElementById('mt4tPos');  if (mt4tp) mt4tp.textContent  = '1.1';
 }
 function _htTickClock() {
   if (!_htPlayStart) { _htRafId = null; return; }
@@ -24279,11 +24297,14 @@ function _htTickClock() {
   const timeStr  = mins + ':' + String(secs).padStart(2, '0');
   const t = document.getElementById('htTime');
   const st = document.getElementById('sharedTime');
+  const mt4tt = document.getElementById('mt4tTime');
   if (t)  t.textContent  = timeStr;
   if (st) st.textContent = timeStr;
+  if (mt4tt) mt4tt.textContent = timeStr;
   const p  = document.getElementById('htPos');
   const sp = document.getElementById('sharedPos');
-  if (p || sp) {
+  const mt4tp = document.getElementById('mt4tPos');
+  if (p || sp || mt4tp) {
     const bpm      = (typeof rtMetroBpm !== 'undefined' ? rtMetroBpm : 120) || 120;
     const timeSig  = (typeof rtMetroTime !== 'undefined' ? rtMetroTime : 4) || 4;
     const totalBeats = elapsed / (60 / bpm);
@@ -24292,6 +24313,7 @@ function _htTickClock() {
     const posStr = bar + '.' + beat;
     if (p)  p.textContent  = posStr;
     if (sp) sp.textContent = posStr;
+    if (mt4tp) mt4tp.textContent = posStr;
   }
   _htRafId = requestAnimationFrame(_htTickClock);
 }
@@ -28264,7 +28286,7 @@ function openRunThroughDrawer() {
 
   rtMetroBpm  = parseInt(song.bpm || song.sequencer?.bpm || '120', 10) || 120;
   rtMetroTime = parseInt(song.sequencer?.time || '4', 10) || 4;
-  ['rtMetroBpmDisplay','htBpmDisplay','kbdTapBpmNum'].forEach(id => {
+  ['rtMetroBpmDisplay','htBpmDisplay','kbdTapBpmNum','mt4tTapBpmNum'].forEach(id => {
     const el = document.getElementById(id); if (el) el.textContent = rtMetroBpm;
   });
   ['rtMetroTimeSel','htTimeSel'].forEach(id => {
@@ -28547,7 +28569,7 @@ function rtUpdateDots(beat) {
 
 function rtMetroDelta(d) {
   rtMetroBpm = Math.max(40, Math.min(240, rtMetroBpm + d));
-  ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay','htBpmDisplay','kbdTapBpmNum'].forEach(id => {
+  ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay','htBpmDisplay','kbdTapBpmNum','mt4tTapBpmNum'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = rtMetroBpm;
   });
@@ -28600,7 +28622,7 @@ function rtTapTempo() {
     const intervals = recent.slice(1).map((t, i) => t - recent[i]);
     const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
     rtMetroBpm = Math.round(Math.max(40, Math.min(240, 60000 / avg)));
-    ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay','htBpmDisplay','kbdTapBpmNum'].forEach(id => {
+    ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay','htBpmDisplay','kbdTapBpmNum','mt4tTapBpmNum'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.textContent = rtMetroBpm;
     });
@@ -32409,6 +32431,7 @@ function kbdTimeSigChanged(callerVal) {
   if (!val) return;
   // Keep all kbdTimeSig selects in sync (there may be more than one in the DOM)
   document.querySelectorAll('[id="kbdTimeSig"]').forEach(el => { if (el.value !== val) el.value = val; });
+  const mt4tTs = document.getElementById('mt4tTimeSig'); if (mt4tTs && mt4tTs.value !== val) mt4tTs.value = val;
   // Save to song data
   const song = getCurrentSong();
   if (song) { seqGetData(song); song.sequencer.time = val; save(); scheduleSyncToSheet(song); }
@@ -32423,6 +32446,7 @@ function kbdBarsChanged(callerVal) {
   const val = callerVal || document.getElementById('kbdBars')?.value;
   if (!val) return;
   document.querySelectorAll('[id="kbdBars"]').forEach(el => { if (el.value !== val) el.value = val; });
+  const mt4tBr = document.getElementById('mt4tBars'); if (mt4tBr && mt4tBr.value !== val) mt4tBr.value = val;
   const song = getCurrentSong();
   if (song) { seqGetData(song); song.sequencer.bars = val; save(); scheduleSyncToSheet(song); }
   const seqBarsEl = document.getElementById('seqBars');
@@ -47796,6 +47820,38 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
 <!-- ── Drawer transport dock — fixed above bottom nav (desktop, split mode only) ── -->
 <div id="splitTransportDock">
+  <!-- 4-track control bar — mobile only, mirrors sharedSettingsRow -->
+  <div id="mt4tSettingsRow" class="shared-settings-row mt4t-settings-row">
+    <div class="msr-left">
+      <button class="seq-btn tap-bpm-btn" id="mt4tTapBtn" onclick="kbdTapTempo()" title="Tap to set BPM">
+        <span class="tap-bpm-word" id="mt4tTapBpmNum">100</span>
+      </button>
+      <div class="seq-ctrl-group">
+        <select class="seq-select" id="mt4tTimeSig" onchange="kbdTimeSigChanged(this.value)">
+          <option value="4">4/4</option>
+          <option value="3">3/4</option>
+          <option value="6">6/8</option>
+          <option value="5">5/4</option>
+        </select>
+      </div>
+    </div>
+    <div class="msr-center shared-ctrl-mobile-only">
+      <span class="msr-time-val" id="mt4tTime">0:00</span>
+      <span class="msr-dot">·</span>
+      <span class="msr-pos-val" id="mt4tPos">1.1</span>
+    </div>
+    <div class="msr-right">
+      <div class="seq-ctrl-group">
+        <select class="seq-select" id="mt4tBars" onchange="kbdBarsChanged(this.value)">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="4" selected>4</option>
+          <option value="8">8</option>
+          <option value="16">16</option>
+        </select>
+      </div>
+    </div>
+  </div>
   <!-- Centred transport pill -->
   <div class="split-dock-center">
     <div class="split-transport-pill">
