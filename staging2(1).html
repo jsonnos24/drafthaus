@@ -2068,6 +2068,7 @@ button, select, input, textarea { touch-action: manipulation; }
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+    padding-bottom: 160px;
   }
   /* Grid pane: full width */
   .seq-grid-pane {
@@ -2728,9 +2729,9 @@ button, select, input, textarea { touch-action: manipulation; }
 
   .seq-drawer {
     position: fixed;
-    top: 60px; right: 0;
+    top: calc(96px + env(safe-area-inset-top, 0px)); right: 0;
     width: 100vw;
-    height: calc(100dvh - 60px);
+    height: calc(100dvh - 96px - env(safe-area-inset-top, 0px));
     background: var(--bg);
     border-left: 1px solid var(--border);
     box-shadow: -8px 0 40px rgba(0,0,0,0.5);
@@ -8874,6 +8875,9 @@ body.songlist-active #splitLeftHeader { display: none !important; }
 body.songlist-active #splitRightPanel { display: none !important; }
 body.songlist-active #splitDivider { display: none !important; }
 body.songlist-active #splitTransportDock { display: none !important; }
+/* When a drawer is open from song list, restore seq strip + transport */
+body.songlist-active.ft-drawer-open .global-seq-strip { display: flex !important; }
+body.songlist-active.ft-drawer-open #splitTransportDock { display: flex !important; }
 body.songlist-active.split-active #viewList {
   max-width: 100% !important;
   width: 100% !important;
@@ -14565,6 +14569,36 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
 /* ── Comp mode: extra-tall take waveforms for easier comping ── */
 .ft-sheet.comp-active .ft-take-waveform {
   height: 120px;
+}
+
+/* ── Takes open: full-screen takeover — hide chrome, fill viewport ─────────────────── */
+body.ft-takes-open .site-header,
+body.ft-takes-open .global-seq-strip,
+body.ft-takes-open .bottom-nav,
+body.ft-takes-open #splitTransportDock,
+body.ft-takes-open #headerTransport {
+  display: none !important;
+}
+body.ft-takes-open .ft-modal {
+  padding: 0;
+  z-index: 99999;
+}
+body.ft-takes-open .ft-sheet {
+  max-width: 100%;
+  max-height: 100%;
+  width: 100%;
+  height: 100dvh;
+  border-radius: 0;
+  border: none;
+  padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 0px);
+  box-shadow: none;
+  background: var(--bg, #0a0a0c);
+  overflow-y: hidden;
+}
+body.ft-takes-open .ft-takes-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* ── Warm mode specific ─────────────────────────────────────────────────────────────── */
@@ -31829,6 +31863,7 @@ function openKeyboardDrawer() {
   _setNavOpen('nav-keyboard', true);
   document.getElementById('keyboardDrawer').classList.add('open');
   document.getElementById('keyboardDrawerOverlay').classList.add('open');
+  if (window.innerWidth < 768) document.body.classList.add('ft-drawer-open');
   if (window.innerWidth < 900) document.getElementById('keyboardDrawerTab').style.display = 'none';
   else document.getElementById('keyboardDrawerTab').classList.add('tab-active');
   _sharedHeaderOpen('keyboard');
@@ -31912,6 +31947,7 @@ function closeKeyboardDrawer() {
   var _kbdEl = document.getElementById('keyboardDrawer');
   if (_kbdEl) { _kbdEl.classList.remove('open'); _kbdEl.style.zIndex = ''; }
   document.getElementById('keyboardDrawerOverlay').classList.remove('open');
+  if (window.innerWidth < 768) document.body.classList.remove('ft-drawer-open');
   if (window.innerWidth < 900) document.getElementById('keyboardDrawerTab').style.display = '';
   document.getElementById('keyboardDrawerTab').classList.remove('tab-active');
   _sharedHeaderClose();
@@ -31932,6 +31968,7 @@ function openSeqDrawer() {
   _setNavOpen('nav-sequencer', true);
   document.getElementById('seqDrawer').classList.add('open');
   document.getElementById('seqDrawerOverlay').classList.add('open');
+  if (window.innerWidth < 768) document.body.classList.add('ft-drawer-open');
   if (window.innerWidth < 900) document.getElementById('seqDrawerTab').style.display = 'none';
   else document.getElementById('seqDrawerTab').classList.add('tab-active');
   _sharedHeaderOpen('sequencer');
@@ -32013,6 +32050,7 @@ function closeSeqDrawer() {
   if (drawer) { drawer.style.transform = ''; drawer.style.zIndex = ''; }
   drawer.classList.remove('open');
   document.getElementById('seqDrawerOverlay').classList.remove('open');
+  if (window.innerWidth < 768) document.body.classList.remove('ft-drawer-open');
   if (window.innerWidth < 900) document.getElementById('seqDrawerTab').style.display = '';
   document.getElementById('seqDrawerTab').classList.remove('tab-active');
   _sharedHeaderClose();
@@ -33478,6 +33516,7 @@ function openLooperDrawer() {
   if (!song) { showNoSongModal(openLooperDrawer); return; }
   document.getElementById('looperDrawer').classList.add('open');
   document.getElementById('looperOverlay').classList.add('open');
+  if (window.innerWidth < 768) document.body.classList.add('ft-drawer-open');
   _sharedHeaderOpen('looper');
   // Sync shared header controls from this song
   const sd = song?.sequencer || {};
@@ -33515,6 +33554,7 @@ function closeLooperDrawer() {
   var _lpEl = document.getElementById('looperDrawer');
   if (_lpEl) { _lpEl.classList.remove('open'); _lpEl.style.zIndex = ''; }
   document.getElementById('looperOverlay').classList.remove('open');
+  if (window.innerWidth < 768) document.body.classList.remove('ft-drawer-open');
   _vuMaybeStop();
   _sharedHeaderClose();
   _drawerMobileHeaderRestore();
@@ -35506,6 +35546,8 @@ function navToolTap(toolKey) {
 
   // ── Desktop routing ──
   if (window.innerWidth >= 900) {
+    // Close any open drawers (seq/drum, looper, keyboard, etc.) before switching tools
+    closeAllDrawers();
     var _onDetailView = document.getElementById('viewDetail')?.classList.contains('active');
     var _fromSongList = !_onDetailView;
 
@@ -44069,6 +44111,7 @@ function ftOpenTakes(stripIdx) {
   var modal = document.getElementById('ftTakesModal');
   if (!modal) return;
   modal.classList.add('open');
+  document.body.classList.add('ft-takes-open');
   document.body.style.overflow = 'hidden';
 
   var t = _mtTracks[stripIdx];
@@ -44104,6 +44147,7 @@ function ftOpenTakes(stripIdx) {
 function ftCloseTakes() {
   var modal = document.getElementById('ftTakesModal');
   if (modal) modal.classList.remove('open');
+  document.body.classList.remove('ft-takes-open');
   document.body.style.overflow = '';
   ftCompMode = false;
   ftCompCuts = [];
@@ -44448,7 +44492,28 @@ function ftRenderTakes() {
       _ftPreviewTake(take, 0, playBtn);
     });
 
-    /* Waveform click-to-play removed — use ▶ button instead */
+    /* Waveform click-to-play: skip in comp mode to avoid conflict with cut handle drags */
+    var waveEl = div.querySelector('.ft-take-waveform');
+    if (waveEl) (function(_take, _waveEl) {
+      var _downX = 0, _downY = 0;
+      _waveEl.addEventListener('pointerdown', function(e) {
+        _downX = e.clientX; _downY = e.clientY;
+      });
+      _waveEl.addEventListener('pointerup', function(e) {
+        /* Skip if pointer moved (was a drag, not a click) */
+        var dx = Math.abs(e.clientX - _downX), dy = Math.abs(e.clientY - _downY);
+        if (dx > 6 || dy > 6) return;
+        /* Skip if clicking a comp cut handle */
+        if (e.target.classList.contains('ft-comp-cut-handle')) return;
+        /* Calculate seek position from click X relative to waveform */
+        var rect = _waveEl.getBoundingClientRect();
+        var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        var startAt = pct * (_take.duration || 0);
+        if (_ftPreviewSource) _ftStopPreview();
+        if (_mtIsPlaying) _mtStopAll();
+        _ftPreviewTake(_take, startAt, null);
+      });
+    })(take, waveEl);
 
     if (loadBtn) loadBtn.addEventListener('click', function() {
       mtLoadTake(ftModalStripIdx, idx);   /* existing — loads buffer, redraws waveform */
@@ -45300,6 +45365,20 @@ function ftCompCommit() {
     var toggle = document.getElementById('ftCompModeToggle');
     if (toggle) toggle.classList.remove('on');
     ftUpdateCompSummary();
+
+    /* Inject a provisional comp take so it appears in the list instantly */
+    var _provCompTake = {
+      id: '_comp_pending_' + Date.now(),
+      name: 'Comp Take',
+      source: 'comp',
+      duration: outputBuf.duration,
+      createdAt: new Date(),
+      locked: false,
+      rating: 0,
+      _provisional: true
+    };
+    t.takes.push(_provCompTake);
+    t.activeTakeIdx = t.takes.length - 1;
     ftRenderTakes();
 
     // ── Encode + upload in background — doesn't block playback ──
@@ -45324,6 +45403,7 @@ function ftCompCommit() {
               }
             }
             ftSyncUI();
+            ftRenderTakes();   // refresh takes list so comp take appears with badge
             ftDrawWaveform(trackIdx);
           });
         } else {
