@@ -13832,6 +13832,13 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   border-color: var(--border2);
   color: var(--text);
 }
+.ft-btn.ghost.confirm {
+  background: rgba(220,20,60,0.2);
+  border-color: crimson;
+  color: crimson;
+  animation: ft-pulse-delete 0.4s ease;
+}
+@keyframes ft-pulse-delete { 0%{transform:scale(1)} 50%{transform:scale(1.15)} 100%{transform:scale(1)} }
 
 /* ── Takes row ────────────────────────────────────────────────────────────────── */
 .ft-takes-row {
@@ -40233,7 +40240,7 @@ window.mtLoadTake = async function(trackIdx, takeIdx) {
 window.mtDeleteTake = function(trackIdx, takeIdx) {
   const t = _mtTracks[trackIdx]; if (!t || !t.takes || !t.takes[takeIdx]) return;
   const take = t.takes[takeIdx];
-  if (!confirm('Move Take ' + (takeIdx + 1) + ' to trash?')) return;
+  if (!take.id) return; // provisional take not yet uploaded — skip
   // Delegate to vrDeleteTake — handles Firestore delete, trash, IDB eviction,
   // and vrLoadTakes() to refresh UI. Client-side-only splice would leave the take
   // in voice_takes and it would reappear on next session open.
@@ -44745,16 +44752,31 @@ function ftRenderTakes() {
       }
     });
 
-    if (delBtn) delBtn.addEventListener('click', function() {
-      var wasActive = (idx === t.activeTakeIdx);
-      mtDeleteTake(ftModalStripIdx, idx);  /* existing — Firestore delete + trash */
-      setTimeout(function() {
-        ftOpenTakes(ftModalStripIdx);
-        if (wasActive) {
-          ftDrawWaveform(ftModalStripIdx);
+    if (delBtn) (function(_delBtn, _idx) {
+      var _confirmTimer = null;
+      _delBtn.addEventListener('click', function() {
+        if (_delBtn.classList.contains('confirm')) {
+          /* Second tap — actually delete */
+          clearTimeout(_confirmTimer);
+          _delBtn.classList.remove('confirm');
+          _delBtn.textContent = '🗑';
+          var wasActive = (_idx === t.activeTakeIdx);
+          mtDeleteTake(ftModalStripIdx, _idx);
+          setTimeout(function() {
+            ftOpenTakes(ftModalStripIdx);
+            if (wasActive) ftDrawWaveform(ftModalStripIdx);
+          }, 500);
+        } else {
+          /* First tap — show confirmation state */
+          _delBtn.classList.add('confirm');
+          _delBtn.textContent = '✕';
+          _confirmTimer = setTimeout(function() {
+            _delBtn.classList.remove('confirm');
+            _delBtn.textContent = '🗑';
+          }, 3000);
         }
-      }, 500);
-    });
+      });
+    })(delBtn, idx);
 
     /* Comp mode: drag on a waveform to mark a time range for this take */
     if (ftCompMode) {
