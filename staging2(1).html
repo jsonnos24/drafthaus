@@ -343,6 +343,7 @@ html.song-open::after {
 .sync-dot.syncing { background: var(--gold); animation: pulse 0.8s infinite; }
 .sync-dot.saved   { background: var(--teal); }
 .sync-dot.error   { background: var(--red); }
+.sync-dot.idle    { background: #555; }
 .sync-status:has(#syncDot.syncing) { color: var(--gold); }
 .sync-status:has(#syncDot.saved)   { color: var(--teal); }
 .sync-status:has(#syncDot.error)   { color: var(--red); }
@@ -2945,6 +2946,10 @@ button, select, input, textarea { touch-action: manipulation; }
   @keyframes recPulse {
     0%,100% { box-shadow: 0 0 0 rgba(255,95,95,0); }
     50%      { box-shadow: 0 0 14px rgba(255,95,95,0.7); }
+  }
+  @keyframes trialSlideDown {
+    from { transform: translateY(-100%); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
   }
   .melody-quant-btn {
     font-family: 'IBM Plex Mono', monospace; font-size: 10px;
@@ -8877,6 +8882,7 @@ body.songlist-active #splitLeftHeader { display: none !important; }
 body.songlist-active #splitRightPanel { display: none !important; }
 body.songlist-active #splitDivider { display: none !important; }
 body.songlist-active #splitTransportDock { display: none !important; }
+body.songlist-active #mt4tMobileBar { display: none !important; }
 /* When a drawer is open from song list, restore seq strip + transport */
 body.songlist-active.ft-drawer-open .global-seq-strip { display: flex !important; }
 body.songlist-active.ft-drawer-open #splitTransportDock { display: flex !important; }
@@ -14749,7 +14755,7 @@ body.split-4track-active .ft-overlay { display: none !important; }
 
 </style>
 </head>
-<body class="app-loading">
+<body class="app-loading songlist-active">
 
 <!-- Loading screen — shown until auth resolves -->
 <div id="appLoadingScreen" style="position:fixed;inset:0;z-index:99999;background:#0a0a0c;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
@@ -15301,11 +15307,11 @@ body.app-loading > *:not(#appLoadingScreen) { visibility: hidden; }
       <div class="v4-welcome-prompt" id="v4WelcomePrompt">
         <div class="v4-welcome-greeting" id="v4WelcomeGreeting">Welcome back.</div>
         <div class="v4-welcome-actions" id="v4WelcomeActions">
-          <button class="v4-welcome-btn wb-new" onclick="if(!auth.currentUser){v4RequireAuth();return;}newSong()">+ New Idea</button>
+          <button class="v4-welcome-btn wb-new" onclick="newSong()">+ New Idea</button>
           <button class="v4-welcome-btn wb-recent" id="v4WelcomeRecentBtn" style="display:none;" onclick="v4OpenRecentSong()">
             ↩ Open <span class="v4-welcome-recent-title" id="v4WelcomeRecentTitle"></span>
           </button>
-          <button class="v4-welcome-btn wb-roll" onclick="if(!auth.currentUser){v4RequireAuth();return;}toggleDrawer('inspoDrawer', openInspoDrawer, closeInspoDrawer)">⚅ Roll for Inspiration</button>
+          <button class="v4-welcome-btn wb-roll" onclick="toggleDrawer('inspoDrawer', openInspoDrawer, closeInspoDrawer)">⚅ Roll for Inspiration</button>
         </div>
       </div>
 
@@ -15322,13 +15328,6 @@ body.app-loading > *:not(#appLoadingScreen) { visibility: hidden; }
           </div>
         </div>
       </div>
-      <!-- Search bar (moved from header) -->
-      <div class="v4-search-wrap" id="v4SearchWrap">
-        <span class="v4-search-icon">🔍</span>
-        <input class="v4-search-input" id="v4SearchInput" placeholder="Search drafts…" oninput="filterSongs(this.value)" autocomplete="off">
-        <button class="v4-search-clear" id="v4SearchClear" onclick="clearSearch()" title="Clear search">×</button>
-      </div>
-
       <div class="v4-roll-hero" id="v4RollHero">
         <button class="v4-roll-dismiss" id="v4RollDismiss" onclick="v4DismissRollHero()" title="Dismiss">×</button>
         <div class="v4-roll-icon" id="v4RollIcon">⚅</div>
@@ -15337,6 +15336,13 @@ body.app-loading > *:not(#appLoadingScreen) { visibility: hidden; }
           <div class="v4-roll-sub" id="v4RollSub">A title, a mood, a key, a time-signature. <span id="v4RollResult"></span></div>
         </div>
         <button class="v4-roll-btn" onclick="toggleDrawer('inspoDrawer', openInspoDrawer, closeInspoDrawer)">Roll the dice →</button>
+      </div>
+
+      <!-- Search bar (moved from header) -->
+      <div class="v4-search-wrap" id="v4SearchWrap">
+        <span class="v4-search-icon">🔍</span>
+        <input class="v4-search-input" id="v4SearchInput" placeholder="Search drafts…" oninput="filterSongs(this.value)" autocomplete="off">
+        <button class="v4-search-clear" id="v4SearchClear" onclick="clearSearch()" title="Clear search">×</button>
       </div>
 
       <div class="v4-project-tabs" id="v4ProjectTabs"></div>
@@ -15696,6 +15702,50 @@ const TIER_LIMITS = {
   studio:     { songs: Infinity, recordingMinutes: 600, loops: 4, tracks: 4, exports: Infinity, collab: true, uploadsPerSong: Infinity },
 };
 function getTierLimits() { return TIER_LIMITS[userTier] || TIER_LIMITS.free; }
+
+// ── Trial nudge — remind unsigned users to create an account ────
+var _trialNudgeCounts = { chord: 0, note: 0, drum: 0, loop: 0 };
+var _trialNudgeLastShown = 0;
+var _TRIAL_NUDGE_COOLDOWN = 20000; // 20s between nudges so it's not annoying
+
+function _isUnsignedUser() {
+  return !auth.currentUser;
+}
+
+function _trialNudge(category, threshold) {
+  if (!_isUnsignedUser()) return;
+  if (!threshold) threshold = 3;
+  _trialNudgeCounts[category] = (_trialNudgeCounts[category] || 0) + 1;
+  if (_trialNudgeCounts[category] < threshold) return;
+  _trialNudgeCounts[category] = 0; // reset counter
+  var now = Date.now();
+  if (now - _trialNudgeLastShown < _TRIAL_NUDGE_COOLDOWN) return;
+  _trialNudgeLastShown = now;
+  _showTrialBanner();
+}
+
+function _trialNudgeImmediate(message) {
+  if (!_isUnsignedUser()) return;
+  var now = Date.now();
+  if (now - _trialNudgeLastShown < _TRIAL_NUDGE_COOLDOWN) return;
+  _trialNudgeLastShown = now;
+  _showTrialBanner(message);
+}
+
+function _showTrialBanner(message) {
+  var existing = document.getElementById('trialNudgeBanner');
+  if (existing) existing.remove();
+  var msg = message || 'Create a free account to save your work';
+  var banner = document.createElement('div');
+  banner.id = 'trialNudgeBanner';
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:200001;background:linear-gradient(135deg,#f5c842,#e6a817);color:#000;font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;text-align:center;padding:10px 40px;letter-spacing:0.03em;animation:trialSlideDown 0.3s ease;';
+  banner.innerHTML = msg +
+    ' <button onclick="v4RequireAuth();this.parentNode.remove()" style="background:#000;color:#f5c842;border:none;border-radius:6px;padding:5px 14px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;margin-left:10px;letter-spacing:0.04em;">Sign Up Free</button>' +
+    '<button onclick="this.parentNode.remove()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#000;font-size:16px;cursor:pointer;opacity:0.5;padding:4px;">✕</button>';
+  document.body.appendChild(banner);
+  // Auto-dismiss after 8 seconds
+  setTimeout(function() { if (banner.parentNode) banner.remove(); }, 8000);
+}
 
 // ── End User Agreement ──────────────────────────────────────────
 function showEulaModal() {
@@ -16767,7 +16817,7 @@ function v4RenderCard(card) {
   const titleClass = card.title ? 'v4-draft-card-title' : 'v4-draft-card-title untitled';
   const titleText = card.title || 'Untitled sketch';
   const keyChip = card.key ? `<span class="v4-meta-chip key">${v4FormatKey(card.key)}</span>` : '';
-  const playBtn = card.hasAudio ? `<button class="v4-play-demo" onclick="event.stopPropagation();if(!auth.currentUser){v4RequireAuth();return;}showToast('▶ Playing: ${titleText.replace(/'/g,'\\&#39;')}')" title="Play latest take">▶</button>` : '';
+  const playBtn = card.hasAudio ? `<button class="v4-play-demo" onclick="event.stopPropagation();showToast('▶ Playing: ${titleText.replace(/'/g,'\\&#39;')}')" title="Play latest take">▶</button>` : '';
 
   let moodHtml = '';
   if (card.moods.length > 0) {
@@ -16787,7 +16837,7 @@ function v4RenderCard(card) {
 
   return `
     <div class="v4-draft-card" draggable="true" data-id="${card.id}"
-         onclick="if(!auth.currentUser){v4RequireAuth();return;}openSong('${card.id}')"
+         onclick="openSong('${card.id}')"
          ondragstart="if(auth.currentUser){v4DragStart(event, '${card.id}');}else{event.preventDefault();}"
          ondragend="v4DragEnd(event)">
       ${cardActions}
@@ -16866,7 +16916,7 @@ function v4RenderBoard() {
           </div>
           <div class="v4-kanban-cards">
             ${ideas.map(v4RenderCard).join('')}
-            <button class="v4-add-card" onclick="if(!auth.currentUser){v4RequireAuth();return;}newSong()">+ Add idea</button>
+            <button class="v4-add-card" onclick="newSong()">+ Add idea</button>
           </div>
         </div>
         <div class="v4-kanban-col" data-status="drafting"
@@ -16877,7 +16927,7 @@ function v4RenderBoard() {
           </div>
           <div class="v4-kanban-cards">
             ${drafting.map(v4RenderCard).join('')}
-            <button class="v4-add-card" onclick="if(!auth.currentUser){v4RequireAuth();return;}newSong()">+ Add draft</button>
+            <button class="v4-add-card" onclick="newSong()">+ Add draft</button>
           </div>
         </div>
         <div class="v4-kanban-col" data-status="finished"
@@ -16888,7 +16938,7 @@ function v4RenderBoard() {
           </div>
           <div class="v4-kanban-cards">
             ${finished.map(v4RenderCard).join('')}
-            <button class="v4-add-card" onclick="if(!auth.currentUser){v4RequireAuth();return;}newSong()">+ Add finished</button>
+            <button class="v4-add-card" onclick="newSong()">+ Add finished</button>
           </div>
         </div>
       </div>
@@ -16938,7 +16988,7 @@ function v4RenderProjectTabs() {
     </button>`;
   }).join('') + `
     <div style="flex:1"></div>
-    <button class="v4-project-tab" onclick="if(!auth.currentUser){v4RequireAuth();return;}var _n=prompt('New project name:');if(_n&&_n.trim())createProject(_n.trim());">+ New project</button>
+    <button class="v4-project-tab" onclick="var _n=prompt('New project name:');if(_n&&_n.trim())createProject(_n.trim());">+ New project</button>
   `;
 }
 
@@ -20187,6 +20237,7 @@ function _midiDrumNoteOn(midiNote, velocity) {
 }
 
 function _midiNoteOn(midiNote, velocity) {
+  if (typeof _trialNudge === 'function') _trialNudge('note', 3);
   const ctx = getSeqAudioCtx();
   if (ctx.state === 'suspended') ctx.resume();
   _seqEnsureMasterGain();
@@ -22535,6 +22586,25 @@ function seqBuildGrids(song) {
   }
 
   // ── Tape Stack: build drum strips with velocity bars ──
+
+  // Play a single drum sample for the given lane (used on grid cell click)
+  function _drumPreviewHit(lane, vel) {
+    const ctx = getSeqAudioCtx();
+    if (ctx.state === 'suspended') ctx.resume();
+    _seqEnsureMasterGain();
+    const now = ctx.currentTime;
+    const v = vel || 0.8;
+    switch (lane) {
+      case 'kick':  seqPlayKick(now, v);  break;
+      case 'snare': seqPlaySnare(now, v * 0.8); break;
+      case 'hat':   seqPlayHat(now, v * 0.6);   break;
+      case 'crash': seqPlayCrash(now, v * 0.7);  break;
+      case 'clap':  seqPlayClap(now, v * 0.9);   break;
+      case 'hitom': seqPlayHiTom(now, v * 0.8);  break;
+      case 'lotom': seqPlayLoTom(now, v * 0.85); break;
+    }
+  }
+
   // Paint state for drag-to-paint and velocity-drag
   const _drumPaint = { active: false, mode: null, lane: null, elId: null, startY: 0, step: -1, visited: new Set() };
 
@@ -22586,8 +22656,10 @@ function seqBuildGrids(song) {
           _tsBuildSlot(slot, true, 0.8, lane, elId);
           _drumPaint.visited.add(i);
           seqSaveDrumLane(lane, elId);
+          _drumPreviewHit(lane, 0.8);
         } else {
           _drumPaint.mode = 'maybe-off'; // will become 'velocity' if dragged
+          _drumPreviewHit(lane, parseFloat(slot.dataset.vel || 0.8));
         }
         slot.setPointerCapture?.(e.pointerId);
       });
@@ -22603,6 +22675,7 @@ function seqBuildGrids(song) {
             if (!_drumPaint.visited.has(idx) && !target.classList.contains('drum-on')) {
               _drumPaint.visited.add(idx);
               _tsBuildSlot(target, true, 0.8, lane, elId);
+              _drumPreviewHit(lane, 0.8);
               seqSaveDrumLane(lane, elId);
             }
           }
@@ -24181,6 +24254,7 @@ document.addEventListener('click', function(e) {
 
 function seqPlay() {
   if (seqIsPlaying) return;
+  if (typeof _trialNudge === 'function') _trialNudge('chord', 3);
   _seqPlayMode = 'loop';
   seqIsPlaying = true;
   // Restore master gain (seqStop mutes it for instant silence)
@@ -26514,7 +26588,11 @@ async function syncToSheet(song) {
     clearPendingSync(song.id);
     setSyncStatus('saved', 'Saved ✓');
       } catch(e) {
-    setSyncStatus('error', 'Sync failed');
+    if (!auth.currentUser) {
+      setSyncStatus('idle', 'Local only');
+    } else {
+      setSyncStatus('error', 'Sync failed');
+    }
     console.error('Firestore sync error:', e);
   }
 }
@@ -26629,6 +26707,8 @@ let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestor
 // (signInWithRedirect removed — Safari ITP blocks cross-origin sessionStorage during OAuth redirect)
 
 auth.onAuthStateChanged(user => {
+  // Re-evaluate Roll Hero visibility based on auth state
+  if (typeof v4RestoreRollHero === 'function') v4RestoreRollHero();
   if (user) {
     // Clear any previous user's data before loading the new user's songs
     songs = [];
@@ -26988,8 +27068,6 @@ function renderInspoAscii() {
 }
 
 function openInspoDrawer() {
-  // Require sign-in before rolling
-  if (!auth.currentUser) { v4RequireAuth(); return; }
   // Mobile: only one drawer at a time
   if (window.innerWidth < 768) {
     closeAllDrawers('inspoDrawer');
@@ -28728,7 +28806,11 @@ async function loadSongsFromSheet() {
   } catch(e) {
     stopFunnyMessages();
     console.error('loadSongsFromSheet error:', e);
-    setSyncStatus('error', 'Could not load from Firestore');
+    if (!auth.currentUser) {
+      setSyncStatus('idle', 'Local only');
+    } else {
+      setSyncStatus('error', 'Could not load from Firestore');
+    }
     renderGrid();
   }
 }
@@ -33170,6 +33252,7 @@ const DRUM_PATTERNS = {
 };
 
 function applyDrumPattern(patternKey) {
+  if (typeof _trialNudge === 'function') _trialNudge('drum', 1);
   const song = getCurrentSong();
   if (!song) return;
   if (!song.sequencer) song.sequencer = {};
@@ -34748,6 +34831,7 @@ async function loopHandleTrackClick(i){
   else if(t.state==='muted')loopUnmuteTrack(i);
 }
 async function loopStartRecording(i){
+  if (typeof _trialNudge === 'function') _trialNudge('loop', 1);
   // Gate loop count for free tier
   const activeTracks = loopTracks.filter(t => t.buffer || t.state === 'recording').length;
   if (activeTracks >= getTierLimits().loops) {
@@ -38391,9 +38475,14 @@ function v4DismissRollHero() {
   localStorage.setItem('dh-roll-hero-dismissed', '1');
 }
 function v4RestoreRollHero() {
-  if (localStorage.getItem('dh-roll-hero-dismissed') === '1') {
-    var hero = document.getElementById('v4RollHero');
-    if (hero) hero.style.display = 'none';
+  var hero = document.getElementById('v4RollHero');
+  if (!hero) return;
+  // Always show for unsigned / new users — only respect dismiss for signed-in users
+  var isSignedIn = auth.currentUser && !auth.currentUser.isAnonymous;
+  if (isSignedIn && localStorage.getItem('dh-roll-hero-dismissed') === '1') {
+    hero.style.display = 'none';
+  } else {
+    hero.style.display = '';
   }
 }
 document.addEventListener('DOMContentLoaded', v4RestoreRollHero);
@@ -41827,6 +41916,8 @@ function _chunkCleanup(recordingId) {
 window.vrToggleRec = async function() {
   if (_vrRecording) { _mtStopRecording(); return; }
   if (_mtArmedTrack < 0) { showToast('Arm a track first.', 'warn'); return; }
+  // Trial nudge for unsigned users on record start
+  if (typeof _trialNudgeImmediate === 'function') _trialNudgeImmediate('Login to save your recording');
   // Resume AudioContext synchronously here — still inside the user gesture click.
   // The countdown (3 s setTimeout) breaks the gesture chain, so after it the browser
   // will reject resume() on iOS / strict-autoplay Chrome. Firing it now guarantees
@@ -43870,7 +43961,6 @@ function _ftReorderTake(trackIdx, fromIdx, toIdx) {
 /* ── Drawer open/close ────────────────────────────────────────────────────────────────── */
 function ftOpen() {
   if (!currentId) { showToast('Select a song first', 'warn', 2000); return; }
-  if (!auth.currentUser) { showToast('Please sign in first', 'warn', 2000); return; }
   _vrSongId = currentId;
   _mtEnsureTrackObjects();
   _mtSyncTrackNames();   // load per-song track names
