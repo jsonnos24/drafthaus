@@ -26915,6 +26915,17 @@ auth.onAuthStateChanged(user => {
     document.body.classList.remove('app-loading');
     var _ls2 = document.getElementById('appLoadingScreen');
     if (_ls2) { _ls2.style.opacity = '0'; _ls2.style.transition = 'opacity 0.3s'; setTimeout(function() { _ls2.remove(); }, 350); }
+
+    // Init drawer UIs for unsigned users (inspo dice, looper, practice)
+    document.getElementById('seqDrawerTab')?.classList.remove('tab-loading');
+    setTimeout(() => {
+      loopBuildUI();
+      document.getElementById('looperTab')?.classList.remove('tab-loading');
+      renderInspoDice();
+      document.getElementById('inspoTab')?.classList.remove('tab-loading');
+      if (typeof renderPracticeDrawer === 'function') renderPracticeDrawer();
+      document.getElementById('practiceTab')?.classList.remove('tab-loading');
+    }, 300);
   }
 });
 
@@ -41946,6 +41957,27 @@ window.vrToggleRec = async function() {
     _mtIsPlaying = true;
     _mtPlayStartCtx = _mtAudioCtx.currentTime;
     _mtPlayStartOffset = 0;
+
+    // On mobile, detect headphones — mute overdub if using built-in speaker to prevent feedback
+    const _isMobileRec = window.innerWidth < 768;
+    const _hasOtherAudio = _mtTracks.some((t, i) => t && t.buffer && i !== _mtArmedTrack);
+    if (_isMobileRec && _hasOtherAudio) {
+      try {
+        const _allDevs = await navigator.mediaDevices.enumerateDevices();
+        const _outs = _allDevs.filter(d => d.kind === 'audiooutput');
+        // If only 1 output (built-in speaker) or labels suggest no external — mute overdub
+        const _hasHeadphones = _outs.length > 1 || _outs.some(d => /headphone|airpod|bluetooth|wired|earbud/i.test(d.label));
+        if (!_hasHeadphones) {
+          if (_mtMasterGain) _mtMasterGain.gain.value = 0;
+          showToast('🎧 Overdub muted — plug in headphones to hear other tracks while recording', 'info', 5000);
+        }
+      } catch(e) {
+        // Can't detect — mute as safety default on mobile
+        if (_mtMasterGain) _mtMasterGain.gain.value = 0;
+        showToast('🎧 Overdub muted — plug in headphones to hear other tracks while recording', 'info', 5000);
+      }
+    }
+
     const _anyODSolo = _mtTracks.some(tt => tt && tt.soloed);
     _mtTracks.forEach((t, i) => {
       if (!t || !t.buffer || i === _mtArmedTrack) return;
@@ -42097,6 +42129,8 @@ function _mtStopRecording() {
     tr.sourceNode = null;
   });
   _mtIsPlaying = false;
+  // Restore master gain in case it was muted for mobile feedback prevention
+  if (_mtMasterGain) _mtMasterGain.gain.value = 1.0;
   if (_mtPlayheadRaf) { cancelAnimationFrame(_mtPlayheadRaf); _mtPlayheadRaf = null; }
   const sl = _mtArmedTrack >= 0 ? _el('mt-state-'+_mtArmedTrack) : null;
   if (sl) { sl.textContent=''; sl.className='mt-track-state'; }
@@ -42160,6 +42194,8 @@ window.mtCancelRecording = function() {
     tr.sourceNode = null;
   });
   _mtIsPlaying = false;
+  // Restore master gain in case it was muted for mobile feedback prevention
+  if (_mtMasterGain) _mtMasterGain.gain.value = 1.0;
   if (_mtPlayheadRaf) { cancelAnimationFrame(_mtPlayheadRaf); _mtPlayheadRaf = null; }
 
   // Reset track state label
