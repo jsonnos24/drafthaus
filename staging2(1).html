@@ -12852,6 +12852,12 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     color: var(--muted);
   }
   .v4-project-tab.active .count { background: rgba(245,166,35,0.14); color: var(--gold); }
+  .v4-project-tab.drag-over {
+    background: rgba(245,166,35,0.15);
+    color: var(--gold);
+    border-bottom-color: var(--gold);
+    box-shadow: 0 2px 0 var(--gold);
+  }
 
   /* Roll hero */
   .v4-roll-hero {
@@ -13003,7 +13009,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     top: 6px; right: 6px;
     display: flex; gap: 4px;
     z-index: 2;
-    opacity: 0;
+    opacity: 0.6;
     transition: opacity 0.15s;
   }
   .v4-draft-card:hover .v4-card-actions { opacity: 1; }
@@ -16635,10 +16641,10 @@ function v4RenderBoard() {
     }
   }
 
-  // Filter by search term
+  // Filter by search term — always search ALL drafts, not just current tab
   if (window._searchTerm) {
     const q = window._searchTerm.toLowerCase();
-    filtered = filtered.filter(c =>
+    filtered = allCards.filter(c =>
       (c.title || 'untitled sketch').toLowerCase().includes(q) ||
       c.moods.some(m => m.toLowerCase().includes(q)) ||
       (c.key || '').toLowerCase().includes(q)
@@ -16727,14 +16733,18 @@ function v4RenderProjectTabs() {
   ];
 
   const tabsEl = document.getElementById('v4ProjectTabs');
-  tabsEl.innerHTML = projects.map(p => `
-    <button class="v4-project-tab ${window._v4ProjectFilter === p.id ? 'active' : ''}"
-            onclick="v4SetProjectFilter('${p.id}')">
+  tabsEl.innerHTML = projects.map(p => {
+    const isDroppable = (p.id !== 'recents' && p.id !== 'all');
+    const dropAttrs = isDroppable
+      ? ` ondragover="v4TabDragOver(event)" ondragleave="v4TabDragLeave(event)" ondrop="v4TabDrop(event, '${p.id.replace(/'/g, "\\'")}')" `
+      : '';
+    return `<button class="v4-project-tab ${window._v4ProjectFilter === p.id ? 'active' : ''}"
+            onclick="v4SetProjectFilter('${p.id}')"${dropAttrs}>
       ${p.name}<span class="count">${p.count}</span>
-    </button>
-  `).join('') + `
+    </button>`;
+  }).join('') + `
     <div style="flex:1"></div>
-    <button class="v4-project-tab" onclick="if(!auth.currentUser){v4RequireAuth();return;}startNewProjectInline?.() || newProjectInline?.()">+ New project</button>
+    <button class="v4-project-tab" onclick="if(!auth.currentUser){v4RequireAuth();return;}var _n=prompt('New project name:');if(_n&&_n.trim())createProject(_n.trim());">+ New project</button>
   `;
 }
 
@@ -16862,8 +16872,52 @@ function v4DragStart(e, id) {
 function v4DragEnd(e) {
   document.querySelectorAll('.v4-draft-card.dragging').forEach(el => el.classList.remove('dragging'));
   document.querySelectorAll('.v4-kanban-col.drag-over').forEach(el => el.classList.remove('drag-over'));
+  document.querySelectorAll('.v4-project-tab.drag-over').forEach(el => el.classList.remove('drag-over'));
   document.querySelectorAll('.v4-drop-indicator').forEach(el => el.remove());
   v4DraggedId = null;
+}
+
+/* ── Drag cards onto project tabs to reassign project ── */
+function v4TabDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  var tab = e.target.closest('.v4-project-tab');
+  if (tab) tab.classList.add('drag-over');
+}
+
+function v4TabDragLeave(e) {
+  var tab = e.target.closest('.v4-project-tab');
+  if (tab) tab.classList.remove('drag-over');
+}
+
+function v4TabDrop(e, projectId) {
+  e.preventDefault();
+  var tab = e.target.closest('.v4-project-tab');
+  if (tab) tab.classList.remove('drag-over');
+  if (!v4DraggedId) return;
+
+  var newProject = (projectId === 'unfiled') ? '' : projectId;
+  var song = songs.find(function(s) { return s.id === v4DraggedId; });
+  if (!song) return;
+
+  var oldProject = song.project || '';
+  if (oldProject === newProject) return;
+
+  song.project = newProject;
+  song.updatedAt = Date.now();
+  save();
+
+  // Persist to Firestore
+  var uid = auth.currentUser?.uid;
+  if (uid) {
+    db.collection('songs').doc(song.id).update({ project: newProject, updatedAt: song.updatedAt }).catch(function(err) {
+      console.error('[v4] project update error:', err);
+    });
+  }
+
+  var title = song.title || song.workingTitle || 'Untitled';
+  showToast('Moved "' + title + '" → ' + (newProject || 'Unfiled'), 'success', 2000);
+  renderGrid();
 }
 
 function v4ColDragOver(e) {
@@ -26502,11 +26556,30 @@ auth.onAuthStateChanged(user => {
             history.replaceState(null, '', window.location.pathname);
             setTimeout(() => startCheckout(_checkoutTier), 400);
           }
-        } else if (newTier !== userTier) {
-          // Tier changed after init (e.g. Stripe webhook updated Firestore) — prompt user to reload
-          userTier = newTier;
-          showToast('🎉 Upgrade confirmed! Reload the page to unlock your new features.', 'success', 10000);
-          v4UpdateGoldBanner(newTier === 'free' ? 'free' : 'paid');
+        } else {
+          // ── Post-init updates from user doc changes ──
+          if (newTier !== userTier) {
+            // Tier changed (e.g. Stripe webhook) — prompt user to reload
+            userTier = newTier;
+            showToast('🎉 Upgrade confirmed! Reload the page to unlock your new features.', 'success', 10000);
+            v4UpdateGoldBanner(newTier === 'free' ? 'free' : 'paid');
+          }
+          // ── Cross-device song sync: lastSongId changed from another device ──
+          const _remoteSongId = doc.data()?.lastSongId;
+          if (_remoteSongId && _remoteSongId !== currentId) {
+            _lastSongIdFromFirestore = _remoteSongId;
+            // Update the "Open Recent" button on the song list
+            if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
+            // If on song list view, show a subtle toast so user knows
+            const _onList = document.getElementById('viewList')?.classList.contains('active');
+            if (_onList) {
+              const _rSong = songs.find(s => s.id === _remoteSongId);
+              if (_rSong) {
+                const _rTitle = _rSong.title || _rSong.workingTitle || 'Untitled';
+                showToast('↩ "' + _rTitle + '" opened on another device', 'info', 3000);
+              }
+            }
+          }
         }
       }, () => {
         // Fallback: init app if snapshot fails — but only if user is still signed in
@@ -43344,8 +43417,19 @@ function _bgMaybeRelease() {
 
 // Page Visibility: resume any suspended AudioContexts when
 // returning to foreground, and keep mic-release logic.
+// ── Idle session auto-refresh (30 min) ──
+var _idleHiddenAt = 0;
+var _IDLE_REFRESH_MS = 5 * 60 * 1000; // 5 minutes
+
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
+    // Auto-refresh if session was idle for 30+ minutes (skip if recording)
+    if (_idleHiddenAt && (Date.now() - _idleHiddenAt >= _IDLE_REFRESH_MS) && !_isAnyRecordingActive()) {
+      location.reload();
+      return;
+    }
+    _idleHiddenAt = 0;
+
     // Re-resume any AudioContexts the browser may have suspended.
     // Always resume — not just during active playback — so that chord
     // pills, drums, loops, and 4-track play on the first tap after the
@@ -43358,8 +43442,9 @@ document.addEventListener('visibilitychange', () => {
       if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
     });
   }
-  if (document.visibilityState === 'hidden' && !_isAnyRecordingActive()) {
-    _releaseMicStreams();
+  if (document.visibilityState === 'hidden') {
+    _idleHiddenAt = Date.now();
+    if (!_isAnyRecordingActive()) _releaseMicStreams();
   }
 });
 
