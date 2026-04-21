@@ -7566,6 +7566,20 @@ body.split-active #splitRightContent {
   font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase;
   color: var(--gold); opacity: 1;
 }
+/* Floating cancel button — appears above transport strip during recording */
+.mt4t-cancel-float {
+  display: flex; justify-content: flex-start;
+  padding: 4px 10px 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.mt4t-cancel-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  font-weight: 700; letter-spacing: 0.04em;
+  color: crimson; background: rgba(220,20,60,0.12);
+  border: 1.5px solid rgba(220,20,60,0.5); border-radius: 6px;
+  padding: 4px 14px; cursor: pointer;
+}
+.mt4t-cancel-btn:active { background: rgba(220,20,60,0.25); }
 /* Hide 4-track transport bar when keyboard/seq/looper drawers are open — they have their own transport */
 @media (max-width: 700px) {
   body:has(.keyboard-drawer.open) #mt4tMobileBar,
@@ -24605,7 +24619,7 @@ function seqScheduleNotes() {
       if (sec.lotom[i] && !_tsIsVoiceSilent('lotom')) { const _v = (sec.lotomVel?.[i]||1)*velocity*0.75; seqPlayLoTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, _v); }
       if (sec.crash[i] && !_tsIsVoiceSilent('crash')) { const _v = (sec.crashVel?.[i]||1)*velocity*0.9; seqPlayCrash( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, _v); }
       if (sec.clap[i]  && !_tsIsVoiceSilent('clap'))  { const _v = (sec.clapVel?.[i]||1)*velocity*0.7; seqPlayClap(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, _v); }
-      if (seqMetOn) seqClick(noteTime, _seqIsAccentBeat(i % beatsPerBar, beatsPerBar, sec.time));
+      if (seqMetOn && !_mt4tMetroActive) seqClick(noteTime, _seqIsAccentBeat(i % beatsPerBar, beatsPerBar, sec.time));
 
       // Melody: schedule all notes once per section start
       if (i === 0) {
@@ -24729,7 +24743,7 @@ function seqScheduleNotes() {
       const i = _seqStepIndex % _kTotal;
       const baseTime = _seqNextNoteTime;
       // Metronome click on every beat
-      if (seqMetOn) seqClick(baseTime, _seqIsAccentBeat(i % (_kTime * 4), _kTime * 4, _kTime));
+      if (seqMetOn && !_mt4tMetroActive) seqClick(baseTime, _seqIsAccentBeat(i % (_kTime * 4), _kTime * 4, _kTime));
       // Melody: schedule at loop start, but not while actively recording
       if (i === 0 && !melodyIsRecording) {
         melodyScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} });
@@ -24783,7 +24797,7 @@ function seqScheduleNotes() {
     if (loTomSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('lotom')) { const _v = parseFloat(loTomSlots[i].dataset.vel||1)*velocity*0.75; seqPlayLoTom( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(16)) : baseTime, _v); }
     if (crashSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('crash')) { const _v = parseFloat(crashSlots[i].dataset.vel||1)*velocity*0.9; seqPlayCrash( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, _v); }
     if (clapSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('clap'))   { const _v = parseFloat(clapSlots[i].dataset.vel||1)*velocity*0.7; seqPlayClap(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, _v); }
-    if (seqMetOn) seqClick(noteTime, _seqIsAccentBeat(i % beatsPerBar, beatsPerBar, time_sig));
+    if (seqMetOn && !_mt4tMetroActive) seqClick(noteTime, _seqIsAccentBeat(i % beatsPerBar, beatsPerBar, time_sig));
 
     // Melody: schedule once per loop start
     if (i === 0) {
@@ -28566,7 +28580,7 @@ function rtTapTempo() {
     if (rtMetroRunning) { rtMetroStop(); rtMetroStart(); }
   }
   // Visual flash on tap button
-  ['rtTapBtn','rehTapBtn','htTapBtn','mtTapBtn','mtTapBtnM'].forEach(id => {
+  ['rtTapBtn','rehTapBtn','htTapBtn','mtTapBtn'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) { btn.classList.add('tapping'); setTimeout(() => btn.classList.remove('tapping'), 100); }
   });
@@ -41839,6 +41853,46 @@ async function _mtEnsureStream() {
   }
 }
 
+// ── Independent 4-track recording metronome ───────────────────
+// Runs its own Web Audio scheduler so clicks never stop during recording,
+// regardless of what the sequencer loop does.
+var _mt4tMetroTimer = null;
+var _mt4tMetroNextTime = 0;
+var _mt4tMetroBeat = 0;
+var _mt4tMetroActive = false; // when true, sequencer skips its own metro clicks
+
+function _mt4tMetroStart() {
+  _mt4tMetroStop(); // clean up any prior
+  var ctx = getSeqAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume();
+  _seqEnsureMasterGain();
+  var song = getCurrentSong();
+  var bpm = song ? (song.bpm || song?.sequencer?.bpm || 120) : 120;
+  if (typeof bpm === 'string') bpm = parseFloat(bpm);
+  var beatSec = 60 / bpm;
+  var timeSig = parseInt(song?.sequencer?.time || 4);
+  _mt4tMetroNextTime = ctx.currentTime + 0.05;
+  _mt4tMetroBeat = 0;
+  _mt4tMetroActive = true;
+
+  _mt4tMetroTimer = setInterval(function() {
+    if (!_vrRecording || !seqMetOn) { _mt4tMetroStop(); return; }
+    var now = ctx.currentTime;
+    // Schedule clicks up to 150ms ahead
+    while (_mt4tMetroNextTime < now + 0.15) {
+      var accent = (_mt4tMetroBeat % timeSig === 0);
+      seqClick(_mt4tMetroNextTime, accent);
+      _mt4tMetroBeat++;
+      _mt4tMetroNextTime += beatSec;
+    }
+  }, 25);
+}
+
+function _mt4tMetroStop() {
+  if (_mt4tMetroTimer) { clearInterval(_mt4tMetroTimer); _mt4tMetroTimer = null; }
+  _mt4tMetroActive = false;
+}
+
 // ── Countdown ──────────────────────────────────────────────────
 let _mtCountTimer = null;
 
@@ -41851,6 +41905,11 @@ window.vrCancelRecording = function() {
 };
 
 async function _mtRunCountdown(cb) {
+  /* Skip the 3-2-1 countdown if we just finished a metronome count-in */
+  if (window._ftCountInJustRan) {
+    window._ftCountInJustRan = false;
+    cb(); return;
+  }
   const go  = _el('vrGlobalCountdown');
   const num = _el('vrGlobalCountNum');
   if (!go || !num) { cb(); return; }
@@ -42155,13 +42214,19 @@ window.vrToggleRec = async function() {
     // Start psychedelic recording animation
     _mtStartRecordingAnim(_mtArmedTrack);
 
-    // Arm Sequencer: auto-start sequencer when recording begins (also start for metronome clicks)
-    if ((_vrSeqArmed || seqMetOn) && !seqIsPlaying) { seqPlay(); }
+    // Arm Sequencer: auto-start sequencer when recording begins (drums/chords)
+    if (_vrSeqArmed && !seqIsPlaying) { seqPlay(); }
+
+    // Independent metronome scheduler for 4-track recording: runs its own
+    // Web Audio click loop so the metronome never stops during recording.
+    if (seqMetOn) { _mt4tMetroStart(); }
 
     const recBtn = _el('mtRecBtn');
     if (recBtn) { recBtn.innerHTML = ''; recBtn.textContent = 'Stop Rec'; recBtn.style.fontSize = '10px'; recBtn.style.letterSpacing = '0.04em'; recBtn.style.padding = '0 10px'; recBtn.classList.add('recording'); }
     const recBtnM = _el('mtRecBtnM');
-    if (recBtnM) { recBtnM.textContent = '⏹ Stop Rec'; recBtnM.classList.add('recording'); }
+    if (recBtnM) { recBtnM.textContent = '⏹ Stop'; recBtnM.classList.add('recording'); }
+    var _cancelFloat = _el('mt4tCancelFloat');
+    if (_cancelFloat) _cancelFloat.style.display = '';
     const _sb = _el('mtStopBtn'); if (_sb) _sb.disabled = false;
     const _pb2 = _el('mtPlayBtn'); if (_pb2) _pb2.disabled = true;
     _el('mtMiniBar', 'vrMiniBar'); // show mini bar only when 4-track isn't already visible
@@ -42198,6 +42263,7 @@ window.vrToggleRec = async function() {
 function _mtStopRecording() {
   _vrRecording = false;
   clearInterval(_mtRecTimer); _mtRecTimer = null;
+  _mt4tMetroStop(); // stop independent metronome
   const mb = _el('vrMiniBar'); if (mb) mb.classList.remove('vr-active');
   // Stop recording animation
   if (_mtArmedTrack >= 0) _mtStopRecordingAnim(_mtArmedTrack);
@@ -42228,6 +42294,8 @@ function _mtStopRecording() {
   recBtn?.classList.remove('mt-active');
   const recBtnM = _el('mtRecBtnM');
   if (recBtnM) { recBtnM.textContent = '⏺ Rec'; recBtnM.classList.remove('recording'); }
+  var _cancelFloat2 = _el('mt4tCancelFloat');
+  if (_cancelFloat2) _cancelFloat2.style.display = 'none';
   const _sb2 = _el('mtStopBtn'); if (_sb2) _sb2.disabled = true;
   _setStatus('Saving…');
   _mtUpdateMonPill('');
@@ -42297,6 +42365,8 @@ window.mtCancelRecording = function() {
   recBtn?.classList.remove('mt-active');
   var recBtnM = _el('mtRecBtnM');
   if (recBtnM) { recBtnM.textContent = '⏺ Rec'; recBtnM.classList.remove('recording'); }
+  var _cancelFloat3 = _el('mt4tCancelFloat');
+  if (_cancelFloat3) _cancelFloat3.style.display = 'none';
   var _sb = _el('mtStopBtn'); if (_sb) _sb.disabled = true;
   _setStatus('Recording cancelled');
   _mtUpdateMonPill('');
@@ -46393,9 +46463,10 @@ function ftShowCountIn() {
 
     currentBeat++;
     if (currentBeat >= totalBeats) {
-      /* Count-in finished — hide overlay and start recording */
+      /* Count-in finished — hide overlay and start recording (skip redundant 3-2-1) */
       setTimeout(function() {
         overlay.classList.remove('show');
+        window._ftCountInJustRan = true;
         vrToggleRec();
       }, beatMs);                          // wait one more beat interval for last beat to ring
     } else {
@@ -48541,11 +48612,14 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
 <!-- ── Mobile 4-track transport bar (persistent above bottom nav) ──── -->
 <div id="mt4tMobileBar">
+  <!-- Floating cancel — only visible during recording, positioned above Rec -->
+  <div class="mt4t-cancel-float" id="mt4tCancelFloat" style="display:none">
+    <button class="mt4t-cancel-btn" onclick="mtCancelRecording()" title="Cancel recording — discard">✕ Cancel</button>
+  </div>
   <div class="drawer-transport-strip">
     <button class="split-transport-btn split-rec-btn" id="mtRecBtnM"
       onclick="vrToggleRec()"
       title="Record armed track">⏺ Rec</button>
-    <button class="split-transport-btn mt-cancel-rec-btn" onclick="mtCancelRecording()" title="Cancel recording — discard" style="display:none">✕ Cancel</button>
     <button class="split-transport-btn split-play-btn" id="mtPlayBtnM"
       onclick="mtPlay()" disabled
       title="Play">▶ Play</button>
@@ -48558,9 +48632,6 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     <button class="split-transport-btn split-met-btn" id="mtMetBtnM"
       onclick="rtMetroToggle()"
       title="Toggle metronome click">Metro</button>
-    <button class="split-transport-btn split-tap-btn" id="mtTapBtnM"
-      onclick="rtTapTempo()"
-      title="Tap Tempo (Tab)">TAP</button>
   </div>
 </div>
 
