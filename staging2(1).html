@@ -7297,6 +7297,8 @@ body.split-4track-active .split-transport { display: none !important; }
 .split-stop-btn:hover { background: rgba(248,113,113,0.12); }
 .split-rec-btn   { border-color: rgba(248,113,113,0.5); color: var(--text); }
 .split-rec-btn.recording { background: var(--red); color: #fff; border-color: var(--red); animation: recPulse 1s ease-in-out infinite; }
+.mt-cancel-rec-btn { border-color: rgba(220,20,60,0.6); color: crimson; background: rgba(220,20,60,0.12); font-size: 11px; letter-spacing: 0.02em; }
+.vr-mini-cancel { display: none; border: none; background: rgba(220,20,60,0.25); color: #fff; font-size: 14px; font-weight: bold; width: 26px; height: 26px; border-radius: 50%; cursor: pointer; margin-left: 6px; padding: 0; line-height: 26px; text-align: center; flex-shrink: 0; }
 .split-met-btn.on { color: var(--gold); border-color: var(--gold); }
 .split-loop-btn { border-color: rgba(126,200,247,0.35); color: rgba(126,200,247,0.6); }
 .split-loop-btn.mt-loop-active { color: #7ec8f7; border-color: #7ec8f7; background: rgba(126,200,247,0.12); box-shadow: 0 0 6px rgba(126,200,247,0.2); }
@@ -27629,6 +27631,15 @@ document.addEventListener('keydown',function(e){
       if (!e.shiftKey) metroToggle();
     }
   }
+  // A = toggle Action Mode (only when not typing)
+  if ((e.key === 'a' || e.key === 'A') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    var _ae2 = document.activeElement;
+    if (!_ae2 || (_ae2.tagName !== 'INPUT' && _ae2.tagName !== 'TEXTAREA' && !_ae2.isContentEditable)) {
+      e.preventDefault();
+      if (window._ilPerfMode) { ilSetPerfMode(false); } else { navRehearseTap(); }
+      return;
+    }
+  }
   // Cmd/Ctrl+S saves
   if((e.metaKey||e.ctrlKey)&&e.key==='s'){e.preventDefault();saveEdits();}
   if(e.key==='Escape')metroForkStop();
@@ -40175,10 +40186,10 @@ window.mtArmTrack = function(i) {
 };
 
 // ── Mobile: clear track (trash all takes) ─────────────────────
-window.mtMobileTrashTrack = async function(i) {
+window.mtMobileTrashTrack = async function(i, skipConfirm) {
   const t = _mtTracks[i]; if (!t) return;
   if (!t.takes || t.takes.length === 0) { showToast('Track is already empty', 'info', 1800); return; }
-  if (!confirm('Clear track ' + (MT_NAMES[i] || (i+1)) + '? The recording will be moved to trash.')) return;
+  if (!skipConfirm && !confirm('Clear track ' + (MT_NAMES[i] || (i+1)) + '? The recording will be moved to trash.')) return;
   try {
     for (const take of t.takes) {
       const doc = await db.collection('voice_takes').doc(take.id).get();
@@ -41760,6 +41771,8 @@ window.vrToggleRec = async function() {
     }
     _setStatus('● REC — Track '+MT_NAMES[_mtArmedTrack]);
     _mtUpdateMonPill('recording');
+    // Show cancel buttons
+    document.querySelectorAll('.mt-cancel-rec-btn').forEach(function(b) { b.style.display = ''; });
 
     // State label
     const sl = _el('mt-state-'+_mtArmedTrack);
@@ -41814,10 +41827,82 @@ function _mtStopRecording() {
   _setStatus('Saving…');
   _mtUpdateMonPill('');
   _scheduleMicInactivityRelease(); // restart countdown — mic no longer actively recording
+  // Hide cancel buttons
+  document.querySelectorAll('.mt-cancel-rec-btn').forEach(function(b) { b.style.display = 'none'; });
   // Sync rehearse bar REC button
   if (typeof _syncRehRecBtn === 'function') _syncRehRecBtn();
   if (typeof _syncSharedRecBtnState === 'function') _syncSharedRecBtnState();
 }
+
+// ── Cancel Recording — discard without saving ──────────────────
+window.mtCancelRecording = function() {
+  if (!_vrRecording) return;
+  var trackIdx = _mtArmedTrack;
+  var t = trackIdx >= 0 ? _mtTracks[trackIdx] : null;
+
+  // Detach onstop so _mtFinishRecording does NOT fire
+  if (t && t.mediaRecorder) {
+    try { t.mediaRecorder.onstop = null; } catch(e){}
+    if (t.mediaRecorder.state !== 'inactive') {
+      try { t.mediaRecorder.stop(); } catch(e){}
+    }
+  }
+
+  // Discard local chunks
+  if (t) t.chunks = [];
+
+  // Clean up any already-uploaded chunks (chunked path)
+  if (t && t._chunkSession) {
+    var session = t._chunkSession;
+    session.aborted = true;
+    _chunkCleanup(session.recordingId);
+    t._chunkSession = null;
+    _chunkSession = null;
+  }
+
+  // Run the same teardown as _mtStopRecording (UI reset, gain chain, overdub stop)
+  _vrRecording = false;
+  clearInterval(_mtRecTimer); _mtRecTimer = null;
+  var mb = _el('vrMiniBar'); if (mb) mb.classList.remove('vr-active');
+  if (trackIdx >= 0) _mtStopRecordingAnim(trackIdx);
+  if ((_vrSeqArmed || seqMetOn) && seqIsPlaying) { seqStop(); }
+  if (!_mtIsPlaying && typeof htStopClock === 'function') htStopClock();
+  try { if (_vrInputSrcNode)  _vrInputSrcNode.disconnect();  } catch(e){}
+  try { if (_vrInputGainNode) _vrInputGainNode.disconnect(); } catch(e){}
+  _vrInputSrcNode = null; _vrInputGainNode = null; _vrInputDestNode = null;
+
+  // Stop overdub playback
+  _mtTracks.forEach(function(tr) {
+    if (!tr || !tr.sourceNode) return;
+    try { tr.sourceNode.stop(); } catch(e){}
+    tr.sourceNode = null;
+  });
+  _mtIsPlaying = false;
+  if (_mtPlayheadRaf) { cancelAnimationFrame(_mtPlayheadRaf); _mtPlayheadRaf = null; }
+
+  // Reset track state label
+  var sl = trackIdx >= 0 ? _el('mt-state-'+trackIdx) : null;
+  if (sl) { sl.textContent=''; sl.className='mt-track-state'; }
+
+  // Reset buttons
+  var recBtn = _el('mtRecBtn');
+  if (recBtn) { recBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>'; recBtn.style.fontSize = ''; recBtn.style.letterSpacing = ''; recBtn.style.padding = ''; recBtn.classList.remove('recording'); }
+  recBtn?.classList.remove('mt-active');
+  var recBtnM = _el('mtRecBtnM');
+  if (recBtnM) { recBtnM.textContent = '⏺ Rec'; recBtnM.classList.remove('recording'); }
+  var _sb = _el('mtStopBtn'); if (_sb) _sb.disabled = true;
+  _setStatus('Recording cancelled');
+  _mtUpdateMonPill('');
+  _scheduleMicInactivityRelease();
+  if (typeof _syncRehRecBtn === 'function') _syncRehRecBtn();
+  if (typeof _syncSharedRecBtnState === 'function') _syncSharedRecBtnState();
+
+  // Hide cancel buttons
+  document.querySelectorAll('.mt-cancel-rec-btn').forEach(function(b) { b.style.display = 'none'; });
+
+  showToast('Recording cancelled — nothing saved', 'info', 2500);
+  console.log('[MT] Recording cancelled, chunks discarded for track', trackIdx);
+};
 
 async function _mtFinishRecording(trackIdx, mimeType) {
   const t = _mtTracks[trackIdx]; if (!t || !t.chunks.length) { _setStatus('Nothing recorded'); return; }
@@ -43872,11 +43957,25 @@ function ftSetupStripButtons() {
       mtMobileLockTrack(idx);           /* existing — Firestore persist, disarm if locked */
       ftSyncAllStrips();
     });
-    if (delBtn) delBtn.addEventListener('click', function() {
-      mtMobileTrashTrack(idx).then(function() {   /* existing — moves takes to trash */
-        ftSyncAllStrips();
+    if (delBtn) (function(_delBtn, _idx) {
+      var _confirmTimer = null;
+      _delBtn.addEventListener('click', function() {
+        if (_delBtn.classList.contains('confirm')) {
+          clearTimeout(_confirmTimer);
+          _delBtn.classList.remove('confirm');
+          _delBtn.textContent = _delBtn.dataset.origText || 'DEL';
+          mtMobileTrashTrack(_idx, true).then(function() { ftSyncAllStrips(); });
+        } else {
+          _delBtn.dataset.origText = _delBtn.textContent;
+          _delBtn.classList.add('confirm');
+          _delBtn.textContent = '✕';
+          _confirmTimer = setTimeout(function() {
+            _delBtn.classList.remove('confirm');
+            _delBtn.textContent = _delBtn.dataset.origText || 'DEL';
+          }, 3000);
+        }
       });
-    });
+    })(delBtn, idx);
 
     /* Track name editing — save on blur via existing mtSaveLabel */
     var nameEl = strip.querySelector('.ft-strip-name');
@@ -43958,7 +44057,10 @@ function ftUpdateStripUI(idx) {
     if (countEl) countEl.textContent = t.takes ? t.takes.length : 0;
     if (nameEl2) {
       if (t.takes && t.activeTakeIdx >= 0 && t.takes[t.activeTakeIdx]) {
-        nameEl2.textContent = 'Take ' + (t.activeTakeIdx + 1);
+        var _activeTake = t.takes[t.activeTakeIdx];
+        var _takeLabel = 'Take ' + (t.activeTakeIdx + 1);
+        if (_activeTake.name && _activeTake.name.trim()) _takeLabel += ' — "' + _activeTake.name.trim() + '"';
+        nameEl2.textContent = _takeLabel;
       } else {
         nameEl2.textContent = '—';
       }
@@ -44539,6 +44641,8 @@ function ftRenderTakes() {
               console.error('[FT] name save error', e);
             });
           }
+          /* Update strip label to reflect new name */
+          if (typeof ftSyncAllStrips === 'function') ftSyncAllStrips();
         }
       });
       nameEl.addEventListener('keydown', function(e) {
@@ -45775,6 +45879,7 @@ document.addEventListener('keydown', function(e) {
 
   if (e.code === 'Space') { e.preventDefault(); ftPlayClick(); }
   else if (e.key === 'r' || e.key === 'R') { ftRecClick(); }
+  else if ((e.key === 'c' || e.key === 'C') && _vrRecording) { e.preventDefault(); mtCancelRecording(); }
   else if (e.key === 'l' || e.key === 'L') { ftLoopClick(); }
   else if (e.key === 'Escape') { ftCloseTakes(); }
 });
@@ -45872,6 +45977,7 @@ function ftInit() {
   /* REC NEW TAKE in takes modal */
   _ftOn('[data-ft-rec-new-take]', 'click', function() {
     if (_mtArmedTrack !== ftModalStripIdx) mtArmTrack(ftModalStripIdx);
+    ftCloseTakes();
     ftRecClick();
   });
 
@@ -47032,6 +47138,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       <!-- 4-track transport — only visible when 4-track occupies split right -->
       <div class="split-4t-transport" id="split4tTransport">
         <button class="split-transport-btn split-rec-btn" id="mtRecBtn" onclick="vrToggleRec()" title="Record armed track (R)">⏺ Rec</button>
+        <button class="split-transport-btn mt-cancel-rec-btn" onclick="mtCancelRecording()" title="Cancel recording — discard" style="display:none">✕ Cancel</button>
         <button class="split-transport-btn split-play-btn" id="mtPlayBtn" onclick="mtPlay()" disabled title="Play (Space)">▶ Play</button>
         <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtn" onclick="sharedPlaySong()" title="Play full song — plays all sections in order">▶▶ Seq</button>
         <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="vrStop()" disabled title="Stop (Space)">■ Stop</button>
@@ -47133,6 +47240,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   <span class="vr-mini-label">REC</span>
   <span class="vr-mini-time" id="vrMiniTime">0:00</span>
   <span class="vr-mini-hint">tap to open</span>
+  <button class="mt-cancel-rec-btn vr-mini-cancel" onclick="event.stopPropagation();mtCancelRecording()" style="display:none" title="Cancel recording">✕</button>
 </div>
 
 <!-- ── 4-Track Tape Overlay ───────────────────────────────── -->
@@ -47864,6 +47972,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     <button class="split-transport-btn split-rec-btn" id="mtRecBtnM"
       onclick="vrToggleRec()"
       title="Record armed track">⏺ Rec</button>
+    <button class="split-transport-btn mt-cancel-rec-btn" onclick="mtCancelRecording()" title="Cancel recording — discard" style="display:none">✕ Cancel</button>
     <button class="split-transport-btn split-play-btn" id="mtPlayBtnM"
       onclick="mtPlay()" disabled
       title="Play">▶ Play</button>
