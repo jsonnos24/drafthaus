@@ -43533,6 +43533,11 @@ document.addEventListener('visibilitychange', () => {
     ].forEach(ctx => {
       if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
     });
+
+    // Restart VU meter if a track is still armed (mic was released on hidden)
+    if (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack >= 0 && typeof _vuStart === 'function') {
+      _vuStart();
+    }
   }
   if (document.visibilityState === 'hidden') {
     _idleHiddenAt = Date.now();
@@ -43544,6 +43549,18 @@ document.addEventListener('visibilitychange', () => {
 function _releaseMicStreams() {
   clearTimeout(_micInactivityTimer);
   _micInactivityTimer = null;
+  // Stop VU meter fully (cancels RAF, resets _vuActive)
+  if (typeof _vuStop === 'function') _vuStop();
+  // Disconnect VU source node so it releases its stream reference
+  if (typeof _vuSource !== 'undefined' && _vuSource) {
+    try { _vuSource.disconnect(); } catch(e) {}
+    _vuSource = null;
+  }
+  // Disconnect input monitor source node
+  if (typeof _inputMonSrc !== 'undefined' && _inputMonSrc) {
+    try { _inputMonSrc.disconnect(); } catch(e) {}
+    _inputMonSrc = null;
+  }
   // 4-Track stream
   if (typeof _mtStream !== 'undefined' && _mtStream) {
     try { _mtStream.getTracks().forEach(t => t.stop()); } catch(e) {}
