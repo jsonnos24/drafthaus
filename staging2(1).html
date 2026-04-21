@@ -10773,6 +10773,15 @@ body.il-perf-active #ilScrollFloat { display: none; }
   color: #7a5c20; pointer-events: none;
 }
 .mt-recording-state { color: #e05050; animation: vrDotBlink 1s ease-in-out infinite; }
+.mt-waveform-wrap.mt-rec-pulse,
+.ft-waveform.mt-rec-pulse {
+  box-shadow: inset 0 0 0 2px rgba(220,40,40,0.7);
+  animation: mtRecBorderPulse 1.2s ease-in-out infinite;
+}
+@keyframes mtRecBorderPulse {
+  0%, 100% { box-shadow: inset 0 0 0 2px rgba(220,40,40,0.35); }
+  50%      { box-shadow: inset 0 0 0 2px rgba(255,60,60,0.9), 0 0 8px rgba(255,60,60,0.15); }
+}
 .mt-playing-state   { color: #60a870; }
 
 /* track foot: vol + pan — stacked vertically on right of track-main */
@@ -42674,45 +42683,52 @@ function _mtStartRecordingAnim(trackIdx) {
 
   _mtStopRecordingAnim(trackIdx);
 
+  // Add red pulsating border to waveform container (both VR overlay and ft-drawer)
+  const wrapEl = _el('mt-wave-wrap-'+trackIdx);
+  if (wrapEl) wrapEl.classList.add('mt-rec-pulse');
+  const ftWf = document.querySelector('[data-ft-waveform-idx="'+trackIdx+'"]');
+  if (ftWf) ftWf.classList.add('mt-rec-pulse');
+
   let phase = 0;
   const colors = ['#ff6b9d', '#6bb5ff', '#6bffb5'];
 
-  const animate = () => {
-    const wrap = _el('mt-wave-wrap-'+trackIdx);
-    if (!wrap) return;
+  const ftCanvas = document.getElementById('ft-wave-'+trackIdx);
 
-    const W = wrap.offsetWidth || 300;
-    const H = wrap.offsetHeight || 60;
-    canvas.width = W;
-    canvas.height = H;
-
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, W, H);
-
+  function _drawRecWaves(cvs, wrapEl) {
+    if (!cvs || !wrapEl) return;
+    const W = wrapEl.offsetWidth || 300;
+    const H = wrapEl.offsetHeight || 60;
+    cvs.width = W;
+    cvs.height = H;
+    const c = cvs.getContext('2d');
+    c.clearRect(0, 0, W, H);
     const mid = H / 2;
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    ctx.fillRect(0, mid - 0.5, W, 1);
-
-    // Draw 2-3 overlapping sine waves
+    c.fillStyle = 'rgba(255,255,255,0.08)';
+    c.fillRect(0, mid - 0.5, W, 1);
     for (let waveIdx = 0; waveIdx < 3; waveIdx++) {
       const wavePhase = phase + (waveIdx * 120);
       const color = colors[waveIdx];
       const freq = 0.015 + waveIdx * 0.005;
       const amp = (0.5 - Math.abs(0.5 - (waveIdx / 2))) * mid * 0.7;
-
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.6 - waveIdx * 0.15;
-      ctx.beginPath();
-
+      c.strokeStyle = color;
+      c.lineWidth = 1;
+      c.globalAlpha = 0.6 - waveIdx * 0.15;
+      c.beginPath();
       for (let x = 0; x < W; x++) {
         const y = mid + Math.sin((x * freq) + wavePhase * 0.03) * amp;
-        if (x === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        if (x === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
       }
-      ctx.stroke();
+      c.stroke();
     }
-    ctx.globalAlpha = 1;
+    c.globalAlpha = 1;
+  }
+
+  const animate = () => {
+    // Draw on VR overlay canvas
+    _drawRecWaves(canvas, _el('mt-wave-wrap-'+trackIdx));
+    // Draw on ft-drawer canvas
+    if (ftCanvas) _drawRecWaves(ftCanvas, ftCanvas.parentElement);
 
     phase++;
     _mtRecordingAnimRaf[trackIdx] = requestAnimationFrame(animate);
@@ -42726,6 +42742,11 @@ function _mtStopRecordingAnim(trackIdx) {
     cancelAnimationFrame(_mtRecordingAnimRaf[trackIdx]);
     delete _mtRecordingAnimRaf[trackIdx];
   }
+  // Remove red pulsating border (both VR overlay and ft-drawer)
+  const wrapEl = _el('mt-wave-wrap-'+trackIdx);
+  if (wrapEl) wrapEl.classList.remove('mt-rec-pulse');
+  const ftWf = document.querySelector('[data-ft-waveform-idx="'+trackIdx+'"]');
+  if (ftWf) ftWf.classList.remove('mt-rec-pulse');
 }
 
 // ── Takes panel — floating dropdown (desktop) / bottom sheet (mobile) ──
