@@ -40871,6 +40871,7 @@ var _inputMonEnabled = localStorage.getItem('drafthaus-input-mon') === '1';
 var _inputMonCtx     = null;   // AudioContext (shared w/ _vuCtx when possible)
 var _inputMonSrc     = null;   // MediaStreamSource
 var _inputMonGain    = null;   // GainNode — 0 = muted, 1 = live
+var _inputMonOwnStream = null; // privately-acquired mic stream (needs explicit release)
 
 function _inputMonSyncUI() {
   var btns   = [document.getElementById('loopInputMonBtn'), document.getElementById('vrInputMonBtn')];
@@ -40898,13 +40899,18 @@ async function _inputMonStart() {
                : (typeof loopSharedStream !== 'undefined' && loopSharedStream && loopSharedStream.active)
                  ? loopSharedStream
                : (_vuStream && _vuStream.active) ? _vuStream : null;
+    var _monOwnStream = false;
     if (!stream) {
       // Fall back to own getUserMedia
       stream = await navigator.mediaDevices.getUserMedia({
         audio: { noiseSuppression: false, echoCancellation: false, autoGainControl: false },
         video: false
       });
+      _monOwnStream = true;
     }
+    // Track privately-acquired stream so _releaseMicStreams can stop it
+    if (_monOwnStream) _inputMonOwnStream = stream;
+    else _inputMonOwnStream = null;
     if (!_inputMonCtx || _inputMonCtx.state === 'closed') {
       _inputMonCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
@@ -43556,10 +43562,26 @@ function _releaseMicStreams() {
     try { _vuSource.disconnect(); } catch(e) {}
     _vuSource = null;
   }
-  // Disconnect input monitor source node
+  // Disconnect input monitor source node and release its private stream
   if (typeof _inputMonSrc !== 'undefined' && _inputMonSrc) {
     try { _inputMonSrc.disconnect(); } catch(e) {}
     _inputMonSrc = null;
+  }
+  if (typeof _inputMonGain !== 'undefined' && _inputMonGain) {
+    try { _inputMonGain.disconnect(); } catch(e) {}
+    _inputMonGain = null;
+  }
+  if (typeof _inputMonOwnStream !== 'undefined' && _inputMonOwnStream) {
+    try { _inputMonOwnStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+    _inputMonOwnStream = null;
+  }
+  // Suspend input monitor AudioContext so it fully releases the mic on iOS
+  if (typeof _inputMonCtx !== 'undefined' && _inputMonCtx && _inputMonCtx.state === 'running') {
+    _inputMonCtx.suspend().catch(function(){});
+  }
+  // Suspend VU AudioContext as well
+  if (typeof _vuCtx !== 'undefined' && _vuCtx && _vuCtx.state === 'running') {
+    _vuCtx.suspend().catch(function(){});
   }
   // 4-Track stream
   if (typeof _mtStream !== 'undefined' && _mtStream) {
