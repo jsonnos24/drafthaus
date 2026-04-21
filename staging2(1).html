@@ -14197,6 +14197,14 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   position: absolute; top: 0; left: 0; right: 0; bottom: 0;
   pointer-events: none;
 }
+.ft-take-playhead {
+  position: absolute; top: 0; bottom: 0;
+  width: 2px; background: #ff4444;
+  left: 0; z-index: 4;
+  pointer-events: none;
+  display: none;
+}
+.ft-take-playhead.active { display: block; }
 
 .ft-take-waveform .ft-comp-cut {
   position: absolute;
@@ -44273,14 +44281,52 @@ function _ftPreviewTake(take, offsetSec, btn) {
   _ftPreviewSource = _mtAudioCtx.createBufferSource();
   _ftPreviewSource.buffer = buffer;
   _ftPreviewSource.connect(_ftPreviewGain);
-  _ftPreviewSource.start(0, Math.min(offsetSec || 0, buffer.duration));
+  var _startOffset = Math.min(offsetSec || 0, buffer.duration);
+  _ftPreviewSource.start(0, _startOffset);
   _ftPreviewSource.onended = function() { _ftStopPreview(); };
 
   _ftPreviewBtn = btn;
   if (btn) btn.classList.add('on');
+
+  /* ── Animate playhead across the take waveform ── */
+  var _phWaveEl = take._waveformEl;
+  if (_phWaveEl) {
+    var _ph = _phWaveEl.querySelector('.ft-take-playhead');
+    if (!_ph) {
+      _ph = document.createElement('div');
+      _ph.className = 'ft-take-playhead';
+      _phWaveEl.appendChild(_ph);
+    }
+    _ph.classList.add('active');
+    _ftPreviewPlayhead = _ph;
+    _ftPreviewDuration = buffer.duration;
+    _ftPreviewOffset = _startOffset;
+    _ftPreviewCtxTime = _mtAudioCtx.currentTime;
+    _ftPreviewRAF = requestAnimationFrame(_ftPreviewTick);
+  }
+}
+
+/* ── Preview playhead animation state ── */
+var _ftPreviewPlayhead = null;
+var _ftPreviewDuration = 0;
+var _ftPreviewOffset = 0;
+var _ftPreviewCtxTime = 0;
+var _ftPreviewRAF = null;
+
+function _ftPreviewTick() {
+  if (!_ftPreviewPlayhead || !_ftPreviewSource) return;
+  var elapsed = _mtAudioCtx.currentTime - _ftPreviewCtxTime;
+  var pos = _ftPreviewOffset + elapsed;
+  var pct = Math.min(1, pos / _ftPreviewDuration);
+  _ftPreviewPlayhead.style.left = (pct * 100) + '%';
+  if (pct < 1) {
+    _ftPreviewRAF = requestAnimationFrame(_ftPreviewTick);
+  }
 }
 
 function _ftStopPreview() {
+  if (_ftPreviewRAF) { cancelAnimationFrame(_ftPreviewRAF); _ftPreviewRAF = null; }
+  if (_ftPreviewPlayhead) { _ftPreviewPlayhead.classList.remove('active'); _ftPreviewPlayhead = null; }
   if (_ftPreviewSource) {
     try { _ftPreviewSource.stop(); } catch(e) {}
     try { _ftPreviewSource.disconnect(); } catch(e) {}
@@ -44362,6 +44408,9 @@ function ftRenderTakes() {
       '</div>';
 
     list.appendChild(div);
+
+    /* Stash waveform element ref on take so preview playhead can find it */
+    take._waveformEl = div.querySelector('.ft-take-waveform');
 
     /* ── Editable take name: click to edit, blur/Enter to save ── */
     var nameEl = div.querySelector('[data-ft-take-name]');
