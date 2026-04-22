@@ -13855,6 +13855,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
 /* Mobile-only elements — hidden on desktop */
 .ft-boost-mobile { display: none; }
 .ft-vu-inline { display: none; }
+.ft-pan-del { display: none; }
 
 /* ── Button group row ────────────────────────────────────────────────────────────────── */
 .ft-btn-row {
@@ -14810,13 +14811,57 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   .ft-strip > .ft-vol-row        { order: 4; }
   .ft-strip > .ft-pan-row        { order: 5; }
 
-  /* Mobile: +12dB and inline VU visible in btn-row */
-  .ft-boost-mobile { display: inline-flex !important; }
+  /* Mobile: hide +12dB from btn-row (already in vol-row) */
+  .ft-boost-mobile { display: none !important; }
+
+  /* Mobile: VU inline — only visible on armed strip */
   .ft-vu-inline {
+    display: none !important;
+  }
+  .ft-strip.armed .ft-vu-inline {
     display: flex !important;
     gap: 2px; align-items: stretch;
     width: 20px; height: 24px;
     flex-shrink: 0;
+  }
+
+  /* Mobile: hide duplicate VU bars beside DEL */
+  .ft-strip > .ft-vu { display: none !important; }
+
+  /* Mobile: ARM 15% wider */
+  .ft-btn-row [data-ft-arm] {
+    min-width: 54px !important;
+    padding: 4px 12px !important;
+  }
+
+  /* Mobile: M and S 15% wider */
+  .ft-btn-row [data-ft-mute],
+  .ft-btn-row [data-ft-solo] {
+    min-width: 32px !important;
+    padding: 4px 10px !important;
+  }
+
+  /* Mobile: hide DEL from btn-row — moved to pan-row */
+  .ft-btn-row [data-ft-delete] {
+    display: none !important;
+  }
+
+  /* Mobile: pan slider half width, DEL beside it */
+  .ft-pan-row {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+  }
+  .ft-pan-slider {
+    flex: 0 0 45% !important;
+    max-width: 45% !important;
+  }
+  .ft-pan-del {
+    display: inline-flex !important;
+    color: #b04848 !important;
+    border-color: #3a2020 !important;
+    margin-left: auto !important;
+    flex-shrink: 0 !important;
   }
 }
 
@@ -44728,6 +44773,27 @@ function ftSetupStripButtons() {
       });
     })(delBtn, idx);
 
+    /* Pan-row DEL (mobile duplicate) — same confirm-tap pattern */
+    var panDelBtn = strip.querySelector('[data-ft-pan-del]');
+    if (panDelBtn) (function(_panDel, _idx) {
+      var _pConfTimer = null;
+      _panDel.addEventListener('click', function() {
+        if (_panDel.classList.contains('confirm')) {
+          clearTimeout(_pConfTimer);
+          _panDel.classList.remove('confirm');
+          _panDel.textContent = 'DEL';
+          mtMobileTrashTrack(_idx, true).then(function() { ftSyncAllStrips(); });
+        } else {
+          _panDel.classList.add('confirm');
+          _panDel.textContent = '✕';
+          _pConfTimer = setTimeout(function() {
+            _panDel.classList.remove('confirm');
+            _panDel.textContent = 'DEL';
+          }, 3000);
+        }
+      });
+    })(panDelBtn, idx);
+
     /* Track name editing — save on blur via existing mtSaveLabel */
     var nameEl = strip.querySelector('.ft-strip-name');
     if (nameEl) {
@@ -44832,6 +44898,8 @@ function ftUpdateStripUI(idx) {
   if (soloBtn) { soloBtn.classList.toggle('on', !!t.soloed); }
   if (lockBtn) { lockBtn.classList.toggle('on', !!t.locked); lockBtn.classList.toggle('lock', !!t.locked); }
   if (delBtn) { delBtn.disabled = t.locked || !t.takes || t.takes.length === 0; }
+  var panDelBtn = strip.querySelector('[data-ft-pan-del]');
+  if (panDelBtn) { panDelBtn.disabled = t.locked || !t.takes || t.takes.length === 0; }
 
   /* Sync strip name */
   var nameEl = strip.querySelector('.ft-strip-name');
@@ -47177,6 +47245,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <span class="ft-pan-prefix">PAN</span>
             <input type="range" class="ft-pan-slider" data-ft-pan min="-100" max="100" value="0">
             <span class="ft-pan-label" data-ft-pan-label>C</span>
+            <button class="ft-btn xs ghost ft-pan-del" data-ft-pan-del>DEL</button>
           </div>
 
           <div class="ft-takes-row" data-ft-takes-btn="0">
@@ -47239,6 +47308,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <span class="ft-pan-prefix">PAN</span>
             <input type="range" class="ft-pan-slider" data-ft-pan min="-100" max="100" value="0">
             <span class="ft-pan-label" data-ft-pan-label>C</span>
+            <button class="ft-btn xs ghost ft-pan-del" data-ft-pan-del>DEL</button>
           </div>
 
           <div class="ft-takes-row" data-ft-takes-btn="1">
@@ -47300,6 +47370,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <span class="ft-pan-prefix">PAN</span>
             <input type="range" class="ft-pan-slider" data-ft-pan min="-100" max="100" value="0">
             <span class="ft-pan-label" data-ft-pan-label>C</span>
+            <button class="ft-btn xs ghost ft-pan-del" data-ft-pan-del>DEL</button>
           </div>
 
           <div class="ft-takes-row" data-ft-takes-btn="2">
@@ -47362,6 +47433,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <span class="ft-pan-prefix">PAN</span>
             <input type="range" class="ft-pan-slider" data-ft-pan min="-100" max="100" value="0">
             <span class="ft-pan-label" data-ft-pan-label>C</span>
+            <button class="ft-btn xs ghost ft-pan-del" data-ft-pan-del>DEL</button>
           </div>
 
           <div class="ft-takes-row" data-ft-takes-btn="3">
