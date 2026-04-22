@@ -13856,6 +13856,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
 .ft-boost-mobile { display: none; }
 .ft-vu-inline { display: none; }
 .ft-pan-del { display: none; }
+.ft-pan-trash { display: none; }
 
 /* ── Button group row ────────────────────────────────────────────────────────────────── */
 .ft-btn-row {
@@ -14828,17 +14829,17 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   /* Mobile: hide duplicate VU bars beside DEL */
   .ft-strip > .ft-vu { display: none !important; }
 
-  /* Mobile: ARM 15% wider */
+  /* Mobile: ARM wider */
   .ft-btn-row [data-ft-arm] {
-    min-width: 54px !important;
-    padding: 4px 12px !important;
+    min-width: 62px !important;
+    padding: 4px 14px !important;
   }
 
-  /* Mobile: M and S 15% wider */
+  /* Mobile: M and S wider */
   .ft-btn-row [data-ft-mute],
   .ft-btn-row [data-ft-solo] {
-    min-width: 32px !important;
-    padding: 4px 10px !important;
+    min-width: 37px !important;
+    padding: 4px 12px !important;
   }
 
   /* Mobile: hide DEL from btn-row — moved to pan-row */
@@ -14856,11 +14857,21 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
     flex: 0 0 45% !important;
     max-width: 45% !important;
   }
+  .ft-pan-trash {
+    display: inline-flex !important;
+    font-size: 13px !important;
+    padding: 2px 6px !important;
+    margin-left: 4px !important;
+    flex-shrink: 0 !important;
+    border: none !important;
+    background: none !important;
+    cursor: pointer;
+  }
   .ft-pan-del {
     display: inline-flex !important;
     color: #b04848 !important;
     border-color: #3a2020 !important;
-    margin-left: auto !important;
+    margin-left: 2px !important;
     flex-shrink: 0 !important;
   }
 }
@@ -43645,12 +43656,30 @@ window.ftToggleTrash = function() {
   }
 };
 
+window.ftOpenTrashModal = function() {
+  var modal = document.getElementById('ftTrashModal');
+  if (!modal) return;
+  modal.classList.add('open');
+  document.body.classList.add('ft-takes-open'); /* prevent bg scroll */
+  vrLoadTrash(); /* populates ftTrashModalList directly */
+};
+window.ftCloseTrashModal = function() {
+  var modal = document.getElementById('ftTrashModal');
+  if (modal) modal.classList.remove('open');
+  /* Only remove body class if takes modal also closed */
+  var takesModal = document.getElementById('ftTakesModal');
+  if (!takesModal || !takesModal.classList.contains('open')) {
+    document.body.classList.remove('ft-takes-open');
+  }
+};
+
 window.vrLoadTrash = async function() {
   const list   = _el('vrTrashList');
   const toggle = _el('vrTrashToggleLabel');
   const ftList   = _el('ftTrashList');
   const ftToggle = _el('ftTrashToggleLabel');
-  if ((!list && !ftList) || !_vrSongId) return;
+  const modalList = _el('ftTrashModalList');
+  if ((!list && !ftList && !modalList) || !_vrSongId) return;
   try {
     await _vrCleanTrash();
     const snap = await db.collection('voice_trash')
@@ -43662,10 +43691,12 @@ window.vrLoadTrash = async function() {
     if (snap.empty) {
       if (list) list.innerHTML = emptyHtml;
       if (ftList) ftList.innerHTML = emptyHtml;
+      if (modalList) modalList.innerHTML = emptyHtml;
       return;
     }
     if (list) list.innerHTML = '';
     if (ftList) ftList.innerHTML = '';
+    if (modalList) modalList.innerHTML = '';
     const now = Date.now();
     snap.docs.forEach(doc => {
       const d = doc.data();
@@ -43688,6 +43719,12 @@ window.vrLoadTrash = async function() {
         row2.className = 'ft-trash-row';
         row2.innerHTML = rowHtml;
         ftList.appendChild(row2);
+      }
+      if (modalList) {
+        const row3 = document.createElement('div');
+        row3.className = 'ft-trash-row';
+        row3.innerHTML = rowHtml;
+        modalList.appendChild(row3);
       }
     });
   } catch(e) { console.error('[MT] loadTrash error', e); }
@@ -44609,6 +44646,12 @@ function ftMonClick() {
   }
   var btn = document.querySelector('[data-ft-mon]');
   if (btn) btn.classList.toggle('on', !!_inputMonEnabled);
+  /* Actually start or stop the audio monitoring graph */
+  if (_inputMonEnabled) {
+    if (typeof _inputMonStart === 'function') _inputMonStart();
+  } else {
+    if (typeof _inputMonApplyGain === 'function') _inputMonApplyGain();
+  }
   if (typeof _mtUpdateMonPill === 'function') _mtUpdateMonPill(_vrRecording ? 'recording' : (_mtIsPlaying ? 'playing' : ''));
 }
 
@@ -44793,6 +44836,12 @@ function ftSetupStripButtons() {
         }
       });
     })(panDelBtn, idx);
+
+    /* Pan-row Trash button — opens trash modal */
+    var panTrashBtn = strip.querySelector('[data-ft-pan-trash]');
+    if (panTrashBtn) panTrashBtn.addEventListener('click', function() {
+      ftOpenTrashModal();
+    });
 
     /* Track name editing — save on blur via existing mtSaveLabel */
     var nameEl = strip.querySelector('.ft-strip-name');
@@ -45252,34 +45301,50 @@ function _ftDetachAnalysers() {
 }
 
 function ftAnimateVU() {
+  var isArmed = (_mtArmedTrack >= 0);
+
   for (var idx = 0; idx < 4; idx++) {
     var t = _mtTracks[idx];
     if (!t) { ftUpdateMiniVU(idx, 0, 0); continue; }
 
-    /* Try real analyser data first */
+    /* ── Armed track: use mic input analyser (_vuAnalyser) for live VU ── */
+    if (isArmed && idx === _mtArmedTrack && _vuAnalyser && _vuActive) {
+      if (!_ftInputBuf || _ftInputBuf.length < _vuAnalyser.fftSize) {
+        _ftInputBuf = new Float32Array(_vuAnalyser.fftSize);
+      }
+      _vuAnalyser.getFloatTimeDomainData(_ftInputBuf);
+      var sumSqI = 0;
+      for (var si = 0; si < _ftInputBuf.length; si++) {
+        sumSqI += _ftInputBuf[si] * _ftInputBuf[si];
+      }
+      var rmsI = Math.sqrt(sumSqI / _ftInputBuf.length);
+      var lvlI = Math.min(1, rmsI * 3.5);
+      var lvlIL = Math.min(1, lvlI * (0.95 + Math.random() * 0.1));
+      var lvlIR = Math.min(1, lvlI * (0.95 + Math.random() * 0.1));
+      ftUpdateMiniVU(idx, lvlIL, lvlIR);
+      continue;
+    }
+
+    /* ── Playback / recording: use per-track analyser spliced on gainNode ── */
     var an = _ftEnsureAnalyser(idx);
     if (an && (_mtIsPlaying || _vrRecording) && _ftAnalyserBuf) {
       an.getFloatTimeDomainData(_ftAnalyserBuf);
-      /* RMS level from time-domain samples */
       var sumSq = 0;
       for (var s = 0; s < _ftAnalyserBuf.length; s++) {
         sumSq += _ftAnalyserBuf[s] * _ftAnalyserBuf[s];
       }
       var rms = Math.sqrt(sumSq / _ftAnalyserBuf.length);
-      /* Scale: 0–1 range, with some headroom boost for visibility */
       var level = Math.min(1, rms * 3.5);
-      /* Slight L/R variation for stereo feel */
       var levelL = Math.min(1, level * (0.95 + Math.random() * 0.1));
       var levelR = Math.min(1, level * (0.95 + Math.random() * 0.1));
-      /* Muted tracks should show zero */
       if (t.muted) { levelL = 0; levelR = 0; }
       ftUpdateMiniVU(idx, levelL, levelR);
     } else {
-      /* Fallback: decay to zero when not playing */
       ftUpdateMiniVU(idx, 0, 0);
     }
   }
 }
+var _ftInputBuf = null; /* shared buffer for mic input VU */
 
 /* ── Takes modal — reads real takes from _mtTracks[].takes ─────────────────── */
 function ftOpenTakes(stripIdx) {
@@ -46782,6 +46847,10 @@ function ftSyncUI() {
   var metroBtn = document.querySelector('[data-ft-metro]');
   if (metroBtn && typeof seqMetOn !== 'undefined') metroBtn.classList.toggle('on', seqMetOn);
 
+  /* Sync MON button to existing _inputMonEnabled state */
+  var monBtn = document.querySelector('[data-ft-mon]');
+  if (monBtn && typeof _inputMonEnabled !== 'undefined') monBtn.classList.toggle('on', _inputMonEnabled);
+
   ftSyncAllStrips();
   ftUpdateTransport();
   ftUpdateLoopUI();
@@ -46802,7 +46871,11 @@ document.addEventListener('keydown', function(e) {
   else if (e.key === 'r' || e.key === 'R') { ftRecClick(); }
   else if ((e.key === 'c' || e.key === 'C') && _vrRecording) { e.preventDefault(); mtCancelRecording(); }
   else if (e.key === 'l' || e.key === 'L') { ftLoopClick(); }
-  else if (e.key === 'Escape') { ftCloseTakes(); }
+  else if (e.key === 'Escape') {
+    var trashModal = document.getElementById('ftTrashModal');
+    if (trashModal && trashModal.classList.contains('open')) { ftCloseTrashModal(); }
+    else { ftCloseTakes(); }
+  }
 });
 
 /* ── Event listener wiring (safe — null-checks on every querySelector) ─────── */
@@ -47245,6 +47318,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <span class="ft-pan-prefix">PAN</span>
             <input type="range" class="ft-pan-slider" data-ft-pan min="-100" max="100" value="0">
             <span class="ft-pan-label" data-ft-pan-label>C</span>
+            <button class="ft-btn xs ghost ft-pan-trash" data-ft-pan-trash title="Trash">🗑️</button>
             <button class="ft-btn xs ghost ft-pan-del" data-ft-pan-del>DEL</button>
           </div>
 
@@ -47308,6 +47382,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <span class="ft-pan-prefix">PAN</span>
             <input type="range" class="ft-pan-slider" data-ft-pan min="-100" max="100" value="0">
             <span class="ft-pan-label" data-ft-pan-label>C</span>
+            <button class="ft-btn xs ghost ft-pan-trash" data-ft-pan-trash title="Trash">🗑️</button>
             <button class="ft-btn xs ghost ft-pan-del" data-ft-pan-del>DEL</button>
           </div>
 
@@ -47370,6 +47445,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <span class="ft-pan-prefix">PAN</span>
             <input type="range" class="ft-pan-slider" data-ft-pan min="-100" max="100" value="0">
             <span class="ft-pan-label" data-ft-pan-label>C</span>
+            <button class="ft-btn xs ghost ft-pan-trash" data-ft-pan-trash title="Trash">🗑️</button>
             <button class="ft-btn xs ghost ft-pan-del" data-ft-pan-del>DEL</button>
           </div>
 
@@ -47433,6 +47509,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <span class="ft-pan-prefix">PAN</span>
             <input type="range" class="ft-pan-slider" data-ft-pan min="-100" max="100" value="0">
             <span class="ft-pan-label" data-ft-pan-label>C</span>
+            <button class="ft-btn xs ghost ft-pan-trash" data-ft-pan-trash title="Trash">🗑️</button>
             <button class="ft-btn xs ghost ft-pan-del" data-ft-pan-del>DEL</button>
           </div>
 
@@ -47591,6 +47668,22 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
     </div>
 
+  </div>
+</div>
+
+<!-- Trash modal -->
+<div class="ft-modal" id="ftTrashModal">
+  <div class="ft-sheet" style="max-height: 70vh;">
+    <div class="ft-sheet-header">
+      <div class="ft-sheet-title">🗑️ Trash</div>
+      <button class="ft-sheet-close" onclick="ftCloseTrashModal()">✕</button>
+    </div>
+    <div style="overflow-y:auto;flex:1;padding:8px 0;" id="ftTrashModalList">
+      <div class="vr-no-takes">Trash is empty</div>
+    </div>
+    <div style="padding:8px 12px;text-align:right;border-top:1px solid var(--border);">
+      <button onclick="vrEmptyTrash();ftOpenTrashModal();" style="background:none;border:none;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#e06060;padding:4px 0;">Empty Trash</button>
+    </div>
   </div>
 </div>
 
