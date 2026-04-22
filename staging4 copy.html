@@ -25182,7 +25182,8 @@ function sharedRec() {
   const miniVis   = miniBar && miniBar.style.display !== 'none' && miniBar.offsetParent !== null;
   const trackArmed = document.getElementById('mtRecBtn')?.classList.contains('mt-active');
   if ((vrOpen || miniVis) && trackArmed) {
-    if (typeof vrToggleRec === 'function') vrToggleRec();
+    if (typeof ftRecClick === 'function') ftRecClick();
+    else if (typeof vrToggleRec === 'function') vrToggleRec();
     return;
   }
   // Otherwise, record keyboard melody if keyboard drawer is open
@@ -34471,7 +34472,8 @@ document.addEventListener('keydown', function(e) {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key.toLowerCase() === 'r' && !e.shiftKey) {
     e.preventDefault();
-    vrToggleRec();
+    if (typeof ftRecClick === 'function') ftRecClick();
+    else vrToggleRec();
   }
 });
 
@@ -42922,26 +42924,8 @@ window.vrCancelRecording = function() {
 };
 
 async function _mtRunCountdown(cb) {
-  /* Skip the 3-2-1 countdown if we just finished a metronome count-in */
-  if (window._ftCountInJustRan) {
-    window._ftCountInJustRan = false;
-    cb(); return;
-  }
-  const go  = _el('vrGlobalCountdown');
-  const num = _el('vrGlobalCountNum');
-  if (!go || !num) { cb(); return; }
-  go.classList.add('vr-active');
-  // Use compact corner style when in run-through / perf mode
-  if (window._ilPerfMode || document.getElementById('runThroughDrawer')?.classList.contains('open')) {
-    go.classList.add('vr-perf-countdown');
-  }
-  for (let n = 3; n >= 1; n--) {
-    num.textContent = n;
-    await new Promise(r => { _mtCountTimer = setTimeout(r, 1000); });
-    if (!_mtCountTimer) return; // cancelled
-  }
-  go.classList.remove('vr-active', 'vr-perf-countdown');
-  _mtCountTimer = null;
+  /* Always skip — the metronome count-in (ftShowCountIn) handles the visual
+     countdown before vrToggleRec is ever called. */
   cb();
 }
 
@@ -49083,7 +49067,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       </div>
       <!-- 4-track transport — only visible when 4-track occupies split right -->
       <div class="split-4t-transport" id="split4tTransport">
-        <button class="split-transport-btn split-rec-btn" id="mtRecBtn" onclick="vrToggleRec()" title="Record armed track (R)">⏺ Rec</button>
+        <button class="split-transport-btn split-rec-btn" id="mtRecBtn" onclick="ftRecClick()" title="Record armed track (R)">⏺ Rec</button>
         <button class="split-transport-btn split-play-btn" id="mtPlayBtn" onclick="mtPlay()" disabled title="Play (Space)">▶ Play</button>
         <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtn" onclick="sharedPlaySong()" title="Play full song — plays all sections in order">▶▶ Seq</button>
         <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="vrStop()" disabled title="Stop (Space)">■ Stop</button>
@@ -49954,7 +49938,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   </div>
   <div class="drawer-transport-strip">
     <button class="split-transport-btn split-rec-btn" id="mtRecBtnM"
-      onclick="vrToggleRec()"
+      onclick="ftRecClick()"
       title="Record armed track">⏺ Rec</button>
     <button class="split-transport-btn split-play-btn" id="mtPlayBtnM"
       onclick="mtPlay()" disabled
