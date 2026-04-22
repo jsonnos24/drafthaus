@@ -8768,7 +8768,7 @@ body.il-perf-active .global-seq-strip {
   background: rgba(10,10,12,0.97);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border-top-color: var(--gold);
+  border-bottom-color: var(--gold);
 }
 /* Bottom nav in perf mode → keep dark */
 body.il-perf-active .bottom-nav {
@@ -8960,21 +8960,20 @@ body.il-perf-active #stickySongBar { display: none !important; }
 /* In perf mode: seq strip moves to top only when header is hidden (non-split) */
 /* On mobile, perf mode seq strip stays below header — handled in mobile media query */
 
-/* ── Global seq strip — desktop positioning (bottom, above transport + nav) ── */
+/* ── Global seq strip — desktop positioning (top, below header) ── */
 @media (min-width: 701px) {
   .global-seq-strip {
     position: fixed;
-    top: auto;
-    /* nav(48) + transport/control(40) + gap(4) = 92 */
-    bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+    top: 48px;
+    bottom: auto;
     left: 0; right: 0;
     z-index: 9940;
-    height: 44px;
+    height: 48px;
     background: rgba(10,10,12,0.97);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border-top: 2px solid var(--gold);
-    border-bottom: none;
+    border-bottom: 2px solid var(--gold);
+    border-top: none;
     display: flex;
     align-items: center;
     overflow-x: auto;
@@ -8985,10 +8984,7 @@ body.il-perf-active #stickySongBar { display: none !important; }
     gap: 4px;
   }
   .global-seq-strip::-webkit-scrollbar { display: none; }
-  /* When split transport dock is visible, push strip up further */
-  body.split-active .global-seq-strip {
-    bottom: calc(142px + env(safe-area-inset-bottom, 0px));
-  }
+  body.header-scrolled-away .global-seq-strip { top: 0; }
 }
 
 /* ── Global seq strip ── */
@@ -9001,6 +8997,11 @@ body.il-perf-active #stickySongBar { display: none !important; }
 
 /* ── Song list active: hide seq strip + split header + right pane, full-width ── */
 body.songlist-active .global-seq-strip { display: none !important; }
+/* Override: show seq strip when ANY drawer is open (higher specificity: 0-3-1 beats 0-2-1) */
+body.songlist-active.keyboard-drawer-open .global-seq-strip,
+body.songlist-active.seq-drawer-open .global-seq-strip,
+body.songlist-active.looper-drawer-open .global-seq-strip,
+body.songlist-active.ft-drawer-open .global-seq-strip { display: flex !important; }
 body.songlist-active #headerTransport { display: none !important; }
 body.split-4track-active #headerTransport { display: none !important; }
 body.songlist-active #splitLeftHeader { display: none !important; }
@@ -9008,9 +9009,7 @@ body.songlist-active #splitRightPanel { display: none !important; }
 body.songlist-active #splitDivider { display: none !important; }
 body.songlist-active #splitTransportDock { display: none !important; }
 body.songlist-active #mt4tMobileBar { display: none !important; }
-/* When any drawer is open from song list, restore seq strip + transport.
-   Uses [data-drawer-visible] attribute set by JS — avoids CSS specificity issues */
-body.songlist-active .global-seq-strip[data-drawer-visible] { display: flex !important; }
+/* When any drawer is open, JS sets inline display:flex!important via _seqStripShow() */
 body.songlist-active.ft-drawer-open:has(#ftDrawer.open) #splitTransportDock { display: flex !important; }
 body.songlist-active.split-active #viewList {
   max-width: 100% !important;
@@ -9269,9 +9268,9 @@ body.songlist-active.split-active #viewList {
 
   /* Desktop content: bottom clearance for fixed bottom stack (nav 48 + control 40 + seq strip 44 = 132) */
   #viewList,
-  #viewDetail { padding-bottom: calc(140px + env(safe-area-inset-bottom, 0px)); }
+  #viewDetail { padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
   body.split-active #viewList,
-  body.split-active #viewDetail { padding-bottom: calc(190px + env(safe-area-inset-bottom, 0px)); }
+  body.split-active #viewDetail { padding-bottom: calc(142px + env(safe-area-inset-bottom, 0px)); }
 
   /* Rehearse bar — use desktop bottom-nav height (48px) */
   #rehearseBar {
@@ -15935,7 +15934,7 @@ body.app-loading > *:not(#appLoadingScreen) { visibility: hidden; }
 /* ── Seq strip visibility helper (must be early — called by drawer open/close) ── */
 window._seqStripShow = function() {
   var s = document.getElementById('globalSeqStrip');
-  if (s) s.setAttribute('data-drawer-visible', '');
+  if (s) s.style.setProperty('display', 'flex', 'important');
   if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
 };
 window._seqStripHideIfNoDrawer = function() {
@@ -15943,7 +15942,7 @@ window._seqStripHideIfNoDrawer = function() {
   if (b.contains('ft-drawer-open') || b.contains('seq-drawer-open') ||
       b.contains('keyboard-drawer-open') || b.contains('looper-drawer-open')) return;
   var s = document.getElementById('globalSeqStrip');
-  if (s) s.removeAttribute('data-drawer-visible');
+  if (s) s.style.removeProperty('display');
 };
 
 // ── Theme ──────────────────────────────────────────────────────────
