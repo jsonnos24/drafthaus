@@ -4854,6 +4854,7 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Modal overlay: fill gap from bottom nav up to seq strip (136−54 = 82px) */
   .shared-drawer-header {
     min-height: 82px;
+    justify-content: space-between;
   }
   /* Modal overlay: hide drag handle — not useful in fixed overlay mode */
   .shared-drawer-header .float-drag-handle { display: none !important; }
@@ -6004,13 +6005,7 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* ── Mobile drawers: respect iOS safe area + header ── */
   /* header (43px) — seq strip is now at bottom, no longer takes top space */
-  .ft-drawer,
-  .seq-drawer,
-  .keyboard-drawer,
-  .looper-drawer,
   .backend-drawer,
-  .practice-drawer,
-  .inspo-drawer,
   .mix-drawer {
     top: calc(43px + env(safe-area-inset-top, 0px)) !important;
     height: calc(100dvh - 43px - env(safe-area-inset-top, 0px)) !important;
@@ -6100,6 +6095,7 @@ button, select, input, textarea { touch-action: manipulation; }
      Use explicit top+bottom instead of a dvh height calc — dvh can be
      unreliable on iOS Safari (reports large viewport even when UI is visible),
      which would cause the drawer to extend up behind the nav bar. */
+  .ft-drawer,
   .seq-drawer,
   .practice-drawer,
   .looper-drawer,
@@ -6120,6 +6116,7 @@ button, select, input, textarea { touch-action: manipulation; }
     transform: translateY(100%) !important;
     transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), top 0.28s cubic-bezier(0.34,1.56,0.64,1) !important;
   }
+  .ft-drawer.open,
   .seq-drawer.open,
   .practice-drawer.open,
   .looper-drawer.open,
@@ -7254,7 +7251,9 @@ body.split-active #splitTransportDock { display: flex; }
     backdrop-filter: none; -webkit-backdrop-filter: none;
     padding: 0;
     flex-direction: column; align-items: stretch !important;
+    justify-content: space-between;
     overflow: hidden;
+    min-height: 82px; /* Fill gap from bottom nav to seq strip (136−54) */
   }
   /* Show 4-track unified control bar on mobile */
   body.ft-drawer-open:has(#ftDrawer.open) #splitTransportDock .mt4t-settings-row {
@@ -14764,7 +14763,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   }
 
   .ft-stage {
-    padding: 12px 12px calc(120px + env(safe-area-inset-bottom, 0px));
+    padding: 12px 12px calc(190px + env(safe-area-inset-bottom, 0px));
     gap: 12px;
   }
 
@@ -45511,6 +45510,24 @@ function ftOpenTakes(stripIdx) {
 
   ftRenderTakes();
   ftUpdateCompSummary();
+
+  /* Pre-warm all take buffers so preview playback is instant */
+  if (t.takes && t.takes.length > 0) {
+    t.takes.forEach(function(tk) {
+      if (tk._buffer || !tk.downloadUrl) return; /* already decoded or no URL */
+      (async function(_tk) {
+        try {
+          if (typeof _mtCreateCtxSync === 'function') _mtCreateCtxSync();
+          var arrBuf = null;
+          if (typeof _mtAudioCache !== 'undefined' && _tk.id) arrBuf = await _mtAudioCache.get(_tk.id);
+          if (!arrBuf) { var resp = await fetch(_tk.downloadUrl); arrBuf = await resp.arrayBuffer(); }
+          if (arrBuf && !_tk._buffer) {
+            _tk._buffer = await _mtAudioCtx.decodeAudioData(arrBuf.slice(0));
+          }
+        } catch(e) { /* silent — waveform draw handles its own loading */ }
+      })(tk);
+    });
+  }
 }
 
 function ftCloseTakes() {
@@ -45529,6 +45546,7 @@ function ftCloseTakes() {
 var _ftPreviewSource = null;
 var _ftPreviewGain   = null;
 var _ftPreviewBtn    = null;
+var _ftPreviewGen    = 0;   /* generation counter — prevents stale async loads from playing */
 
 function _ftPreviewTake(take, offsetSec, btn) {
   if (_ftPreviewSource) _ftStopPreview();
@@ -45536,6 +45554,7 @@ function _ftPreviewTake(take, offsetSec, btn) {
   var buffer = take._buffer;
   if (!buffer) {
     /* Buffer not decoded yet — try loading from cache */
+    var gen = ++_ftPreviewGen;
     (async function() {
       try {
         if (typeof _mtCreateCtxSync === 'function') _mtCreateCtxSync();
@@ -45545,8 +45564,12 @@ function _ftPreviewTake(take, offsetSec, btn) {
           var resp = await fetch(take.downloadUrl);
           arrBuf = await resp.arrayBuffer();
         }
+        /* Bail if user clicked a different take while we were loading */
+        if (gen !== _ftPreviewGen) return;
         if (arrBuf) {
           take._buffer = await _mtAudioCtx.decodeAudioData(arrBuf.slice(0));
+          /* Double-check generation — decode can take time too */
+          if (gen !== _ftPreviewGen) return;
           _ftPreviewTake(take, offsetSec, btn);
         }
       } catch(e) { console.warn('[FT] preview load error', e); }
@@ -45608,6 +45631,7 @@ function _ftPreviewTick() {
 }
 
 function _ftStopPreview() {
+  _ftPreviewGen++;  /* cancel any in-flight async buffer loads */
   if (_ftPreviewRAF) { cancelAnimationFrame(_ftPreviewRAF); _ftPreviewRAF = null; }
   if (_ftPreviewPlayhead) { _ftPreviewPlayhead.classList.remove('active'); _ftPreviewPlayhead = null; }
   if (_ftPreviewSource) {
