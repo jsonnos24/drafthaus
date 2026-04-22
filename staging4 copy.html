@@ -41542,10 +41542,11 @@ window.mtArmTrack = function(i) {
   _el('mtRecBtn')?.classList.toggle('mt-active', _mtArmedTrack >= 0);
   // Start VU meter (requests mic) only when a track is armed
   if (_mtArmedTrack >= 0) {
+    console.log('[MIC-DEBUG] Track', i, 'armed — requesting mic via _vuStart + _mtEnsureStream');
     _vuStart(); _inputMonOnStreamReady();
     // Pre-acquire the recording mic stream NOW (user gesture) so it's already
     // live when recording starts inside the countdown setTimeout (not a gesture).
-    _mtEnsureStream().catch(function(){});
+    _mtEnsureStream().catch(function(e) { console.error('[MIC-DEBUG] Arm-time _mtEnsureStream failed:', e); });
     // Warm up the stitch Cloud Function on arm so it's hot by the time recording stops
     if (typeof _chunkedUploadSupported !== 'undefined' && _chunkedUploadSupported) {
       firebase.functions().httpsCallable('stitchRecordingChunks')({ recordingId: '_ping', destPath: '_ping', contentType: '' })
@@ -42106,19 +42107,23 @@ var _vuClipEnd  = 0;     // timestamp until clip highlight ends
 var _vuBuf      = null;
 
 async function _vuStart() {
-  if (_vuActive) return;
+  console.log('[MIC-DEBUG] _vuStart called | _vuActive:', _vuActive);
+  if (_vuActive) { console.log('[MIC-DEBUG]   VU already active, skipping'); return; }
   _vuActive = true;
   try {
     // Prefer 4-track stream (has noise-suppression off, proper constraints) → then looper → fallback
     var src = (_mtStream && _mtStream.active) ? _mtStream
             : (typeof loopSharedStream !== 'undefined' && loopSharedStream && loopSharedStream.active)
               ? loopSharedStream : null;
+    console.log('[MIC-DEBUG]   Existing stream:', src ? 'found' : 'none', '| _mtStream:', !!_mtStream, '| loopShared:', typeof loopSharedStream !== 'undefined' && !!loopSharedStream);
     if (!src) {
       if (!_vuStream || !_vuStream.active) {
+        console.log('[MIC-DEBUG]   Requesting VU getUserMedia...');
         _vuStream = await navigator.mediaDevices.getUserMedia({
           audio: { noiseSuppression: false, echoCancellation: false, autoGainControl: false },
           video: false
         });
+        console.log('[MIC-DEBUG]   VU getUserMedia SUCCESS — stream id:', _vuStream.id);
         _scheduleMicInactivityRelease();
       }
       src = _vuStream;
@@ -42136,9 +42141,11 @@ async function _vuStart() {
     if (_vuRafId) cancelAnimationFrame(_vuRafId);
     _vuLevel = 0;
     _vuDraw();
+    console.log('[MIC-DEBUG]   VU meter running OK');
   } catch(e) {
     _vuActive = false;
-    console.warn('VU meter mic:', e);
+    console.error('[MIC-DEBUG]   _vuStart FAILED:', e.name, '|', e.message);
+    console.error('[MIC-DEBUG]   Error object:', e);
   }
 }
 
@@ -42820,7 +42827,12 @@ window.vrMicFromList = function() {
 
 // ── Mic stream ─────────────────────────────────────────────────
 async function _mtEnsureStream() {
-  if (_mtStream && _mtStream.active) return _mtStream;
+  console.log('[MIC-DEBUG] _mtEnsureStream called');
+  console.log('[MIC-DEBUG]   _mtStream exists:', !!_mtStream, '| active:', _mtStream ? _mtStream.active : 'N/A');
+  if (_mtStream && _mtStream.active) {
+    console.log('[MIC-DEBUG]   Reusing existing active stream');
+    return _mtStream;
+  }
   const constraints = {
     sampleRate: 48000,
     echoCancellation: _vrEchoCancellation,
@@ -42828,12 +42840,20 @@ async function _mtEnsureStream() {
     autoGainControl: false
   };
   if (_vrInputDeviceId) constraints.deviceId = { exact: _vrInputDeviceId };
+  console.log('[MIC-DEBUG]   Requesting getUserMedia with constraints:', JSON.stringify(constraints));
+  console.log('[MIC-DEBUG]   navigator.mediaDevices available:', !!navigator.mediaDevices);
+  console.log('[MIC-DEBUG]   getUserMedia available:', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia));
   try {
+    const permState = await navigator.permissions.query({ name: 'microphone' }).catch(function() { return { state: 'unknown' }; });
+    console.log('[MIC-DEBUG]   Permission state before request:', permState.state);
     _mtStream = await navigator.mediaDevices.getUserMedia({ audio: constraints, video: false });
+    console.log('[MIC-DEBUG]   getUserMedia SUCCESS — stream id:', _mtStream.id, '| tracks:', _mtStream.getTracks().length);
     _vrEnumerateDevices();
     _scheduleMicInactivityRelease();
     return _mtStream;
   } catch(err) {
+    console.error('[MIC-DEBUG]   getUserMedia FAILED:', err.name, '|', err.message);
+    console.error('[MIC-DEBUG]   Error object:', err);
     showToast('Microphone access denied.', 'error', 4000); return null;
   }
 }
@@ -43058,6 +43078,8 @@ function _chunkCleanup(recordingId) {
 
 // ── Record ─────────────────────────────────────────────────────
 window.vrToggleRec = async function() {
+  console.log('[MIC-DEBUG] vrToggleRec called | _vrRecording:', _vrRecording, '| _mtArmedTrack:', _mtArmedTrack);
+  console.log('[MIC-DEBUG]   _mtStream:', !!_mtStream, '| active:', _mtStream ? _mtStream.active : 'N/A');
   if (_vrRecording) { _mtStopRecording(); return; }
   if (_mtArmedTrack < 0) { showToast('Arm a track first.', 'warn'); return; }
   // Trial nudge for unsigned users on record start
@@ -43082,8 +43104,11 @@ window.vrToggleRec = async function() {
   _setStatus('Get ready…');
 
   await _mtRunCountdown(async () => {
+    console.log('[MIC-DEBUG] Countdown finished — calling _mtEnsureStream from recording callback');
+    console.log('[MIC-DEBUG]   _mtStream before call:', !!_mtStream, '| active:', _mtStream ? _mtStream.active : 'N/A');
     const stream = await _mtEnsureStream();
-    if (!stream) { _el('mtRecBtn')?.classList.remove('mt-active'); return; }
+    console.log('[MIC-DEBUG]   _mtEnsureStream returned:', !!stream);
+    if (!stream) { console.error('[MIC-DEBUG]   NO STREAM — aborting recording'); _el('mtRecBtn')?.classList.remove('mt-active'); return; }
     await _mtEnsureCtx();
 
     // Start overdub playback for all other loaded tracks
@@ -45126,13 +45151,18 @@ document.addEventListener('visibilitychange', () => {
     }
   }
   if (document.visibilityState === 'hidden') {
+    console.log('[MIC-DEBUG] Page hidden — checking if mic should be released');
     _idleHiddenAt = Date.now();
-    if (!_isAnyRecordingActive()) _releaseMicStreams();
+    if (!_isAnyRecordingActive()) { console.log('[MIC-DEBUG]   No active recording — releasing mic streams'); _releaseMicStreams(); }
+    else { console.log('[MIC-DEBUG]   Recording active — keeping mic'); }
   }
 });
 
 // ── Release mic streams when the window closes ─────────────────
 function _releaseMicStreams() {
+  console.log('[MIC-DEBUG] _releaseMicStreams called');
+  console.log('[MIC-DEBUG]   _mtStream:', !!_mtStream, '| _vuStream:', typeof _vuStream !== 'undefined' && !!_vuStream);
+  console.trace('[MIC-DEBUG]   Call stack:');
   clearTimeout(_micInactivityTimer);
   _micInactivityTimer = null;
   // Stop VU meter fully (cancels RAF, resets _vuActive)
