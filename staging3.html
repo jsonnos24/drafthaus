@@ -9004,11 +9004,9 @@ body.songlist-active #splitRightPanel { display: none !important; }
 body.songlist-active #splitDivider { display: none !important; }
 body.songlist-active #splitTransportDock { display: none !important; }
 body.songlist-active #mt4tMobileBar { display: none !important; }
-/* When any drawer is open from song list, restore seq strip + transport */
-body.songlist-active.ft-drawer-open .global-seq-strip,
-body.songlist-active.seq-drawer-open .global-seq-strip,
-body.songlist-active.keyboard-drawer-open .global-seq-strip,
-body.songlist-active.looper-drawer-open .global-seq-strip { display: flex !important; }
+/* When any drawer is open from song list, restore seq strip + transport.
+   Uses [data-drawer-visible] attribute set by JS — avoids CSS specificity issues */
+.global-seq-strip[data-drawer-visible] { display: flex !important; }
 body.songlist-active.ft-drawer-open:has(#ftDrawer.open) #splitTransportDock { display: flex !important; }
 body.songlist-active.split-active #viewList {
   max-width: 100% !important;
@@ -14474,6 +14472,43 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   flex-wrap: wrap;
 }
 
+.ft-take-name-overlay {
+  position: absolute;
+  top: 2px; left: 4px;
+  z-index: 5;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 11px; font-weight: 600;
+  color: #fff;
+  background: rgba(0,0,0,0.55);
+  border: 1px solid transparent;
+  padding: 1px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+  max-width: calc(100% - 40px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+  pointer-events: auto;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+
+.ft-take-name-overlay:hover {
+  background: rgba(245,166,35,0.25);
+  border-color: rgba(245,166,35,0.4);
+}
+
+.ft-take-name-overlay[contenteditable="true"] {
+  background: rgba(0,0,0,0.75);
+  border-color: var(--gold);
+  color: var(--gold);
+  -webkit-user-select: text;
+  user-select: text;
+  text-shadow: none;
+}
+
+/* Legacy .ft-take-name (kept for desktop meta row fallback) */
 .ft-take-name {
   font-family: 'IBM Plex Sans', sans-serif;
   font-size: 12px; font-weight: 500;
@@ -14523,7 +14558,8 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   background: rgba(245,166,35,0.08);
   box-shadow: inset 3px 0 0 var(--gold);
 }
-.ft-take.ft-take-active .ft-take-name {
+.ft-take.ft-take-active .ft-take-name,
+.ft-take.ft-take-active .ft-take-name-overlay {
   color: var(--gold);
 }
 .ft-take-loaded-badge {
@@ -14574,9 +14610,13 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   text-align: center;
 }
 
-/* ── Inline take row (mobile: name + stars + info + actions in 1-2 lines) ── */
+/* ── Inline take row (mobile: info + stars + actions in single row) ── */
 .ft-take-row {
   display: none; /* hidden on desktop, shown on mobile */
+}
+.ft-take-row-left {
+  display: flex; align-items: center; gap: 6px;
+  flex-shrink: 1; min-width: 0; overflow: hidden;
 }
 .ft-take-actions-inline {
   display: flex; gap: 4px; flex-shrink: 0;
@@ -14794,13 +14834,17 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   .ft-take-row {
     display: flex !important;
     align-items: center;
+    justify-content: space-between;
     gap: 4px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
-  .ft-take-row .ft-take-name {
-    font-size: 11px; padding: 1px 3px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    max-width: 120px; flex-shrink: 1;
+  .ft-take-row-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
   }
   .ft-take-row .ft-take-stars {
     flex-shrink: 0;
@@ -14815,6 +14859,7 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   }
   .ft-take-row .ft-take-actions-inline {
     margin-left: auto;
+    flex-shrink: 0;
   }
   .ft-take-row .ft-take-actions-inline .ft-btn {
     padding: 2px 5px; font-size: 10px; min-height: 22px;
@@ -32687,6 +32732,7 @@ function openKeyboardDrawer() {
   document.getElementById('keyboardDrawerOverlay').classList.add('open');
   if (window.innerWidth < 768) document.body.classList.add('ft-drawer-open');
   document.body.classList.add('keyboard-drawer-open');
+  _seqStripShow();
   if (window.innerWidth < 900) document.getElementById('keyboardDrawerTab').style.display = 'none';
   else document.getElementById('keyboardDrawerTab').classList.add('tab-active');
   _sharedHeaderOpen('keyboard');
@@ -32772,6 +32818,7 @@ function closeKeyboardDrawer() {
   document.getElementById('keyboardDrawerOverlay').classList.remove('open');
   if (window.innerWidth < 768) document.body.classList.remove('ft-drawer-open');
   document.body.classList.remove('keyboard-drawer-open');
+  _seqStripHideIfNoDrawer();
   if (window.innerWidth < 900) document.getElementById('keyboardDrawerTab').style.display = '';
   document.getElementById('keyboardDrawerTab').classList.remove('tab-active');
   _sharedHeaderClose();
@@ -32794,6 +32841,7 @@ function openSeqDrawer() {
   document.getElementById('seqDrawerOverlay').classList.add('open');
   if (window.innerWidth < 768) document.body.classList.add('ft-drawer-open');
   document.body.classList.add('seq-drawer-open');
+  _seqStripShow();
   if (window.innerWidth < 900) document.getElementById('seqDrawerTab').style.display = 'none';
   else document.getElementById('seqDrawerTab').classList.add('tab-active');
   _sharedHeaderOpen('sequencer');
@@ -32877,6 +32925,7 @@ function closeSeqDrawer() {
   document.getElementById('seqDrawerOverlay').classList.remove('open');
   if (window.innerWidth < 768) document.body.classList.remove('ft-drawer-open');
   document.body.classList.remove('seq-drawer-open');
+  _seqStripHideIfNoDrawer();
   if (window.innerWidth < 900) document.getElementById('seqDrawerTab').style.display = '';
   document.getElementById('seqDrawerTab').classList.remove('tab-active');
   _sharedHeaderClose();
@@ -34390,6 +34439,7 @@ function openLooperDrawer() {
   document.getElementById('looperOverlay').classList.add('open');
   if (window.innerWidth < 768) document.body.classList.add('ft-drawer-open');
   document.body.classList.add('looper-drawer-open');
+  _seqStripShow();
   _sharedHeaderOpen('looper');
   // Sync shared header controls from this song
   const sd = song?.sequencer || {};
@@ -34429,6 +34479,7 @@ function closeLooperDrawer() {
   document.getElementById('looperOverlay').classList.remove('open');
   if (window.innerWidth < 768) document.body.classList.remove('ft-drawer-open');
   document.body.classList.remove('looper-drawer-open');
+  _seqStripHideIfNoDrawer();
   _vuMaybeStop();
   _sharedHeaderClose();
   _drawerMobileHeaderRestore();
@@ -44534,6 +44585,21 @@ function _ftReorderTake(trackIdx, fromIdx, toIdx) {
   ftRenderTakes();
 }
 
+/* ── Seq strip visibility helper ── */
+function _seqStripShow() {
+  var s = document.getElementById('globalSeqStrip');
+  if (s) s.setAttribute('data-drawer-visible', '');
+  if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
+}
+function _seqStripHideIfNoDrawer() {
+  // Keep strip visible if any tool drawer is still open
+  var b = document.body.classList;
+  if (b.contains('ft-drawer-open') || b.contains('seq-drawer-open') ||
+      b.contains('keyboard-drawer-open') || b.contains('looper-drawer-open')) return;
+  var s = document.getElementById('globalSeqStrip');
+  if (s) s.removeAttribute('data-drawer-visible');
+}
+
 /* ── Drawer open/close ────────────────────────────────────────────────────────────────── */
 function ftOpen() {
   if (!currentId) { showToast('Select a song first', 'warn', 2000); return; }
@@ -44548,6 +44614,7 @@ function ftOpen() {
   drawer.classList.add('open');
   document.body.style.overflow = 'hidden';
   document.body.classList.add('ft-drawer-open');
+  _seqStripShow();
 
   /* ── Critical setup from vrOpen — AudioContext + devices ── */
   /* Create AudioContext synchronously inside user gesture (iOS Safari requirement) */
@@ -44583,6 +44650,7 @@ function ftClose() {
   drawer.classList.remove('open');
   document.body.style.overflow = '';
   document.body.classList.remove('ft-drawer-open');
+  _seqStripHideIfNoDrawer();
   if (_vrRecording || _mtIsPlaying) vrStop();
   ftTickStop();
   ftCloseTakes();
@@ -45586,13 +45654,14 @@ function ftRenderTakes() {
         '<div class="ft-take-waveform" data-ft-take-waveform style="position:relative;">' +
           '<canvas class="ft-take-wave-canvas" style="width:100%;height:100%;display:block;"></canvas>' +
           '<canvas class="ft-take-comp-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>' +
+          '<div class="ft-take-name-overlay" contenteditable="false" data-ft-take-name>' + _escHtml(takeName) + badges + '</div>' +
         '</div>' +
         '<div class="ft-take-row">' +
-          '<div class="ft-take-name" contenteditable="false" data-ft-take-name>' + _escHtml(takeName) + badges + '</div>' +
-          '<div class="ft-take-stars">' + starsHtml + '</div>' +
-          '<div class="ft-take-info">' + Math.round(dur) + 's · ' + dateStr + '</div>' +
+          '<div class="ft-take-row-left">' +
+            '<div class="ft-take-info">' + dateStr + ' · ' + Math.round(dur) + 's</div>' +
+            '<div class="ft-take-stars">' + starsHtml + '</div>' +
+          '</div>' +
           '<div class="ft-take-actions-inline">' +
-            '<button class="ft-btn sm" data-ft-take-play>▶</button>' +
             '<button class="ft-btn sm ' + loadClass + '" data-ft-take-load>LOAD</button>' +
             '<button class="ft-btn sm ' + lockClass + '" data-ft-take-lock>🔒</button>' +
             '<button class="ft-btn sm ghost" data-ft-take-delete' + (take.locked ? ' disabled' : '') + '>🗑</button>' +
@@ -45600,7 +45669,6 @@ function ftRenderTakes() {
         '</div>' +
       '</div>' +
       '<div class="ft-take-actions ft-take-actions-desktop">' +
-        '<button class="ft-btn sm" data-ft-take-play>▶</button>' +
         '<button class="ft-btn sm ' + loadClass + '" data-ft-take-load>LOAD</button>' +
         '<button class="ft-btn sm ' + lockClass + '" data-ft-take-lock>🔒</button>' +
         '<button class="ft-btn sm ghost" data-ft-take-delete' + (take.locked ? ' disabled' : '') + '>🗑</button>' +
@@ -45614,7 +45682,10 @@ function ftRenderTakes() {
     /* ── Editable take name: click to edit, blur/Enter to save ── */
     var nameEl = div.querySelector('[data-ft-take-name]');
     if (nameEl) {
-      nameEl.addEventListener('click', function() {
+      nameEl.addEventListener('pointerdown', function(e) { e.stopPropagation(); });
+      nameEl.addEventListener('pointerup', function(e) { e.stopPropagation(); });
+      nameEl.addEventListener('click', function(e) {
+        e.stopPropagation(); /* prevent waveform click-to-play */
         /* Remove badges before editing */
         nameEl.querySelectorAll('.ft-take-loaded-badge, .ft-take-comp-badge').forEach(function(b) { b.remove(); });
         nameEl.contentEditable = 'true';
@@ -45892,6 +45963,7 @@ function ftRenderTakes() {
       var wf = div.querySelector('[data-ft-take-waveform]');
       if (wf) {
         wf.style.cursor = 'crosshair';
+        wf.style.touchAction = 'none'; /* prevent browser scroll from stealing comp drags */
 
         var _dragStartPct = null;
 
@@ -45899,13 +45971,21 @@ function ftRenderTakes() {
           e.preventDefault();
           wf.setPointerCapture(e.pointerId);
           var rect = wf.getBoundingClientRect();
-          _dragStartPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          var rawPct = (e.clientX - rect.left) / rect.width;
+          /* Snap to edges if within 4% — makes it easy to select from the very start/end */
+          if (rawPct < 0.04) rawPct = 0;
+          else if (rawPct > 0.96) rawPct = 1;
+          _dragStartPct = Math.max(0, Math.min(1, rawPct));
         });
 
         wf.addEventListener('pointermove', function(e) {
           if (_dragStartPct === null) return;
           var rect = wf.getBoundingClientRect();
-          var curPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          var rawPct = (e.clientX - rect.left) / rect.width;
+          /* Snap to edges if within 4% */
+          if (rawPct < 0.04) rawPct = 0;
+          else if (rawPct > 0.96) rawPct = 1;
+          var curPct = Math.max(0, Math.min(1, rawPct));
           var dur = _mtMaxDuration();
           var tStart = Math.min(_dragStartPct, curPct) * dur;
           var tEnd   = Math.max(_dragStartPct, curPct) * dur;
@@ -45923,7 +46003,11 @@ function ftRenderTakes() {
         wf.addEventListener('pointerup', function(e) {
           if (_dragStartPct === null) return;
           var rect = wf.getBoundingClientRect();
-          var endPct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          var rawEnd = (e.clientX - rect.left) / rect.width;
+          /* Snap to edges if within 4% */
+          if (rawEnd < 0.04) rawEnd = 0;
+          else if (rawEnd > 0.96) rawEnd = 1;
+          var endPct = Math.max(0, Math.min(1, rawEnd));
           var dur = _mtMaxDuration();
           var tStart = Math.min(_dragStartPct, endPct) * dur;
           var tEnd   = Math.max(_dragStartPct, endPct) * dur;
@@ -46176,9 +46260,9 @@ function _ftRenderCompHandles(wf, take, idx) {
     var handle = document.createElement('div');
     handle.className = 'ft-comp-handle';
     handle.setAttribute('data-ft-comp-cut', ci); /* tag so sibling handles can be found */
-    handle.style.cssText = 'position:absolute;top:0;left:' + (pct * 100) + '%;width:14px;height:100%;' +
+    handle.style.cssText = 'position:absolute;top:0;left:' + (pct * 100) + '%;width:36px;height:100%;' +
       'transform:translateX(-50%);cursor:ew-resize;z-index:10;' +
-      'display:flex;align-items:center;justify-content:center;';
+      'display:flex;align-items:center;justify-content:center;touch-action:none;';
     handle.innerHTML = '<div style="width:3px;height:70%;background:#f5a623;border-radius:2px;box-shadow:0 0 4px rgba(245,166,35,0.8);pointer-events:none;"></div>';
 
     /* Drag to reposition cut — update handle position directly, only redraw canvas, never destroy handles */
@@ -46190,7 +46274,11 @@ function _ftRenderCompHandles(wf, take, idx) {
       var rect = wf.getBoundingClientRect();
 
       function onMove(ev) {
-        var newPct = Math.max(0.001, Math.min(0.999, (ev.clientX - rect.left) / rect.width));
+        var rawPct = (ev.clientX - rect.left) / rect.width;
+        /* Snap to edges if within 4% — easy to drag to start/end */
+        if (rawPct < 0.04) rawPct = 0.001;
+        else if (rawPct > 0.96) rawPct = 0.999;
+        var newPct = Math.max(0.001, Math.min(0.999, rawPct));
         var newT = newPct * dur;
         /* Clamp only to absolute edges */
         var MIN_GAP = 0.001;
