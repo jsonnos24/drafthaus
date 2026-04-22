@@ -42841,19 +42841,31 @@ async function _mtEnsureStream() {
   };
   if (_vrInputDeviceId) constraints.deviceId = { exact: _vrInputDeviceId };
   console.log('[MIC-DEBUG]   Requesting getUserMedia with constraints:', JSON.stringify(constraints));
-  console.log('[MIC-DEBUG]   navigator.mediaDevices available:', !!navigator.mediaDevices);
-  console.log('[MIC-DEBUG]   getUserMedia available:', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia));
   try {
-    const permState = await navigator.permissions.query({ name: 'microphone' }).catch(function() { return { state: 'unknown' }; });
-    console.log('[MIC-DEBUG]   Permission state before request:', permState.state);
     _mtStream = await navigator.mediaDevices.getUserMedia({ audio: constraints, video: false });
-    console.log('[MIC-DEBUG]   getUserMedia SUCCESS — stream id:', _mtStream.id, '| tracks:', _mtStream.getTracks().length);
+    console.log('[MIC-DEBUG]   getUserMedia SUCCESS — stream id:', _mtStream.id);
     _vrEnumerateDevices();
     _scheduleMicInactivityRelease();
     return _mtStream;
   } catch(err) {
-    console.error('[MIC-DEBUG]   getUserMedia FAILED:', err.name, '|', err.message);
-    console.error('[MIC-DEBUG]   Error object:', err);
+    console.warn('[MIC-DEBUG]   getUserMedia FAILED:', err.name, '|', err.message);
+    // OverconstrainedError = saved deviceId no longer matches any mic — retry without it
+    if (err.name === 'OverconstrainedError' && constraints.deviceId) {
+      console.log('[MIC-DEBUG]   Retrying without deviceId constraint...');
+      delete constraints.deviceId;
+      try {
+        _mtStream = await navigator.mediaDevices.getUserMedia({ audio: constraints, video: false });
+        console.log('[MIC-DEBUG]   Retry SUCCESS — stream id:', _mtStream.id);
+        // Clear the stale device ID so future calls don't hit this again
+        _vrInputDeviceId = '';
+        try { localStorage.removeItem('vr_input_device'); } catch(e) {}
+        _vrEnumerateDevices();
+        _scheduleMicInactivityRelease();
+        return _mtStream;
+      } catch(err2) {
+        console.error('[MIC-DEBUG]   Retry also FAILED:', err2.name, '|', err2.message);
+      }
+    }
     showToast('Microphone access denied.', 'error', 4000); return null;
   }
 }
