@@ -20184,15 +20184,19 @@ function _seqTriggerMtTracksForPart(partId) {
     var _seqPartMap = {};
     _allSeqs.forEach(function(s) { if (s.id) _seqPartMap[s.id] = s.partId || s.part || null; });
     var _4tLinks = _seqLinksLoad('4t');
-    // Stop any tracks that were playing for the previous section
-    if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
-    // Start only the tracks linked to this section
+    // Determine which tracks should play for the new section
+    var _nextActive = new Set();
     Object.keys(_4tLinks).forEach(function(tidx) {
       var linked = (_4tLinks[tidx] || []).some(function(sid) {
         return _matchingSeqIds.has(sid) || _seqPartMap[sid] === partId;
       });
-      if (linked && typeof _mtSeqPlayTrack === 'function') {
-        _mtSeqPlayTrack(parseInt(tidx, 10));
+      if (linked) _nextActive.add(parseInt(tidx, 10));
+    });
+    // Don't stop tracks that are already playing — let them finish naturally.
+    // Only start new tracks that aren't already active.
+    _nextActive.forEach(function(tidx) {
+      if (!window._mtSeqActiveTracks || !window._mtSeqActiveTracks.has(tidx)) {
+        if (typeof _mtSeqPlayTrack === 'function') _mtSeqPlayTrack(tidx);
       }
     });
   } catch(e) { console.warn('[4T trigger] error:', e); }
@@ -25481,7 +25485,7 @@ function seqScheduleNotes() {
 
   // ── SONG PLAY MODE — reads from pre-loaded section data, not DOM ──
   if (_seqPlayMode === 'song') {
-    if (_seqSongSectionIdx >= _seqSongSections.length) { seqStop(); return; }
+    if (_seqSongSectionIdx >= _seqSongSections.length) { seqStop(true); return; }
     const loopKey  = seqCurrentKey();
     const loopMode = seqCurrentMode();
     const loopChords = seqGenChords(loopKey, loopMode);
@@ -25492,7 +25496,7 @@ function seqScheduleNotes() {
     const loopChordsMidi = _useSampler ? seqGenChordMidi(loopKey, loopMode) : null;
 
     while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
-      if (_seqSongSectionIdx >= _seqSongSections.length) { seqStop(); return; }
+      if (_seqSongSectionIdx >= _seqSongSections.length) { seqStop(true); return; }
       const sec  = _seqSongSections[_seqSongSectionIdx];
       const i    = _seqSongSectionStep;
       const stepDur     = sec.stepDur;
@@ -25592,8 +25596,8 @@ function seqScheduleNotes() {
           _seqTriggerMtTracksForPart(_nextPartId);
         }, visualDelay + 50);
         if (_seqSongSectionIdx >= _seqSongSections.length) {
-          // Schedule stop after last note plays
-          setTimeout(() => seqStop(), visualDelay + 200);
+          // Schedule stop after last note plays — let 4-track finish naturally
+          setTimeout(() => seqStop(true), visualDelay + 200);
           return;
         }
       }
@@ -26651,7 +26655,7 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
   });
 }
 
-function seqStop() {
+function seqStop(letTracksFinish) {
   seqIsPlaying = false;
   clearInterval(_seqTimer);
   _seqTimer = null;
@@ -26687,7 +26691,8 @@ function seqStop() {
     });
   }
   // Stop any 4-track lanes that the sequencer triggered
-  if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
+  // If letTracksFinish is true (natural sequence end), let 4-track audio play to its end
+  if (!letTracksFinish && typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
   // Update the play button in the song list row
   try { renderGrid(); } catch(e) {}
 }
@@ -41954,6 +41959,7 @@ function _mtStopAll() {
 // Tracks started individually by the sequencer section trigger.
 // These run independently so only the active section's track shows a moving playhead.
 var _mtSeqActiveTracks  = new Set();
+window._mtSeqActiveTracks = _mtSeqActiveTracks; // expose for seq-trigger code outside IIFE
 var _mtSeqTrackStartCtx = {}; // trackIdx → audioCtx time when that track started
 var _mtSeqHeadRaf       = null;
 
@@ -43349,6 +43355,58 @@ window.mtCancelRecording = function() {
   console.log('[MT] Recording cancelled, chunks discarded for track', trackIdx);
 };
 
+// ── Trim leading silence from an AudioBuffer ────────────────────────────────
+// Scans from the start for the first sample above a threshold, then cuts
+// everything before that point (minus a tiny pre-roll). Applies a short
+// fade-in to avoid a click on the first transient.
+function _mtTrimLeadingSilence(audioBuffer) {
+  var THRESHOLD = 0.005;    // amplitude below this = silence
+  var PREROLL_S = 0.005;    // keep 5ms before first transient
+  var FADEIN_S  = 0.003;    // 3ms fade-in ramp
+  var sr = audioBuffer.sampleRate;
+  var numCh = audioBuffer.numberOfChannels;
+  var len = audioBuffer.length;
+
+  // Find earliest non-silent sample across all channels
+  var firstLoud = len; // default: whole buffer is silent
+  for (var ch = 0; ch < numCh; ch++) {
+    var data = audioBuffer.getChannelData(ch);
+    for (var s = 0; s < len; s++) {
+      if (Math.abs(data[s]) > THRESHOLD) {
+        if (s < firstLoud) firstLoud = s;
+        break;
+      }
+    }
+  }
+
+  // If silence is <50ms, not worth trimming
+  if (firstLoud < sr * 0.05) return audioBuffer;
+
+  // Trim point: back up by preroll
+  var trimStart = Math.max(0, firstLoud - Math.floor(PREROLL_S * sr));
+  var newLen = len - trimStart;
+  if (newLen < 1) return audioBuffer;
+
+  // Build trimmed buffer
+  var ctx = new OfflineAudioContext(numCh, newLen, sr);
+  var trimmed = ctx.createBuffer(numCh, newLen, sr);
+  for (var ch = 0; ch < numCh; ch++) {
+    trimmed.getChannelData(ch).set(audioBuffer.getChannelData(ch).subarray(trimStart));
+  }
+
+  // Apply fade-in
+  var fadeSamples = Math.min(Math.floor(FADEIN_S * sr), newLen);
+  for (var ch = 0; ch < numCh; ch++) {
+    var d = trimmed.getChannelData(ch);
+    for (var s = 0; s < fadeSamples; s++) {
+      d[s] *= s / fadeSamples;
+    }
+  }
+
+  console.log('[MT] Trimmed ' + (trimStart / sr * 1000).toFixed(0) + 'ms leading silence');
+  return trimmed;
+}
+
 async function _mtFinishRecording(trackIdx, mimeType) {
   const t = _mtTracks[trackIdx]; if (!t || !t.chunks.length) { _setStatus('Nothing recorded'); return; }
   const durSec = (Date.now() - _mtRecStartMs) / 1000;
@@ -43389,6 +43447,14 @@ async function _mtFinishRecording(trackIdx, mimeType) {
     if (_mtAudioCtx) {
       const localArrBuf = await blob.arrayBuffer();
       localBuffer = await _mtAudioCtx.decodeAudioData(localArrBuf.slice(0));
+      // Trim leading silence so recordings line up with the beat
+      const _preTrimLen = localBuffer.length;
+      localBuffer = _mtTrimLeadingSilence(localBuffer);
+      // If trimmed, re-encode so cloud upload matches the trimmed audio
+      if (localBuffer.length < _preTrimLen) {
+        blob = _audioBufferToWav(localBuffer);
+        mimeType = 'audio/wav';
+      }
       t.buffer   = localBuffer;
       t.duration = localBuffer.duration;
       _mtDrawTrackWaveform(trackIdx, localBuffer, t.color);
