@@ -43359,7 +43359,8 @@ window.mtCancelRecording = function() {
 // Scans from the start for the first sample above a threshold, then cuts
 // everything before that point (minus a tiny pre-roll). Applies a short
 // fade-in to avoid a click on the first transient.
-function _mtTrimLeadingSilence(audioBuffer) {
+// Uses the existing _mtAudioCtx — never creates new audio contexts.
+function _mtTrimLeadingSilence(audioBuffer, audioCtx) {
   var THRESHOLD = 0.005;    // amplitude below this = silence
   var PREROLL_S = 0.005;    // keep 5ms before first transient
   var FADEIN_S  = 0.003;    // 3ms fade-in ramp
@@ -43368,7 +43369,7 @@ function _mtTrimLeadingSilence(audioBuffer) {
   var len = audioBuffer.length;
 
   // Find earliest non-silent sample across all channels
-  var firstLoud = len; // default: whole buffer is silent
+  var firstLoud = len;
   for (var ch = 0; ch < numCh; ch++) {
     var data = audioBuffer.getChannelData(ch);
     for (var s = 0; s < len; s++) {
@@ -43387,9 +43388,8 @@ function _mtTrimLeadingSilence(audioBuffer) {
   var newLen = len - trimStart;
   if (newLen < 1) return audioBuffer;
 
-  // Build trimmed buffer
-  var ctx = new OfflineAudioContext(numCh, newLen, sr);
-  var trimmed = ctx.createBuffer(numCh, newLen, sr);
+  // Build trimmed buffer using the existing audio context
+  var trimmed = audioCtx.createBuffer(numCh, newLen, sr);
   for (var ch = 0; ch < numCh; ch++) {
     trimmed.getChannelData(ch).set(audioBuffer.getChannelData(ch).subarray(trimStart));
   }
@@ -43443,18 +43443,15 @@ async function _mtFinishRecording(trackIdx, mimeType) {
   // Do NOT call _mtCreateCtxSync() here — we're inside an onstop handler,
   // which is not a user gesture, so Chrome would block a new AudioContext.
   let localBuffer = null;
+  let _wasTrimmed = false;
   try {
     if (_mtAudioCtx) {
       const localArrBuf = await blob.arrayBuffer();
       localBuffer = await _mtAudioCtx.decodeAudioData(localArrBuf.slice(0));
       // Trim leading silence so recordings line up with the beat
       const _preTrimLen = localBuffer.length;
-      localBuffer = _mtTrimLeadingSilence(localBuffer);
-      // If trimmed, re-encode so cloud upload matches the trimmed audio
-      if (localBuffer.length < _preTrimLen) {
-        blob = _audioBufferToWav(localBuffer);
-        mimeType = 'audio/wav';
-      }
+      localBuffer = _mtTrimLeadingSilence(localBuffer, _mtAudioCtx);
+      _wasTrimmed = localBuffer.length < _preTrimLen;
       t.buffer   = localBuffer;
       t.duration = localBuffer.duration;
       _mtDrawTrackWaveform(trackIdx, localBuffer, t.color);
@@ -43489,6 +43486,11 @@ async function _mtFinishRecording(trackIdx, mimeType) {
   const _cloudSongId = _vrSongId;
 
   const _cloudSave = async () => {
+    // Re-encode trimmed audio for upload (deferred here to avoid blocking playback)
+    if (_wasTrimmed && localBuffer) {
+      blob = _audioBufferToWav(localBuffer);
+      mimeType = 'audio/wav';
+    }
     let newTake = null;
 
     if (session && !needsBtTrim) {
