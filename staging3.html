@@ -15930,34 +15930,38 @@ body.app-loading > *:not(#appLoadingScreen) { visibility: hidden; }
 /* ── Seq strip visibility helper (must be early — called by drawer open/close) ── */
 window._seqStripShow = function() {
   var s = document.getElementById('globalSeqStrip');
-  if (s) {
-    s.style.setProperty('display', 'flex', 'important');
-    s.style.setProperty('visibility', 'visible', 'important');
-    s.style.setProperty('opacity', '1', 'important');
-    s.style.setProperty('pointer-events', 'auto', 'important');
-    console.log('[SEQ-STRIP] _seqStripShow called. Body classes:', document.body.className);
-    var cs = window.getComputedStyle(s);
-    var rect = s.getBoundingClientRect();
-    console.log('[SEQ-STRIP] Strip computed display:', cs.display, 'visibility:', cs.visibility, 'zIndex:', cs.zIndex, 'top:', cs.top, 'bottom:', cs.bottom, 'position:', cs.position);
-    console.log('[SEQ-STRIP] Strip bounding rect:', JSON.stringify({top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: rect.width, height: rect.height}));
-  } else {
-    console.warn('[SEQ-STRIP] _seqStripShow: #globalSeqStrip NOT FOUND in DOM!');
+  if (!s) return;
+  s.style.setProperty('display', 'flex', 'important');
+  s.style.setProperty('visibility', 'visible', 'important');
+  s.style.setProperty('opacity', '1', 'important');
+  s.style.setProperty('pointer-events', 'auto', 'important');
+  s.style.setProperty('z-index', '99999', 'important');
+  // On mobile, force correct bottom position via inline style (CSS rules not always applying)
+  if (window.innerWidth < 768) {
+    var b = document.body.classList;
+    if (b.contains('seq-drawer-open')) {
+      s.style.setProperty('bottom', 'env(safe-area-inset-bottom, 0px)', 'important');
+    } else {
+      // keyboard, looper, ft-drawer — above bottom nav
+      s.style.setProperty('bottom', 'calc(54px + env(safe-area-inset-bottom, 0px))', 'important');
+    }
+    s.style.setProperty('top', 'auto', 'important');
   }
   if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
 };
 window._seqStripHideIfNoDrawer = function() {
   var b = document.body.classList;
   if (b.contains('ft-drawer-open') || b.contains('seq-drawer-open') ||
-      b.contains('keyboard-drawer-open') || b.contains('looper-drawer-open')) {
-    console.log('[SEQ-STRIP] _seqStripHideIfNoDrawer: drawer still open, keeping strip visible. Classes:', document.body.className);
-    return;
-  }
+      b.contains('keyboard-drawer-open') || b.contains('looper-drawer-open')) return;
   var s = document.getElementById('globalSeqStrip');
   if (s) {
     s.style.removeProperty('display');
     s.style.removeProperty('visibility');
     s.style.removeProperty('opacity');
-    console.log('[SEQ-STRIP] _seqStripHideIfNoDrawer: hiding strip. Body classes:', document.body.className);
+    s.style.removeProperty('z-index');
+    s.style.removeProperty('bottom');
+    s.style.removeProperty('top');
+    s.style.removeProperty('pointer-events');
   }
 };
 
@@ -32750,7 +32754,6 @@ function kbdGridChanged(callerVal) {
 }
 
 function openKeyboardDrawer() {
-  console.log('[SEQ-STRIP] >>> openKeyboardDrawer() called. innerWidth:', window.innerWidth);
   // ── Perf mode: only one tool panel at a time ──
   if (window._ilPerfMode && document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
     vrClose();
@@ -32766,7 +32769,6 @@ function openKeyboardDrawer() {
   document.getElementById('keyboardDrawerOverlay').classList.add('open');
   if (window.innerWidth < 768) document.body.classList.add('ft-drawer-open');
   document.body.classList.add('keyboard-drawer-open');
-  console.log('[SEQ-STRIP] keyboard-drawer-open added. Body classes now:', document.body.className);
   _seqStripShow();
   if (window.innerWidth < 900) document.getElementById('keyboardDrawerTab').style.display = 'none';
   else document.getElementById('keyboardDrawerTab').classList.add('tab-active');
@@ -32835,7 +32837,6 @@ function openKeyboardDrawer() {
 }
 
 function closeKeyboardDrawer() {
-  console.warn('[SEQ-STRIP] closeKeyboardDrawer() called! Stack:', new Error().stack);
   if (_splitActive && _splitCurrentTool === 'keyboard') { splitExpandPane('left'); return; }
 
   // ── Flush all keyboard-drawer state before closing ──
@@ -32862,7 +32863,6 @@ function closeKeyboardDrawer() {
 }
 
 function openSeqDrawer() {
-  console.log('[SEQ-STRIP] >>> openSeqDrawer() called. innerWidth:', window.innerWidth);
   // ── Perf mode: only one tool panel at a time ──
   if (window._ilPerfMode && document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
     vrClose();
@@ -32878,7 +32878,6 @@ function openSeqDrawer() {
   document.getElementById('seqDrawerOverlay').classList.add('open');
   if (window.innerWidth < 768) document.body.classList.add('ft-drawer-open');
   document.body.classList.add('seq-drawer-open');
-  console.log('[SEQ-STRIP] seq-drawer-open added. Body classes now:', document.body.className);
   _seqStripShow();
   if (window.innerWidth < 900) document.getElementById('seqDrawerTab').style.display = 'none';
   else document.getElementById('seqDrawerTab').classList.add('tab-active');
@@ -32945,7 +32944,6 @@ function _seqHoistSettingsStrip(body) {
 }
 
 function closeSeqDrawer() {
-  console.warn('[SEQ-STRIP] closeSeqDrawer() called! Stack:', new Error().stack);
   if (_splitActive && _splitCurrentTool === 'sequencer') { splitExpandPane('left'); return; }
 
   // ── Flush sequencer state before closing ──
