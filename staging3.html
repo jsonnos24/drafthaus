@@ -22444,12 +22444,14 @@ function syncSongBpmUI(rawBpm) {
 // the song-info fBpm field or song.bpm.  Used when sequencer BPM changes.
 function syncSeqBpmUI(rawBpm) {
   const bpm = Math.max(40, Math.min(240, parseInt(rawBpm, 10) || 100));
+  rtMetroBpm = bpm; // keep global metronome in sync
   const sEl = document.getElementById('seqBpm'); if (sEl && parseInt(sEl.value) !== bpm) sEl.value = bpm;
   loopBpm = bpm;
   const lEl = document.getElementById('loopBpmDisplay'); if (lEl) lEl.textContent = bpm;
   const kEl = document.getElementById('kbdBpm'); if (kEl && parseInt(kEl.value) !== bpm) kEl.value = bpm;
   const htEl = document.getElementById('htBpmDisplay'); if (htEl) htEl.textContent = bpm;
   const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) ktEl.textContent = bpm;
+  const mt4tBpmEl = document.getElementById('mt4tTapBpmNum'); if (mt4tBpmEl) mt4tBpmEl.textContent = bpm;
   if (typeof _syncMobileDock === 'function') _syncMobileDock();
 }
 
@@ -28614,12 +28616,13 @@ function rtMetroDelta(d) {
     const el = document.getElementById(id);
     if (el) el.textContent = rtMetroBpm;
   });
-  // Persist to active sequence (per-sequence BPM)
+  // Persist to active sequence AND song.bpm
   syncSeqBpmUI(rtMetroBpm);
   const song = getCurrentSong();
   if (song) {
     seqGetData(song);
     song.sequencer.bpm = String(rtMetroBpm);
+    song.bpm = String(rtMetroBpm);
     song.updatedAt = Date.now();
     save();
     scheduleSyncToSheet(song);
@@ -28667,12 +28670,13 @@ function rtTapTempo() {
       const el = document.getElementById(id);
       if (el) el.textContent = rtMetroBpm;
     });
-    // Sync sequencer/transport UI — per-sequence BPM, don't touch song.bpm
+    // Sync sequencer/transport UI + persist song.bpm
     syncSeqBpmUI(rtMetroBpm);
     const song = getCurrentSong();
     if (song) {
       if (!song.sequencer) song.sequencer = {};
       song.sequencer.bpm = String(rtMetroBpm);
+      song.bpm = String(rtMetroBpm);
       save(); scheduleSyncToSheet(song);
     }
     // If metro is running, restart it at the new BPM
@@ -32423,11 +32427,12 @@ function kbdBpmChanged(callerVal) {
   syncSeqBpmUI(val);
   const seqBpmEl = document.getElementById('seqBpm');
   if (seqBpmEl && seqBpmEl.value !== val) seqBpmEl.value = val;
-  // ── Persist to active sequence only (not song.bpm) ──
+  // ── Persist to active sequence AND song.bpm so it reloads correctly ──
   const song = getCurrentSong();
   if (!song) return;
   seqGetData(song);
   song.sequencer.bpm = val;
+  song.bpm = val;
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
