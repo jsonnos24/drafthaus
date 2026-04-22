@@ -13707,6 +13707,71 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   text-transform: uppercase; letter-spacing: 0.08em;
 }
 
+/* ── Link button + dropdown on ft-strip ──────────────────────────────────────── */
+.ft-link-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 3px 8px; height: 24px;
+  border: 1.5px solid rgba(255,255,255,0.7);
+  border-radius: 4px; background: transparent;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px; font-weight: 700;
+  color: #fff; letter-spacing: 0.08em;
+  cursor: pointer; position: relative;
+  transition: border-color 0.15s, background 0.15s;
+  white-space: nowrap; text-transform: uppercase;
+}
+.ft-link-btn:hover { border-color: var(--gold); color: var(--gold); }
+.ft-link-btn.has-links {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: rgba(245,166,35,0.08);
+}
+
+.ft-link-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10100;
+  min-width: 180px; max-width: 260px;
+  background: var(--card);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 6px 0;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+  animation: seqPopIn 0.12s ease;
+}
+.ft-link-dropdown-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 8px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--faint); padding: 4px 12px 6px;
+}
+.ft-link-dropdown-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; cursor: pointer;
+  transition: background 0.1s;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; font-weight: 600;
+  color: var(--text);
+}
+.ft-link-dropdown-item:hover { background: rgba(255,255,255,0.04); }
+.ft-link-dropdown-check {
+  width: 16px; height: 16px; border-radius: 3px;
+  border: 1.5px solid var(--border2); background: transparent;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; font-size: 11px; color: transparent;
+  transition: border-color 0.12s, background 0.12s;
+}
+.ft-link-dropdown-item.checked .ft-link-dropdown-check {
+  border-color: var(--gold); background: var(--gold); color: #000;
+}
+.ft-link-dropdown-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+}
+.ft-link-dropdown-label {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* ── Waveform ────────────────────────────────────────────────────────────────── */
 .ft-waveform {
   position: relative;
@@ -22277,6 +22342,8 @@ function _seqApplyAllTrackLinkStyles() {
     card.style.boxShadow = shadow || '';
     card.style.transition = 'box-shadow 0.2s';
   }
+  // ft-drawer strip borders
+  if (typeof _ftSyncLinkBorders === 'function') _ftSyncLinkBorders();
 }
 
 // Called whenever a new song is loaded to refresh link styles
@@ -22285,6 +22352,146 @@ window._seqLinksRefresh = function() {
   _seqApplyAllTrackLinkStyles();
   seqRenderSequenceTabs();
 };
+
+// ── ft-strip Link dropdown (checkbox-based linking) ─────────────────────────
+var _ftLinkOpenTrack = -1; // which track's dropdown is open, -1 = none
+
+function ftLinkToggleDropdown(trackIdx, event) {
+  event.stopPropagation();
+  if (_ftLinkOpenTrack === trackIdx) {
+    ftLinkCloseDropdown();
+    return;
+  }
+  ftLinkCloseDropdown(); // close any existing
+  _ftLinkOpenTrack = trackIdx;
+  var btn = document.querySelector('[data-ft-link-btn="' + trackIdx + '"]');
+  if (!btn) return;
+
+  var song = getCurrentSong();
+  var seqs = song ? getSongSequences(song) : [];
+  if (!seqs.length) { showToast('Add a sequence first', 'info', 1500); return; }
+
+  var links4t = _seqLinksLoad('4t');
+  var linked = links4t[trackIdx] || [];
+
+  var dd = document.createElement('div');
+  dd.className = 'ft-link-dropdown';
+  dd.id = 'ftLinkDropdown';
+  dd.innerHTML = '<div class="ft-link-dropdown-title">Link to sequence</div>'
+    + seqs.map(function(seq, i) {
+      var partId = seq.partId || seq.part;
+      var label = seqGetPartLabel(partId);
+      var color = seqGetPartColor(partId);
+      var isLinked = linked.indexOf(seq.id) >= 0;
+      var tabColor = color === 'var(--faint)' ? '#888' : color;
+      return '<div class="ft-link-dropdown-item' + (isLinked ? ' checked' : '') + '" data-seq-id="' + seq.id + '" data-track="' + trackIdx + '">'
+        + '<span class="ft-link-dropdown-check">' + (isLinked ? '✓' : '') + '</span>'
+        + '<span class="ft-link-dropdown-dot" style="background:' + tabColor + '"></span>'
+        + '<span class="ft-link-dropdown-label" style="color:' + tabColor + '">' + label + '</span>'
+        + '</div>';
+    }).join('');
+
+  // Position fixed via getBoundingClientRect to escape overflow:hidden ancestors
+  var rect = btn.getBoundingClientRect();
+  dd.style.position = 'fixed';
+  dd.style.top = (rect.bottom + 4) + 'px';
+  dd.style.right = (window.innerWidth - rect.right) + 'px';
+  dd.style.left = 'auto';
+  document.body.appendChild(dd);
+
+  // Click handler on items
+  dd.addEventListener('click', function(e) {
+    var item = e.target.closest('.ft-link-dropdown-item');
+    if (!item) return;
+    e.stopPropagation();
+    var seqId = item.dataset.seqId;
+    var tIdx = parseInt(item.dataset.track);
+    var links = _seqLinksLoad('4t');
+    var arr = links[tIdx] || [];
+    var pos = arr.indexOf(seqId);
+    if (pos >= 0) { arr.splice(pos, 1); item.classList.remove('checked'); item.querySelector('.ft-link-dropdown-check').textContent = ''; }
+    else { arr.push(seqId); item.classList.add('checked'); item.querySelector('.ft-link-dropdown-check').textContent = '✓'; }
+    links[tIdx] = arr;
+    _seqLinksSave('4t', links);
+    _seqApplyAllTrackLinkStyles();
+    _ftLinkSyncBtnState(tIdx);
+  });
+
+  // Close on outside click
+  setTimeout(function() {
+    document.addEventListener('click', _ftLinkOutsideClick);
+  }, 0);
+}
+
+function _ftLinkOutsideClick(e) {
+  var dd = document.getElementById('ftLinkDropdown');
+  if (dd && !dd.contains(e.target) && !e.target.closest('.ft-link-btn')) {
+    ftLinkCloseDropdown();
+  }
+}
+
+function ftLinkCloseDropdown() {
+  _ftLinkOpenTrack = -1;
+  var dd = document.getElementById('ftLinkDropdown');
+  if (dd) dd.remove();
+  document.removeEventListener('click', _ftLinkOutsideClick);
+}
+
+// Update Link button appearance when links exist
+function _ftLinkSyncBtnState(trackIdx) {
+  var btn = document.querySelector('[data-ft-link-btn="' + trackIdx + '"]');
+  if (!btn) return;
+  var links4t = _seqLinksLoad('4t');
+  var arr = links4t[trackIdx] || [];
+  if (arr.length) {
+    btn.classList.add('has-links');
+    btn.textContent = 'Link (' + arr.length + ')';
+  } else {
+    btn.classList.remove('has-links');
+    btn.textContent = 'Link';
+  }
+}
+
+// Sync all ft-strip borders + Link button states
+function _ftSyncLinkBorders() {
+  var links4t = _seqLinksLoad('4t');
+  var song = getCurrentSong();
+  var seqs = song ? getSongSequences(song) : [];
+  for (var i = 0; i < 4; i++) {
+    var strip = document.querySelector('[data-ft-strip="' + i + '"]');
+    if (!strip) continue;
+    var seqIds = links4t[i] || [];
+    if (!seqIds.length) {
+      strip.style.borderColor = '';
+      strip.style.borderWidth = '';
+      strip.style.borderImage = '';
+      strip.style.boxShadow = '';
+    } else {
+      var colors = seqIds.map(function(id) {
+        var s = seqs.find(function(sq) { return sq.id === id; });
+        return s ? seqGetPartColor(s.partId || s.part) : null;
+      }).filter(Boolean);
+      if (colors.length === 1) {
+        strip.style.borderColor = colors[0];
+        strip.style.borderWidth = '2px';
+        strip.style.borderImage = '';
+        strip.style.boxShadow = '0 0 8px 1px ' + colors[0] + '44';
+      } else if (colors.length > 1) {
+        // Multi-color: gradient border using border-image
+        var stops = colors.map(function(c, ci) {
+          var pct1 = (ci / colors.length * 100).toFixed(1);
+          var pct2 = ((ci + 1) / colors.length * 100).toFixed(1);
+          return c + ' ' + pct1 + '%, ' + c + ' ' + pct2 + '%';
+        }).join(', ');
+        strip.style.borderWidth = '2px';
+        strip.style.borderImage = 'linear-gradient(180deg, ' + stops + ') 1';
+        strip.style.borderColor = '';
+        strip.style.boxShadow = '0 0 8px 1px ' + colors[0] + '44';
+      }
+    }
+    _ftLinkSyncBtnState(i);
+  }
+}
 
 function seqSwitchToSequence(idx) {
   const song = getCurrentSong();
@@ -47771,6 +47978,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <div class="ft-strip" data-ft-strip="0">
           <div class="ft-strip-header">
             <div class="ft-strip-name" contenteditable="true">CH01</div>
+            <button class="ft-link-btn" data-ft-link-btn="0" onclick="ftLinkToggleDropdown(0,event)">Link</button>
             <div class="ft-strip-ch">1</div>
           </div>
 
@@ -47835,6 +48043,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <div class="ft-strip" data-ft-strip="1">
           <div class="ft-strip-header">
             <div class="ft-strip-name" contenteditable="true">CH02</div>
+            <button class="ft-link-btn" data-ft-link-btn="1" onclick="ftLinkToggleDropdown(1,event)">Link</button>
             <div class="ft-strip-ch">2</div>
           </div>
 
@@ -47899,6 +48108,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <div class="ft-strip" data-ft-strip="2">
           <div class="ft-strip-header">
             <div class="ft-strip-name" contenteditable="true">CH03</div>
+            <button class="ft-link-btn" data-ft-link-btn="2" onclick="ftLinkToggleDropdown(2,event)">Link</button>
             <div class="ft-strip-ch">3</div>
           </div>
 
@@ -47962,6 +48172,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <div class="ft-strip locked" data-ft-strip="3">
           <div class="ft-strip-header">
             <div class="ft-strip-name" contenteditable="true">CH04</div>
+            <button class="ft-link-btn" data-ft-link-btn="3" onclick="ftLinkToggleDropdown(3,event)">Link</button>
             <div class="ft-strip-ch">4</div>
           </div>
 
