@@ -25419,8 +25419,7 @@ function sharedPlay() {
 
 // Full song play — SEQ full-song mode; also coordinates 4-track if visible
 async function sharedPlaySong() {
-  console.log('[PLAY-SEQ] sharedPlaySong called, seqIsPlaying=', seqIsPlaying);
-  if (seqIsPlaying) { console.log('[PLAY-SEQ] Already playing — stopping'); sharedStop(); return; }
+  if (seqIsPlaying) { sharedStop(); return; }
   // Disable 4-track loop when playing full song
   if (typeof _mtLoopEnabled !== 'undefined' && _mtLoopEnabled) {
     _mtLoopEnabled = false;
@@ -25645,17 +25644,15 @@ function seqPlay() {
 }
 
 async function seqPlaySong() {
-  console.log('[PLAY-SEQ] seqPlaySong called, seqIsPlaying=', seqIsPlaying);
-  if (seqIsPlaying) { console.log('[PLAY-SEQ] seqPlaySong: already playing — stopping'); seqStop(); return; }
+  if (seqIsPlaying) { seqStop(); return; }
   var _myGen = _seqStopGen;  // snapshot: if seqStop() bumps this, our async work is stale
   const song = getCurrentSong();
-  if (!song) { console.log('[PLAY-SEQ] No current song'); return; }
+  if (!song) return;
   // Flush DOM state for the active sequence before reading section data,
   // so a part dropdown change that hasn't been auto-saved is captured.
-  try { seqSaveAllToCurrent(song); } catch(e) { console.error('[PLAY-SEQ] seqSaveAllToCurrent error:', e); }
+  seqSaveAllToCurrent(song);
 
   const seqs = getSongSequences(song);
-  console.log('[PLAY-SEQ] seqs count:', seqs.length);
 
   // Build the set of valid part IDs so we can filter positively
   const partOrder = STRUCTURE_PARTS.map(p => p.id);
@@ -25679,13 +25676,11 @@ async function seqPlaySong() {
 
   // Unassigned sequences play first (as an intro), followed by assigned parts in order
   const sorted = [...unassigned, ...assigned];
-  console.log('[PLAY-SEQ] sorted sections:', sorted.length, 'unassigned:', unassigned.length, 'assigned:', assigned.length);
 
-  if (sorted.length < 1) { console.log('[PLAY-SEQ] No sequences to play'); showToast('No sequences to play.', 'info', 3000); return; }
+  if (sorted.length < 1) { showToast('No sequences to play.', 'info', 3000); return; }
 
   // Mark as playing BEFORE async prefetch so seqStop() can cancel us
   seqIsPlaying = true;
-  console.log('[PLAY-SEQ] Set seqIsPlaying=true, starting prefetch...');
 
   // Pre-load all section data (not from DOM — avoids DOM reads during playback)
   const key  = seqCurrentKey();
@@ -25783,9 +25778,7 @@ async function seqPlaySong() {
   } catch(e) { console.warn('[SeqPrefetch] error:', e); }
 
   // If seqStop() was called during the async prefetch, bail out
-  if (!seqIsPlaying || _myGen !== _seqStopGen) { console.log('[PLAY-SEQ] Bailed: stopped during prefetch'); return; }
-
-  console.log('[PLAY-SEQ] Prefetch done, starting scheduler...');
+  if (!seqIsPlaying || _myGen !== _seqStopGen) return;
   _seqSongSectionIdx  = 0;
   _seqSongSectionStep = 0;
   _seqPlayMode = 'song';
@@ -49925,7 +49918,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <button class="split-transport-btn split-rec-btn" id="mtRecBtn" onclick="ftRecClick()" title="Record armed track (R)">⏺ Rec</button>
         <button class="split-transport-btn split-play-btn" id="mtPlayBtn" onclick="mtPlay()" disabled title="Play (Space)">▶ Play</button>
         <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtn" onclick="sharedPlaySong()" title="Play full song — plays all sections in order">▶▶ Seq</button>
-        <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="vrStop()" disabled title="Stop (Space)">■ Stop</button>
+        <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="sharedStop()" disabled title="Stop (Space)">■ Stop</button>
         <button class="split-transport-btn split-met-btn" id="mtMetBtn" onclick="seqToggleMet()" title="Toggle metronome (M)">Metro</button>
         <button class="split-transport-btn split-tap-btn split-tap-desktop" id="mtTapBtn" onclick="rtTapTempo()" title="Tap Tempo (Tab)">TAP</button>
       </div>
@@ -50798,7 +50791,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       onclick="sharedPlaySong()"
       title="Play full song — plays all sections in order">▶▶ Seq</button>
     <button class="split-transport-btn split-stop-btn" id="mtStopBtnM"
-      onclick="vrStop()" disabled
+      onclick="sharedStop()" disabled
       title="Stop">■ Stop</button>
     <button class="split-transport-btn split-met-btn" id="mtMetBtnM"
       onclick="rtMetroToggle()"
