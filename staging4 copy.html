@@ -25652,9 +25652,10 @@ async function seqPlaySong() {
   if (!song) { console.log('[PLAY-SEQ] No current song'); return; }
   // Flush DOM state for the active sequence before reading section data,
   // so a part dropdown change that hasn't been auto-saved is captured.
-  seqSaveAllToCurrent(song);
+  try { seqSaveAllToCurrent(song); } catch(e) { console.error('[PLAY-SEQ] seqSaveAllToCurrent error:', e); }
 
   const seqs = getSongSequences(song);
+  console.log('[PLAY-SEQ] seqs count:', seqs.length);
 
   // Build the set of valid part IDs so we can filter positively
   const partOrder = STRUCTURE_PARTS.map(p => p.id);
@@ -25678,11 +25679,13 @@ async function seqPlaySong() {
 
   // Unassigned sequences play first (as an intro), followed by assigned parts in order
   const sorted = [...unassigned, ...assigned];
+  console.log('[PLAY-SEQ] sorted sections:', sorted.length, 'unassigned:', unassigned.length, 'assigned:', assigned.length);
 
-  if (sorted.length < 1) { showToast('No sequences to play.', 'info', 3000); return; }
+  if (sorted.length < 1) { console.log('[PLAY-SEQ] No sequences to play'); showToast('No sequences to play.', 'info', 3000); return; }
 
   // Mark as playing BEFORE async prefetch so seqStop() can cancel us
   seqIsPlaying = true;
+  console.log('[PLAY-SEQ] Set seqIsPlaying=true, starting prefetch...');
 
   // Pre-load all section data (not from DOM — avoids DOM reads during playback)
   const key  = seqCurrentKey();
@@ -25780,8 +25783,9 @@ async function seqPlaySong() {
   } catch(e) { console.warn('[SeqPrefetch] error:', e); }
 
   // If seqStop() was called during the async prefetch, bail out
-  if (!seqIsPlaying || _myGen !== _seqStopGen) return;
+  if (!seqIsPlaying || _myGen !== _seqStopGen) { console.log('[PLAY-SEQ] Bailed: stopped during prefetch'); return; }
 
+  console.log('[PLAY-SEQ] Prefetch done, starting scheduler...');
   _seqSongSectionIdx  = 0;
   _seqSongSectionStep = 0;
   _seqPlayMode = 'song';
