@@ -40595,6 +40595,8 @@ var _vrInputGain = Math.pow(10, _vrInputGainDb / 20); // var so ft- redesign scr
 let _vrInputGainNode = null;   // GainNode applied before MediaRecorder
 let _vrInputSrcNode  = null;   // MediaStreamSourceNode from mic stream
 let _vrInputDestNode = null;   // MediaStreamDestinationNode for boosted stream
+let _vrNoiseGateNode = null;   // AudioWorkletNode noise gate
+let _vrNoiseGateReady = false; // true once the worklet module is registered
 
 // ── Input gain UI helpers ──
 function _vrGainToDb(g) {
@@ -41763,6 +41765,47 @@ function _mtCreateCtxSync() {
     _mtMasterGain = _mtAudioCtx.createGain();
     _mtMasterGain.gain.value = 1.0;
     _mtMasterGain.connect(_mtAudioCtx.destination);
+  }
+  // Register noise gate AudioWorklet (once)
+  if (!_vrNoiseGateReady && _mtAudioCtx.audioWorklet) {
+    var _gateCode = [
+      'class NoiseGateProcessor extends AudioWorkletProcessor {',
+      '  constructor() {',
+      '    super();',
+      '    this.threshLin = 0.01585;',  // -36dB
+      '    this.env = 0;',
+      '    this.holdCount = 0;',
+      '    this.holdMax = 4800;',       // ~100ms hold at 48kHz
+      '  }',
+      '  process(inputs, outputs) {',
+      '    var inp = inputs[0]; var out = outputs[0];',
+      '    if (!inp || !inp.length) return true;',
+      '    for (var ch = 0; ch < inp.length; ch++) {',
+      '      var ic = inp[ch]; var oc = out[ch];',
+      '      for (var i = 0; i < ic.length; i++) {',
+      '        var a = Math.abs(ic[i]);',
+      '        if (a > this.threshLin) { this.holdCount = this.holdMax; }',
+      '        else if (this.holdCount > 0) { this.holdCount--; }',
+      '        var target = this.holdCount > 0 ? 1 : 0;',
+      '        var rate = target > this.env ? 0.02 : 0.002;',  // fast attack, slow release
+      '        this.env += (target - this.env) * rate;',
+      '        oc[i] = ic[i] * this.env;',
+      '      }',
+      '    }',
+      '    return true;',
+      '  }',
+      '}',
+      "registerProcessor('noise-gate-processor', NoiseGateProcessor);"
+    ].join('\n');
+    var _gateBlob = new Blob([_gateCode], { type: 'application/javascript' });
+    var _gateUrl = URL.createObjectURL(_gateBlob);
+    _mtAudioCtx.audioWorklet.addModule(_gateUrl).then(function() {
+      _vrNoiseGateReady = true;
+      URL.revokeObjectURL(_gateUrl);
+      console.log('[MT] Noise gate worklet registered (-36dB threshold)');
+    }).catch(function(e) {
+      console.warn('[MT] Noise gate worklet registration failed:', e);
+    });
   }
 }
 
@@ -43148,9 +43191,9 @@ window.vrToggleRec = async function() {
       t.sourceNode.start(0);
     });
 
-    // ── Input gain processing chain ──
-    // Route mic → GainNode → MediaStreamDestination so the recorded signal
-    // is amplified before hitting MediaRecorder. Fixes weak/quiet mic levels.
+    // ── Input gain + noise gate processing chain ──
+    // Route mic → GainNode → NoiseGate → MediaStreamDestination so the recorded
+    // signal is amplified and gated before hitting MediaRecorder.
     // Only attempt if AudioContext is actually running — a suspended context
     // produces a silent MediaStreamDestination even though no error is thrown.
     const _ctx = _mtAudioCtx;
@@ -43158,12 +43201,30 @@ window.vrToggleRec = async function() {
       try {
         if (_vrInputSrcNode)  { try { _vrInputSrcNode.disconnect();  } catch(e){} }
         if (_vrInputGainNode) { try { _vrInputGainNode.disconnect(); } catch(e){} }
+        if (_vrNoiseGateNode) { try { _vrNoiseGateNode.disconnect(); } catch(e){} }
         _vrInputSrcNode  = _ctx.createMediaStreamSource(stream);
         _vrInputGainNode = _ctx.createGain();
         _vrInputGainNode.gain.value = _vrInputGain;
         _vrInputDestNode = _ctx.createMediaStreamDestination();
-        _vrInputSrcNode.connect(_vrInputGainNode);
-        _vrInputGainNode.connect(_vrInputDestNode);
+
+        // Insert noise gate if AudioWorklet is available
+        if (_vrNoiseGateReady && _ctx.audioWorklet) {
+          try {
+            _vrNoiseGateNode = new AudioWorkletNode(_ctx, 'noise-gate-processor');
+            _vrInputSrcNode.connect(_vrInputGainNode);
+            _vrInputGainNode.connect(_vrNoiseGateNode);
+            _vrNoiseGateNode.connect(_vrInputDestNode);
+            console.log('[MT] Recording chain: mic → gain → noise gate (-36dB) → recorder');
+          } catch(gateErr) {
+            _vrNoiseGateNode = null;
+            _vrInputSrcNode.connect(_vrInputGainNode);
+            _vrInputGainNode.connect(_vrInputDestNode);
+            console.warn('[MT] Noise gate failed, recording without gate:', gateErr);
+          }
+        } else {
+          _vrInputSrcNode.connect(_vrInputGainNode);
+          _vrInputGainNode.connect(_vrInputDestNode);
+        }
       } catch(e) {
         _vrInputDestNode = null;
         console.warn('Input gain chain failed, recording raw stream:', e);
@@ -43385,9 +43446,9 @@ window.mtCancelRecording = function() {
 // fade-in to avoid a click on the first transient.
 // Uses the existing _mtAudioCtx — never creates new audio contexts.
 function _mtTrimLeadingSilence(audioBuffer, audioCtx) {
-  var THRESHOLD = 0.005;    // amplitude below this = silence
-  var PREROLL_S = 0.005;    // keep 5ms before first transient
-  var FADEIN_S  = 0.003;    // 3ms fade-in ramp
+  var THRESHOLD = 0.01585;  // -36dB — matches noise gate threshold
+  var PREROLL_S = 0.050;    // keep 50ms before first transient to preserve natural attack
+  var FADEIN_S  = 0.005;    // 5ms fade-in ramp
   var sr = audioBuffer.sampleRate;
   var numCh = audioBuffer.numberOfChannels;
   var len = audioBuffer.length;
@@ -43404,8 +43465,8 @@ function _mtTrimLeadingSilence(audioBuffer, audioCtx) {
     }
   }
 
-  // If silence is <50ms, not worth trimming
-  if (firstLoud < sr * 0.05) return audioBuffer;
+  // If silence is <200ms, not worth trimming
+  if (firstLoud < sr * 0.2) return audioBuffer;
 
   // Trim point: back up by preroll
   var trimStart = Math.max(0, firstLoud - Math.floor(PREROLL_S * sr));
@@ -47803,6 +47864,8 @@ window.ftClose = ftClose;
 window.ftToggle = ftToggle;
 window.ftIsOpen = ftIsOpen;
 window.ftCloseTakes = ftCloseTakes;
+window.ftRecClick = ftRecClick;
+window.ftShowCountIn = ftShowCountIn;
 // _exitPerfIfMobile is used in onclick on nav buttons but declared inside IIFE
 if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPerfIfMobile;
 
