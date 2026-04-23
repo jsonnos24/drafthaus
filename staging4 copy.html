@@ -3307,10 +3307,30 @@ button, select, input, textarea { touch-action: manipulation; }
     transition: color 0.12s;
   }
   .seq-tab-del:hover { color: var(--red); }
-  .seq-tab-playing { box-shadow: 0 0 0 2px var(--gold); animation: seqTabPulse 1s ease infinite; }
+  .seq-tab-playing {
+    box-shadow: 0 0 0 2px var(--gold), 0 0 12px rgba(255,209,102,0.3);
+    animation: seqTabPulse var(--beat-dur, 0.5s) ease-in-out infinite;
+    position: relative;
+  }
+  .seq-tab-playing::before {
+    content: '';
+    position: absolute; inset: -2px; border-radius: inherit;
+    background: radial-gradient(ellipse at center, rgba(255,209,102,0.25) 0%, transparent 70%);
+    animation: seqTabGlow var(--beat-dur, 0.5s) ease-in-out infinite;
+    pointer-events: none; z-index: -1;
+  }
   .seq-tab-unassigned { border-color: rgba(255,255,255,0.45) !important; }
   .seq-tab-unassigned.active { border-color: rgba(255,255,255,0.85) !important; background: rgba(255,255,255,0.07) !important; }
-  @keyframes seqTabPulse { 0%,100%{opacity:1} 50%{opacity:1} }
+  @keyframes seqTabPulse {
+    0%, 100% { box-shadow: 0 0 0 2px var(--gold), 0 0 8px rgba(255,209,102,0.15); }
+    15% { box-shadow: 0 0 0 3px var(--gold), 0 0 18px rgba(255,209,102,0.5); }
+    50% { box-shadow: 0 0 0 2px var(--gold), 0 0 8px rgba(255,209,102,0.15); }
+  }
+  @keyframes seqTabGlow {
+    0%, 100% { opacity: 0.15; transform: scale(1); }
+    15% { opacity: 0.6; transform: scale(1.08); }
+    50% { opacity: 0.15; transform: scale(1); }
+  }
   /* Seq-link pending mode: pill pulses with its own colour */
   @keyframes seqLinkPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:1;transform:scale(1.06)} }
   .seq-tab.seq-link-pending { animation: seqLinkPulse 0.7s ease-in-out infinite !important; box-shadow: 0 0 0 2px currentColor !important; }
@@ -25817,6 +25837,9 @@ async function seqPlaySong() {
   if (typeof loopRenderPartsStrip === 'function') loopRenderPartsStrip();
   showToast('Playing full draft — ' + sorted.map(s => seqGetPartLabel(s.partId||s.part)).join(' → '), 'success', 4000);
 
+  // Set beat duration CSS variable for pulse animation
+  _seqSyncBeatPulse(_seqSongSections[0]?.bpm || 120);
+
   // Trigger looper + 4-track tracks for the first section
   _seqTriggerLoopsForPart(_seqSongSections[0]?.partId || null);
   _seqTriggerMtTracksForPart(_seqSongSections[0]?.partId || null);
@@ -25825,6 +25848,12 @@ async function seqPlaySong() {
 // Returns true if step i should get an accented metronome click.
 // 6/8: accent beat 1 AND beat 4 (the two compound downbeats in each 3+3 bar).
 // All others: accent beat 1 only.
+// Set CSS --beat-dur variable so the seq-tab-playing pulse syncs to BPM
+function _seqSyncBeatPulse(bpm) {
+  const beatSec = 60 / (parseFloat(bpm) || 120);
+  document.documentElement.style.setProperty('--beat-dur', beatSec.toFixed(3) + 's');
+}
+
 function _seqIsAccentBeat(stepInBar, beatsPerBar, timeSig) {
   if (stepInBar === 0) return true;
   if (timeSig === 6) return stepInBar === Math.floor(beatsPerBar / 2);
@@ -25946,6 +25975,7 @@ function seqScheduleNotes() {
           seqRenderSequenceTabs();
           if (typeof kbdRenderMelodyTabs === 'function') { const _s = getCurrentSong(); if (_s) kbdRenderMelodyTabs(_s); }
           if (typeof loopRenderPartsStrip === 'function') loopRenderPartsStrip();
+          _seqSyncBeatPulse(_seqSongSections[_nextSectionIdx]?.bpm || 120);
           _seqTriggerLoopsForPart(_nextPartId);
           _seqTriggerMtTracksForPart(_nextPartId);
         }, visualDelay + 50);
