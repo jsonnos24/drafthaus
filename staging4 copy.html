@@ -5158,6 +5158,30 @@ button, select, input, textarea { touch-action: manipulation; }
     color: var(--text);
     line-height: 1.1;
   }
+  .tap-bpm-input {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    line-height: 1.1;
+    background: transparent;
+    border: none;
+    outline: none;
+    text-align: center;
+    width: 42px;
+    padding: 0;
+    margin: 0;
+    -moz-appearance: textfield;
+  }
+  .tap-bpm-input::-webkit-outer-spin-button,
+  .tap-bpm-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .tap-bpm-input:focus {
+    color: var(--gold);
+  }
   .tap-bpm-value {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 8px;
@@ -23495,8 +23519,8 @@ function syncBpmUI(rawBpm) {
   // Header transport BPM display
   const htEl = document.getElementById('htBpmDisplay'); if (htEl) htEl.textContent = bpm;
   // Mobile control bar tap button display
-  const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) ktEl.textContent = bpm;
-  const mt4tBpmEl = document.getElementById('mt4tTapBpmNum'); if (mt4tBpmEl) mt4tBpmEl.textContent = bpm;
+  const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) { if (ktEl.tagName === 'INPUT') ktEl.value = bpm; else ktEl.textContent = bpm; }
+  const mt4tBpmEl = document.getElementById('mt4tTapBpmNum'); if (mt4tBpmEl) { if (mt4tBpmEl.tagName === 'INPUT') mt4tBpmEl.value = bpm; else mt4tBpmEl.textContent = bpm; }
   // Sync mobile dock summary
   if (typeof _syncMobileDock === 'function') _syncMobileDock();
 }
@@ -23511,8 +23535,8 @@ function syncSongBpmUI(rawBpm) {
   // if no sequence is loaded (e.g. on song open before sequencer is rendered).
   if (!document.getElementById('seqBpm')) {
     const htEl = document.getElementById('htBpmDisplay'); if (htEl) htEl.textContent = bpm;
-    const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) ktEl.textContent = bpm;
-    const mt4tBpmEl2 = document.getElementById('mt4tTapBpmNum'); if (mt4tBpmEl2) mt4tBpmEl2.textContent = bpm;
+    const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) { if (ktEl.tagName === 'INPUT') ktEl.value = bpm; else ktEl.textContent = bpm; }
+    const mt4tBpmEl2 = document.getElementById('mt4tTapBpmNum'); if (mt4tBpmEl2) { if (mt4tBpmEl2.tagName === 'INPUT') mt4tBpmEl2.value = bpm; else mt4tBpmEl2.textContent = bpm; }
     loopBpm = bpm;
     const lEl = document.getElementById('loopBpmDisplay'); if (lEl) lEl.textContent = bpm;
     const kEl = document.getElementById('kbdBpm'); if (kEl && parseInt(kEl.value) !== bpm) kEl.value = bpm;
@@ -23530,8 +23554,8 @@ function syncSeqBpmUI(rawBpm) {
   const lEl = document.getElementById('loopBpmDisplay'); if (lEl) lEl.textContent = bpm;
   const kEl = document.getElementById('kbdBpm'); if (kEl && parseInt(kEl.value) !== bpm) kEl.value = bpm;
   const htEl = document.getElementById('htBpmDisplay'); if (htEl) htEl.textContent = bpm;
-  const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) ktEl.textContent = bpm;
-  const mt4tBpmEl = document.getElementById('mt4tTapBpmNum'); if (mt4tBpmEl) mt4tBpmEl.textContent = bpm;
+  const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) { if (ktEl.tagName === 'INPUT') ktEl.value = bpm; else ktEl.textContent = bpm; }
+  const mt4tBpmEl = document.getElementById('mt4tTapBpmNum'); if (mt4tBpmEl) { if (mt4tBpmEl.tagName === 'INPUT') mt4tBpmEl.value = bpm; else mt4tBpmEl.textContent = bpm; }
   if (typeof _syncMobileDock === 'function') _syncMobileDock();
 }
 
@@ -24724,55 +24748,75 @@ function seqRenderChordPills(song) {
     </div>`;
   }
 
-  // ── Mobile portrait: two-group grid (I–IV then V–VIII) ──
+  // ── Render into split group containers (Group1: I–IV, Group2: V–VIII) ──
+  const g1 = document.getElementById('seqChordPillsGroup1');
+  const g2 = document.getElementById('seqChordPillsGroup2');
+  const half = Math.min(4, names.length);
+  const group1Html = names.slice(0, half).map((n, i) => _pillColHtml(n, i)).join('');
+  const group2Html = names.slice(half).map((n, i) => _pillColHtml(n, half + i)).join('');
+
   const isMobilePortrait = window.innerWidth <= 600 && window.innerHeight > window.innerWidth;
-  if (isMobilePortrait) {
-    el.classList.remove('wheel-mode');
-    el.classList.add('kbd-chord-grid-mode');
-    const half = Math.min(4, names.length);
-    const group1 = names.slice(0, half).map((n, i) => _pillColHtml(n, i)).join('');
-    const group2 = names.slice(half).map((n, i) => _pillColHtml(n, half + i)).join('');
-    el.innerHTML =
-      `<div class="kbd-chord-group" style="display:flex;gap:4px;justify-content:center;margin-bottom:10px;">${group1}</div>` +
-      `<div class="kbd-chord-group" style="display:flex;gap:4px;justify-content:center;">${group2}</div>`;
-    seqUpdateHumanizeBtns();
-    seqRenderKeyTriggers();
-    seqRenderKeyboard();
-    return;
+
+  if (g1 && g2) {
+    // Split rendering into two containers
+    if (isMobilePortrait) {
+      g1.classList.add('kbd-chord-grid-mode');
+      g2.classList.add('kbd-chord-grid-mode');
+    } else {
+      g1.classList.remove('kbd-chord-grid-mode');
+      g2.classList.remove('kbd-chord-grid-mode');
+    }
+    g1.classList.remove('wheel-mode');
+    g2.classList.remove('wheel-mode');
+    g1.innerHTML = `<div class="kbd-chord-group" style="display:flex;gap:4px;justify-content:center;">${group1Html}</div>`;
+    g2.innerHTML = `<div class="kbd-chord-group" style="display:flex;gap:4px;justify-content:center;">${group2Html}</div>`;
+    // Keep legacy container empty but present for any querySelector references
+    el.innerHTML = '';
+  } else {
+    // Fallback: render all into the single container
+    if (isMobilePortrait) {
+      el.classList.remove('wheel-mode');
+      el.classList.add('kbd-chord-grid-mode');
+      el.innerHTML =
+        `<div class="kbd-chord-group" style="display:flex;gap:4px;justify-content:center;margin-bottom:10px;">${group1Html}</div>` +
+        `<div class="kbd-chord-group" style="display:flex;gap:4px;justify-content:center;">${group2Html}</div>`;
+    } else {
+      el.classList.remove('wheel-mode');
+      el.classList.remove('kbd-chord-grid-mode');
+      el.innerHTML = names.map((name, i) => _pillColHtml(name, i)).join('');
+    }
   }
 
-  // ── Desktop / landscape: standard scrollable columns ──
-  el.classList.remove('wheel-mode');
-  el.classList.remove('kbd-chord-grid-mode');
-  el.innerHTML = names.map((name, i) => _pillColHtml(name, i)).join('');
   seqUpdateHumanizeBtns();
   seqRenderKeyTriggers(); // keep key bank in sync when key/mode changes
-  // Render keyboard
   seqRenderKeyboard();
 }
 
 // ── Delegated passive touch listeners for chord pills ──────────────
 // Replaces inline ontouchstart/ontouchend to avoid Chrome scroll-blocking violations
 (function _initChordPillTouchDelegation() {
-  const container = document.getElementById('seqChordPills');
-  if (!container) return;
-  container.addEventListener('touchstart', function(e) {
-    const pill = e.target.closest('.seq-chord-pill, .seq-chord-var-pill, .wheel-pill');
-    if (!pill) return;
-    window._seqPt = Date.now();
-    const chord = pill.getAttribute('data-chord');
-    const degAttr = pill.getAttribute('data-degree');
-    const degree = (degAttr !== null && degAttr !== '') ? Number(degAttr) : '';
-    if (pill.classList.contains('wheel-pill') && degree !== '') {
-      seqWheelSelectDeg(degree);
-    }
-    if (chord) seqPillPress(chord, degree);
-  }, { passive: true });
-  container.addEventListener('touchend', function(e) {
-    const pill = e.target.closest('.seq-chord-pill, .seq-chord-var-pill, .wheel-pill');
-    if (!pill) return;
-    seqPillRelease();
-  }, { passive: true });
+  var containers = ['seqChordPills', 'seqChordPillsGroup1', 'seqChordPillsGroup2'];
+  containers.forEach(function(cid) {
+    var container = document.getElementById(cid);
+    if (!container) return;
+    container.addEventListener('touchstart', function(e) {
+      const pill = e.target.closest('.seq-chord-pill, .seq-chord-var-pill, .wheel-pill');
+      if (!pill) return;
+      window._seqPt = Date.now();
+      const chord = pill.getAttribute('data-chord');
+      const degAttr = pill.getAttribute('data-degree');
+      const degree = (degAttr !== null && degAttr !== '') ? Number(degAttr) : '';
+      if (pill.classList.contains('wheel-pill') && degree !== '') {
+        seqWheelSelectDeg(degree);
+      }
+      if (chord) seqPillPress(chord, degree);
+    }, { passive: true });
+    container.addEventListener('touchend', function(e) {
+      const pill = e.target.closest('.seq-chord-pill, .seq-chord-var-pill, .wheel-pill');
+      if (!pill) return;
+      seqPillRelease();
+    }, { passive: true });
+  });
 })();
 
 // ── Key trigger bank (keys 1-8) ────────────────────────────────────
@@ -29531,7 +29575,7 @@ function openRunThroughDrawer() {
   rtMetroBpm  = parseInt(song.bpm || song.sequencer?.bpm || '120', 10) || 120;
   rtMetroTime = parseInt(song.sequencer?.time || '4', 10) || 4;
   ['rtMetroBpmDisplay','htBpmDisplay','kbdTapBpmNum','mt4tTapBpmNum'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.textContent = rtMetroBpm;
+    const el = document.getElementById(id); if (el) { if (el.tagName === 'INPUT') el.value = rtMetroBpm; else el.textContent = rtMetroBpm; }
   });
   ['rtMetroTimeSel','htTimeSel'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = String(rtMetroTime);
@@ -29815,7 +29859,7 @@ function rtMetroDelta(d) {
   rtMetroBpm = Math.max(40, Math.min(240, rtMetroBpm + d));
   ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay','htBpmDisplay','kbdTapBpmNum','mt4tTapBpmNum'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.textContent = rtMetroBpm;
+    if (el) { if (el.tagName === 'INPUT') el.value = rtMetroBpm; else el.textContent = rtMetroBpm; }
   });
   // Persist to active sequence AND song.bpm
   syncSeqBpmUI(rtMetroBpm);
@@ -33449,7 +33493,7 @@ function renderKeyboardDrawerHtml(song) {
 
     <!-- ═══ 1. PROGRESSION + KEY row ═══ -->
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
-      <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="width:auto;max-width:260px;flex:1;">
+      <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="width:auto;flex:0 1 auto;">
         <option value="">— Pick a progression —</option>
         ${['Classic Rock & Pop','Jazz & Soul','Indie & Pop','Rock Anthems','Minor & Dark'].map(grp => `
         <optgroup label="${grp}">
@@ -33458,8 +33502,8 @@ function renderKeyboardDrawerHtml(song) {
           ).join('')}
         </optgroup>`).join('')}
       </select>
-      <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;max-width:200px;">
-        <option value="">— Key —</option>
+      <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;width:auto;flex:0 1 auto;">
+        <option value="">— Pick a key —</option>
         <option${songKey==='C major'?' selected':''}>C major</option><option${songKey==='C minor'?' selected':''}>C minor</option>
         <option${songKey==='C# / Db major'?' selected':''}>C# / Db major</option><option${songKey==='C# / Db minor'?' selected':''}>C# / Db minor</option>
         <option${songKey==='D major'?' selected':''}>D major</option><option${songKey==='D minor'?' selected':''}>D minor</option>
@@ -33474,11 +33518,8 @@ function renderKeyboardDrawerHtml(song) {
         <option${songKey==='B major'?' selected':''}>B major</option><option${songKey==='B minor'?' selected':''}>B minor</option>
       </select>
     </div>
-    <!-- Mode buttons + Undo/Redo row -->
+    <!-- Undo/Redo row -->
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
-      <button class="seq-chord-mode-btn${seqChordMode==='preview'?' active':''}" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Preview mode — clicking a chord just plays it, nothing is added to the grid">▶ Preview</button>
-      <button class="seq-humanize-btn${seqHumanizeChords?' active':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords — adds subtle timing variation so they feel less robotic">〜 Humanize</button>
-      <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="seqClearAllChordSlots()" title="Clear all chord grid slots">Clear</button>
       <button id="seqProgressionReHumBtn"
         onclick="seqRehumanizeProgression()"
         class="seq-btn"
@@ -33491,8 +33532,19 @@ function renderKeyboardDrawerHtml(song) {
       <button class="seq-gen-btn seq-undo-btn" id="kbdKeysRedoBtn" onclick="keysRedoApply()" title="Redo (⇧⌘Z)" disabled>↪ Redo</button>
     </div>
 
-    <!-- ═══ 2. CHORD SEQUENCE strip ═══ -->
-    <div class="kbd-chord-seq-wrapper" style="margin-bottom:10px;">
+    <!-- ═══ 2. CHORD PILLS GROUP 1 (I–IV) ═══ -->
+    <div style="margin-bottom:6px;">
+      <button class="seq-chord-mode-btn" id="seqSweepBtn" onclick="seqToggleSweepMode()" title="Sweep mode — hover over chord pills to auto-play (desktop only)" style="display:none;">⟿ Sweep</button>
+      <div id="seqChordModeHint" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:0.08em;margin-bottom:8px;">Preview Mode — Click chord to preview · Drag into grid to compose</div>
+      <!-- Finger chord slots (1–9) — above diatonic chords, desktop only -->
+      <div class="seq-chord-section-title" style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint);margin-bottom:4px;">Finger Chords · Keys 1–9 · Drag to reassign</div>
+      <div class="seq-chords-row" id="seqKeyTriggerRow"></div>
+      <!-- First half of chord pills (I–IV) -->
+      <div class="seq-chords-row" id="seqChordPillsGroup1"></div>
+    </div>
+
+    <!-- ═══ 3. CHORD SEQUENCE strip (between pill groups) ═══ -->
+    <div class="kbd-chord-seq-wrapper" style="margin-bottom:6px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
         <div class="kbd-chord-seq-label" style="margin-bottom:0;">CHORD SEQUENCE</div>
       </div>
@@ -33506,16 +33558,20 @@ function renderKeyboardDrawerHtml(song) {
       </div>
     </div>
 
-    <!-- ═══ 3. CHORD PILLS (grid layout — two groups of 4) ═══ -->
-    <div style="margin-bottom:10px;">
-      <button class="seq-chord-mode-btn" id="seqSweepBtn" onclick="seqToggleSweepMode()" title="Sweep mode — hover over chord pills to auto-play (desktop only)" style="display:none;">⟿ Sweep</button>
-      <div id="seqChordModeHint" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:0.08em;margin-bottom:8px;">Preview Mode — Click chord to preview · Drag into grid to compose</div>
-      <!-- Finger chord slots (1–9) — above diatonic chords, desktop only -->
-      <div class="seq-chord-section-title" style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint);margin-bottom:4px;">Finger Chords · Keys 1–9 · Drag to reassign</div>
-      <div class="seq-chords-row" id="seqKeyTriggerRow"></div>
-      <!-- Chord pills container -->
-      <div class="seq-chords-row" id="seqChordPills"></div>
+    <!-- ═══ 4. CHORD PILLS GROUP 2 (V–VIII) ═══ -->
+    <div style="margin-bottom:6px;">
+      <div class="seq-chords-row" id="seqChordPillsGroup2"></div>
     </div>
+
+    <!-- Mode buttons below chord pills -->
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      <button class="seq-chord-mode-btn${seqChordMode==='preview'?' active':''}" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Preview mode — clicking a chord just plays it, nothing is added to the grid">▶ Preview</button>
+      <button class="seq-humanize-btn${seqHumanizeChords?' active':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords — adds subtle timing variation so they feel less robotic">〜 Humanize</button>
+      <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="seqClearAllChordSlots()" title="Clear all chord grid slots">Clear</button>
+    </div>
+
+    <!-- Hidden container for legacy references to seqChordPills -->
+    <div id="seqChordPills" style="display:none;"></div>
 
     <!-- ═══ 4. CHORDS instrument dropdown ═══ -->
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
@@ -49929,9 +49985,11 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     </div>
     <!-- RIGHT (R-to-L): TAP, −, BPM#, + -->
     <div class="ucb-right">
-      <button class="seq-btn tap-bpm-btn" id="mt4tTapBtn" onclick="kbdTapTempo()" title="Tap to set BPM">
-        <span class="tap-bpm-word" id="mt4tTapBpmNum">100</span>
-      </button>
+      <div class="seq-btn tap-bpm-btn" title="Tap to edit BPM">
+        <input type="number" class="tap-bpm-input" id="mt4tTapBpmNum" value="100" min="40" max="240"
+          onfocus="this.select()" onchange="kbdBpmChanged(this.value)" onblur="kbdBpmChanged(this.value)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
+      </div>
       <button class="seq-btn ucb-tap-btn" id="ucbTapBtn2" onclick="kbdTapTempo()" title="Tap Tempo">TAP</button>
     </div>
     <!-- Hidden timecode — kept for JS sync but not displayed -->
@@ -50784,9 +50842,11 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     </div>
     <!-- RIGHT (R-to-L): TAP, −, BPM#, + -->
     <div class="ucb-right">
-      <button class="seq-btn tap-bpm-btn" id="kbdTapBtn" onclick="kbdTapTempo()" title="Tap to set BPM">
-        <span class="tap-bpm-word" id="kbdTapBpmNum">100</span>
-      </button>
+      <div class="seq-btn tap-bpm-btn" title="Tap to edit BPM">
+        <input type="number" class="tap-bpm-input" id="kbdTapBpmNum" value="100" min="40" max="240"
+          onfocus="this.select()" onchange="kbdBpmChanged(this.value)" onblur="kbdBpmChanged(this.value)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
+      </div>
       <button class="seq-btn ucb-tap-btn" id="ucbTapBtn" onclick="kbdTapTempo()" title="Tap Tempo">TAP</button>
     </div>
     <!-- Hidden BPM input kept for JS sync compatibility -->
