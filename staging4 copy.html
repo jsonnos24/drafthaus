@@ -23602,10 +23602,46 @@ function seqRebuild() {
   if (!song) return;
   const sd = song.sequencer || {};
   const oldGrid = parseInt(sd.grid || 4);
+  const oldBars = parseInt(sd.bars || 2);
 
-  seqSaveSettings(); // saves new grid value from DOM
+  seqSaveSettings(); // saves new bars/grid value from DOM
 
   const newGrid = parseInt(sd.grid || 4);
+  const newBars = parseInt(sd.bars || 2);
+
+  // ── Tile patterns when expanding bars (e.g. 1→2, 2→4) ──────────
+  // Only tile if bars increased and grid didn't change (grid changes have their own remap)
+  if (newBars > oldBars && oldGrid === newGrid) {
+    const oldTime = parseInt(sd.time || '4');
+    const oldStepsPerLoop = oldTime * oldBars * oldGrid;
+    const newStepsPerLoop = oldTime * newBars * oldGrid;
+    // Tile helper: repeat sourceArr to fill targetLen, only filling empty slots
+    function _tileArray(arr, oldLen, newLen, emptyVal) {
+      if (!arr || !arr.length || oldLen <= 0) return arr;
+      const out = arr.slice(0, newLen); // start with whatever data exists (may be short)
+      // Pad to newLen if needed
+      while (out.length < newLen) out.push(emptyVal);
+      // Tile: copy source pattern into empty regions
+      for (let i = oldLen; i < newLen; i++) {
+        if (out[i] === emptyVal || out[i] === 0 || out[i] === false) {
+          out[i] = arr[i % oldLen] !== undefined ? arr[i % oldLen] : emptyVal;
+        }
+      }
+      return out;
+    }
+    // Tile drum lanes
+    ['kick','snare','hat','crash','clap','hitom','lotom'].forEach(lane => {
+      if (sd[lane] && sd[lane].length)           sd[lane]         = _tileArray(sd[lane], oldStepsPerLoop, newStepsPerLoop, 0);
+      if (sd[lane+'Vel'] && sd[lane+'Vel'].length) sd[lane+'Vel'] = _tileArray(sd[lane+'Vel'], oldStepsPerLoop, newStepsPerLoop, 0);
+    });
+    // Tile chord slots
+    if (sd.chordSlots && sd.chordSlots.length) {
+      sd.chordSlots     = _tileArray(sd.chordSlots, oldStepsPerLoop, newStepsPerLoop, '');
+      sd.chordDegrees   = _tileArray(sd.chordDegrees || [], oldStepsPerLoop, newStepsPerLoop, '');
+      sd.chordContinued = _tileArray(sd.chordContinued || [], oldStepsPerLoop, newStepsPerLoop, false);
+    }
+    save();
+  }
 
   // Remap drum + chord data when grid resolution changes so patterns keep
   // the same musical timing instead of playing at a different speed.
@@ -24852,46 +24888,53 @@ function seqRenderChordPills(song) {
 
 // ── Delegated passive touch listeners for chord pills ──────────────
 // Replaces inline ontouchstart/ontouchend to avoid Chrome scroll-blocking violations
+// ── Chord pill touch delegation (document-level so it works with dynamically created pills) ──
 (function _initChordPillTouchDelegation() {
-  var containers = ['seqChordPills', 'seqChordPillsGroup1', 'seqChordPillsGroup2'];
-  var _lastSweepChord = null; // track which chord the finger is over to avoid re-triggering
-  containers.forEach(function(cid) {
-    var container = document.getElementById(cid);
-    if (!container) return;
-    container.addEventListener('touchstart', function(e) {
-      const pill = e.target.closest('.seq-chord-pill, .seq-chord-var-pill, .wheel-pill');
-      if (!pill) return;
-      window._seqPt = Date.now();
-      const chord = pill.getAttribute('data-chord');
-      const degAttr = pill.getAttribute('data-degree');
-      const degree = (degAttr !== null && degAttr !== '') ? Number(degAttr) : '';
-      if (pill.classList.contains('wheel-pill') && degree !== '') {
-        seqWheelSelectDeg(degree);
-      }
-      _lastSweepChord = chord;
-      if (chord) seqPillPress(chord, degree);
-    }, { passive: true });
-    // ── Mobile sweep: slide finger over pills to preview chords (sound only) ──
-    container.addEventListener('touchmove', function(e) {
-      var touch = e.touches[0];
-      if (!touch) return;
-      var el = document.elementFromPoint(touch.clientX, touch.clientY);
-      if (!el) return;
-      var pill = el.closest('.seq-chord-pill, .seq-chord-var-pill, .wheel-pill');
-      if (!pill) return;
-      var chord = pill.getAttribute('data-chord');
-      if (!chord || chord === _lastSweepChord) return;
-      // New pill under finger — release old, play new (sound only, no grid fill)
-      _lastSweepChord = chord;
-      seqPillRelease();
-      seqPlayChordByName(chord);
-      seqShowChordOnKeyboard(chord);
-    }, { passive: true });
-    container.addEventListener('touchend', function(e) {
+  var _lastSweepChord = null;
+  var _pillContainerSelectors = '#seqChordPills, #seqChordPillsGroup1, #seqChordPillsGroup2';
+
+  function _isInsidePillContainer(el) {
+    return el && el.closest(_pillContainerSelectors);
+  }
+
+  document.addEventListener('touchstart', function(e) {
+    if (!_isInsidePillContainer(e.target)) return;
+    var pill = e.target.closest('.seq-chord-pill, .seq-chord-var-pill, .wheel-pill');
+    if (!pill) return;
+    window._seqPt = Date.now();
+    var chord = pill.getAttribute('data-chord');
+    var degAttr = pill.getAttribute('data-degree');
+    var degree = (degAttr !== null && degAttr !== '') ? Number(degAttr) : '';
+    if (pill.classList.contains('wheel-pill') && degree !== '') {
+      seqWheelSelectDeg(degree);
+    }
+    _lastSweepChord = chord;
+    if (chord) seqPillPress(chord, degree);
+  }, { passive: true });
+
+  // ── Mobile sweep: slide finger over pills to preview chords (sound only) ──
+  document.addEventListener('touchmove', function(e) {
+    if (_lastSweepChord === null && !_isInsidePillContainer(e.target)) return;
+    var touch = e.touches[0];
+    if (!touch) return;
+    var el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (!el) return;
+    var pill = el.closest('.seq-chord-pill, .seq-chord-var-pill, .wheel-pill');
+    if (!pill) return;
+    var chord = pill.getAttribute('data-chord');
+    if (!chord || chord === _lastSweepChord) return;
+    _lastSweepChord = chord;
+    seqPillRelease();
+    seqPlayChordByName(chord);
+    seqShowChordOnKeyboard(chord);
+  }, { passive: true });
+
+  document.addEventListener('touchend', function(e) {
+    if (_lastSweepChord !== null) {
       _lastSweepChord = null;
       seqPillRelease();
-    }, { passive: true });
-  });
+    }
+  }, { passive: true });
 })();
 
 // ── Key trigger bank (keys 1-8) ────────────────────────────────────
@@ -50352,8 +50395,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       var tracking = false, dismissed = false;
       var decided = false;   // true once we lock into scroll vs dismiss
       var isDismiss = false;  // which gesture won
-      var THRESHOLD = 90; // px needed to trigger dismiss
-      var DEAD_ZONE = 18; // px of movement before we decide
+      var THRESHOLD = 140; // px needed to trigger dismiss
+      var DEAD_ZONE = 24; // px of movement before we decide
 
       function bodyScrollTop() {
         if (!bodyId) return 0;
@@ -50375,8 +50418,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       }
 
       drawer.addEventListener('touchstart', function(e) {
-        // Don't intercept touches on piano keys — they manage their own horizontal drag
-        if (e.target.closest('.seq-key')) return;
+        // Don't intercept touches on interactive elements that use their own gestures
+        if (e.target.closest('.seq-key, .seq-chord-pill, .seq-chord-var-pill, .seq-slot, .seq-grid, .seq-chords-row, .kbd-chord-group, input, select, button, .mt-waveform-wrap, .mt-vol-slider, .mt-pan-slider')) return;
         var t = e.touches[0];
         x0 = x1 = t.clientX;
         y0 = y1 = t.clientY;
@@ -50403,8 +50446,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
           // Decide: dismiss gesture only if strongly horizontal swipe (2:1 ratio),
           // OR pulling down when content is scrolled to the very top
-          if (adx > ady * 2.5) {
-            isDismiss = true; // strong horizontal swipe → dismiss
+          if (adx > ady * 4) {
+            isDismiss = true; // very deliberate horizontal swipe → dismiss
           } else if (dy > 0 && bodyScrollTop() <= 1) {
             isDismiss = true; // pull-down at top → dismiss
           } else {
