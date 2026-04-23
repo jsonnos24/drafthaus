@@ -25476,6 +25476,11 @@ async function sharedPlaySong() {
 }
 
 function sharedStop() {
+  // Stop recording first (if active) — must happen before seqStop so the clock
+  // guard (_vrRecording check in htStopClock) sees recording already ended.
+  if (typeof _vrRecording !== 'undefined' && _vrRecording && typeof _mtStopRecording === 'function') {
+    try { _mtStopRecording(); } catch(e) {}
+  }
   // Always stop looper — not just when drawer is open (seq song mode triggers loops without drawer)
   if (typeof loopMasterStop === 'function') { try { loopMasterStop(); } catch(e) {} }
   seqStop(); // always stop sequencer playback too
@@ -25980,7 +25985,10 @@ function seqScheduleNotes() {
           _seqTriggerMtTracksForPart(_nextPartId);
         }, visualDelay + 50);
         if (_seqSongSectionIdx >= _seqSongSections.length) {
-          // Schedule stop after last note plays — let 4-track finish naturally
+          // Schedule stop after last note plays — let 4-track finish naturally.
+          // If recording (_vrRecording), seqStop(true) will stop the sequencer
+          // scheduler & sounds but the mic stays hot (htStopClock is guarded,
+          // letTracksFinish skips _mtSeqStopAllTracks, _vrRecording is untouched).
           setTimeout(() => seqStop(true), visualDelay + 200);
           return;
         }
@@ -27047,9 +27055,19 @@ function seqStop(letTracksFinish) {
   _seqStopGen++;
   if (typeof htStopClock === 'function') htStopClock();
   if (typeof _bgMaybeRelease === 'function') _bgMaybeRelease();
-  // Immediately mute sequencer output for instant silence (ringing sampler notes, oscillators)
+  // Mute sequencer output — if recording, fade out over 1.5s so ringing notes
+  // decay naturally into the take; otherwise instant silence.
   if (seqMasterGain) {
-    try { seqMasterGain.gain.cancelScheduledValues(0); seqMasterGain.gain.setValueAtTime(0, 0); } catch(e) {}
+    try {
+      const _ctx = seqMasterGain.context;
+      seqMasterGain.gain.cancelScheduledValues(_ctx.currentTime);
+      if (typeof _vrRecording !== 'undefined' && _vrRecording && letTracksFinish) {
+        seqMasterGain.gain.setValueAtTime(seqMasterGain.gain.value, _ctx.currentTime);
+        seqMasterGain.gain.exponentialRampToValueAtTime(0.001, _ctx.currentTime + 1.5);
+      } else {
+        seqMasterGain.gain.setValueAtTime(0, _ctx.currentTime);
+      }
+    } catch(e) {}
   }
   // Reset song-play state
   _seqPlayMode = 'loop';
@@ -44152,6 +44170,14 @@ function _mtStopRecording() {
   const mb = _el('vrMiniBar'); if (mb) mb.classList.remove('vr-active');
   // Stop recording animation
   if (_mtArmedTrack >= 0) _mtStopRecordingAnim(_mtArmedTrack);
+  // Restore sequencer master gain in case it was faded out at end of song
+  if (typeof seqMasterGain !== 'undefined' && seqMasterGain) {
+    try {
+      const _sctx = seqMasterGain.context;
+      seqMasterGain.gain.cancelScheduledValues(_sctx.currentTime);
+      seqMasterGain.gain.setValueAtTime(1, _sctx.currentTime);
+    } catch(e) {}
+  }
   // Arm Sequencer: auto-stop sequencer when recording ends
   if ((_vrSeqArmed || seqMetOn) && seqIsPlaying) { seqStop(); }
   // Stop header timecode clock (only if 4-track isn't also playing back)
