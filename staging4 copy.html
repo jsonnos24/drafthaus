@@ -20138,19 +20138,30 @@ var seqSongId = null; // track which song the sequencer belongs to
 // storagePath → getDownloadURL(), retries the fetch, and persists the
 // new URL so subsequent plays don't need to refresh again.
 async function _seqFetchAudioBuffer(downloadUrl, storagePath, audioCtx, onUrlRefreshed) {
+  var _ft0 = performance.now();
   var resp = await fetch(downloadUrl);
+  var _ftFetch = performance.now();
   if (resp.ok) {
     var arrayBuf = await resp.arrayBuffer();
-    return await audioCtx.decodeAudioData(arrayBuf);
+    var _ftBuf = performance.now();
+    var decoded = await audioCtx.decodeAudioData(arrayBuf);
+    console.log('[FETCH-PERF] ok — fetch:', (_ftFetch-_ft0).toFixed(0)+'ms, arrayBuf:', (_ftBuf-_ftFetch).toFixed(0)+'ms, decode:', (performance.now()-_ftBuf).toFixed(0)+'ms, size:', (arrayBuf.byteLength/1024).toFixed(0)+'KB');
+    return decoded;
   }
   // 403 / 401 — token probably expired; refresh if we have a storagePath
   if ((resp.status === 403 || resp.status === 401) && storagePath) {
+    console.log('[FETCH-PERF] token expired (' + resp.status + '), refreshing URL…');
+    var _ftRefresh = performance.now();
     var freshUrl = await firebase.storage().ref(storagePath).getDownloadURL();
+    console.log('[FETCH-PERF] URL refresh took:', (performance.now()-_ftRefresh).toFixed(0)+'ms');
     if (typeof onUrlRefreshed === 'function') onUrlRefreshed(freshUrl);
     var resp2 = await fetch(freshUrl);
     if (!resp2.ok) throw new Error('Fetch failed after URL refresh: ' + resp2.status);
     var arrayBuf2 = await resp2.arrayBuffer();
-    return await audioCtx.decodeAudioData(arrayBuf2);
+    var _ftBuf2 = performance.now();
+    var decoded2 = await audioCtx.decodeAudioData(arrayBuf2);
+    console.log('[FETCH-PERF] retry — fetch+buf:', (_ftBuf2-_ftRefresh).toFixed(0)+'ms, decode:', (performance.now()-_ftBuf2).toFixed(0)+'ms, size:', (arrayBuf2.byteLength/1024).toFixed(0)+'KB');
+    return decoded2;
   }
   throw new Error('Fetch failed: ' + resp.status);
 }
@@ -25681,11 +25692,13 @@ function seqPlay() {
 async function seqPlaySong() {
   if (seqIsPlaying) { seqStop(); return; }
   var _myGen = _seqStopGen;  // snapshot: if seqStop() bumps this, our async work is stale
+  var _t0 = performance.now();
   const song = getCurrentSong();
   if (!song) return;
   // Flush DOM state for the active sequence before reading section data,
   // so a part dropdown change that hasn't been auto-saved is captured.
   seqSaveAllToCurrent(song);
+  console.log('[PLAY-SEQ-PERF] save+flush:', (performance.now()-_t0).toFixed(1)+'ms');
 
   const seqs = getSongSequences(song);
 
@@ -25748,16 +25761,17 @@ async function seqPlaySong() {
     };
   });
 
-  // ── Pre-fetch loop track & 4-track buffers before starting ──
-  // Loads only tracks that have a downloadUrl but no buffer yet.
-  // On repeat presses buffers are already in memory so this block is skipped entirely.
+  // ── Background-fetch loop track & 4-track buffers (non-blocking) ──
+  // Playback starts IMMEDIATELY — the sequencer (drums/chords/melody) doesn't
+  // need these buffers.  Loop + 4-track triggers will pick up buffers as they
+  // arrive.  On repeat presses buffers are already in memory.
+  console.log('[PLAY-SEQ-PERF] section-build:', (performance.now()-_t0).toFixed(1)+'ms');
   try {
     // Sync loop track parts from saved song data (same as _seqTriggerLoopsForPart does)
     loopTracks.forEach(function(t, i) {
       var saved = song.loopTracks?.[i];
       if (saved) t.parts = saved.parts || (saved.partId ? [saved.partId] : []);
     });
-    // Quick check: do ANY tracks actually need loading?
     var _needsLoopFetch = loopTracks.some(function(t, i) {
       return t && !t.buffer && t.state !== 'recording' && song.loopTracks?.[i]?.downloadUrl;
     });
@@ -25765,56 +25779,71 @@ async function seqPlaySong() {
       return t && !t.buffer && t.takes && t.takes[t.activeTakeIdx]?.downloadUrl;
     });
     if (_needsLoopFetch || _needs4tFetch) {
-      const _prefetchPromises = [];
-      // Loop tracks
-      if (_needsLoopFetch) {
-        await loopEnsureAudioCtx();
-        loopTracks.forEach(function(t, i) {
-          if (!t || t.buffer || t.state === 'recording') return;
-          var dlUrl = song.loopTracks?.[i]?.downloadUrl;
-          if (!dlUrl) return;
-          var stPath = song.loopTracks?.[i]?.storagePath || null;
-          _prefetchPromises.push((async function(trackIdx, url, sp) {
-            try {
-              const audioBuf = await _seqFetchAudioBuffer(url, sp, loopAudioCtx, function(freshUrl) {
-                // Persist refreshed URL so next play is instant
-                loopSaveTrackSetting(trackIdx, 'downloadUrl', freshUrl);
-              });
-              var tr = loopTracks[trackIdx];
-              if (tr && !tr.buffer) { tr.buffer = audioBuf; tr.recDuration = audioBuf.duration; }
-            } catch(e) { console.warn('[SeqPrefetch] loop track', trackIdx, e); }
-          })(i, dlUrl, stPath));
-        });
-      }
-      // 4-track
-      if (_needs4tFetch) {
-        if (typeof _mtSeqEnsureAudio === 'function') _mtSeqEnsureAudio();
-        _mtTracks.forEach(function(t, i) {
-          if (!t || t.buffer) return;
-          var take = t.takes && t.takes[t.activeTakeIdx];
-          if (!take || !take.downloadUrl) return;
-          var takesp = take.storagePath || null;
-          _prefetchPromises.push((async function(tIdx, url, sp, takeObj) {
-            try {
-              const audioBuf = await _seqFetchAudioBuffer(url, sp, _mtAudioCtx, function(freshUrl) {
-                // Update the take's URL in memory so future fetches work
-                takeObj.downloadUrl = freshUrl;
-              });
-              var tr = _mtTracks[tIdx];
-              if (tr && !tr.buffer) { tr.buffer = audioBuf; }
-            } catch(e) { console.warn('[SeqPrefetch] 4-track', tIdx, e); }
-          })(i, take.downloadUrl, takesp, take));
-        });
-      }
-      if (_prefetchPromises.length > 0) {
-        showToast('Loading audio tracks…', 'info', 2000);
-        await Promise.all(_prefetchPromises);
-      }
+      var _bgFetchGen = _myGen;  // capture so background knows if playback was cancelled
+      console.log('[PLAY-SEQ-PERF] need fetch — loop:', _needsLoopFetch, '4t:', _needs4tFetch);
+      // Fire-and-forget: load in background, don't block playback
+      (async function _bgPrefetch() {
+        var _ft0 = performance.now();
+        var _prefetchPromises = [];
+        if (_needsLoopFetch) {
+          await loopEnsureAudioCtx();
+          loopTracks.forEach(function(t, i) {
+            if (!t || t.buffer || t.state === 'recording') return;
+            var dlUrl = song.loopTracks?.[i]?.downloadUrl;
+            if (!dlUrl) return;
+            var stPath = song.loopTracks?.[i]?.storagePath || null;
+            _prefetchPromises.push((async function(trackIdx, url, sp) {
+              var _ti = performance.now();
+              try {
+                var audioBuf = await _seqFetchAudioBuffer(url, sp, loopAudioCtx, function(freshUrl) {
+                  loopSaveTrackSetting(trackIdx, 'downloadUrl', freshUrl);
+                });
+                var tr = loopTracks[trackIdx];
+                if (tr && !tr.buffer) { tr.buffer = audioBuf; tr.recDuration = audioBuf.duration; }
+                console.log('[PLAY-SEQ-PERF] loop track', trackIdx, 'loaded:', (performance.now()-_ti).toFixed(0)+'ms', '('+audioBuf.duration.toFixed(1)+'s audio)');
+              } catch(e) { console.warn('[SeqPrefetch] loop track', trackIdx, e); }
+            })(i, dlUrl, stPath));
+          });
+        }
+        if (_needs4tFetch) {
+          if (typeof _mtSeqEnsureAudio === 'function') _mtSeqEnsureAudio();
+          _mtTracks.forEach(function(t, i) {
+            if (!t || t.buffer) return;
+            var take = t.takes && t.takes[t.activeTakeIdx];
+            if (!take || !take.downloadUrl) return;
+            var takesp = take.storagePath || null;
+            _prefetchPromises.push((async function(tIdx, url, sp, takeObj) {
+              var _ti = performance.now();
+              try {
+                var audioBuf = await _seqFetchAudioBuffer(url, sp, _mtAudioCtx, function(freshUrl) {
+                  takeObj.downloadUrl = freshUrl;
+                });
+                var tr = _mtTracks[tIdx];
+                if (tr && !tr.buffer) { tr.buffer = audioBuf; }
+                console.log('[PLAY-SEQ-PERF] 4-track', tIdx, 'loaded:', (performance.now()-_ti).toFixed(0)+'ms', '('+audioBuf.duration.toFixed(1)+'s audio)');
+              } catch(e) { console.warn('[SeqPrefetch] 4-track', tIdx, e); }
+            })(i, take.downloadUrl, takesp, take));
+          });
+        }
+        if (_prefetchPromises.length > 0) {
+          showToast('Loading audio tracks…', 'info', 2000);
+          await Promise.all(_prefetchPromises);
+          console.log('[PLAY-SEQ-PERF] all buffers loaded:', (performance.now()-_ft0).toFixed(0)+'ms total');
+          // If still playing, trigger loops/4t for current section so they catch up
+          if (seqIsPlaying && _seqPlayMode === 'song' && _bgFetchGen === _seqStopGen) {
+            var _curPart = _seqSongSections[_seqSongSectionIdx]?.partId || null;
+            if (_curPart) {
+              _seqTriggerLoopsForPart(_curPart);
+              _seqTriggerMtTracksForPart(_curPart);
+            }
+          }
+        }
+      })();
+    } else {
+      console.log('[PLAY-SEQ-PERF] all buffers already cached');
     }
   } catch(e) { console.warn('[SeqPrefetch] error:', e); }
-
-  // If seqStop() was called during the async prefetch, bail out
-  if (!seqIsPlaying || _myGen !== _seqStopGen) return;
+  console.log('[PLAY-SEQ-PERF] prefetch kicked off (non-blocking):', (performance.now()-_t0).toFixed(1)+'ms');
   _seqSongSectionIdx  = 0;
   _seqSongSectionStep = 0;
   _seqPlayMode = 'song';
@@ -25829,6 +25858,7 @@ async function seqPlaySong() {
   _seqSchedulerCtx = ctx;
   _seqNextNoteTime = ctx.currentTime + 0.05;
   _seqTimer = setInterval(seqScheduleNotes, 25);
+  console.log('[PLAY-SEQ-PERF] scheduler started:', (performance.now()-_t0).toFixed(1)+'ms — PLAYING');
 
   // Load section 0 into the DOM immediately so the grid shows the first section's
   // pattern from the start (not whatever the user was last editing).
@@ -25849,6 +25879,7 @@ async function seqPlaySong() {
   // Trigger looper + 4-track tracks for the first section
   _seqTriggerLoopsForPart(_seqSongSections[0]?.partId || null);
   _seqTriggerMtTracksForPart(_seqSongSections[0]?.partId || null);
+  console.log('[PLAY-SEQ-PERF] total startup:', (performance.now()-_t0).toFixed(1)+'ms');
 }
 
 // Returns true if step i should get an accented metronome click.
