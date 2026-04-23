@@ -24303,7 +24303,45 @@ function _resolveProgressionToken(token, key, scaleChords) {
   return { chord, degree: degIdx >= 0 ? String(degIdx) : '' };
 }
 
-// Core fill — applies a progression to the chord grid with optional beat-offset humanization.
+// ── Extended chord variation lookup ──────────────────────────────────────────
+// Maps base quality → array of possible extended qualities
+const _CHORD_EXTENSIONS = {
+  '':    ['maj7','7','sus2','sus4','add9'],       // major → maj7, dom7, sus2, sus4, add9
+  'm':   ['m7','m9','madd9','msus4'],             // minor → m7, m9, madd9, msus4
+  'dim': ['dim7','m7b5'],                         // dim   → dim7, half-dim
+};
+
+// Given a base chord name (e.g. "Am"), return a random extended version (e.g. "Am7")
+// Returns the original chord with probability ~40% to keep things natural
+function _randomExtendChord(chordName) {
+  // Parse root from chord name
+  const root = (chordName.length >= 2 && chordName[1] === '#') ? chordName.slice(0, 2) : chordName[0];
+  const qual = chordName.slice(root.length);
+  const exts = _CHORD_EXTENSIONS[qual];
+  if (!exts || !exts.length) return chordName;
+  // 40% chance: keep original
+  if (Math.random() < 0.4) return chordName;
+  const ext = exts[Math.floor(Math.random() * exts.length)];
+  return root + ext;
+}
+
+// ── Rhythm pattern templates ───────────────────────────────────────────────
+// Each pattern is a function(stepsPerBar, beatStep) → array of beat offsets within a bar
+// where each chord starts. The progression's chords are distributed across these offsets.
+const _RHYTHM_PATTERNS = [
+  // Pattern 0: Whole bar (one chord per bar — classic)
+  function(spb, bs) { return [0]; },
+  // Pattern 1: Half bar (chord changes on beat 1 and beat 3 in 4/4)
+  function(spb, bs) { return [0, Math.floor(spb / 2)]; },
+  // Pattern 2: Syncopated — beat 1 and the "and" of beat 2
+  function(spb, bs) { return [0, Math.floor(bs * 1.5)]; },
+  // Pattern 3: Push — anticipate by half a beat
+  function(spb, bs) { return [0]; }, // same as whole but with push offset applied later
+  // Pattern 4: Two-beat feel (chord on every 2 beats)
+  function(spb, bs) { var out = []; for (var b = 0; b < spb; b += bs * 2) out.push(b); return out; },
+];
+
+// Core fill — applies a progression to the chord grid with extended chords + rhythm variations.
 // Does NOT show a confirmation dialog; call seqApplyProgression() for that.
 function _seqProgressionFill(progressionId) {
   const prog = SEQ_PROGRESSIONS.find(p => p.id === progressionId);
@@ -24320,7 +24358,7 @@ function _seqProgressionFill(progressionId) {
   const stepsPerBar = timeSig * gridSub;
   const beatStep    = gridSub; // one beat = gridSub steps
 
-  // Resolve song key — use canonical helpers (they read song.key + DOM fallback)
+  // Resolve song key
   const key         = seqCurrentKey();
   const mode        = seqCurrentMode();
   const scaleChords = seqGetScaleChords(key, mode);
@@ -24328,22 +24366,42 @@ function _seqProgressionFill(progressionId) {
   // Resolve progression tokens → chord names + degrees
   const chordList = prog.tokens.map(t => _resolveProgressionToken(t, key, scaleChords));
 
-  // Loop chords to fill all bars: one chord per bar
-  const loopedChords = [];
-  for (let b = 0; b < bars; b++) loopedChords.push(chordList[b % chordList.length]);
+  // Pick a random rhythm pattern
+  const patternIdx = Math.floor(Math.random() * _RHYTHM_PATTERNS.length);
+  const getBarOffsets = _RHYTHM_PATTERNS[patternIdx];
+  const barOffsets = getBarOffsets(stepsPerBar, beatStep);
 
-  // Compute humanized start positions (beat-level offsets)
-  // Chord 0 always starts at step 0; subsequent chords can shift ±1 beat
-  const startPositions = [];
-  const beatChoices    = [-beatStep, 0, 0, 0, beatStep]; // biased toward no shift
-  for (let i = 0; i < loopedChords.length; i++) {
-    const base   = i * stepsPerBar;
-    const offset = i > 0 ? beatChoices[Math.floor(Math.random() * beatChoices.length)] : 0;
-    const pos    = Math.max(
-      (startPositions[i - 1] ?? -1) + 1,
-      Math.min(base + offset, totalSteps - 1)
-    );
-    startPositions.push(pos);
+  // Build chord placement: distribute progression chords across bars + sub-bar offsets
+  const placements = []; // [{step, chord, degree}]
+  let chordIdx = 0;
+  for (let b = 0; b < bars; b++) {
+    const barStart = b * stepsPerBar;
+    for (let offIdx = 0; offIdx < barOffsets.length; offIdx++) {
+      const ci = chordList[chordIdx % chordList.length];
+      // Apply extended chord variation
+      const extChord = _randomExtendChord(ci.chord);
+      // Apply push offset for pattern 3 (anticipate by half a beat on non-first chords)
+      let offset = barOffsets[offIdx];
+      if (patternIdx === 3 && placements.length > 0 && Math.random() < 0.5) {
+        offset = Math.max(0, offset - Math.floor(beatStep / 2));
+      }
+      const step = Math.min(barStart + offset, totalSteps - 1);
+      // Avoid placing on top of a previous chord
+      if (placements.length === 0 || step > placements[placements.length - 1].step) {
+        placements.push({ step, chord: extChord, degree: ci.degree });
+      }
+      chordIdx++;
+    }
+  }
+
+  // Humanize: shift chord start positions slightly (±1 beat, biased toward no shift)
+  const beatChoices = [-beatStep, 0, 0, 0, beatStep];
+  for (let i = 1; i < placements.length; i++) {
+    const shift = beatChoices[Math.floor(Math.random() * beatChoices.length)];
+    const prev = placements[i - 1].step;
+    const next = (i < placements.length - 1) ? placements[i + 1].step : totalSteps;
+    const newStep = Math.max(prev + 1, Math.min(placements[i].step + shift, next - 1, totalSteps - 1));
+    placements[i].step = newStep;
   }
 
   // Build new slot arrays
@@ -24352,10 +24410,10 @@ function _seqProgressionFill(progressionId) {
   const newContinued = new Array(totalSteps).fill(false);
   const newDraggable = new Array(totalSteps).fill(false);
 
-  for (let i = 0; i < startPositions.length; i++) {
-    const start = startPositions[i];
-    const end   = i < startPositions.length - 1 ? startPositions[i + 1] : totalSteps;
-    const { chord, degree } = loopedChords[i];
+  for (let i = 0; i < placements.length; i++) {
+    const start = placements[i].step;
+    const end   = i < placements.length - 1 ? placements[i + 1].step : totalSteps;
+    const { chord, degree } = placements[i];
     if (!chord) continue;
     newSlots[start]     = chord;
     newDegrees[start]   = degree;
@@ -24796,6 +24854,7 @@ function seqRenderChordPills(song) {
 // Replaces inline ontouchstart/ontouchend to avoid Chrome scroll-blocking violations
 (function _initChordPillTouchDelegation() {
   var containers = ['seqChordPills', 'seqChordPillsGroup1', 'seqChordPillsGroup2'];
+  var _lastSweepChord = null; // track which chord the finger is over to avoid re-triggering
   containers.forEach(function(cid) {
     var container = document.getElementById(cid);
     if (!container) return;
@@ -24809,11 +24868,27 @@ function seqRenderChordPills(song) {
       if (pill.classList.contains('wheel-pill') && degree !== '') {
         seqWheelSelectDeg(degree);
       }
+      _lastSweepChord = chord;
       if (chord) seqPillPress(chord, degree);
     }, { passive: true });
-    container.addEventListener('touchend', function(e) {
-      const pill = e.target.closest('.seq-chord-pill, .seq-chord-var-pill, .wheel-pill');
+    // ── Mobile sweep: slide finger over pills to preview chords (sound only) ──
+    container.addEventListener('touchmove', function(e) {
+      var touch = e.touches[0];
+      if (!touch) return;
+      var el = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (!el) return;
+      var pill = el.closest('.seq-chord-pill, .seq-chord-var-pill, .wheel-pill');
       if (!pill) return;
+      var chord = pill.getAttribute('data-chord');
+      if (!chord || chord === _lastSweepChord) return;
+      // New pill under finger — release old, play new (sound only, no grid fill)
+      _lastSweepChord = chord;
+      seqPillRelease();
+      seqPlayChordByName(chord);
+      seqShowChordOnKeyboard(chord);
+    }, { passive: true });
+    container.addEventListener('touchend', function(e) {
+      _lastSweepChord = null;
       seqPillRelease();
     }, { passive: true });
   });
@@ -25905,7 +25980,7 @@ function seqScheduleNotes() {
 
   // ── SONG PLAY MODE — reads from pre-loaded section data, not DOM ──
   if (_seqPlayMode === 'song') {
-    if (_seqSongSectionIdx >= _seqSongSections.length) { seqStop(true); return; }
+    if (_seqSongSectionIdx >= _seqSongSections.length) { _seqSongSectionIdx = 0; _seqSongSectionStep = 0; }
     const loopKey  = seqCurrentKey();
     const loopMode = seqCurrentMode();
     const loopChords = seqGenChords(loopKey, loopMode);
@@ -25916,7 +25991,7 @@ function seqScheduleNotes() {
     const loopChordsMidi = _useSampler ? seqGenChordMidi(loopKey, loopMode) : null;
 
     while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
-      if (_seqSongSectionIdx >= _seqSongSections.length) { seqStop(true); return; }
+      if (_seqSongSectionIdx >= _seqSongSections.length) { _seqSongSectionIdx = 0; _seqSongSectionStep = 0; }
       const sec  = _seqSongSections[_seqSongSectionIdx];
       const i    = _seqSongSectionStep;
       const stepDur     = sec.stepDur;
@@ -25989,6 +26064,11 @@ function seqScheduleNotes() {
       if (_seqSongSectionStep >= sec.totalSteps) {
         _seqSongSectionStep = 0;
         _seqSongSectionIdx++;
+        // Loop back to start when sequence ends
+        if (_seqSongSectionIdx >= _seqSongSections.length) {
+          _seqSongSectionIdx = 0;
+          _seqSongSectionStep = 0;
+        }
         // Update tab highlight, grid display, and trigger looper tracks for new section
         const _nextSectionIdx = _seqSongSectionIdx;
         const _nextPartId = _seqSongSections[_nextSectionIdx]?.partId || null;
@@ -26000,10 +26080,7 @@ function seqScheduleNotes() {
           if (song && _nextSectionIdx < _seqSongSections.length) {
             const nextSeq = _seqSongSections[_nextSectionIdx];
             const seqs = getSongSequences(song);
-            // _seqIdx is the index of this section in the original seqs array (stored at build time)
             const tabIdx = (nextSeq._seqIdx !== undefined && nextSeq._seqIdx >= 0) ? nextSeq._seqIdx : -1;
-            // Always load — do not skip when tabIdx === seqActiveIdx, because the grid
-            // may still be showing a different section's data from a prior transition.
             if (tabIdx >= 0 && tabIdx < seqs.length) {
               seqActiveIdx = tabIdx;
               seqLoadSequenceIntoDOM(seqs[tabIdx], song);
@@ -26016,14 +26093,6 @@ function seqScheduleNotes() {
           _seqTriggerLoopsForPart(_nextPartId);
           _seqTriggerMtTracksForPart(_nextPartId);
         }, visualDelay + 50);
-        if (_seqSongSectionIdx >= _seqSongSections.length) {
-          // Schedule stop after last note plays — let 4-track finish naturally.
-          // If recording (_vrRecording), seqStop(true) will stop the sequencer
-          // scheduler & sounds but the mic stays hot (htStopClock is guarded,
-          // letTracksFinish skips _mtSeqStopAllTracks, _vrRecording is untouched).
-          setTimeout(() => seqStop(true), visualDelay + 200);
-          return;
-        }
       }
     }
     return; // don't fall through to loop mode
@@ -26062,23 +26131,57 @@ function seqScheduleNotes() {
   const loTomSlots = [...document.querySelectorAll('#seqLoTom .seq-slot')];
   const crashSlots = [...document.querySelectorAll('#seqCrash .seq-slot')];
   const clapSlots  = [...document.querySelectorAll('#seqClap .seq-slot')];
-  // Use drum slots for step count — chord grid now lives in keyboard drawer (may not be in DOM)
+  // Drum slots determine whether the full sequencer drawer is active.
+  // The chord grid may exist in the keyboard drawer even when drums aren't,
+  // so only check drum slots to decide the path.
+  const _drumSlotsExist = kickSlots.length > 0;
   const totalSteps = kickSlots.length || chordSlots.length;
-  if (!totalSteps) {
-    // ── Keyboard-only mode: sequencer drawer isn't open so no DOM slots exist.
+  if (!_drumSlotsExist) {
+    // ── Keyboard-only mode: sequencer drawer isn't open so no drum DOM slots exist.
     //    Still run metronome + melody playback using the keyboard drawer's own
     //    BPM / time-sig / bars settings so Rec and Play both work standalone.
     const _kBpm   = parseFloat(document.getElementById('kbdBpm')?.value   || bpm);
     const _kTime  = parseInt(document.getElementById('kbdTimeSig')?.value  || time_sig);
     const _kBars  = parseInt(document.getElementById('kbdBars')?.value     || 4);
-    const _kStep  = (60 / _kBpm) / 4; // 16th-note duration in seconds
-    const _kTotal = _kBars * _kTime * 4; // total 16th-note steps per loop
+    const _kGrid  = parseInt(document.getElementById('seqGrid')?.value    || 4);
+    const _kStep  = (60 / _kBpm) / _kGrid; // step duration in seconds
+    const _kTotal = chordSlots.length || (_kBars * _kTime * _kGrid); // use chord grid length if available
     const _kLoopMs = _kTotal * _kStep * 1000;
+    const _kBeatsPerBar = _kTime * _kGrid;
+    // Chord playback setup for keyboard-only mode
+    const _kLoopKey    = seqCurrentKey();
+    const _kLoopMode   = seqCurrentMode();
+    const _kLoopChords = seqGenChords(_kLoopKey, _kLoopMode);
+    const _kHasPiano   = _instrHas('piano') || _instrHas('piano2');
+    const _kHasGuitar  = _instrHas('guitar');
+    const _kHasSynth   = _instrHas('synth');
+    const _kUseSampler = _anyPianoChordReady() || (_kHasGuitar && _guitarLoaded);
+    const _kLoopChordsMidi = _kUseSampler ? seqGenChordMidi(_kLoopKey, _kLoopMode) : null;
+    const _kVel = parseFloat(document.getElementById('seqVel')?.value || 0.8);
     while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
       const i = _seqStepIndex % _kTotal;
       const baseTime = _seqNextNoteTime;
-      // Metronome click on every beat
-      if (seqMetOn && !_mt4tMetroActive) seqClick(baseTime, _seqIsAccentBeat(i % (_kTime * 4), _kTime * 4, _kTime));
+      const velocity = _kVel * (0.8 + Math.random() * 0.4);
+      // Metronome click
+      if (seqMetOn && !_mt4tMetroActive) seqClick(baseTime, _seqIsAccentBeat(i % _kBeatsPerBar, _kBeatsPerBar, _kTime));
+      // Chord playback from chord grid slots
+      if (chordSlots.length) {
+        const slot = chordSlots[i];
+        if (slot && slot.classList.contains('filled') && !slot.classList.contains('chord-tail')) {
+          const _cn = slot.textContent.trim();
+          if (_cn) {
+            const midiNotes = _kLoopChordsMidi?.[_cn] || _chordVariantToMidi(_cn);
+            let samplerPlayed = false;
+            if (_instrHas('piano')  && _pianoLoaded  && midiNotes?.length) { seqPlayChordPiano(midiNotes, baseTime, velocity);  samplerPlayed = true; }
+            if (_instrHas('piano2') && _piano2Loaded && midiNotes?.length) { seqPlayChordPiano2(midiNotes, baseTime, velocity); samplerPlayed = true; }
+            if (_kHasGuitar && _guitarLoaded && midiNotes?.length) { seqPlayChordGuitar(midiNotes, baseTime, velocity); samplerPlayed = true; }
+            if (_kHasSynth || (!samplerPlayed && !_kHasPiano && !_kHasGuitar)) {
+              const freqs = _kLoopChords[_cn] || (midiNotes?.length ? midiNotes.map(m => 440 * Math.pow(2, (m - 69) / 12)) : null);
+              if (freqs) seqPlayChord(freqs, baseTime, velocity);
+            }
+          }
+        }
+      }
       // Melody: schedule at loop start, but not while actively recording
       if (i === 0 && !melodyIsRecording) {
         melodyScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} });
@@ -26087,6 +26190,18 @@ function seqScheduleNotes() {
         // Pass melodyNotes directly so we play the keyboard drawer's current notes
         // (not song.sequencer.melody which might be a different sequence)
         if (melodyNotes.length) seqScheduleMelody(ctx, baseTime, _kLoopMs, melodyNotes, _kbdMelodyInstrument);
+      }
+      // Visual highlight for chord slots
+      if (chordSlots.length) {
+        const visualDelay = Math.max(0, (_seqNextNoteTime - ctx.currentTime) * 1000);
+        (function(si) {
+          setTimeout(() => {
+            if (!seqIsPlaying) return;
+            document.querySelectorAll('#seqChordGrid .seq-slot.playing').forEach(s => s.classList.remove('playing'));
+            const s = document.querySelectorAll('#seqChordGrid .seq-slot')[si];
+            if (s) s.classList.add('playing');
+          }, visualDelay);
+        })(i);
       }
       _seqStepIndex++;
       _seqNextNoteTime += _kStep;
@@ -33493,7 +33608,7 @@ function renderKeyboardDrawerHtml(song) {
 
     <!-- ═══ 1. PROGRESSION + KEY row ═══ -->
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
-      <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="width:auto;flex:0 1 auto;">
+      <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="flex:0 1 auto;">
         <option value="">— Pick a progression —</option>
         ${['Classic Rock & Pop','Jazz & Soul','Indie & Pop','Rock Anthems','Minor & Dark'].map(grp => `
         <optgroup label="${grp}">
@@ -33502,7 +33617,7 @@ function renderKeyboardDrawerHtml(song) {
           ).join('')}
         </optgroup>`).join('')}
       </select>
-      <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;width:auto;flex:0 1 auto;">
+      <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;flex:0 1 auto;">
         <option value="">— Pick a key —</option>
         <option${songKey==='C major'?' selected':''}>C major</option><option${songKey==='C minor'?' selected':''}>C minor</option>
         <option${songKey==='C# / Db major'?' selected':''}>C# / Db major</option><option${songKey==='C# / Db minor'?' selected':''}>C# / Db minor</option>
@@ -50237,8 +50352,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       var tracking = false, dismissed = false;
       var decided = false;   // true once we lock into scroll vs dismiss
       var isDismiss = false;  // which gesture won
-      var THRESHOLD = 62; // px needed to trigger dismiss
-      var DEAD_ZONE = 10; // px of movement before we decide
+      var THRESHOLD = 90; // px needed to trigger dismiss
+      var DEAD_ZONE = 18; // px of movement before we decide
 
       function bodyScrollTop() {
         if (!bodyId) return 0;
@@ -50286,10 +50401,10 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
           if (adx < DEAD_ZONE && ady < DEAD_ZONE) return; // still in dead zone
           decided = true;
 
-          // Decide: dismiss gesture only if horizontal swipe,
+          // Decide: dismiss gesture only if strongly horizontal swipe (2:1 ratio),
           // OR pulling down when content is scrolled to the very top
-          if (adx > ady) {
-            isDismiss = true; // horizontal swipe → dismiss
+          if (adx > ady * 2.5) {
+            isDismiss = true; // strong horizontal swipe → dismiss
           } else if (dy > 0 && bodyScrollTop() <= 1) {
             isDismiss = true; // pull-down at top → dismiss
           } else {
