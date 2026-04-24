@@ -20362,7 +20362,7 @@ var _seqStepIndex = 0;
 var _seqSchedulerCtx = null;
 var _seqStopGen = 0;  // bumped on every seqStop(); async callbacks bail out when stale
 var seqCurrentStep = -1;
-var _mt4tMetroActive = false; // hoisted: sequencer refs this at ~26324/26463/26548 before original decl at ~44744
+// _mt4tMetroActive removed — unified metro engine uses _globalMetroActive instead
 var seqSongId = null; // track which song the sequencer belongs to
 // ── Audio buffer fetch with expired-URL refresh ───────────────────
 // Firebase Storage download URLs carry a token that can expire.
@@ -25391,13 +25391,85 @@ function seqClick(time, accent) {
   const ctx = getSeqAudioCtx();
   const o = ctx.createOscillator(), g = ctx.createGain();
   o.frequency.value = accent ? 1000 : 600;
-  // Route through dedicated metro gain (bypasses chords bus — mixer
-  // mute/solo on Chords won't kill the click track)
-  var dest = seqMetroGain || seqMasterGain || ctx.destination;
+  // Route through dedicated metro gain → destination (independent of seqMasterGain)
+  var dest = seqMetroGain || ctx.destination;
   o.connect(g); g.connect(dest);
   g.gain.setValueAtTime(0.3, time);
   g.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
   o.start(time); o.stop(time + 0.1);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   UNIFIED GLOBAL METRONOME ENGINE
+   One scheduler for all transports (sequencer, 4-track play, 4-track record).
+   Always reads song.bpm. Routes through seqClick → seqMetroGain → destination.
+   ═══════════════════════════════════════════════════════════════════ */
+var _globalMetroTimer   = null;
+var _globalMetroNextTime = 0;
+var _globalMetroBeat    = 0;
+var _globalMetroActive  = false;
+
+/**
+ * Start the unified metronome. Call from ANY transport start (seq, 4t play, 4t rec).
+ * Safe to call multiple times — if already running, this is a no-op.
+ * @param {Object} opts
+ *   skipDownbeat {number|null} — Web Audio time of a pre-scheduled downbeat to skip past (count-in handoff)
+ */
+function globalMetroStart(opts) {
+  if (_globalMetroActive) return; // already running
+  opts = opts || {};
+
+  var ctx = (typeof getSeqAudioCtx === 'function') ? getSeqAudioCtx() : null;
+  if (!ctx) return;
+  if (ctx.state === 'suspended') ctx.resume().catch(function(){});
+
+  var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+  var bpm = (song && song.bpm) ? song.bpm : 120;
+  var timeSig = (song && song.timeSig) ? song.timeSig : 4;
+  var beatSec = 60 / bpm;
+
+  // Count-in handoff: skip past the pre-scheduled downbeat click
+  if (opts.skipDownbeat && opts.skipDownbeat > ctx.currentTime - beatSec) {
+    _globalMetroNextTime = opts.skipDownbeat + beatSec;
+    while (_globalMetroNextTime < ctx.currentTime) _globalMetroNextTime += beatSec;
+    _globalMetroBeat = 1; // beat 1 was already played by count-in
+  } else {
+    _globalMetroNextTime = ctx.currentTime + 0.05;
+    _globalMetroBeat = 0;
+  }
+
+  _globalMetroActive = true;
+  console.log('[METRO] globalMetroStart: bpm=' + bpm + ' timeSig=' + timeSig + (opts.skipDownbeat ? ' skipDownbeat=' + opts.skipDownbeat.toFixed(3) : ''));
+
+  _globalMetroTimer = setInterval(function() {
+    // Stop if metronome was toggled off or no transport is active
+    if (!seqMetOn) { globalMetroStop(); return; }
+    var anyActive = (typeof seqIsPlaying !== 'undefined' && seqIsPlaying)
+                 || (typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying)
+                 || (typeof _vrRecording !== 'undefined' && _vrRecording);
+    if (!anyActive) { globalMetroStop(); return; }
+
+    var now = ctx.currentTime;
+    while (_globalMetroNextTime < now + 0.15) {
+      var accent = (_globalMetroBeat % timeSig === 0);
+      seqClick(_globalMetroNextTime, accent);
+      _globalMetroBeat++;
+      _globalMetroNextTime += beatSec;
+    }
+  }, 25);
+}
+
+function globalMetroStop() {
+  if (_globalMetroTimer) { clearInterval(_globalMetroTimer); _globalMetroTimer = null; }
+  if (_globalMetroActive) {
+    _globalMetroActive = false;
+    console.log('[METRO] globalMetroStop');
+  }
+}
+
+/** Convenience: start metro if seqMetOn is true, otherwise no-op */
+function globalMetroStartIfEnabled(opts) {
+  if (typeof seqMetOn !== 'undefined' && seqMetOn) globalMetroStart(opts);
 }
 
 function seqPlayKick(time, vel) {
@@ -26049,22 +26121,13 @@ function seqToggleMet() {
   // Also sync ft-drawer metro button (uses data attribute, not ID)
   var ftMetBtn = document.querySelector('[data-ft-metro]');
   if (ftMetBtn) ftMetBtn.classList.toggle('on', seqMetOn);
-  // If metronome was just turned ON while 4-track is playing/recording, start sequencer for clicks
-  if (seqMetOn && !seqIsPlaying) {
-    var mt4playing = typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying;
-    var mt4rec     = typeof _vrRecording !== 'undefined' && _vrRecording;
-    if (mt4playing || mt4rec) {
-      if (typeof seqPlay === 'function') { try { seqPlay(); } catch(e) {} }
-    }
-  }
-  // If metronome was just turned OFF and seqPlay was running purely for metronome clicks, stop it
-  if (!seqMetOn && seqIsPlaying) {
-    var mt4playing2 = typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying;
-    var mt4rec2     = typeof _vrRecording !== 'undefined' && _vrRecording;
-    // Only stop if we're in 4-track mode without seq armed (pure metronome use)
-    if ((mt4playing2 || mt4rec2) && !_vrSeqArmed) {
-      if (typeof seqStop === 'function') { try { seqStop(); } catch(e) {} }
-    }
+  // Unified metro: start/stop based on new toggle state
+  if (seqMetOn) {
+    // Metro just turned ON — start if any transport is active
+    globalMetroStartIfEnabled();
+  } else {
+    // Metro just turned OFF — stop immediately
+    globalMetroStop();
   }
 }
 
@@ -26131,6 +26194,9 @@ function seqPlay() {
   // pre-scheduled ~150ms ahead on the audio thread, which is immune to
   // browser background-tab throttling of setTimeout/setInterval.
   _seqTimer = setInterval(seqScheduleNotes, 25);
+
+  // Start unified metronome (no-op if already running from 4-track)
+  globalMetroStartIfEnabled();
 
   // Trigger looper tracks assigned to the current sequence's part.
   // Prefer in-memory value; fall back to DOM in case the user changed the
@@ -26312,6 +26378,8 @@ async function seqPlaySong() {
   _seqSchedulerCtx = ctx;
   _seqNextNoteTime = ctx.currentTime + 0.05;
   _seqTimer = setInterval(seqScheduleNotes, 25);
+  // Start unified metronome (no-op if already running)
+  globalMetroStartIfEnabled();
   console.log('[PLAY-SEQ-PERF] scheduler started:', (performance.now()-_t0).toFixed(1)+'ms — PLAYING');
 
   // Load section 0 into the DOM immediately so the grid shows the first section's
@@ -26405,7 +26473,7 @@ function seqScheduleNotes() {
       if (sec.crash[i] && !_tsIsVoiceSilent('crash')) { const _v = (sec.crashVel?.[i]||1)*velocity*0.9; seqPlayCrash( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, _v); }
       if (sec.clap[i]  && !_tsIsVoiceSilent('clap'))  { const _v = (sec.clapVel?.[i]||1)*velocity*0.7; seqPlayClap(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, _v); }
       // Metronome: only on beat boundaries (every sec.grid steps), not every sequencer step
-      if (seqMetOn && !_mt4tMetroActive && (i % sec.grid === 0)) seqClick(noteTime, _seqIsAccentBeat((i / sec.grid) % sec.time, sec.time, sec.time));
+      // [UNIFIED METRO] — metro clicks now handled by globalMetroStart(), removed inline seqClick
 
       // Melody: schedule all notes once per section start
       if (i === 0) {
@@ -26545,7 +26613,7 @@ function seqScheduleNotes() {
       const velocity = _kVel * (0.8 + Math.random() * 0.4);
       // Metronome click
       // Metronome: only on beat boundaries (every _kGrid steps), not every sequencer step
-      if (seqMetOn && !_mt4tMetroActive && (i % _kGrid === 0)) seqClick(baseTime, _seqIsAccentBeat((i / _kGrid) % _kTime, _kTime, _kTime));
+      // [UNIFIED METRO] — metro clicks now handled by globalMetroStart(), removed inline seqClick
       // Chord playback from chord grid slots
       if (chordSlots.length) {
         const slot = chordSlots[i];
@@ -26631,7 +26699,7 @@ function seqScheduleNotes() {
     if (crashSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('crash')) { const _v = parseFloat(crashSlots[i].dataset.vel||1)*velocity*0.9; seqPlayCrash( seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(12)) : baseTime, _v); }
     if (clapSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('clap'))   { const _v = parseFloat(clapSlots[i].dataset.vel||1)*velocity*0.7; seqPlayClap(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(20)) : baseTime, _v); }
     // Metronome: only on beat boundaries (every grid steps), not every sequencer step
-    if (seqMetOn && !_mt4tMetroActive && (i % grid === 0)) seqClick(noteTime, _seqIsAccentBeat((i / grid) % time_sig, time_sig, time_sig));
+    // [UNIFIED METRO] — metro clicks now handled by globalMetroStart(), removed inline seqClick
 
     // Melody: schedule once per loop start
     if (i === 0) {
@@ -27200,6 +27268,7 @@ function melodyStopRecord() {
   if (_melodyMetWasOff) {
     _melodyMetWasOff = false;
     seqMetOn = false;
+    globalMetroStop();
     ['kbdMetBtn', 'sharedMetBtn'].forEach(function(id) {
       const btn = document.getElementById(id); if (btn) btn.classList.remove('on');
     });
@@ -41187,6 +41256,14 @@ function buildMixerChannels(song, mix) {
     }
   }
   _mixLog('BUILD', 'buildMixerChannels: _mtTracks.length=' + mt.length);
+  var _voxColors = ['#ff6b9d','#6bc5ff','#a5ff6b','#ffb86b'];
+  var _voxBgTints = [
+    'rgba(255,107,157,0.10)',  // Track 1 — pink
+    'rgba(107,197,255,0.10)',  // Track 2 — blue
+    'rgba(165,255,107,0.08)',  // Track 3 — green
+    'rgba(255,184,107,0.10)',  // Track 4 — amber
+  ];
+  var _drumBgTint = 'rgba(232,116,154,0.10)'; // shared rose tint for all drum channels
   return [
     // Vox 1–4 (live mirror of 4-track)
     ...[0,1,2,3].map(function(i) {
@@ -41194,7 +41271,7 @@ function buildMixerChannels(song, mix) {
         id: 'v'+(i+1),
         name: (typeof _mtSavedLabel === 'function') ? _mtSavedLabel(i) : ('Track '+(i+1)),
         editableName: true,
-        kind: 'track', color: '#6ab4f5',
+        kind: 'track', color: _voxColors[i], bgTint: _voxBgTints[i],
         level: (mt[i] && mt[i].volume !== undefined ? mt[i].volume : 85) / 100,
         pan:   (mt[i] && mt[i].pan !== undefined ? mt[i].pan : 0) / 100,
         mute:  !!(mt[i] && mt[i].muted),
@@ -41203,19 +41280,25 @@ function buildMixerChannels(song, mix) {
       };
     }),
     // Sequencer bus channels
-    { id:'chords', name:'Chords', kind:'track',  color:'#7dd37d', level: mix.chordsVol !== undefined ? parseFloat(mix.chordsVol) : 0.8,  mute:!!mix.chordsMute, solo:!!mix.chordsSolo, channelKey:'chords' },
-    { id:'melody', name:'Keys',   kind:'track',  color:'#f5a623', level: mix.melodyVol !== undefined ? parseFloat(mix.melodyVol) : 0.8,  mute:!!mix.melodyMute, solo:!!mix.melodySolo, channelKey:'melody' },
-    { id:'drums',  name:'Drums',  kind:'bus',    color:'#e8749a', level: mix.drumsVol  !== undefined ? parseFloat(mix.drumsVol)  : 0.82, mute:!!mix.drumsMute,  solo:!!mix.drumsSolo,  channelKey:'drums'  },
-    // Drum sub-channels
-    { id:'kick',   name:'Kick',   kind:'drumchild', color:'#e8749a', level: mix.kickVol  !== undefined ? parseFloat(mix.kickVol)  : 0.88, mute:!!mix.kickMute,  solo:!!mix.kickSolo,  parent:'drums', channelKey:'kick'  },
-    { id:'snare',  name:'Snare',  kind:'drumchild', color:'#e8749a', level: mix.snareVol !== undefined ? parseFloat(mix.snareVol) : 0.85, mute:!!mix.snareMute, solo:!!mix.snareSolo, parent:'drums', channelKey:'snare' },
-    { id:'hat',    name:'Hats',   kind:'drumchild', color:'#e8749a', level: mix.hatVol   !== undefined ? parseFloat(mix.hatVol)   : 0.7,  mute:!!mix.hatMute,   solo:!!mix.hatSolo,   parent:'drums', channelKey:'hat'   },
-    { id:'perc',   name:'Perc',   kind:'drumchild', color:'#e8749a', level: mix.percVol  !== undefined ? parseFloat(mix.percVol)  : 0.75, mute:!!mix.percMute,  solo:!!mix.percSolo,  parent:'drums', channelKey:'perc'  },
+    { id:'chords', name:'Chords', kind:'track',  color:'#785aa0', bgTint:'rgba(120,90,160,0.12)',
+      colorTagHtml:'<div class="mix-color-tag" style="background:linear-gradient(90deg,#1a1520 20%,#e8ddd0 20%,#e8ddd0 40%,#1a1520 40%,#1a1520 60%,#e8ddd0 60%,#e8ddd0 80%,#1a1520 80%)"></div>',
+      level: mix.chordsVol !== undefined ? parseFloat(mix.chordsVol) : 0.8,  mute:!!mix.chordsMute, solo:!!mix.chordsSolo, channelKey:'chords' },
+    { id:'melody', name:'Keys',   kind:'track',  color:'#f5a623', bgTint:'rgba(245,166,35,0.10)',
+      level: mix.melodyVol !== undefined ? parseFloat(mix.melodyVol) : 0.8,  mute:!!mix.melodyMute, solo:!!mix.melodySolo, channelKey:'melody' },
+    { id:'drums',  name:'Drums',  kind:'bus',    color:'#e8749a', bgTint: _drumBgTint,
+      level: mix.drumsVol  !== undefined ? parseFloat(mix.drumsVol)  : 0.82, mute:!!mix.drumsMute,  solo:!!mix.drumsSolo,  channelKey:'drums'  },
+    // Drum sub-channels (all share rose tint)
+    { id:'kick',   name:'Kick',   kind:'drumchild', color:'#e8749a', bgTint: _drumBgTint, level: mix.kickVol  !== undefined ? parseFloat(mix.kickVol)  : 0.88, mute:!!mix.kickMute,  solo:!!mix.kickSolo,  parent:'drums', channelKey:'kick'  },
+    { id:'snare',  name:'Snare',  kind:'drumchild', color:'#e8749a', bgTint: _drumBgTint, level: mix.snareVol !== undefined ? parseFloat(mix.snareVol) : 0.85, mute:!!mix.snareMute, solo:!!mix.snareSolo, parent:'drums', channelKey:'snare' },
+    { id:'hat',    name:'Hats',   kind:'drumchild', color:'#e8749a', bgTint: _drumBgTint, level: mix.hatVol   !== undefined ? parseFloat(mix.hatVol)   : 0.7,  mute:!!mix.hatMute,   solo:!!mix.hatSolo,   parent:'drums', channelKey:'hat'   },
+    { id:'perc',   name:'Perc',   kind:'drumchild', color:'#e8749a', bgTint: _drumBgTint, level: mix.percVol  !== undefined ? parseFloat(mix.percVol)  : 0.75, mute:!!mix.percMute,  solo:!!mix.percSolo,  parent:'drums', channelKey:'perc'  },
     // Metronome
-    { id:'metro', name:'Metro', kind:'track', color:'#b0b8c8', level: mix.metroVol !== undefined ? parseFloat(mix.metroVol) : 0.8, mute:!!mix.metroMute, solo:false, channelKey:'metro', noSolo: true },
+    { id:'metro', name:'Metro', kind:'track', color:'#b0b8c8', bgTint:'rgba(176,184,200,0.08)', level: mix.metroVol !== undefined ? parseFloat(mix.metroVol) : 0.8, mute:!!mix.metroMute, solo:false, channelKey:'metro', noSolo: true },
     // Masters
     { id:'seqmaster',  name:'Seq Master', kind:'master', color:'#f5a623', level: song?.sequencer?.masterVol ?? 1.0, source:'seqmaster'  },
-    { id:'loopmaster', name:'Looper',     kind:'master', color:'#64dcb4', level: song?.loopMixer?.masterVol ?? 1.0, source:'loopmaster' },
+    { id:'loopmaster', name:'Looper',     kind:'master', color:'#64dcb4',
+      colorTagHtml:'<div class="mix-color-tag" style="background:transparent;display:flex;align-items:center;justify-content:center;height:4px"><svg width="20" height="4" viewBox="0 0 20 4"><circle cx="4" cy="2" r="1.5" fill="none" stroke="#ff6b9d" stroke-width="0.8"/><circle cx="8" cy="2" r="1.5" fill="none" stroke="#6bc5ff" stroke-width="0.8"/><circle cx="12" cy="2" r="1.5" fill="none" stroke="#a5ff6b" stroke-width="0.8"/><circle cx="16" cy="2" r="1.5" fill="none" stroke="#ffb86b" stroke-width="0.8"/></svg></div>',
+      level: song?.loopMixer?.masterVol ?? 1.0, source:'loopmaster' },
     { id:'main',       name:'Main',       kind:'master', color:'#eeeef5', level: song?.mixer?.mainVol       ?? 1.0, source:'mainmaster' },
   ];
 }
@@ -41302,9 +41385,12 @@ function _mixRenderStripHtml(c) {
   faderHtml += '<div class="mix-meter mix-segmented" data-meter>' + segs + '</div>';
   faderHtml += '</div>'; // close mix-fader-zone
 
-  return '<div class="' + stripClass + '"' + dataAttrs + '>'
+  var bgStyle = c.bgTint ? ' style="background:' + c.bgTint + '"' : '';
+  var tagHtml = c.colorTagHtml || '<div class="mix-color-tag" style="background:' + c.color + '"></div>';
+
+  return '<div class="' + stripClass + '"' + dataAttrs + bgStyle + '>'
     + '<div class="mix-strip-top">'
-    + '<div class="mix-color-tag" style="background:' + c.color + '"></div>'
+    + tagHtml
     + nameHtml
     + '</div>'
     + ctrlHtml
@@ -44102,10 +44188,8 @@ window.mtPlay = async function(startOffset) {
   const offset = startOffset !== undefined ? startOffset : _mtScrubOffset;
   _mtScrubOffset = 0;
   _mtStartPlayback(offset);
-  // Start independent playback metronome if enabled (doesn't rely on sequencer pattern length)
-  if (typeof seqMetOn !== 'undefined' && seqMetOn) {
-    if (typeof _mt4tPlayMetroStart === 'function') _mt4tPlayMetroStart();
-  }
+  // Start unified metronome if enabled (no-op if already running from sequencer)
+  globalMetroStartIfEnabled();
 };
 
 // ── Play with Sequencer (syncs 4-track + drums + looper) ──────
@@ -44202,8 +44286,8 @@ function _mtStopAll() {
   _mtPlayStartOffset = 0;
   if (typeof _ftDetachAnalysers === 'function') _ftDetachAnalysers();
   if (typeof _bgMaybeRelease === 'function') _bgMaybeRelease();
-  // Stop independent playback metronome
-  if (typeof _mt4tPlayMetroStop === 'function') _mt4tPlayMetroStop();
+  // Stop unified metronome (will auto-stop via anyActive check, but force-stop here for instant silence)
+  if (typeof globalMetroStop === 'function') globalMetroStop();
   // Also clean up any seq-link per-track playback
   if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
   // Stop sequencer if it was running (covers metronome-only and song playback)
@@ -45149,108 +45233,10 @@ async function _mtEnsureStream() {
 }
 
 // ── Independent 4-track recording metronome ───────────────────
-// Runs its own Web Audio scheduler so clicks never stop during recording,
-// regardless of what the sequencer loop does.
-var _mt4tMetroTimer = null;
-var _mt4tMetroNextTime = 0;
-var _mt4tMetroBeat = 0;
-var _mt4tMetroActive = false; // when true, sequencer skips its own metro clicks
-
-function _mt4tMetroStart() {
-  _mt4tMetroStop(); // clean up any prior
-  var ctx = getSeqAudioCtx();
-  if (ctx.state === 'suspended') ctx.resume();
-  // Force master gain alive — seqStop() zeros it
-  if (seqMasterGain) {
-    seqMasterGain.gain.cancelScheduledValues(0);
-    seqMasterGain.gain.setValueAtTime(1.0, ctx.currentTime);
-    _mixApplyMain();
-  }
-  var song = getCurrentSong();
-  var bpm = song ? (song.bpm || song?.sequencer?.bpm || 120) : 120;
-  if (typeof bpm === 'string') bpm = parseFloat(bpm);
-  var beatSec = 60 / bpm;
-  var timeSig = parseInt(song?.sequencer?.time || 4);
-
-  // If a count-in just ran, continue on its exact beat grid instead of starting fresh.
-  // The count-in already pre-scheduled the downbeat click, so skip past it (+beatSec)
-  // to avoid a duplicate accent on beat 1.
-  if (window._ftCountInGridTime && window._ftCountInGridTime > ctx.currentTime - beatSec) {
-    _mt4tMetroNextTime = window._ftCountInGridTime + beatSec; // skip the pre-scheduled downbeat
-    // Walk forward until we're scheduling into the future
-    while (_mt4tMetroNextTime < ctx.currentTime) {
-      _mt4tMetroNextTime += beatSec;
-    }
-    _mt4tMetroBeat = 1; // beat 1 was already played by count-in
-  } else {
-    _mt4tMetroNextTime = ctx.currentTime + 0.05;
-    _mt4tMetroBeat = 0;
-  }
-  window._ftCountInGridTime = null; // consumed
-  _mt4tMetroActive = true;
-
-  _mt4tMetroTimer = setInterval(function() {
-    if (!_vrRecording || !seqMetOn) { _mt4tMetroStop(); return; }
-    var now = ctx.currentTime;
-    // Schedule clicks up to 150ms ahead
-    while (_mt4tMetroNextTime < now + 0.15) {
-      var accent = (_mt4tMetroBeat % timeSig === 0);
-      seqClick(_mt4tMetroNextTime, accent);
-      _mt4tMetroBeat++;
-      _mt4tMetroNextTime += beatSec;
-    }
-  }, 25);
-}
-
-function _mt4tMetroStop() {
-  if (_mt4tMetroTimer) { clearInterval(_mt4tMetroTimer); _mt4tMetroTimer = null; }
-  _mt4tMetroActive = false;
-}
-
-/* ── Independent playback metronome for 4-track ──────────────── */
-/* Unlike _mt4tMetroStart (recording), this runs during play and  */
-/* doesn't depend on the sequencer pattern length.                */
-var _mt4tPlayMetroTimer = null;
-var _mt4tPlayMetroActive = false;
-
-function _mt4tPlayMetroStart() {
-  _mt4tPlayMetroStop(); // clean up any prior
-  var ctx = (typeof getSeqAudioCtx === 'function') ? getSeqAudioCtx() : null;
-  if (!ctx) return;
-  if (ctx.state === 'suspended') ctx.resume().catch(function(){});
-
-  var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
-  var bpm = (song && song.bpm) ? song.bpm : 120;
-  var timeSig = (song && song.timeSig) ? song.timeSig : 4;
-  var beatSec = 60 / bpm;
-
-  var nextTime = ctx.currentTime + 0.05;
-  var beat = 0;
-
-  _mt4tPlayMetroActive = true;
-  _mt4tMetroActive = true; // suppress sequencer's own metro clicks
-
-  _mt4tPlayMetroTimer = setInterval(function() {
-    if (!_mtIsPlaying || !seqMetOn) { _mt4tPlayMetroStop(); return; }
-    var now = ctx.currentTime;
-    while (nextTime < now + 0.15) {
-      var accent = (beat % timeSig === 0);
-      seqClick(nextTime, accent);
-      beat++;
-      nextTime += beatSec;
-    }
-  }, 25);
-  console.log('[4T-METRO] Playback metro started: bpm=' + bpm + ' timeSig=' + timeSig);
-}
-
-function _mt4tPlayMetroStop() {
-  if (_mt4tPlayMetroTimer) { clearInterval(_mt4tPlayMetroTimer); _mt4tPlayMetroTimer = null; }
-  if (_mt4tPlayMetroActive) {
-    _mt4tPlayMetroActive = false;
-    _mt4tMetroActive = false; // re-enable sequencer metro if needed
-    console.log('[4T-METRO] Playback metro stopped');
-  }
-}
+/* ── Old per-transport metro schedulers removed ────────────────── */
+/* All metro scheduling is now handled by the unified globalMetroStart() / */
+/* globalMetroStop() engine defined near seqClick(). See "UNIFIED GLOBAL   */
+/* METRONOME ENGINE" block.                                                */
 
 // ── Countdown ──────────────────────────────────────────────────
 let _mtCountTimer = null;
@@ -45583,9 +45569,10 @@ window.vrToggleRec = async function() {
     // Arm Sequencer: auto-start sequencer when recording begins (drums/chords)
     if (_vrSeqArmed && !seqIsPlaying) { seqPlay(); }
 
-    // Independent metronome scheduler for 4-track recording: runs its own
-    // Web Audio click loop so the metronome never stops during recording.
-    if (seqMetOn) { _mt4tMetroStart(); }
+    // Unified metronome: start with count-in handoff if applicable
+    if (seqMetOn) {
+      globalMetroStart({ skipDownbeat: window._ftCountInGridTime || null });
+    }
 
     const recBtn = _el('mtRecBtn');
     if (recBtn) { recBtn.innerHTML = ''; recBtn.textContent = '⏹ Stop'; recBtn.style.fontSize = '10px'; recBtn.style.letterSpacing = '0.04em'; recBtn.style.padding = '0 10px'; recBtn.classList.add('recording'); }
@@ -45628,7 +45615,7 @@ window.vrToggleRec = async function() {
 function _mtStopRecording() {
   _vrRecording = false;
   clearInterval(_mtRecTimer); _mtRecTimer = null;
-  _mt4tMetroStop(); // stop independent metronome
+  globalMetroStop(); // stop unified metronome
   const mb = _el('vrMiniBar'); if (mb) mb.classList.remove('vr-active');
   // Stop recording animation
   if (_mtArmedTrack >= 0) _mtStopRecordingAnim(_mtArmedTrack);
@@ -47786,6 +47773,7 @@ function ftMetroClick() {
     seqToggleMet();
   } else {
     if (typeof seqMetOn !== 'undefined') seqMetOn = !seqMetOn;
+    if (seqMetOn) globalMetroStartIfEnabled(); else globalMetroStop();
   }
   // Sync ft-drawer metro button (seqToggleMet doesn't know about data-ft-metro)
   var btn = document.querySelector('[data-ft-metro]');
@@ -50171,8 +50159,8 @@ function ftShowCountIn() {
   }
 
   // The exact Web Audio time where beat 1 of recording should land.
-  // Pass this to _mt4tMetroStart so the recording metronome continues
-  // on the same grid — no gap, no jitter from setTimeout.
+  // Passed to globalMetroStart({ skipDownbeat }) so the unified metro
+  // continues on the same grid — no gap, no jitter from setTimeout.
   var downbeatTime = startTime + totalBeats * beatSec;
   window._ftCountInGridTime = downbeatTime;
 
