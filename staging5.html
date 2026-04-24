@@ -26219,23 +26219,13 @@ function seqToggleMet() {
 
   // Unified metro: start/stop based on new toggle state
   if (seqMetOn) {
+    // Metro armed — only start clicking if a transport is already running
     var anyActive = (typeof seqIsPlaying !== 'undefined' && seqIsPlaying)
                  || (typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying)
                  || (typeof _vrRecording !== 'undefined' && _vrRecording);
-    if (anyActive) {
-      // Transport is running — promote existing metro to standalone so it
-      // survives transport stop, or start fresh if not yet running
-      if (_globalMetroActive) {
-        _globalMetroPromoteStandalone();
-      } else {
-        globalMetroStart({ standalone: true });
-      }
-    } else {
-      // No transport running — start standalone metro for practice
-      globalMetroStart({ standalone: true });
+    if (anyActive && !_globalMetroActive) {
+      globalMetroStart();
     }
-    // Build dots for any visible metro dot containers
-    _globalMetroBuildDots();
   } else {
     // Metro just turned OFF — stop immediately
     globalMetroStop();
@@ -29954,8 +29944,14 @@ function metroUpdateDots(beat){for(var i=0;i<metroTime;i++){var el=document.getE
 function metroDeltaBpm(d){metroBpm=Math.max(40,Math.min(240,metroBpm+d));document.getElementById('metroBpmDisplay').textContent=metroBpm;}
 function metroChangeTime(v){metroTime=parseInt(v)||4;metroBeat=0;metroBuildDots();metroUpdateDots(-1);}
 async function metroToggle(){
-  // [UNIFIED METRO] — routes through the single global metronome engine
-  if (typeof seqToggleMet === 'function') { seqToggleMet(); return; }
+  // [UNIFIED METRO] — toggle the flag + sync UI, then start/stop standalone clicking
+  if (typeof seqToggleMet !== 'function') return;
+  seqToggleMet();
+  // Practice metro: start standalone clicking immediately when toggled ON
+  if (seqMetOn && !_globalMetroActive) {
+    _globalMetroBuildDots();
+    globalMetroStart({ standalone: true });
+  }
 }
 function metroSchedule(){if(!metroCtx)return;while(metroNextTime<metroCtx.currentTime+0.1){var beat=metroBeat%metroTime;metroClick(beat,metroNextTime);metroBeat++;metroNextTime+=60/metroBpm;}}
 function metroClick(beat,t){var osc=metroCtx.createOscillator(),gain=metroCtx.createGain();osc.connect(gain);gain.connect(metroCtx.destination);osc.frequency.value=beat===0?900:600;gain.gain.setValueAtTime(beat===0?0.45:0.25,t);gain.gain.exponentialRampToValueAtTime(0.001,t+0.055);osc.start(t);osc.stop(t+0.055);var delay=Math.max(0,(t-metroCtx.currentTime)*1000);setTimeout(function(){metroUpdateDots(beat);},delay);}
@@ -30018,15 +30014,11 @@ document.addEventListener('keydown',function(e){
     const seqOpen  = document.getElementById('seqDrawer')?.classList.contains('open');
     const kbdOpen  = document.getElementById('keyboardDrawer')?.classList.contains('open');
     const loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
-    if (rtOpen) {
-      seqToggleMet();
-    } else if (vrOpen || miniOpen) {
+    if (vrOpen || miniOpen || rtOpen) {
       if (e.shiftKey) { if (typeof mtPlayWithSeq === 'function') mtPlayWithSeq(); }
       else { if (typeof mtPlay === 'function') mtPlay(); }
     } else if (seqOpen || kbdOpen || loopOpen) {
       if (e.shiftKey) { sharedPlaySong(); } else { sharedPlay(); }
-    } else {
-      if (!e.shiftKey) metroToggle();
     }
   }
   // A = toggle Action Mode (only when not typing)
@@ -30633,8 +30625,14 @@ function rtMetroStop() {
 }
 
 async function rtMetroToggle() {
-  // [UNIFIED METRO] — routes through the single global metronome engine
-  if (typeof seqToggleMet === 'function') { seqToggleMet(); return; }
+  // [UNIFIED METRO] — toggle the flag + sync UI, then start/stop standalone clicking
+  if (typeof seqToggleMet !== 'function') return;
+  seqToggleMet();
+  // Practice metro: start standalone clicking immediately when toggled ON
+  if (seqMetOn && !_globalMetroActive) {
+    _globalMetroBuildDots();
+    globalMetroStart({ standalone: true });
+  }
 }
 
 function rtMetroSchedule() {
@@ -42430,9 +42428,7 @@ document.addEventListener('keydown', function(e) {
   var kbdOpen  = document.getElementById('keyboardDrawer')?.classList.contains('open');
   var loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
 
-  if (rtOpen) {
-    if (typeof seqToggleMet === 'function') seqToggleMet();
-  } else if (vrOpen || miniOpen) {
+  if (vrOpen || miniOpen || rtOpen) {
     if (e.shiftKey) { if (typeof mtPlayWithSeq === 'function') mtPlayWithSeq(); }
     else            { if (typeof mtPlay === 'function') mtPlay(); }
   } else if (seqOpen || kbdOpen || loopOpen) {
