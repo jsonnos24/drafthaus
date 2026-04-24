@@ -42776,17 +42776,23 @@ window.mtSaveLabel = function mtSaveLabel(i, el) {
 
 // ── DOM-free track object builder (safe to call before overlay opens) ──
 function _mtEnsureTrackObjects() {
-  if (_mtTracks.length) return;
-  for (let i = 0; i < 4; i++) {
-    _mtTracks.push({
-      id: i, color: MT_COLORS[i], name: _mtSavedLabel(i),
-      buffer: null, gainNode: null, panNode: null, sourceNode: null,
-      volume: _mtSavedVol(i), pan: _mtSavedPan(i),
-      takes: [], activeTakeIdx: -1, duration: 0,
-      mediaRecorder: null, chunks: [],
-      waveCanvas: null, waveCtx: null,
-      noiseGate: true
-    });
+  console.log('[MT-INIT] _mtEnsureTrackObjects called | _mtTracks.length=' + _mtTracks.length + ' | typeof _mtTracks=' + typeof _mtTracks);
+  if (_mtTracks.length) { console.log('[MT-INIT]   Already populated, skipping'); return; }
+  try {
+    for (let i = 0; i < 4; i++) {
+      _mtTracks.push({
+        id: i, color: MT_COLORS[i], name: _mtSavedLabel(i),
+        buffer: null, gainNode: null, panNode: null, sourceNode: null,
+        volume: _mtSavedVol(i), pan: _mtSavedPan(i),
+        takes: [], activeTakeIdx: -1, duration: 0,
+        mediaRecorder: null, chunks: [],
+        waveCanvas: null, waveCtx: null,
+        noiseGate: true
+      });
+    }
+    console.log('[MT-INIT]   Created 4 track objects | _mtTracks.length=' + _mtTracks.length);
+  } catch(e) {
+    console.error('[MT-INIT]   FAILED to create track objects:', e.name, e.message);
   }
 }
 /* Refresh track names from the current song (call when switching songs) */
@@ -42802,6 +42808,7 @@ function mtBuildUI() {
   if (!container) return;
 
   // Preserve state from any background-preloaded tracks
+  console.log('[MT-INIT] mtBuildUI wiping _mtTracks | was length=' + _mtTracks.length);
   const prev = _mtTracks.map(t => t ? {
     buffer: t.buffer, gainNode: t.gainNode, panNode: t.panNode,
     takes: t.takes, activeTakeIdx: t.activeTakeIdx, duration: t.duration,
@@ -45303,7 +45310,7 @@ window.vrToggleRec = async function() {
       t._chunkSession = _chunkSession; // attach to track for _mtFinishRecording
       console.log('[CHUNK] Chunked upload enabled, timeslice:', CHUNK_TIMESLICE_MS, 'ms, session:', _chunkSession.recordingId);
       t.mediaRecorder.ondataavailable = e => {
-        if (e.data.size > 0) {
+        if (e.data.size > 0 && _chunkSession) {
           console.log('[CHUNK] ondataavailable fired — chunk #' + _chunkSession.chunkIdx + ', size:', e.data.size, 'bytes');
           t.chunks.push(e.data);                    // keep local copy for BT trim / fallback
           _chunkUpload(_chunkSession, e.data);      // upload immediately in background
