@@ -21386,11 +21386,22 @@ function seqGetDrumVoiceOut(voice) {
 function _seqEnsureMasterGain() {
   if (!seqMasterGain) return;
   if (seqIsPlaying) return; // sequencer play already restores it
+  const ctx = seqMasterGain.context;
+  const now = ctx ? ctx.currentTime : 0;
   const cur = seqMasterGain.gain.value;
   if (cur < 0.001) {
+    // seqStop() zeros the master gain — restore it for metronome/count-in
     seqMasterGain.gain.cancelScheduledValues(0);
-    _mixApplyMain(); // restores stored vol × Main
-    _mixLog('GAIN', '_seqEnsureMasterGain → restored via _mixApplyMain');
+    seqMasterGain.gain.setValueAtTime(1.0, now); // immediate restore
+    _mixApplyMain(); // then apply stored vol × Main on top
+    _mixLog('GAIN', '_seqEnsureMasterGain → restored (was ' + cur.toFixed(4) + ')');
+  }
+  // Also ensure chords bus isn't zeroed (metronome clicks route through it)
+  if (seqChordsGain && seqChordsGain.gain.value < 0.001) {
+    seqChordsGain.gain.cancelScheduledValues(now);
+    seqChordsGain.gain.setValueAtTime(0.8, now); // default chords vol
+    seqApplyMixer(); // then apply actual mixer settings
+    _mixLog('GAIN', '_seqEnsureMasterGain → chordsGain restored');
   }
 }
 
