@@ -41711,6 +41711,214 @@ function mixToggle() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ── AUDIO DEBUG DUMP — call mixDebugDump() from console ──────
+// ═══════════════════════════════════════════════════════════════
+window.mixDebugDump = function() {
+  var sep = '═'.repeat(60);
+  console.log('\n' + sep);
+  console.log('🔊 MIXER AUDIO DEBUG DUMP — ' + new Date().toISOString());
+  console.log(sep);
+
+  // ── 1. Audio Contexts ──
+  console.log('\n── AUDIO CONTEXTS ──');
+  console.log('  _mtAudioCtx:', typeof _mtAudioCtx !== 'undefined' && _mtAudioCtx ? _mtAudioCtx.state + ' | sampleRate=' + _mtAudioCtx.sampleRate : 'NOT CREATED');
+  console.log('  seqAudioCtx:', typeof seqAudioCtx !== 'undefined' && seqAudioCtx ? seqAudioCtx.state + ' | sampleRate=' + seqAudioCtx.sampleRate : 'NOT CREATED');
+  console.log('  loopAudioCtx:', typeof loopAudioCtx !== 'undefined' && loopAudioCtx ? loopAudioCtx.state + ' | sampleRate=' + loopAudioCtx.sampleRate : 'NOT CREATED');
+
+  // ── 2. Master Gains ──
+  console.log('\n── MASTER GAIN NODES ──');
+  var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+  var mainVol = song?.mixer?.mainVol ?? 1;
+  var seqStoredVol = song?.sequencer?.masterVol ?? 1;
+  var loopStoredVol = song?.loopMixer?.masterVol ?? 1;
+  console.log('  Main volume (stored):', mainVol);
+  if (typeof _mtMasterGain !== 'undefined' && _mtMasterGain) {
+    console.log('  _mtMasterGain: gain=' + _mtMasterGain.gain.value.toFixed(4));
+  } else { console.log('  _mtMasterGain: NOT CREATED'); }
+  if (typeof seqMasterGain !== 'undefined' && seqMasterGain) {
+    console.log('  seqMasterGain: gain=' + seqMasterGain.gain.value.toFixed(4) + ' (stored=' + seqStoredVol + ' × main=' + mainVol + ' = ' + (seqStoredVol * mainVol).toFixed(4) + ')');
+  } else { console.log('  seqMasterGain: NOT CREATED'); }
+  if (typeof loopMasterGain !== 'undefined' && loopMasterGain) {
+    console.log('  loopMasterGain: gain=' + loopMasterGain.gain.value.toFixed(4) + ' (stored=' + loopStoredVol + ' × main=' + mainVol + ' = ' + (loopStoredVol * mainVol).toFixed(4) + ')');
+  } else { console.log('  loopMasterGain: NOT CREATED'); }
+
+  // ── 3. 4-Track Channels ──
+  console.log('\n── 4-TRACK CHANNELS (vox 1–4) ──');
+  var mt = (typeof _mtTracks !== 'undefined') ? _mtTracks : [];
+  if (!mt.length) { console.log('  _mtTracks is EMPTY — tracks not initialized'); }
+  mt.forEach(function(t, i) {
+    if (!t) { console.log('  Track ' + i + ': NULL'); return; }
+    var gainVal = t.gainNode ? t.gainNode.gain.value.toFixed(4) : 'NO NODE';
+    var panVal  = t.panNode  ? t.panNode.pan.value.toFixed(4)   : 'NO NODE';
+    var boost   = t.boostActive ? '×4 (+12dB)' : '×1';
+    var ng      = t.noiseGate !== false ? 'ON' : 'OFF';
+    console.log(
+      '  Track ' + i + ' [' + (t.name || 'unnamed') + ']:'
+      + ' vol=' + t.volume + '/100'
+      + ' | gain.value=' + gainVal
+      + ' | pan=' + t.pan + '/100'
+      + ' | pan.value=' + panVal
+      + ' | muted=' + !!t.muted
+      + ' | soloed=' + !!t.soloed
+      + ' | boost=' + boost
+      + ' | noiseGate=' + ng
+      + ' | buffer=' + (t.buffer ? t.buffer.duration.toFixed(2) + 's' : 'NONE')
+    );
+  });
+
+  // ── 4. Sequencer Bus Channels ──
+  console.log('\n── SEQUENCER BUS CHANNELS ──');
+  var mix = song?.sequencer?.mixer || {};
+  var seqChans = [
+    { name: 'Chords', node: typeof seqChordsGain !== 'undefined' ? seqChordsGain : null, key: 'chords' },
+    { name: 'Melody', node: typeof seqMelodyGain !== 'undefined' ? seqMelodyGain : null, key: 'melody' },
+    { name: 'Drums',  node: typeof seqDrumsGain  !== 'undefined' ? seqDrumsGain  : null, key: 'drums'  },
+  ];
+  seqChans.forEach(function(c) {
+    var vol   = mix[c.key + 'Vol'] !== undefined ? parseFloat(mix[c.key + 'Vol']) : 0.8;
+    var muted = !!mix[c.key + 'Mute'];
+    var soloed = !!mix[c.key + 'Solo'];
+    var gainVal = c.node ? c.node.gain.value.toFixed(4) : 'NO NODE';
+    console.log(
+      '  ' + c.name + ':'
+      + ' storedVol=' + vol.toFixed(2)
+      + ' | gain.value=' + gainVal
+      + ' | muted=' + muted
+      + ' | soloed=' + soloed
+    );
+  });
+
+  // ── 5. Drum Sub-Channels ──
+  console.log('\n── DRUM SUB-CHANNELS ──');
+  var drumChans = [
+    { name: 'Kick',  node: typeof seqKickGain  !== 'undefined' ? seqKickGain  : null, key: 'kick'  },
+    { name: 'Snare', node: typeof seqSnareGain !== 'undefined' ? seqSnareGain : null, key: 'snare' },
+    { name: 'Hats',  node: typeof seqHatGain   !== 'undefined' ? seqHatGain   : null, key: 'hat'   },
+    { name: 'Perc',  node: typeof seqPercGain  !== 'undefined' ? seqPercGain  : null, key: 'perc'  },
+  ];
+  drumChans.forEach(function(c) {
+    var vol   = mix[c.key + 'Vol'] !== undefined ? parseFloat(mix[c.key + 'Vol']) : 0.8;
+    var muted = !!mix[c.key + 'Mute'];
+    var soloed = !!mix[c.key + 'Solo'];
+    var gainVal = c.node ? c.node.gain.value.toFixed(4) : 'NO NODE';
+    console.log(
+      '  ' + c.name + ':'
+      + ' storedVol=' + vol.toFixed(2)
+      + ' | gain.value=' + gainVal
+      + ' | muted=' + muted
+      + ' | soloed=' + soloed
+    );
+  });
+
+  // ── 6. Recording Chain ──
+  console.log('\n── RECORDING CHAIN ──');
+  console.log('  _mtArmedTrack:', typeof _mtArmedTrack !== 'undefined' ? _mtArmedTrack : 'UNDEF');
+  console.log('  _mtStream:', typeof _mtStream !== 'undefined' && _mtStream ? 'active=' + _mtStream.active + ' | id=' + _mtStream.id : 'NONE');
+  console.log('  _vrInputGainDb:', typeof _vrInputGainDb !== 'undefined' ? _vrInputGainDb + 'dB' : 'UNDEF');
+  console.log('  _vrInputGain (linear):', typeof _vrInputGain !== 'undefined' ? _vrInputGain.toFixed(4) : 'UNDEF');
+  console.log('  _vrInputSrcNode:', typeof _vrInputSrcNode !== 'undefined' && _vrInputSrcNode ? 'CONNECTED' : 'NULL');
+  console.log('  _vrInputGainNode:', typeof _vrInputGainNode !== 'undefined' && _vrInputGainNode ? 'gain=' + _vrInputGainNode.gain.value.toFixed(4) : 'NULL');
+  console.log('  _vrNoiseGateNode:', typeof _vrNoiseGateNode !== 'undefined' && _vrNoiseGateNode ? 'CONNECTED' : 'NULL');
+  console.log('  _vrNoiseGateReady:', typeof _vrNoiseGateReady !== 'undefined' ? _vrNoiseGateReady : 'UNDEF');
+  console.log('  _vrInputDestNode:', typeof _vrInputDestNode !== 'undefined' && _vrInputDestNode ? 'stream.active=' + _vrInputDestNode.stream.active : 'NULL');
+  if (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack >= 0 && mt[_mtArmedTrack]) {
+    console.log('  Armed track NG setting:', mt[_mtArmedTrack].noiseGate !== false ? 'ON' : 'OFF');
+  }
+  console.log('  _vrRecording:', typeof _vrRecording !== 'undefined' ? _vrRecording : 'UNDEF');
+  console.log('  _vrEchoCancellation:', typeof _vrEchoCancellation !== 'undefined' ? _vrEchoCancellation : 'UNDEF');
+
+  // ── 7. Mixer UI ↔ Data Sync ──
+  console.log('\n── MIXER UI ↔ DATA SYNC ──');
+  var strips = document.querySelectorAll('#mixStrips .mix-strip');
+  if (!strips.length) { console.log('  Mixer UI not rendered (0 strips)'); }
+  strips.forEach(function(strip) {
+    var id     = strip.dataset.id || '?';
+    var src    = strip.dataset.source || '';
+    var key    = strip.dataset.channelKey || '';
+    var mtIdx  = strip.dataset.mtIndex !== undefined ? parseInt(strip.dataset.mtIndex, 10) : -1;
+    var faderW = strip.querySelector('[data-fader]');
+    var uiLvl  = faderW ? parseFloat(faderW.dataset.level || 0) : null;
+    var muteBtn = strip.querySelector('[data-role="mute"]');
+    var soloBtn = strip.querySelector('[data-role="solo"]');
+    var ngBtn   = strip.querySelector('[data-role="noisegate"]');
+    var uiMute  = muteBtn ? muteBtn.classList.contains('mix-mute-on') : null;
+    var uiSolo  = soloBtn ? soloBtn.classList.contains('mix-solo-on') : null;
+    var uiNG    = ngBtn   ? ngBtn.classList.contains('mix-ng-on')     : null;
+
+    var dataVol, dataMute, dataSolo, dataNG;
+    if (src === 'fourtrack' && mtIdx >= 0 && mt[mtIdx]) {
+      dataVol  = (mt[mtIdx].volume || 0) / 100;
+      dataMute = !!mt[mtIdx].muted;
+      dataSolo = !!mt[mtIdx].soloed;
+      dataNG   = mt[mtIdx].noiseGate !== false;
+    } else if (key) {
+      dataVol  = mix[key + 'Vol'] !== undefined ? parseFloat(mix[key + 'Vol']) : 0.8;
+      dataMute = !!mix[key + 'Mute'];
+      dataSolo = !!mix[key + 'Solo'];
+      dataNG   = null;
+    } else {
+      dataVol = uiLvl; dataMute = uiMute; dataSolo = uiSolo; dataNG = null;
+    }
+
+    var issues = [];
+    if (uiLvl !== null && dataVol !== null && Math.abs(uiLvl - dataVol) > 0.01) issues.push('VOL MISMATCH ui=' + uiLvl?.toFixed(2) + ' data=' + dataVol?.toFixed(2));
+    if (uiMute !== null && dataMute !== null && uiMute !== dataMute) issues.push('MUTE MISMATCH ui=' + uiMute + ' data=' + dataMute);
+    if (uiSolo !== null && dataSolo !== null && uiSolo !== dataSolo) issues.push('SOLO MISMATCH ui=' + uiSolo + ' data=' + dataSolo);
+    if (uiNG !== null && dataNG !== null && uiNG !== dataNG) issues.push('NG MISMATCH ui=' + uiNG + ' data=' + dataNG);
+
+    var status = issues.length ? '⚠️ ' + issues.join(' | ') : '✅ synced';
+    console.log(
+      '  [' + id + '] src=' + (src || key || 'master')
+      + ' | fader=' + (uiLvl !== null ? uiLvl.toFixed(2) : '-')
+      + ' | M=' + (uiMute !== null ? uiMute : '-')
+      + ' | S=' + (uiSolo !== null ? uiSolo : '-')
+      + (uiNG !== null ? ' | NG=' + uiNG : '')
+      + ' → ' + status
+    );
+  });
+
+  // ── 8. Event Listener Sanity ──
+  console.log('\n── EVENT LISTENER CHECK ──');
+  strips.forEach(function(strip) {
+    var id = strip.dataset.id || '?';
+    var muteBtn = strip.querySelector('[data-role="mute"]');
+    var soloBtn = strip.querySelector('[data-role="solo"]');
+    var ngBtn   = strip.querySelector('[data-role="noisegate"]');
+    var faderW  = strip.querySelector('[data-fader]');
+    // Can't inspect listeners directly, but we can check elements exist
+    var parts = [];
+    if (muteBtn) parts.push('M✓');
+    if (soloBtn) parts.push('S✓');
+    if (ngBtn)   parts.push('NG✓');
+    if (faderW)  parts.push('Fader✓');
+    var panK = strip.querySelector('[data-role="pan"]');
+    if (panK) parts.push('Pan✓');
+    console.log('  [' + id + '] elements: ' + parts.join(' '));
+  });
+
+  // ── 9. Mic streams ──
+  console.log('\n── MIC STREAMS ──');
+  console.log('  _vuStream:', typeof _vuStream !== 'undefined' && _vuStream ? 'active=' + _vuStream.active + ' | id=' + _vuStream.id : 'NONE');
+  console.log('  _mtStream:', typeof _mtStream !== 'undefined' && _mtStream ? 'active=' + _mtStream.active + ' | id=' + _mtStream.id : 'NONE');
+  if (typeof _vuStream !== 'undefined' && _vuStream && typeof _mtStream !== 'undefined' && _mtStream) {
+    console.log('  Same stream?', _vuStream.id === _mtStream.id ? 'YES (shared)' : 'NO (dual — potential conflict!)');
+  }
+
+  console.log('\n' + sep);
+  console.log('💡 Run mixDebugDump() again after toggling controls to compare');
+  console.log(sep + '\n');
+};
+
+// Auto-dump on mixer open (behind MIX_DEBUG flag)
+var _origOpenMixDrawer = openMixDrawer;
+openMixDrawer = function() {
+  _origOpenMixDrawer();
+  if (MIX_DEBUG) {
+    setTimeout(function() { mixDebugDump(); }, 100);
+  }
+};
+
 // Double-click any mix slider to return it to unity (100)
 function mixResetToUnity(sliderId, applyFn, unityVal) {
   const el = document.getElementById(sliderId);
