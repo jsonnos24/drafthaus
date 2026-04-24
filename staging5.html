@@ -4998,6 +4998,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .mix-tiny-btn:hover{color:var(--text);border-color:var(--border2)}
   .mix-tiny-btn.mix-mute-on{background:var(--red);color:#1a0a12;border-color:var(--red)}
   .mix-tiny-btn.mix-solo-on{background:var(--gold);color:#1b1208;border-color:var(--gold)}
+  .mix-tiny-btn.mix-ng-on{background:#34c759;color:#0a1a0e;border-color:#34c759}
 
   /* Pan knob */
   .mix-pan{display:flex;flex-direction:column;align-items:center;gap:2px;margin-top:2px}
@@ -41157,10 +41158,12 @@ function _mixRenderStripHtml(c) {
   // Mute/Solo buttons (not for masters)
   var ctrlHtml = '';
   if (!isMaster) {
+    var _ngOn = (c.mtIndex !== undefined && typeof _mtTracks !== 'undefined' && _mtTracks[c.mtIndex]) ? _mtTracks[c.mtIndex].noiseGate : false;
     ctrlHtml = '<div class="mix-strip-controls">'
       + '<div class="mix-ctrl-row">'
       + '<button class="mix-tiny-btn mix-mute-btn' + (c.mute ? ' mix-mute-on' : '') + '" data-role="mute">M</button>'
       + '<button class="mix-tiny-btn mix-solo-btn' + (c.solo ? ' mix-solo-on' : '') + '" data-role="solo">S</button>'
+      + (c.mtIndex !== undefined ? '<button class="mix-tiny-btn mix-ng-btn' + (_ngOn ? ' mix-ng-on' : '') + '" data-role="noisegate">NG</button>' : '')
       + '</div>';
     // Pan knob (not for masters, not for bus)
     if (!isBus) {
@@ -41384,6 +41387,19 @@ function wireMixerInteractions() {
       });
     }
 
+    // ── Noise gate button (vox strips only) ─────────────────────
+    var ngBtn = strip.querySelector('[data-role="noisegate"]');
+    if (ngBtn && source === 'fourtrack' && mtIdx >= 0) {
+      ngBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (typeof _mtTracks !== 'undefined' && _mtTracks[mtIdx]) {
+          _mtTracks[mtIdx].noiseGate = !_mtTracks[mtIdx].noiseGate;
+          ngBtn.classList.toggle('mix-ng-on', _mtTracks[mtIdx].noiseGate);
+          _mixLog('GATE', 'vox' + mtIdx + ' noise gate ' + (_mtTracks[mtIdx].noiseGate ? 'ON' : 'OFF'));
+        }
+      });
+    }
+
     // ── Pan knob drag ───────────────────────────────────────────
     var panKnob = strip.querySelector('[data-role="pan"]');
     if (panKnob) {
@@ -41476,6 +41492,8 @@ function mixRefreshVoxStrip(i) {
   var soloBtn = strip.querySelector('[data-role="solo"]');
   if (muteBtn) muteBtn.classList.toggle('mix-mute-on', !!t.muted);
   if (soloBtn) soloBtn.classList.toggle('mix-solo-on', !!t.soloed);
+  var ngBtn = strip.querySelector('[data-role="noisegate"]');
+  if (ngBtn) ngBtn.classList.toggle('mix-ng-on', !!t.noiseGate);
   strip.classList.toggle('mix-muted', !!t.muted);
   strip.classList.toggle('mix-soloed', !!t.soloed);
   // Name (only if not currently focused/editing)
@@ -42557,7 +42575,8 @@ function _mtEnsureTrackObjects() {
       volume: _mtSavedVol(i), pan: _mtSavedPan(i),
       takes: [], activeTakeIdx: -1, duration: 0,
       mediaRecorder: null, chunks: [],
-      waveCanvas: null, waveCtx: null
+      waveCanvas: null, waveCtx: null,
+      noiseGate: true
     });
   }
 }
@@ -45027,8 +45046,9 @@ window.vrToggleRec = async function() {
         _vrInputGainNode.gain.value = _vrInputGain;
         _vrInputDestNode = _ctx.createMediaStreamDestination();
 
-        // Insert noise gate if AudioWorklet is available
-        if (_vrNoiseGateReady && _ctx.audioWorklet) {
+        // Insert noise gate if AudioWorklet is available AND armed track has it enabled
+        var _ngEnabled = (typeof _mtTracks !== 'undefined' && _mtTracks[_mtArmedTrack]) ? _mtTracks[_mtArmedTrack].noiseGate : true;
+        if (_ngEnabled && _vrNoiseGateReady && _ctx.audioWorklet) {
           try {
             _vrNoiseGateNode = new AudioWorkletNode(_ctx, 'noise-gate-processor');
             _vrInputSrcNode.connect(_vrInputGainNode);
@@ -45044,6 +45064,7 @@ window.vrToggleRec = async function() {
         } else {
           _vrInputSrcNode.connect(_vrInputGainNode);
           _vrInputGainNode.connect(_vrInputDestNode);
+          console.log('[MT] Recording chain: mic → gain → recorder (noise gate ' + (_ngEnabled ? 'unavailable' : 'OFF for track ' + _mtArmedTrack) + ')');
         }
       } catch(e) {
         _vrInputDestNode = null;
@@ -45362,10 +45383,8 @@ async function _mtFinishRecording(trackIdx, mimeType) {
     if (_mtAudioCtx) {
       const localArrBuf = await blob.arrayBuffer();
       localBuffer = await _mtAudioCtx.decodeAudioData(localArrBuf.slice(0));
-      // Trim leading silence so recordings line up with the beat
-      const _preTrimLen = localBuffer.length;
-      localBuffer = _mtTrimLeadingSilence(localBuffer, _mtAudioCtx);
-      _wasTrimmed = localBuffer.length < _preTrimLen;
+      // Silence trimming removed — raw recording preserved as-is
+      const _wasTrimmed = false;
       t.buffer   = localBuffer;
       t.duration = localBuffer.duration;
       _mtDrawTrackWaveform(trackIdx, localBuffer, t.color);
