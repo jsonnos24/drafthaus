@@ -4996,7 +4996,7 @@ button, select, input, textarea { touch-action: manipulation; }
     touch-action:manipulation;
   }
   .mix-tiny-btn:hover{color:var(--text);border-color:var(--border2)}
-  .mix-tiny-btn.mix-mute-on{background:var(--red);color:#1a0a12;border-color:var(--red)}
+  .mix-tiny-btn.mix-mute-on{background:#6ab4f5;color:#0a1220;border-color:#6ab4f5}
   .mix-tiny-btn.mix-solo-on{background:var(--gold);color:#1b1208;border-color:var(--gold)}
   .mix-tiny-btn.mix-ng-on{background:#34c759;color:#0a1a0e;border-color:#34c759}
 
@@ -41085,7 +41085,7 @@ var _mixDrumCollapsed = true; // drum sub-channels collapsed by default
 function buildMixerChannels(song, mix) {
   // Decision B: ensure 4-track objects exist for label/vol/pan/mute/solo reads
   if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
-  var mt = (typeof _mtTracks !== 'undefined' && _mtTracks) || [];
+  var mt = window._mtTracks || [];
   // Fallback: if _mtEnsureTrackObjects failed or _mtTracks is still empty, create inline
   if (!mt.length) {
     console.warn('[MIX][BUILD] _mtTracks still empty after _mtEnsureTrackObjects — creating fallback objects');
@@ -41108,10 +41108,12 @@ function buildMixerChannels(song, mix) {
         boostActive: !!_st.boostActive, noiseGate: _st.noiseGate !== false
       });
     }
-    if (typeof _mtTracks !== 'undefined') {
-      _mtTracks.length = 0;
-      for (var fj = 0; fj < mt.length; fj++) _mtTracks.push(mt[fj]);
-      console.log('[MIX][BUILD] Fallback: populated _mtTracks with ' + _mtTracks.length + ' objects');
+    if (window._mtTracks) {
+      window._mtTracks.length = 0;
+      for (var fj = 0; fj < mt.length; fj++) window._mtTracks.push(mt[fj]);
+      console.log('[MIX][BUILD] Fallback: populated window._mtTracks with ' + window._mtTracks.length + ' objects');
+    } else {
+      window._mtTracks = mt;
     }
   }
   _mixLog('BUILD', 'buildMixerChannels: _mtTracks.length=' + mt.length);
@@ -41186,7 +41188,7 @@ function _mixRenderStripHtml(c) {
   // Mute/Solo buttons (not for masters)
   var ctrlHtml = '';
   if (!isMaster) {
-    var _ngOn = (c.mtIndex !== undefined && typeof _mtTracks !== 'undefined' && _mtTracks[c.mtIndex]) ? (_mtTracks[c.mtIndex].noiseGate !== false) : true;
+    var _ngOn = (c.mtIndex !== undefined && window._mtTracks && window._mtTracks[c.mtIndex]) ? (window._mtTracks[c.mtIndex].noiseGate !== false) : true;
     ctrlHtml = '<div class="mix-strip-controls">'
       + '<div class="mix-ctrl-row">'
       + '<button class="mix-tiny-btn mix-mute-btn' + (c.mute ? ' mix-mute-on' : '') + '" data-role="mute">M</button>'
@@ -41345,12 +41347,16 @@ function wireMixerInteractions() {
           else if (source === 'mainmaster') { mixSetMainMaster(pct); }
           else if (source === 'fourtrack' && mtIdx >= 0) {
             var v = Math.round(pct * 100);
-            if (typeof _mtTracks !== 'undefined' && _mtTracks[mtIdx]) {
-              _mtTracks[mtIdx].volume = v;
+            if (window._mtTracks && window._mtTracks[mtIdx]) {
+              window._mtTracks[mtIdx].volume = v;
               if (typeof _mtApplyMuteGain === 'function') _mtApplyMuteGain(mtIdx);
-              // Sync 4-track UI slider
-              var sl = document.getElementById('mt-vol-'+mtIdx);
-              if (sl) sl.style.setProperty('--vol', v+'%');
+              // Sync 4-track volume slider + dB display
+              var ftVolSliders = document.querySelectorAll('[data-ft-volume]');
+              if (ftVolSliders[mtIdx]) {
+                ftVolSliders[mtIdx].value = v;
+                var ftDbEls = document.querySelectorAll('[data-ft-vol-db]');
+                if (ftDbEls[mtIdx] && typeof ftVolToDB === 'function') ftDbEls[mtIdx].textContent = ftVolToDB(v);
+              }
             }
             if (typeof mtSaveTrackSetting === 'function') mtSaveTrackSetting(mtIdx, 'volume', v);
             _mixLog('FADER', 'vox' + mtIdx + ' vol=' + v);
@@ -41375,24 +41381,25 @@ function wireMixerInteractions() {
 
     // ── Helper: ensure _mtTracks[idx] exists ───────────────────
     function _mixEnsureTrack(idx) {
-      if (typeof _mtTracks === 'undefined') return null;
-      if (!_mtTracks[idx]) {
+      var _mt = window._mtTracks;
+      if (!_mt) { window._mtTracks = []; _mt = window._mtTracks; }
+      if (!_mt[idx]) {
         // Grow array if needed
-        while (_mtTracks.length <= idx) _mtTracks.push(null);
+        while (_mt.length <= idx) _mt.push(null);
         var _c = ['#ff6b9d','#6bc5ff','#a5ff6b','#ffb86b'];
         var _sv = 85, _sp = 0;
         try { var rv = localStorage.getItem('drafthaus-mt-vol-'+idx); if (rv !== null) _sv = parseInt(rv,10); } catch(e){}
         try { var rp = localStorage.getItem('drafthaus-mt-pan-'+idx); if (rp !== null) _sp = parseInt(rp,10); } catch(e){}
-        _mtTracks[idx] = {
+        _mt[idx] = {
           id: idx, color: _c[idx]||'#6ab4f5', name: 'Track '+(idx+1),
           buffer: null, gainNode: null, panNode: null, sourceNode: null,
           volume: _sv, pan: _sp, takes: [], activeTakeIdx: -1, duration: 0,
           mediaRecorder: null, chunks: [], waveCanvas: null, waveCtx: null,
           muted: false, soloed: false, boostActive: false, noiseGate: true
         };
-        console.log('[MIX] Auto-created _mtTracks['+idx+']');
+        console.log('[MIX] Auto-created window._mtTracks['+idx+']');
       }
-      return _mtTracks[idx];
+      return _mt[idx];
     }
 
     // ── Mute button ─────────────────────────────────────────────
@@ -41411,10 +41418,14 @@ function wireMixerInteractions() {
               t.soloed = false;
               if (typeof mtSaveTrackSetting === 'function') mtSaveTrackSetting(mtIdx, 'soloed', false);
               if (typeof _mtApplyAllGains === 'function') _mtApplyAllGains();
+              // Sync 4-track solo button
+              var ftSoloBtn = document.getElementById('mt-solo-'+mtIdx);
+              if (ftSoloBtn) ftSoloBtn.classList.remove('mt-soloed');
+              if (typeof _mtRefreshSoloDimming === 'function') _mtRefreshSoloDimming();
             }
             muteBtn.classList.toggle('mix-mute-on', t.muted);
             strip.classList.toggle('mix-muted', t.muted);
-            // Update 4-track UI if it exists
+            // Sync 4-track mute button + lane
             var ftBtn = document.getElementById('mt-mute-'+mtIdx);
             var ftLane = document.getElementById('mt-track-'+mtIdx);
             if (ftBtn) ftBtn.classList.toggle('mt-muted', t.muted);
@@ -41446,8 +41457,17 @@ function wireMixerInteractions() {
             if (t.soloed && t.muted) {
               t.muted = false;
               if (typeof mtSaveTrackSetting === 'function') mtSaveTrackSetting(mtIdx, 'muted', false);
+              // Sync 4-track mute button
+              var ftMuteBtn = document.getElementById('mt-mute-'+mtIdx);
+              var ftMuteLane = document.getElementById('mt-track-'+mtIdx);
+              if (ftMuteBtn) ftMuteBtn.classList.remove('mt-muted');
+              if (ftMuteLane) ftMuteLane.classList.remove('mt-is-muted');
             }
             if (typeof _mtApplyAllGains === 'function') _mtApplyAllGains();
+            // Sync 4-track solo button + dimming
+            var ftSoloBtn = document.getElementById('mt-solo-'+mtIdx);
+            if (ftSoloBtn) ftSoloBtn.classList.toggle('mt-soloed', t.soloed);
+            if (typeof _mtRefreshSoloDimming === 'function') _mtRefreshSoloDimming();
             _mixLog('SOLO', 'vox' + mtIdx + ' soloed=' + t.soloed);
           }
         } else if (key) {
@@ -41482,8 +41502,8 @@ function wireMixerInteractions() {
         var startX = (e.touches ? e.touches[0].clientX : e.clientX);
         var startPan = parseFloat(faderWrap?.dataset?.pan || '0');
         // Read current pan from data or _mtTracks
-        if (source === 'fourtrack' && mtIdx >= 0 && typeof _mtTracks !== 'undefined' && _mtTracks[mtIdx]) {
-          startPan = (_mtTracks[mtIdx].pan || 0) / 100;
+        if (source === 'fourtrack' && mtIdx >= 0 && window._mtTracks && window._mtTracks[mtIdx]) {
+          startPan = (window._mtTracks[mtIdx].pan || 0) / 100;
         }
         var onPanMove = function(ev) {
           var x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
@@ -41495,11 +41515,11 @@ function wireMixerInteractions() {
           // Route to correct handler
           if (source === 'fourtrack' && mtIdx >= 0) {
             var p = Math.round(newPan * 100);
-            if (typeof _mtTracks !== 'undefined' && _mtTracks[mtIdx]) {
-              _mtTracks[mtIdx].pan = p;
+            if (window._mtTracks && window._mtTracks[mtIdx]) {
+              window._mtTracks[mtIdx].pan = p;
               // Decision G: guard pan audio write
-              if (_mtTracks[mtIdx].panNode && typeof _mtAudioCtx !== 'undefined' && _mtAudioCtx) {
-                _mtTracks[mtIdx].panNode.pan.setTargetAtTime(newPan, _mtAudioCtx.currentTime, 0.01);
+              if (window._mtTracks[mtIdx].panNode && typeof _mtAudioCtx !== 'undefined' && _mtAudioCtx) {
+                window._mtTracks[mtIdx].panNode.pan.setTargetAtTime(newPan, _mtAudioCtx.currentTime, 0.01);
               } else {
                 _mixLog('GUARD', 'pan write skipped — panNode or _mtAudioCtx not ready');
               }
@@ -41540,8 +41560,8 @@ function _mixRefreshAllStripStates() {
     var mtIdx  = strip.dataset.mtIndex !== undefined ? parseInt(strip.dataset.mtIndex, 10) : -1;
     var muteBtn = strip.querySelector('[data-role="mute"]');
     var soloBtn = strip.querySelector('[data-role="solo"]');
-    if (source === 'fourtrack' && mtIdx >= 0 && typeof _mtTracks !== 'undefined') {
-      var t = _mtTracks[mtIdx];
+    if (source === 'fourtrack' && mtIdx >= 0 && window._mtTracks) {
+      var t = window._mtTracks[mtIdx];
       if (muteBtn) muteBtn.classList.toggle('mix-mute-on', !!(t && t.muted));
       if (soloBtn) soloBtn.classList.toggle('mix-solo-on', !!(t && t.soloed));
       var ngBtn = strip.querySelector('[data-role="noisegate"]');
@@ -41562,7 +41582,7 @@ function mixRefreshVoxStrip(i) {
   if (!_mixDrawerOpen) return;
   var strip = document.querySelector('#mixStrips .mix-strip[data-source="fourtrack"][data-mt-index="' + i + '"]');
   if (!strip) return;
-  var t = (typeof _mtTracks !== 'undefined') ? _mtTracks[i] : null;
+  var t = window._mtTracks ? window._mtTracks[i] : null;
   if (!t) return;
   // Mute/Solo buttons
   var muteBtn = strip.querySelector('[data-role="mute"]');
@@ -41570,7 +41590,7 @@ function mixRefreshVoxStrip(i) {
   if (muteBtn) muteBtn.classList.toggle('mix-mute-on', !!t.muted);
   if (soloBtn) soloBtn.classList.toggle('mix-solo-on', !!t.soloed);
   var ngBtn = strip.querySelector('[data-role="noisegate"]');
-  if (ngBtn) ngBtn.classList.toggle('mix-ng-on', !!t.noiseGate);
+  if (ngBtn) ngBtn.classList.toggle('mix-ng-on', t.noiseGate !== false);
   strip.classList.toggle('mix-muted', !!t.muted);
   strip.classList.toggle('mix-soloed', !!t.soloed);
   // Name (only if not currently focused/editing)
@@ -41821,8 +41841,8 @@ window.mixDebugDump = function() {
 
   // ── 3. 4-Track Channels ──
   console.log('\n── 4-TRACK CHANNELS (vox 1–4) ──');
-  var mt = (typeof _mtTracks !== 'undefined') ? _mtTracks : [];
-  if (!mt.length) { console.log('  _mtTracks is EMPTY — tracks not initialized'); }
+  var mt = window._mtTracks || [];
+  if (!mt.length) { console.log('  window._mtTracks is EMPTY — tracks not initialized'); }
   mt.forEach(function(t, i) {
     if (!t) { console.log('  Track ' + i + ': NULL'); return; }
     var gainVal = t.gainNode ? t.gainNode.gain.value.toFixed(4) : 'NO NODE';
@@ -42155,7 +42175,7 @@ document.addEventListener('keydown', function(e) {
     if (e.shiftKey) { sharedPlaySong(); } else { sharedPlay(); }
   } else {
     // No drawer open — check if 4-track has content or we're in split/perf mode
-    var _mt4tReady = typeof _mtTracks !== 'undefined' && _mtTracks.some(function(t){ return t && t.buffer; });
+    var _mt4tReady = window._mtTracks && window._mtTracks.some(function(t){ return t && t.buffer; });
     var _inPerf = window._ilPerfMode;
     var _in4tSplit = document.body.classList.contains('split-4track-active');
     if (_mt4tReady || _inPerf || _in4tSplit) {
@@ -42764,6 +42784,7 @@ var _mtRecTimer     = null;
 var _mtRecStartMs   = 0;
 var _mtStream       = null; // mic MediaStream (shared)
 var _mtTracks       = [];   // 4 track objects, built by mtBuildUI
+window._mtTracks    = _mtTracks; // expose globally so mixer code can always reach it
 var _mtPreloadedSongId = null; // song ID whose takes have been background-loaded
 var _mtPendingPlay    = false; // true when user tapped play before buffers finished loading
 var _vrTakesUnsubscribe = null; // Firestore onSnapshot unsubscribe for real-time take sync
@@ -42888,10 +42909,11 @@ function mtBuildUI() {
   const prev = _mtTracks.map(t => t ? {
     buffer: t.buffer, gainNode: t.gainNode, panNode: t.panNode,
     takes: t.takes, activeTakeIdx: t.activeTakeIdx, duration: t.duration,
-    volume: t.volume, pan: t.pan
+    volume: t.volume, pan: t.pan,
+    muted: t.muted, soloed: t.soloed, noiseGate: t.noiseGate, boostActive: t.boostActive
   } : null);
 
-  _mtTracks = [];
+  _mtTracks.length = 0; // clear in-place to preserve window._mtTracks reference
   container.innerHTML = '';
 
   // Ruler removed per user request (L1.9)
@@ -42922,6 +42944,7 @@ function mtBuildUI() {
       soloed:       p ? (p.soloed || false) : (saved.soloed || false),
       locked:       p ? (p.locked || false) : (saved.locked || false),
       boostActive:  p ? (p.boostActive || false) : (saved.boostActive || false),
+      noiseGate:    p ? (p.noiseGate !== false) : (saved.noiseGate !== false),
       takes:        p ? p.takes        : [],
       activeTakeIdx: p ? p.activeTakeIdx : -1,
       duration:     p ? p.duration     : 0,
@@ -43757,9 +43780,8 @@ window.mtSetVolume = function(i, val) {
   t.volume = parseInt(val, 10);
   const boost = t.boostActive ? 4.0 : 1.0; // +12dB = ×4
   if (t.gainNode) t.gainNode.gain.value = (t.volume / 100) * boost;
-  const sl = _el('mt-vol-'+i);
-  if (sl) sl.style.setProperty('--vol', t.volume+'%');
   try { localStorage.setItem('drafthaus-mt-vol-' + i, t.volume); } catch(e) {}
+  if (typeof mtSaveTrackSetting === 'function') mtSaveTrackSetting(i, 'volume', t.volume);
   if (typeof mixRefreshVoxStrip === 'function') mixRefreshVoxStrip(i);
 };
 
