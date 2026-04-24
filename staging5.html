@@ -44276,8 +44276,7 @@ window.mtPlay = async function(startOffset) {
   const offset = startOffset !== undefined ? startOffset : _mtScrubOffset;
   _mtScrubOffset = 0;
   _mtStartPlayback(offset);
-  // Start unified metronome if enabled (no-op if already running from sequencer)
-  globalMetroStartIfEnabled();
+  // Metro is started inside _mtStartPlayback, after _mtIsPlaying = true
 };
 
 // ── Play with Sequencer (syncs 4-track + drums + looper) ──────
@@ -44311,6 +44310,8 @@ window.mtPlayWithSeq = async function() {
 
 function _mtStartPlayback(offsetSec) {
   _mtIsPlaying = true;
+  // Unified metronome: start AFTER _mtIsPlaying is set so anyActive check passes
+  globalMetroStartIfEnabled();
   if (typeof _bgEnsureKeepAlive === 'function') _bgEnsureKeepAlive();
   if (typeof _mtUpdateMiniPlaybar === 'function') _mtUpdateMiniPlaybar();
   if (typeof htStartClock === 'function') htStartClock();
@@ -44374,8 +44375,9 @@ function _mtStopAll() {
   _mtPlayStartOffset = 0;
   if (typeof _ftDetachAnalysers === 'function') _ftDetachAnalysers();
   if (typeof _bgMaybeRelease === 'function') _bgMaybeRelease();
-  // Stop unified metronome (will auto-stop via anyActive check, but force-stop here for instant silence)
-  if (typeof globalMetroStop === 'function') globalMetroStop();
+  // Stop unified metronome — but NOT if still recording (metro should keep clicking through the take)
+  var _stillRecording = (typeof _vrRecording !== 'undefined' && _vrRecording);
+  if (!_stillRecording && typeof globalMetroStop === 'function') globalMetroStop();
   // Also clean up any seq-link per-track playback
   if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
   // Stop sequencer if it was running (covers metronome-only and song playback)
