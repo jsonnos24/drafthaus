@@ -5018,7 +5018,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .mix-pan-val{font-size:9px;color:var(--muted);font-variant-numeric:tabular-nums;font-family:'IBM Plex Mono',monospace}
 
   /* Fader + meter zone */
-  .mix-fader-zone{flex:1;display:flex;padding:4px 4px 5px;gap:4px;align-items:stretch;min-height:110px}
+  .mix-fader-zone{flex:1;display:flex;padding:4px 4px 5px;gap:4px;align-items:stretch;min-height:80px;max-height:110px}
   .mix-fader-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
   .mix-fader-wrap{flex:1;width:100%;position:relative;display:flex;align-items:stretch;justify-content:center;touch-action:none}
 
@@ -5059,11 +5059,11 @@ button, select, input, textarea { touch-action: manipulation; }
   .mix-density-compact{--mix-chan-gap:4px;--mix-chan-width:62px;--mix-meter-h:80px}
   .mix-density-compact .mix-strips{gap:4px}
   .mix-density-compact .mix-strip{flex:0 0 62px;min-width:62px}
-  .mix-density-compact .mix-fader-zone{min-height:80px}
+  .mix-density-compact .mix-fader-zone{min-height:60px;max-height:80px}
   .mix-density-spacious{--mix-chan-gap:14px;--mix-chan-width:92px;--mix-meter-h:130px}
   .mix-density-spacious .mix-strips{gap:14px}
   .mix-density-spacious .mix-strip{flex:0 0 92px;min-width:92px}
-  .mix-density-spacious .mix-fader-zone{min-height:130px}
+  .mix-density-spacious .mix-fader-zone{min-height:100px;max-height:130px}
 
   /* ── Bounce modal ── */
   .mix-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:9200;backdrop-filter:blur(4px)}
@@ -5090,7 +5090,7 @@ button, select, input, textarea { touch-action: manipulation; }
     .mix-strip{flex:unset;min-width:0}
     .mix-strip.mix-master{flex:unset;min-width:0}
     .mix-strip.mix-subheader,.mix-strip.mix-drum-collapsed{display:none}
-    .mix-fader-zone{min-height:80px}
+    .mix-fader-zone{min-height:60px;max-height:80px}
     .mix-strip-top{padding:3px 3px 3px;min-height:28px}
     .mix-chan-name{font-size:11px}
     .mix-chan-num{font-size:8px}
@@ -15576,6 +15576,7 @@ body.ft-takes-open #headerTransport {
 body.ft-takes-open .ft-modal {
   padding: 0;
   z-index: 99999;
+  align-items: flex-start;  /* prevent centering from clipping top of sheet */
 }
 body.ft-takes-open .ft-sheet {
   max-width: 100%;
@@ -15584,10 +15585,10 @@ body.ft-takes-open .ft-sheet {
   height: 100dvh;
   border-radius: 0;
   border: none;
-  padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 0px);
+  padding: max(12px, env(safe-area-inset-top, 0px)) 16px env(safe-area-inset-bottom, 0px);
   box-shadow: none;
   background: var(--bg, #0a0a0c);
-  overflow-y: hidden;
+  overflow: hidden;
 }
 body.ft-takes-open .ft-takes-list {
   flex: 1;
@@ -17714,9 +17715,41 @@ function v4FormatKey(k) {
   return note;
 }
 
+// ── Voice takes count cache for kanban cards ──
+var _v4TakesCountCache = {}; // songId → count
+
+// Batch-fetch voice_takes counts for a list of song IDs
+async function _v4FetchTakesCounts(songIds) {
+  if (!songIds.length || typeof db === 'undefined' || !auth.currentUser) return;
+  // Firestore 'in' queries limited to 30 at a time
+  for (var ci = 0; ci < songIds.length; ci += 30) {
+    var chunk = songIds.slice(ci, ci + 30);
+    try {
+      var snap = await db.collection('voice_takes')
+        .where('songId', 'in', chunk)
+        .where('userId', '==', auth.currentUser.uid)
+        .get();
+      // Reset counts for this chunk
+      chunk.forEach(function(sid) { _v4TakesCountCache[sid] = 0; });
+      snap.forEach(function(doc) {
+        var sid = doc.data().songId;
+        _v4TakesCountCache[sid] = (_v4TakesCountCache[sid] || 0) + 1;
+      });
+    } catch(e) { console.warn('[V4] takes count fetch error', e); }
+  }
+  // Update DOM cards with fetched counts
+  songIds.forEach(function(sid) {
+    var count = _v4TakesCountCache[sid] || 0;
+    var card = document.querySelector('.v4-draft-card[data-id="'+sid+'"] .v4-takes-count');
+    if (card) card.textContent = count > 0 ? ('◉ ' + count + ' take' + (count > 1 ? 's' : '')) : '— no takes';
+  });
+}
+
 // Map a song object to card shape (extract fields we display)
 function v4SongToCard(song) {
-  const takesCount = song.sequencer?.takes?.length || song.takes?.length || 0;
+  // Use cached voice_takes count; fall back to sequencer.takes (legacy) or 0
+  const cachedCount = _v4TakesCountCache[song.id];
+  const takesCount = cachedCount !== undefined ? cachedCount : (song.sequencer?.takes?.length || song.takes?.length || 0);
   return {
     id: song.id,
     title: song.title || song.workingTitle || '',
@@ -17772,7 +17805,7 @@ function v4RenderCard(card) {
       ${moodHtml}
       <div class="v4-draft-card-foot">
         <span class="v4-draft-card-time">${card.updated}</span>
-        <span class="v4-draft-card-takes">${takesText}</span>
+        <span class="v4-draft-card-takes v4-takes-count">${takesText}</span>
       </div>
     </div>
   `;
@@ -17871,6 +17904,10 @@ function v4RenderBoard() {
       </div>
     `;
   }
+
+  // Async: fetch voice_takes counts from Firestore and update card badges
+  var realSongIds = filtered.filter(function(c) { return !c._demo; }).map(function(c) { return c.id; });
+  if (realSongIds.length > 0) _v4FetchTakesCounts(realSongIds);
 }
 
 // Render project tabs
