@@ -20673,6 +20673,7 @@ var seqMetroGain   = null; // dedicated metronome gain → seqMasterGain (bypass
 // ── Mixer analyser nodes (for metering) ──────────────────────────
 var _mixSeqAnalysers = { drums: null, chords: null, melody: null, kick: null, snare: null, hat: null, perc: null, master: null };
 var _mixSeqAnalyserBuf = null; // shared Float32Array for RMS reads
+var _mixMicBuf = null;         // separate buffer for mic input VU (larger fftSize)
 var _mixMeterRafId = null;     // RAF handle for meter animation loop
 
 // ── Piano sampler (native AudioBuffer, no external library) ───────
@@ -21393,8 +21394,8 @@ function getSeqAudioCtx() {
     // Dedicated metronome gain → master (bypasses chords bus)
     seqMetroGain = seqAudioCtx.createGain();
     seqMetroGain.gain.value = 0.8; // default metro volume
-    seqMetroGain.connect(seqMasterGain);
-    _mixLog('AUDIO', 'Metro gain created → seqMasterGain');
+    seqMetroGain.connect(seqAudioCtx.destination);
+    _mixLog('AUDIO', 'Metro gain created → destination (independent of seqMasterGain)');
     // Create analyser nodes for mixer metering — spliced after each gain
     _mixCreateSeqAnalysers();
     setTimeout(seqApplyMixer, 0);
@@ -41388,11 +41389,13 @@ function mixBounceRun() {
 
 function wireMixerInteractions() {
   var strips = document.querySelectorAll('#mixStrips .mix-strip');
+  console.log('[MIX][WIRE] wireMixerInteractions: found ' + strips.length + ' strips');
   strips.forEach(function(strip) {
     var id     = strip.dataset.id;
     var source = strip.dataset.source || '';
     var key    = strip.dataset.channelKey || '';
     var mtIdx  = strip.dataset.mtIndex !== undefined ? parseInt(strip.dataset.mtIndex, 10) : -1;
+    console.log('[MIX][WIRE]   strip id=' + id + ' source=' + source + ' key=' + key + ' mtIdx=' + mtIdx);
 
     // ── Fader drag ──────────────────────────────────────────────
     var faderWrap = strip.querySelector('[data-fader]');
@@ -41647,9 +41650,9 @@ function _mixRefreshAllStripStates() {
 
 // ── Bidirectional Vox strip sync (4-track ↔ mixer) ──────────
 function mixRefreshVoxStrip(i) {
-  if (!_mixDrawerOpen) return;
+  if (!_mixDrawerOpen) { console.log('[MIX][SYNC] mixRefreshVoxStrip(' + i + ') skipped — drawer closed'); return; }
   var strip = document.querySelector('#mixStrips .mix-strip[data-source="fourtrack"][data-mt-index="' + i + '"]');
-  if (!strip) return;
+  if (!strip) { console.warn('[MIX][SYNC] mixRefreshVoxStrip(' + i + ') — strip NOT FOUND in DOM!'); return; }
   var t = window._mtTracks ? window._mtTracks[i] : null;
   if (!t) return;
   // Mute/Solo buttons
@@ -41834,13 +41837,27 @@ function _mixMeterRAF() {
     _mixSetMeterLevel(mainStrip, Math.min(1, mainRms * 3.5));
   }
 
-  // Vox 1–4 — reuse existing 4-track analysers
+  // Vox 1–4 — reuse existing 4-track analysers (+ mic input for armed track)
+  var _isArmed = (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack >= 0);
   for (var vi = 0; vi < 4; vi++) {
     var vStrip = document.querySelector('.mix-strip[data-id="v' + (vi+1) + '"]');
     if (!vStrip) continue;
-    var vAn = (typeof _ftAnalysers !== 'undefined') ? _ftAnalysers[vi] : null;
-    if (!vAn && typeof _ftEnsureAnalyser === 'function') vAn = _ftEnsureAnalyser(vi);
-    var vRms = (isPlaying && vAn) ? _mixMeterRMS(vAn) : 0;
+    var vRms = 0;
+    // Armed track: use mic input analyser for live VU
+    if (_isArmed && vi === _mtArmedTrack && typeof _vuAnalyser !== 'undefined' && _vuAnalyser && typeof _vuActive !== 'undefined' && _vuActive) {
+      if (!_mixMicBuf || _mixMicBuf.length < _vuAnalyser.fftSize) {
+        _mixMicBuf = new Float32Array(_vuAnalyser.fftSize);
+      }
+      _vuAnalyser.getFloatTimeDomainData(_mixMicBuf);
+      var _sum = 0;
+      for (var _si = 0; _si < _vuAnalyser.fftSize; _si++) _sum += _mixMicBuf[_si] * _mixMicBuf[_si];
+      vRms = Math.sqrt(_sum / _vuAnalyser.fftSize);
+    } else {
+      // Playing track: use 4-track analyser
+      var vAn = (typeof _ftAnalysers !== 'undefined') ? _ftAnalysers[vi] : null;
+      if (!vAn && typeof _ftEnsureAnalyser === 'function') vAn = _ftEnsureAnalyser(vi);
+      vRms = (isPlaying && vAn) ? _mixMeterRMS(vAn) : 0;
+    }
     _mixSetMeterLevel(vStrip, Math.min(1, vRms * 3.5));
   }
 
@@ -42944,16 +42961,22 @@ window.mtSaveLabel = function mtSaveLabel(i, el) {
 function _mtEnsureTrackObjects() {
   console.log('[MT-INIT] _mtEnsureTrackObjects called | _mtTracks.length=' + _mtTracks.length + ' | typeof _mtTracks=' + typeof _mtTracks);
   if (_mtTracks.length) { console.log('[MT-INIT]   Already populated, skipping'); return; }
+  var _song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+  var _songTracks = (_song && _song.mtTracks) ? _song.mtTracks : [{},{},{},{}];
   try {
     for (let i = 0; i < 4; i++) {
+      var _st = _songTracks[i] || {};
       _mtTracks.push({
         id: i, color: MT_COLORS[i], name: _mtSavedLabel(i),
         buffer: null, gainNode: null, panNode: null, sourceNode: null,
-        volume: _mtSavedVol(i), pan: _mtSavedPan(i),
+        volume: _st.volume !== undefined ? _st.volume : _mtSavedVol(i),
+        pan: _st.pan !== undefined ? _st.pan : _mtSavedPan(i),
         takes: [], activeTakeIdx: -1, duration: 0,
         mediaRecorder: null, chunks: [],
         waveCanvas: null, waveCtx: null,
-        noiseGate: true
+        muted: !!_st.muted, soloed: !!_st.soloed,
+        boostActive: !!_st.boostActive,
+        noiseGate: _st.noiseGate !== false
       });
     }
     console.log('[MT-INIT]   Created 4 track objects | _mtTracks.length=' + _mtTracks.length);
@@ -44079,11 +44102,9 @@ window.mtPlay = async function(startOffset) {
   const offset = startOffset !== undefined ? startOffset : _mtScrubOffset;
   _mtScrubOffset = 0;
   _mtStartPlayback(offset);
-  // Start sequencer for metronome clicks if enabled and not already running
-  if (typeof seqMetOn !== 'undefined' && seqMetOn &&
-      typeof seqIsPlaying !== 'undefined' && !seqIsPlaying &&
-      typeof seqPlay === 'function') {
-    try { seqPlay(); } catch(e) {}
+  // Start independent playback metronome if enabled (doesn't rely on sequencer pattern length)
+  if (typeof seqMetOn !== 'undefined' && seqMetOn) {
+    if (typeof _mt4tPlayMetroStart === 'function') _mt4tPlayMetroStart();
   }
 };
 
@@ -44181,6 +44202,8 @@ function _mtStopAll() {
   _mtPlayStartOffset = 0;
   if (typeof _ftDetachAnalysers === 'function') _ftDetachAnalysers();
   if (typeof _bgMaybeRelease === 'function') _bgMaybeRelease();
+  // Stop independent playback metronome
+  if (typeof _mt4tPlayMetroStop === 'function') _mt4tPlayMetroStop();
   // Also clean up any seq-link per-track playback
   if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
   // Stop sequencer if it was running (covers metronome-only and song playback)
@@ -45182,6 +45205,51 @@ function _mt4tMetroStart() {
 function _mt4tMetroStop() {
   if (_mt4tMetroTimer) { clearInterval(_mt4tMetroTimer); _mt4tMetroTimer = null; }
   _mt4tMetroActive = false;
+}
+
+/* ── Independent playback metronome for 4-track ──────────────── */
+/* Unlike _mt4tMetroStart (recording), this runs during play and  */
+/* doesn't depend on the sequencer pattern length.                */
+var _mt4tPlayMetroTimer = null;
+var _mt4tPlayMetroActive = false;
+
+function _mt4tPlayMetroStart() {
+  _mt4tPlayMetroStop(); // clean up any prior
+  var ctx = (typeof getSeqAudioCtx === 'function') ? getSeqAudioCtx() : null;
+  if (!ctx) return;
+  if (ctx.state === 'suspended') ctx.resume().catch(function(){});
+
+  var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+  var bpm = (song && song.bpm) ? song.bpm : 120;
+  var timeSig = (song && song.timeSig) ? song.timeSig : 4;
+  var beatSec = 60 / bpm;
+
+  var nextTime = ctx.currentTime + 0.05;
+  var beat = 0;
+
+  _mt4tPlayMetroActive = true;
+  _mt4tMetroActive = true; // suppress sequencer's own metro clicks
+
+  _mt4tPlayMetroTimer = setInterval(function() {
+    if (!_mtIsPlaying || !seqMetOn) { _mt4tPlayMetroStop(); return; }
+    var now = ctx.currentTime;
+    while (nextTime < now + 0.15) {
+      var accent = (beat % timeSig === 0);
+      seqClick(nextTime, accent);
+      beat++;
+      nextTime += beatSec;
+    }
+  }, 25);
+  console.log('[4T-METRO] Playback metro started: bpm=' + bpm + ' timeSig=' + timeSig);
+}
+
+function _mt4tPlayMetroStop() {
+  if (_mt4tPlayMetroTimer) { clearInterval(_mt4tPlayMetroTimer); _mt4tPlayMetroTimer = null; }
+  if (_mt4tPlayMetroActive) {
+    _mt4tPlayMetroActive = false;
+    _mt4tMetroActive = false; // re-enable sequencer metro if needed
+    console.log('[4T-METRO] Playback metro stopped');
+  }
 }
 
 // ── Countdown ──────────────────────────────────────────────────
@@ -48393,8 +48461,19 @@ function _ftEnsureAnalyser(idx) {
   return an;
 }
 
-/* Detach analyser when playback stops (nodes get recreated on next play) */
+/* Detach analyser when playback stops — reconnect gainNode directly to pan/master */
 function _ftDetachAnalysers() {
+  for (var di = 0; di < 4; di++) {
+    var an = _ftAnalysers[di];
+    if (!an) continue;
+    var t = _mtTracks[di];
+    if (t && t.gainNode) {
+      var dest = t.panNode || _mtMasterGain;
+      try { t.gainNode.disconnect(); } catch(e) {}
+      try { an.disconnect(); } catch(e) {}
+      if (dest) try { t.gainNode.connect(dest); } catch(e) {}
+    }
+  }
   _ftAnalysers = [null, null, null, null];
 }
 
