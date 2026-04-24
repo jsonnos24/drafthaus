@@ -20633,6 +20633,7 @@ var seqKickGain    = null; // drum sub-channel gains → seqDrumsGain
 var seqSnareGain   = null;
 var seqHatGain     = null;
 var seqPercGain    = null;
+var seqMetroGain   = null; // dedicated metronome gain → seqMasterGain (bypasses chords bus)
 
 // ── Mixer analyser nodes (for metering) ──────────────────────────
 var _mixSeqAnalysers = { drums: null, chords: null, melody: null, kick: null, snare: null, hat: null, perc: null, master: null };
@@ -21354,6 +21355,11 @@ function getSeqAudioCtx() {
     seqHatGain   = seqAudioCtx.createGain(); seqHatGain.connect(seqDrumsGain);
     seqPercGain  = seqAudioCtx.createGain(); seqPercGain.connect(seqDrumsGain);
     _mixLog('AUDIO', 'Drum sub-gains created: kick/snare/hat/perc → seqDrumsGain');
+    // Dedicated metronome gain → master (bypasses chords bus)
+    seqMetroGain = seqAudioCtx.createGain();
+    seqMetroGain.gain.value = 0.8; // default metro volume
+    seqMetroGain.connect(seqMasterGain);
+    _mixLog('AUDIO', 'Metro gain created → seqMasterGain');
     // Create analyser nodes for mixer metering — spliced after each gain
     _mixCreateSeqAnalysers();
     setTimeout(seqApplyMixer, 0);
@@ -21577,6 +21583,14 @@ function seqApplyMixer() {
     gainNode.gain.setTargetAtTime(active ? vol : 0, now, 0.015);
   });
 
+  // ── Metronome (independent — not affected by bus solo) ──
+  if (seqMetroGain) {
+    const metVol   = mix.metroVol !== undefined ? parseFloat(mix.metroVol) : 0.8;
+    const metMuted = !!(mix.metroMute);
+    seqMetroGain.gain.cancelScheduledValues(now);
+    seqMetroGain.gain.setTargetAtTime(metMuted ? 0 : metVol, now, 0.015);
+  }
+
   _mixLog('SOLO', 'seqApplyMixer → busSolo=' + (busSoloChannel||'none') + ' drumSubSolo=' + (drumSubSolo||'none'));
 }
 
@@ -21598,7 +21612,7 @@ function seqMixerChange(channel, type, value) {
   save();
   seqApplyMixer();
   // Update button visual states
-  ['drums','chords','melody','kick','snare','hat','perc'].forEach(c => {
+  ['drums','chords','melody','kick','snare','hat','perc','metro'].forEach(c => {
     const mix = song.sequencer.mixer;
     const soloBtn = document.getElementById('mix-solo-' + c);
     const muteBtn = document.getElementById('mix-mute-' + c);
@@ -25341,7 +25355,10 @@ function seqClick(time, accent) {
   const ctx = getSeqAudioCtx();
   const o = ctx.createOscillator(), g = ctx.createGain();
   o.frequency.value = accent ? 1000 : 600;
-  o.connect(g); g.connect(seqGetChordsOut());
+  // Route through dedicated metro gain (bypasses chords bus — mixer
+  // mute/solo on Chords won't kill the click track)
+  var dest = seqMetroGain || seqMasterGain || ctx.destination;
+  o.connect(g); g.connect(dest);
   g.gain.setValueAtTime(0.3, time);
   g.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
   o.start(time); o.stop(time + 0.1);
@@ -25988,11 +26005,14 @@ function _syncSharedRecBtn() {
 
 function seqToggleMet() {
   seqMetOn = !seqMetOn;
-  // Sync all metro buttons: sequencer, keyboard drawer, split header, looper, shared
+  // Sync all metro buttons: sequencer, keyboard drawer, split header, looper, shared, ft-drawer
   ['seqMetBtn', 'kbdMetBtn', 'splitMetBtn', 'loopMetBtn', 'sharedMetBtn', 'mtMetBtn', 'mtMetBtnM'].forEach(function(id) {
     const btn = document.getElementById(id);
     if (btn) btn.classList.toggle('on', seqMetOn);
   });
+  // Also sync ft-drawer metro button (uses data attribute, not ID)
+  var ftMetBtn = document.querySelector('[data-ft-metro]');
+  if (ftMetBtn) ftMetBtn.classList.toggle('on', seqMetOn);
   // If metronome was just turned ON while 4-track is playing/recording, start sequencer for clicks
   if (seqMetOn && !seqIsPlaying) {
     var mt4playing = typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying;
@@ -29314,7 +29334,7 @@ function generateInspoSong() {
   }
   positions.sort((a,b) => a-b);
   positions.forEach(pos => {
-    chordSlots[pos] = rand(scaleChords.filter(c => !c.includes('_viii')));
+    chordSlots[pos] = rand(scaleChords.filter(c => !c.includes('_viii') && !c.includes('dim')));
   });
 
   // Generate drum pattern
@@ -41152,6 +41172,8 @@ function buildMixerChannels(song, mix) {
     { id:'snare',  name:'Snare',  kind:'drumchild', color:'#e8749a', level: mix.snareVol !== undefined ? parseFloat(mix.snareVol) : 0.85, mute:!!mix.snareMute, solo:!!mix.snareSolo, parent:'drums', channelKey:'snare' },
     { id:'hat',    name:'Hats',   kind:'drumchild', color:'#e8749a', level: mix.hatVol   !== undefined ? parseFloat(mix.hatVol)   : 0.7,  mute:!!mix.hatMute,   solo:!!mix.hatSolo,   parent:'drums', channelKey:'hat'   },
     { id:'perc',   name:'Perc',   kind:'drumchild', color:'#e8749a', level: mix.percVol  !== undefined ? parseFloat(mix.percVol)  : 0.75, mute:!!mix.percMute,  solo:!!mix.percSolo,  parent:'drums', channelKey:'perc'  },
+    // Metronome
+    { id:'metro', name:'Metro', kind:'track', color:'#b0b8c8', level: mix.metroVol !== undefined ? parseFloat(mix.metroVol) : 0.8, mute:!!mix.metroMute, solo:false, channelKey:'metro', noSolo: true },
     // Masters
     { id:'seqmaster',  name:'Seq Master', kind:'master', color:'#f5a623', level: song?.sequencer?.masterVol ?? 1.0, source:'seqmaster'  },
     { id:'loopmaster', name:'Looper',     kind:'master', color:'#64dcb4', level: song?.loopMixer?.masterVol ?? 1.0, source:'loopmaster' },
@@ -41203,7 +41225,7 @@ function _mixRenderStripHtml(c) {
     ctrlHtml = '<div class="mix-strip-controls">'
       + '<div class="mix-ctrl-row">'
       + '<button class="mix-tiny-btn mix-mute-btn' + (c.mute ? ' mix-mute-on' : '') + '" data-role="mute">M</button>'
-      + '<button class="mix-tiny-btn mix-solo-btn' + (c.solo ? ' mix-solo-on' : '') + '" data-role="solo">S</button>'
+      + (c.noSolo ? '' : '<button class="mix-tiny-btn mix-solo-btn' + (c.solo ? ' mix-solo-on' : '') + '" data-role="solo">S</button>')
       + (c.mtIndex !== undefined ? '<button class="mix-tiny-btn mix-ng-btn' + (_ngOn ? ' mix-ng-on' : '') + '" data-role="noisegate">NG</button>' : '')
       + '</div>';
     // Pan knob (not for masters, not for bus)
@@ -41881,6 +41903,7 @@ window.mixDebugDump = function() {
     { name: 'Chords', node: typeof seqChordsGain !== 'undefined' ? seqChordsGain : null, key: 'chords' },
     { name: 'Melody', node: typeof seqMelodyGain !== 'undefined' ? seqMelodyGain : null, key: 'melody' },
     { name: 'Drums',  node: typeof seqDrumsGain  !== 'undefined' ? seqDrumsGain  : null, key: 'drums'  },
+    { name: 'Metro',  node: typeof seqMetroGain  !== 'undefined' ? seqMetroGain  : null, key: 'metro'  },
   ];
   seqChans.forEach(function(c) {
     var vol   = mix[c.key + 'Vol'] !== undefined ? parseFloat(mix[c.key + 'Vol']) : 0.8;
@@ -45079,7 +45102,12 @@ function _mt4tMetroStart() {
   _mt4tMetroStop(); // clean up any prior
   var ctx = getSeqAudioCtx();
   if (ctx.state === 'suspended') ctx.resume();
-  _seqEnsureMasterGain();
+  // Force master gain alive — seqStop() zeros it
+  if (seqMasterGain) {
+    seqMasterGain.gain.cancelScheduledValues(0);
+    seqMasterGain.gain.setValueAtTime(1.0, ctx.currentTime);
+    _mixApplyMain();
+  }
   var song = getCurrentSong();
   var bpm = song ? (song.bpm || song?.sequencer?.bpm || 120) : 120;
   if (typeof bpm === 'string') bpm = parseFloat(bpm);
@@ -47645,7 +47673,12 @@ function ftLoopClick() {
 }
 
 function ftMetroClick() {
-  if (typeof seqMetOn !== 'undefined') seqMetOn = !seqMetOn;
+  if (typeof seqToggleMet === 'function') {
+    seqToggleMet();
+  } else {
+    if (typeof seqMetOn !== 'undefined') seqMetOn = !seqMetOn;
+  }
+  // Sync ft-drawer metro button (seqToggleMet doesn't know about data-ft-metro)
   var btn = document.querySelector('[data-ft-metro]');
   if (btn) btn.classList.toggle('on', seqMetOn);
 }
@@ -49996,7 +50029,12 @@ function ftShowCountIn() {
   /* ── Schedule all metronome clicks upfront via Web Audio (jitter-free) ── */
   var ctx = getSeqAudioCtx();
   if (ctx.state === 'suspended') ctx.resume();
-  _seqEnsureMasterGain();
+  // Force master gain alive — seqStop() zeros it for instant silence
+  if (seqMasterGain) {
+    seqMasterGain.gain.cancelScheduledValues(0);
+    seqMasterGain.gain.setValueAtTime(1.0, ctx.currentTime);
+    _mixApplyMain();
+  }
   var startTime = ctx.currentTime + 0.05;  // small buffer
   for (var b = 0; b < totalBeats; b++) {
     var t = startTime + b * beatSec;
