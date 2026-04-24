@@ -41086,6 +41086,34 @@ function buildMixerChannels(song, mix) {
   // Decision B: ensure 4-track objects exist for label/vol/pan/mute/solo reads
   if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
   var mt = (typeof _mtTracks !== 'undefined' && _mtTracks) || [];
+  // Fallback: if _mtEnsureTrackObjects failed or _mtTracks is still empty, create inline
+  if (!mt.length) {
+    console.warn('[MIX][BUILD] _mtTracks still empty after _mtEnsureTrackObjects — creating fallback objects');
+    var _colors = ['#ff6b9d','#6bc5ff','#a5ff6b','#ffb86b'];
+    var _songTracks = song?.mtTracks || [{},{},{},{}];
+    for (var fi = 0; fi < 4; fi++) {
+      var _sv = 85, _sp = 0, _nm = 'Track '+(fi+1);
+      try { var _rv = localStorage.getItem('drafthaus-mt-vol-'+fi); if (_rv !== null) _sv = Math.max(0,Math.min(100,parseInt(_rv,10))); } catch(e){}
+      try { var _rp = localStorage.getItem('drafthaus-mt-pan-'+fi); if (_rp !== null) _sp = Math.max(-100,Math.min(100,parseInt(_rp,10))); } catch(e){}
+      try { _nm = (typeof _mtSavedLabel === 'function') ? _mtSavedLabel(fi) : _nm; } catch(e){}
+      var _st = _songTracks[fi] || {};
+      mt.push({
+        id: fi, color: _colors[fi], name: _nm,
+        buffer: null, gainNode: null, panNode: null, sourceNode: null,
+        volume: _st.volume !== undefined ? _st.volume : _sv,
+        pan: _st.pan !== undefined ? _st.pan : _sp,
+        takes: [], activeTakeIdx: -1, duration: 0,
+        mediaRecorder: null, chunks: [], waveCanvas: null, waveCtx: null,
+        muted: !!_st.muted, soloed: !!_st.soloed,
+        boostActive: !!_st.boostActive, noiseGate: _st.noiseGate !== false
+      });
+    }
+    if (typeof _mtTracks !== 'undefined') {
+      _mtTracks.length = 0;
+      for (var fj = 0; fj < mt.length; fj++) _mtTracks.push(mt[fj]);
+      console.log('[MIX][BUILD] Fallback: populated _mtTracks with ' + _mtTracks.length + ' objects');
+    }
+  }
   _mixLog('BUILD', 'buildMixerChannels: _mtTracks.length=' + mt.length);
   return [
     // Vox 1–4 (live mirror of 4-track)
@@ -41345,27 +41373,61 @@ function wireMixerInteractions() {
       faderWrap.addEventListener('touchstart', onFaderDown, {passive:false});
     }
 
+    // ── Helper: ensure _mtTracks[idx] exists ───────────────────
+    function _mixEnsureTrack(idx) {
+      if (typeof _mtTracks === 'undefined') return null;
+      if (!_mtTracks[idx]) {
+        // Grow array if needed
+        while (_mtTracks.length <= idx) _mtTracks.push(null);
+        var _c = ['#ff6b9d','#6bc5ff','#a5ff6b','#ffb86b'];
+        var _sv = 85, _sp = 0;
+        try { var rv = localStorage.getItem('drafthaus-mt-vol-'+idx); if (rv !== null) _sv = parseInt(rv,10); } catch(e){}
+        try { var rp = localStorage.getItem('drafthaus-mt-pan-'+idx); if (rp !== null) _sp = parseInt(rp,10); } catch(e){}
+        _mtTracks[idx] = {
+          id: idx, color: _c[idx]||'#6ab4f5', name: 'Track '+(idx+1),
+          buffer: null, gainNode: null, panNode: null, sourceNode: null,
+          volume: _sv, pan: _sp, takes: [], activeTakeIdx: -1, duration: 0,
+          mediaRecorder: null, chunks: [], waveCanvas: null, waveCtx: null,
+          muted: false, soloed: false, boostActive: false, noiseGate: true
+        };
+        console.log('[MIX] Auto-created _mtTracks['+idx+']');
+      }
+      return _mtTracks[idx];
+    }
+
     // ── Mute button ─────────────────────────────────────────────
     var muteBtn = strip.querySelector('[data-role="mute"]');
     if (muteBtn) {
       muteBtn.addEventListener('click', function(e) {
         e.stopPropagation();
         if (source === 'fourtrack' && mtIdx >= 0) {
-          if (typeof mtToggleMute === 'function') mtToggleMute(mtIdx);
-          _mixLog('MUTE', 'vox' + mtIdx + ' toggled via mtToggleMute');
+          var t = _mixEnsureTrack(mtIdx);
+          if (t) {
+            t.muted = !t.muted;
+            if (typeof _mtApplyMuteGain === 'function') _mtApplyMuteGain(mtIdx);
+            if (typeof mtSaveTrackSetting === 'function') mtSaveTrackSetting(mtIdx, 'muted', t.muted);
+            // If muting a soloed track, clear solo
+            if (t.muted && t.soloed) {
+              t.soloed = false;
+              if (typeof mtSaveTrackSetting === 'function') mtSaveTrackSetting(mtIdx, 'soloed', false);
+              if (typeof _mtApplyAllGains === 'function') _mtApplyAllGains();
+            }
+            muteBtn.classList.toggle('mix-mute-on', t.muted);
+            strip.classList.toggle('mix-muted', t.muted);
+            // Update 4-track UI if it exists
+            var ftBtn = document.getElementById('mt-mute-'+mtIdx);
+            var ftLane = document.getElementById('mt-track-'+mtIdx);
+            if (ftBtn) ftBtn.classList.toggle('mt-muted', t.muted);
+            if (ftLane) ftLane.classList.toggle('mt-is-muted', t.muted);
+            _mixLog('MUTE', 'vox' + mtIdx + ' muted=' + t.muted);
+          }
         } else if (key) {
           seqMixerToggle(key, 'Mute');
           _mixLog('MUTE', key + ' toggled via seqMixerToggle');
-        }
-        // Refresh strip visual after state change
-        var song = getCurrentSong();
-        var mix = song?.sequencer?.mixer || {};
-        if (source === 'fourtrack' && mtIdx >= 0 && typeof _mtTracks !== 'undefined') {
-          muteBtn.classList.toggle('mix-mute-on', !!_mtTracks[mtIdx]?.muted);
-          strip.classList.toggle('mix-muted', !!_mtTracks[mtIdx]?.muted);
-        } else if (key) {
-          muteBtn.classList.toggle('mix-mute-on', !!mix[key + 'Mute']);
-          strip.classList.toggle('mix-muted', !!mix[key + 'Mute']);
+          var song2 = getCurrentSong();
+          var mix2 = song2?.sequencer?.mixer || {};
+          muteBtn.classList.toggle('mix-mute-on', !!mix2[key + 'Mute']);
+          strip.classList.toggle('mix-muted', !!mix2[key + 'Mute']);
         }
       });
     }
@@ -41376,8 +41438,18 @@ function wireMixerInteractions() {
       soloBtn.addEventListener('click', function(e) {
         e.stopPropagation();
         if (source === 'fourtrack' && mtIdx >= 0) {
-          if (typeof mtToggleSolo === 'function') mtToggleSolo(mtIdx);
-          _mixLog('SOLO', 'vox' + mtIdx + ' toggled via mtToggleSolo');
+          var t = _mixEnsureTrack(mtIdx);
+          if (t) {
+            t.soloed = !t.soloed;
+            if (typeof mtSaveTrackSetting === 'function') mtSaveTrackSetting(mtIdx, 'soloed', t.soloed);
+            // Un-mute if soloing
+            if (t.soloed && t.muted) {
+              t.muted = false;
+              if (typeof mtSaveTrackSetting === 'function') mtSaveTrackSetting(mtIdx, 'muted', false);
+            }
+            if (typeof _mtApplyAllGains === 'function') _mtApplyAllGains();
+            _mixLog('SOLO', 'vox' + mtIdx + ' soloed=' + t.soloed);
+          }
         } else if (key) {
           seqMixerToggle(key, 'Solo');
           _mixLog('SOLO', key + ' toggled via seqMixerToggle');
@@ -41392,11 +41464,12 @@ function wireMixerInteractions() {
     if (ngBtn && source === 'fourtrack' && mtIdx >= 0) {
       ngBtn.addEventListener('click', function(e) {
         e.stopPropagation();
-        if (typeof _mtTracks !== 'undefined' && _mtTracks[mtIdx]) {
-          var wasOn = _mtTracks[mtIdx].noiseGate !== false;
-          _mtTracks[mtIdx].noiseGate = !wasOn;
-          ngBtn.classList.toggle('mix-ng-on', _mtTracks[mtIdx].noiseGate);
-          _mixLog('GATE', 'vox' + mtIdx + ' noise gate ' + (_mtTracks[mtIdx].noiseGate ? 'ON' : 'OFF'));
+        var t = _mixEnsureTrack(mtIdx);
+        if (t) {
+          var wasOn = t.noiseGate !== false;
+          t.noiseGate = !wasOn;
+          ngBtn.classList.toggle('mix-ng-on', t.noiseGate);
+          _mixLog('GATE', 'vox' + mtIdx + ' noise gate ' + (t.noiseGate ? 'ON' : 'OFF'));
         }
       });
     }
@@ -41467,11 +41540,14 @@ function _mixRefreshAllStripStates() {
     var mtIdx  = strip.dataset.mtIndex !== undefined ? parseInt(strip.dataset.mtIndex, 10) : -1;
     var muteBtn = strip.querySelector('[data-role="mute"]');
     var soloBtn = strip.querySelector('[data-role="solo"]');
-    if (source === 'fourtrack' && mtIdx >= 0 && typeof _mtTracks !== 'undefined' && _mtTracks[mtIdx]) {
-      if (muteBtn) muteBtn.classList.toggle('mix-mute-on', !!_mtTracks[mtIdx].muted);
-      if (soloBtn) soloBtn.classList.toggle('mix-solo-on', !!_mtTracks[mtIdx].soloed);
-      strip.classList.toggle('mix-muted', !!_mtTracks[mtIdx].muted);
-      strip.classList.toggle('mix-soloed', !!_mtTracks[mtIdx].soloed);
+    if (source === 'fourtrack' && mtIdx >= 0 && typeof _mtTracks !== 'undefined') {
+      var t = _mtTracks[mtIdx];
+      if (muteBtn) muteBtn.classList.toggle('mix-mute-on', !!(t && t.muted));
+      if (soloBtn) soloBtn.classList.toggle('mix-solo-on', !!(t && t.soloed));
+      var ngBtn = strip.querySelector('[data-role="noisegate"]');
+      if (ngBtn) ngBtn.classList.toggle('mix-ng-on', t ? t.noiseGate !== false : true);
+      strip.classList.toggle('mix-muted', !!(t && t.muted));
+      strip.classList.toggle('mix-soloed', !!(t && t.soloed));
     } else if (key) {
       if (muteBtn) muteBtn.classList.toggle('mix-mute-on', !!mix[key + 'Mute']);
       if (soloBtn) soloBtn.classList.toggle('mix-solo-on', !!mix[key + 'Solo']);
