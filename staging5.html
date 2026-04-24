@@ -25404,16 +25404,77 @@ function seqClick(time, accent) {
    One scheduler for all transports (sequencer, 4-track play, 4-track record).
    Always reads song.bpm. Routes through seqClick → seqMetroGain → destination.
    ═══════════════════════════════════════════════════════════════════ */
-var _globalMetroTimer   = null;
-var _globalMetroNextTime = 0;
-var _globalMetroBeat    = 0;
-var _globalMetroActive  = false;
+var _globalMetroTimer      = null;
+var _globalMetroNextTime   = 0;
+var _globalMetroBeat       = 0;
+var _globalMetroActive     = false;
+var _globalMetroStandalone = false; // true when metro runs without any transport
 
 /**
- * Start the unified metronome. Call from ANY transport start (seq, 4t play, 4t rec).
+ * Drive beat-dot animations in all visible metro dot containers.
+ * Called from the scheduler with the beat index and delay until that beat sounds.
+ */
+function _globalMetroDotUpdate(beat, delaySec) {
+  var delayMs = Math.max(0, delaySec * 1000);
+  setTimeout(function() {
+    // Main metro drawer dots (metroDots → md-N)
+    var timeSig = 4;
+    var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    if (song && song.timeSig) timeSig = Number(song.timeSig) || 4;
+    for (var i = 0; i < timeSig; i++) {
+      var el = document.getElementById('md-' + i);
+      if (el) el.classList.toggle('lit', i === beat);
+    }
+    // RT metro dots (rtMetroDots → rtmd-N, rtMetroDots2 → rtmd-bN)
+    ['', 'b'].forEach(function(suffix) {
+      for (var i = 0; i < timeSig; i++) {
+        var el = document.getElementById('rtmd-' + suffix + i);
+        if (el) el.classList.toggle('lit', i === beat);
+      }
+    });
+  }, delayMs);
+}
+
+/**
+ * Build/rebuild beat dots in all visible metro dot containers.
+ * Reads timeSig from the current song.
+ */
+function _globalMetroBuildDots() {
+  var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+  var timeSig = (song && song.timeSig) ? Number(song.timeSig) : 4;
+  // Main metro drawer dots
+  var mc = document.getElementById('metroDots');
+  if (mc) {
+    mc.innerHTML = '';
+    for (var i = 0; i < timeSig; i++) {
+      var d = document.createElement('div');
+      d.className = 'metro-dot' + (i === 0 ? ' beat0' : '');
+      d.id = 'md-' + i;
+      mc.appendChild(d);
+    }
+  }
+  // RT metro dot containers
+  ['rtMetroDots', 'rtMetroDots2'].forEach(function(cid) {
+    var c = document.getElementById(cid);
+    if (!c) return;
+    var suffix = cid === 'rtMetroDots2' ? 'b' : '';
+    c.innerHTML = '';
+    for (var i = 0; i < timeSig; i++) {
+      var d = document.createElement('div');
+      d.className = 'rt-mdot' + (i === 0 ? ' beat0' : '');
+      d.id = 'rtmd-' + suffix + i;
+      c.appendChild(d);
+    }
+  });
+}
+
+/**
+ * Start the unified metronome. Call from ANY transport start (seq, 4t play, 4t rec)
+ * or from standalone toggle (practice metro without transport).
  * Safe to call multiple times — if already running, this is a no-op.
  * @param {Object} opts
- *   skipDownbeat {number|null} — Web Audio time of a pre-scheduled downbeat to skip past (count-in handoff)
+ *   skipDownbeat {number|null} — Web Audio time of a pre-scheduled downbeat to skip past
+ *   standalone {boolean} — if true, keep running even when no transport is active
  */
 function globalMetroStart(opts) {
   if (_globalMetroActive) return; // already running
@@ -25424,9 +25485,11 @@ function globalMetroStart(opts) {
   if (ctx.state === 'suspended') ctx.resume().catch(function(){});
 
   var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
-  var bpm = (song && song.bpm) ? song.bpm : 120;
-  var timeSig = (song && song.timeSig) ? song.timeSig : 4;
+  var bpm = (song && song.bpm) ? Number(song.bpm) : 120;
+  var timeSig = (song && song.timeSig) ? Number(song.timeSig) : 4;
   var beatSec = 60 / bpm;
+
+  if (opts.standalone) _globalMetroStandalone = true;
 
   // Count-in handoff: skip past the pre-scheduled downbeat click
   if (opts.skipDownbeat && opts.skipDownbeat > ctx.currentTime - beatSec) {
@@ -25439,22 +25502,33 @@ function globalMetroStart(opts) {
   }
 
   _globalMetroActive = true;
-  console.log('[METRO] globalMetroStart: bpm=' + bpm + ' timeSig=' + timeSig + (opts.skipDownbeat ? ' skipDownbeat=' + opts.skipDownbeat.toFixed(3) : ''));
+  console.log('[METRO] globalMetroStart: bpm=' + bpm + ' timeSig=' + timeSig + ' standalone=' + !!_globalMetroStandalone + (opts.skipDownbeat ? ' skipDownbeat=' + opts.skipDownbeat.toFixed(3) : ''));
 
   _globalMetroTimer = setInterval(function() {
-    // Stop if metronome was toggled off or no transport is active
+    // Stop if metronome was toggled off
     if (!seqMetOn) { globalMetroStop(); return; }
-    var anyActive = (typeof seqIsPlaying !== 'undefined' && seqIsPlaying)
-                 || (typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying)
-                 || (typeof _vrRecording !== 'undefined' && _vrRecording);
-    if (!anyActive) { globalMetroStop(); return; }
+    // In non-standalone mode, stop when no transport is active
+    if (!_globalMetroStandalone) {
+      var anyActive = (typeof seqIsPlaying !== 'undefined' && seqIsPlaying)
+                   || (typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying)
+                   || (typeof _vrRecording !== 'undefined' && _vrRecording);
+      if (!anyActive) { globalMetroStop(); return; }
+    }
+
+    // Re-read BPM/timeSig each tick so live BPM changes take effect
+    var _song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    var _bpm = (_song && _song.bpm) ? Number(_song.bpm) : 120;
+    var _timeSig = (_song && _song.timeSig) ? Number(_song.timeSig) : 4;
+    var _beatSec = 60 / _bpm;
 
     var now = ctx.currentTime;
     while (_globalMetroNextTime < now + 0.15) {
-      var accent = (_globalMetroBeat % timeSig === 0);
+      var beat = _globalMetroBeat % _timeSig;
+      var accent = (beat === 0);
       seqClick(_globalMetroNextTime, accent);
+      _globalMetroDotUpdate(beat, _globalMetroNextTime - now);
       _globalMetroBeat++;
-      _globalMetroNextTime += beatSec;
+      _globalMetroNextTime += _beatSec;
     }
   }, 25);
 }
@@ -25463,8 +25537,19 @@ function globalMetroStop() {
   if (_globalMetroTimer) { clearInterval(_globalMetroTimer); _globalMetroTimer = null; }
   if (_globalMetroActive) {
     _globalMetroActive = false;
+    _globalMetroStandalone = false;
     console.log('[METRO] globalMetroStop');
+    // Clear all dot animations
+    _globalMetroDotUpdate(-1, 0);
   }
+}
+
+/**
+ * Promote a transport-started metro to standalone so it keeps ticking
+ * after the transport stops. Called when metro toggle is hit during playback.
+ */
+function _globalMetroPromoteStandalone() {
+  if (_globalMetroActive) _globalMetroStandalone = true;
 }
 
 /** Convenience: start metro if seqMetOn is true, otherwise no-op */
@@ -26113,18 +26198,44 @@ function _syncSharedRecBtn() {
 
 function seqToggleMet() {
   seqMetOn = !seqMetOn;
-  // Sync all metro buttons: sequencer, keyboard drawer, split header, looper, shared, ft-drawer
+  // Sync ALL metro buttons across the entire app (on/off class)
   ['seqMetBtn', 'kbdMetBtn', 'splitMetBtn', 'loopMetBtn', 'sharedMetBtn', 'mtMetBtn', 'mtMetBtnM'].forEach(function(id) {
-    const btn = document.getElementById(id);
+    var btn = document.getElementById(id);
     if (btn) btn.classList.toggle('on', seqMetOn);
   });
-  // Also sync ft-drawer metro button (uses data attribute, not ID)
+  // ft-drawer metro button (data attribute, not ID)
   var ftMetBtn = document.querySelector('[data-ft-metro]');
   if (ftMetBtn) ftMetBtn.classList.toggle('on', seqMetOn);
+  // Standalone metro play buttons (use 'active' class + icon swap)
+  ['metroPlayBtn', 'rtMetroPlayBtn'].forEach(function(id) {
+    var btn = document.getElementById(id);
+    if (btn) {
+      btn.textContent = seqMetOn ? '■' : '▶';
+      btn.classList.toggle('active', seqMetOn);
+    }
+  });
+  // Rehearse bar metro button
+  if (typeof _syncRehMetroBtn === 'function') _syncRehMetroBtn();
+
   // Unified metro: start/stop based on new toggle state
   if (seqMetOn) {
-    // Metro just turned ON — start if any transport is active
-    globalMetroStartIfEnabled();
+    var anyActive = (typeof seqIsPlaying !== 'undefined' && seqIsPlaying)
+                 || (typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying)
+                 || (typeof _vrRecording !== 'undefined' && _vrRecording);
+    if (anyActive) {
+      // Transport is running — promote existing metro to standalone so it
+      // survives transport stop, or start fresh if not yet running
+      if (_globalMetroActive) {
+        _globalMetroPromoteStandalone();
+      } else {
+        globalMetroStart({ standalone: true });
+      }
+    } else {
+      // No transport running — start standalone metro for practice
+      globalMetroStart({ standalone: true });
+    }
+    // Build dots for any visible metro dot containers
+    _globalMetroBuildDots();
   } else {
     // Metro just turned OFF — stop immediately
     globalMetroStop();
@@ -29843,14 +29954,8 @@ function metroUpdateDots(beat){for(var i=0;i<metroTime;i++){var el=document.getE
 function metroDeltaBpm(d){metroBpm=Math.max(40,Math.min(240,metroBpm+d));document.getElementById('metroBpmDisplay').textContent=metroBpm;}
 function metroChangeTime(v){metroTime=parseInt(v)||4;metroBeat=0;metroBuildDots();metroUpdateDots(-1);}
 async function metroToggle(){
-  if(metroRunning){metroRunning=false;clearInterval(metroSched);metroSched=null;metroBeat=0;metroUpdateDots(-1);
-    document.getElementById('metroPlayBtn').textContent='▶';document.getElementById('metroPlayBtn').classList.remove('active');}
-  else{metroRunning=true;
-    if(!metroCtx)metroCtx=new(window.AudioContext||window.webkitAudioContext)();
-    if(metroCtx.state==='suspended')await metroCtx.resume();
-    metroBeat=0;metroNextTime=metroCtx.currentTime+0.05;
-    metroSched=setInterval(metroSchedule,25);metroSchedule();
-    document.getElementById('metroPlayBtn').textContent='■';document.getElementById('metroPlayBtn').classList.add('active');}
+  // [UNIFIED METRO] — routes through the single global metronome engine
+  if (typeof seqToggleMet === 'function') { seqToggleMet(); return; }
 }
 function metroSchedule(){if(!metroCtx)return;while(metroNextTime<metroCtx.currentTime+0.1){var beat=metroBeat%metroTime;metroClick(beat,metroNextTime);metroBeat++;metroNextTime+=60/metroBpm;}}
 function metroClick(beat,t){var osc=metroCtx.createOscillator(),gain=metroCtx.createGain();osc.connect(gain);gain.connect(metroCtx.destination);osc.frequency.value=beat===0?900:600;gain.gain.setValueAtTime(beat===0?0.45:0.25,t);gain.gain.exponentialRampToValueAtTime(0.001,t+0.055);osc.start(t);osc.stop(t+0.055);var delay=Math.max(0,(t-metroCtx.currentTime)*1000);setTimeout(function(){metroUpdateDots(beat);},delay);}
@@ -29914,7 +30019,7 @@ document.addEventListener('keydown',function(e){
     const kbdOpen  = document.getElementById('keyboardDrawer')?.classList.contains('open');
     const loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
     if (rtOpen) {
-      rtMetroToggle();
+      seqToggleMet();
     } else if (vrOpen || miniOpen) {
       if (e.shiftKey) { if (typeof mtPlayWithSeq === 'function') mtPlayWithSeq(); }
       else { if (typeof mtPlay === 'function') mtPlay(); }
@@ -30495,8 +30600,8 @@ function rtTapTempo() {
       song.bpm = String(rtMetroBpm);
       save(); scheduleSyncToSheet(song);
     }
-    // If metro is running, restart it at the new BPM
-    if (rtMetroRunning) { rtMetroStop(); rtMetroStart(); }
+    // [UNIFIED METRO] — live BPM reading in scheduler picks up new BPM automatically
+    // No restart needed; next scheduled beat will use the updated song.bpm
   }
   // Visual flash on tap button
   ['rtTapBtn','rehTapBtn','htTapBtn','mtTapBtn','ucbTapBtn','ucbTapBtn2'].forEach(id => {
@@ -30521,28 +30626,15 @@ function rtMetroChangeTime(v) {
 }
 
 function rtMetroStop() {
-  if (!rtMetroRunning) return;
-  rtMetroRunning = false;
-  clearInterval(rtMetroSched); rtMetroSched = null;
-  rtMetroBeat = 0; rtUpdateDots(-1);
-  const btn = document.getElementById('rtMetroPlayBtn');
-  if (btn) { btn.textContent = '▶'; btn.classList.remove('active'); }
-  if (typeof _syncRehMetroBtn === 'function') _syncRehMetroBtn();
+  // [UNIFIED METRO] — stop the global engine and sync all buttons off
+  if (typeof seqMetOn !== 'undefined' && seqMetOn) {
+    seqToggleMet(); // toggles off → calls globalMetroStop + syncs all buttons
+  }
 }
 
 async function rtMetroToggle() {
-  if (rtMetroRunning) {
-    rtMetroStop();
-  } else {
-    rtMetroRunning = true;
-    if (!rtMetroCtx) rtMetroCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (rtMetroCtx.state === 'suspended') await rtMetroCtx.resume();
-    rtMetroBeat = 0; rtMetroNextTime = rtMetroCtx.currentTime + 0.05;
-    rtMetroSched = setInterval(rtMetroSchedule, 25); rtMetroSchedule();
-    const btn = document.getElementById('rtMetroPlayBtn');
-    if (btn) { btn.textContent = '■'; btn.classList.add('active'); }
-  }
-  if (typeof _syncRehMetroBtn === 'function') _syncRehMetroBtn();
+  // [UNIFIED METRO] — routes through the single global metronome engine
+  if (typeof seqToggleMet === 'function') { seqToggleMet(); return; }
 }
 
 function rtMetroSchedule() {
@@ -38729,7 +38821,7 @@ function ilSetPerfMode(on) {
       metro.classList.remove('il-perf-metro');
       drawer.appendChild(metro);
       // Stop metro if it was running
-      if (rtMetroRunning) rtMetroToggle();
+      if (typeof seqMetOn !== 'undefined' && seqMetOn) seqToggleMet();
     }
   }
   // When entering perf mode, silently preload 4-track takes so the transport
@@ -38813,7 +38905,8 @@ document.addEventListener('click', function(e) {
 function _syncRehMetroBtn() {
   const btn = document.getElementById('rehMetroBtn');
   if (!btn) return;
-  if (rtMetroRunning) {
+  var _metroOn = (typeof seqMetOn !== 'undefined') ? seqMetOn : false;
+  if (_metroOn) {
     btn.textContent = '■ Metro';
     btn.classList.add('reh-metro-active');
   } else {
@@ -38821,12 +38914,12 @@ function _syncRehMetroBtn() {
     btn.classList.remove('reh-metro-active');
   }
   // Also sync the mobile 4-track bar metro button
-  const mBtn = document.getElementById('mtMetBtnM');
-  if (mBtn) mBtn.classList.toggle('on', !!rtMetroRunning);
+  var mBtn = document.getElementById('mtMetBtnM');
+  if (mBtn) mBtn.classList.toggle('on', !!_metroOn);
 }
 function rehMetroToggle() {
-  rtMetroToggle();
-  _syncRehMetroBtn();
+  // [UNIFIED METRO] — routes through global engine; seqToggleMet syncs all buttons
+  seqToggleMet();
 }
 function _syncRehArmBtn() {
   const armed = !!window._vrSeqArmedState;
@@ -42310,8 +42403,8 @@ document.addEventListener('keydown', function(e) {
   var _isRecording  = typeof _vrRecording !== 'undefined' && _vrRecording;
   var _isSeqPlaying = typeof seqIsPlaying !== 'undefined' && seqIsPlaying;
   var _is4tPlaying  = typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying;
-  var _isMetroOn    = typeof metroRunning !== 'undefined' && metroRunning;
-  var _isRtMetroOn  = typeof rtMetroRunning !== 'undefined' && rtMetroRunning;
+  var _isMetroOn    = typeof seqMetOn !== 'undefined' && seqMetOn && _globalMetroStandalone;
+  var _isRtMetroOn  = false; // [UNIFIED METRO] — merged into _isMetroOn via seqMetOn
   var _isLoopActive = typeof loopTracks !== 'undefined' && loopTracks.some(function(t) {
     return t && (t.state === 'playing' || t.state === 'recording');
   });
@@ -42322,8 +42415,7 @@ document.addEventListener('keydown', function(e) {
     if (_isRecording && typeof _mtStopRecording === 'function') _mtStopRecording();
     if (_isSeqPlaying && typeof seqStop === 'function') seqStop();
     if (_is4tPlaying && typeof _mtStopAll === 'function') try { _mtStopAll(); } catch(_e) {}
-    if (_isMetroOn && typeof metroToggle === 'function') metroToggle();     // toggles off
-    if (_isRtMetroOn && typeof rtMetroToggle === 'function') rtMetroToggle(); // toggles off
+    if (_isMetroOn && typeof seqToggleMet === 'function') seqToggleMet();   // toggles off unified metro
     // Also stop looper tracks
     if (typeof loopMasterStop === 'function') try { loopMasterStop(); } catch(_e) {}
     return;
@@ -42339,7 +42431,7 @@ document.addEventListener('keydown', function(e) {
   var loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
 
   if (rtOpen) {
-    if (typeof rtMetroToggle === 'function') rtMetroToggle();
+    if (typeof seqToggleMet === 'function') seqToggleMet();
   } else if (vrOpen || miniOpen) {
     if (e.shiftKey) { if (typeof mtPlayWithSeq === 'function') mtPlayWithSeq(); }
     else            { if (typeof mtPlay === 'function') mtPlay(); }
@@ -45566,13 +45658,15 @@ window.vrToggleRec = async function() {
     // Start psychedelic recording animation
     _mtStartRecordingAnim(_mtArmedTrack);
 
-    // Arm Sequencer: auto-start sequencer when recording begins (drums/chords)
-    if (_vrSeqArmed && !seqIsPlaying) { seqPlay(); }
-
-    // Unified metronome: start with count-in handoff if applicable
+    // Unified metronome: start BEFORE seqPlay so count-in handoff takes priority
+    // (globalMetroStart is a no-op if already running, so order matters here)
     if (seqMetOn) {
       globalMetroStart({ skipDownbeat: window._ftCountInGridTime || null });
     }
+
+    // Arm Sequencer: auto-start sequencer when recording begins (drums/chords)
+    // (seqPlay also calls globalMetroStartIfEnabled, but it's a no-op since metro is already running)
+    if (_vrSeqArmed && !seqIsPlaying) { seqPlay(); }
 
     const recBtn = _el('mtRecBtn');
     if (recBtn) { recBtn.innerHTML = ''; recBtn.textContent = '⏹ Stop'; recBtn.style.fontSize = '10px'; recBtn.style.letterSpacing = '0.04em'; recBtn.style.padding = '0 10px'; recBtn.classList.add('recording'); }
@@ -45694,6 +45788,7 @@ window.mtCancelRecording = function() {
   // Run the same teardown as _mtStopRecording (UI reset, gain chain, overdub stop)
   _vrRecording = false;
   clearInterval(_mtRecTimer); _mtRecTimer = null;
+  globalMetroStop(); // stop unified metronome immediately
   var mb = _el('vrMiniBar'); if (mb) mb.classList.remove('vr-active');
   if (trackIdx >= 0) _mtStopRecordingAnim(trackIdx);
   if ((_vrSeqArmed || seqMetOn) && seqIsPlaying) { seqStop(); }
@@ -52446,7 +52541,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       onclick="sharedStop()" disabled
       title="Stop">■ Stop</button>
     <button class="split-transport-btn split-met-btn" id="mtMetBtnM"
-      onclick="rtMetroToggle()"
+      onclick="seqToggleMet()"
       title="Toggle metronome click">Metro</button>
   </div>
 </div>
