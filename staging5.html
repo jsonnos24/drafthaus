@@ -37308,6 +37308,7 @@ function loopDrawRing(t, litCount) {
   var progress = litCount / LOOP_NUM_LEDS; // 0.0 to 1.0
   var isActive = t.state === 'recording' || t.state === 'playing' || t.state === 'preroll' || (t.state === 'idle' && !!t.buffer);
   var isMuted = t.state === 'muted';
+  var isLoaded = t.state === 'idle' && !!t.buffer;
 
   // Ring geometry constants (must match buildOrbitRings)
   var size = 600, cx = size/2, cy = size/2;
@@ -37320,24 +37321,45 @@ function loopDrawRing(t, litCount) {
   // Base ring
   var base = document.getElementById('orbit-ring-base-' + i);
   if (base) {
-    base.setAttribute('stroke', isActive ? 'rgba(255,255,255,0.28)' : t.color);
-    base.setAttribute('stroke-dasharray', isActive ? '1 3' : '2 4');
-    base.setAttribute('stroke-opacity', isMuted ? '0.2' : isActive ? '0.7' : '0.55');
+    if (isLoaded) {
+      base.setAttribute('stroke', t.color);
+      base.setAttribute('stroke-dasharray', 'none');
+      base.setAttribute('stroke-opacity', '0.35');
+      base.setAttribute('stroke-width', '3');
+    } else {
+      base.setAttribute('stroke', isActive ? 'rgba(255,255,255,0.28)' : t.color);
+      base.setAttribute('stroke-dasharray', isActive ? '1 3' : '2 4');
+      base.setAttribute('stroke-opacity', isMuted ? '0.2' : isActive ? '0.7' : '0.55');
+      base.setAttribute('stroke-width', '1.5');
+    }
   }
 
   // Active thick glow ring
   var active = document.getElementById('orbit-ring-active-' + i);
   if (active) {
     active.style.display = (isActive && !isMuted) ? '' : 'none';
-    active.setAttribute('stroke', activeColor);
+    active.setAttribute('stroke', isLoaded ? t.color : activeColor);
     if (isMuted) active.setAttribute('stroke-opacity', '0.04');
+    else if (isLoaded) active.setAttribute('stroke-opacity', '0.08');
     else active.setAttribute('stroke-opacity', '0.12');
   }
 
   // Progress arc
   var arc = document.getElementById('orbit-ring-arc-' + i);
   if (arc) {
-    if ((isActive || isMuted) && progress > 0.001) {
+    if (isLoaded && progress <= 0.001) {
+      // Loaded but idle — show a static filled arc based on bar count
+      arc.style.display = '';
+      var loopBarsCount = t.loopCount || 1;
+      var maxBars = typeof loopBars !== 'undefined' ? loopBars : 4;
+      var fillFraction = Math.min(1, loopBarsCount / Math.max(maxBars, loopBarsCount));
+      var loadedAng = fillFraction * 359.9;
+      var arcPath = _orbitArc(cx, cy, r, 0, loadedAng);
+      arc.setAttribute('d', arcPath);
+      arc.setAttribute('stroke', t.color);
+      arc.setAttribute('stroke-opacity', '0.45');
+      arc.setAttribute('stroke-width', '3');
+    } else if ((isActive || isMuted) && progress > 0.001) {
       arc.style.display = '';
       var playAng = progress * 360;
       var arcPath = _orbitArc(cx, cy, r, 0, playAng);
@@ -37362,8 +37384,16 @@ function loopDrawRing(t, litCount) {
       if (circles[0]) { circles[0].setAttribute('cx', px); circles[0].setAttribute('cy', py); circles[0].setAttribute('fill', activeColor); circles[0].setAttribute('opacity', isMuted ? '0.08' : '0.18'); }
       if (circles[1]) { circles[1].setAttribute('cx', px); circles[1].setAttribute('cy', py); circles[1].setAttribute('fill', activeColor); }
       if (circles[2]) { circles[2].setAttribute('cx', px); circles[2].setAttribute('cy', py); }
+    } else if (isLoaded && progress <= 0.001) {
+      // Loaded but idle — show a static bead at 12 o'clock
+      planet.style.display = '';
+      var px0 = cx, py0 = cy - r;
+      var circles0 = planet.querySelectorAll('circle');
+      if (circles0[0]) { circles0[0].setAttribute('cx', px0); circles0[0].setAttribute('cy', py0); circles0[0].setAttribute('fill', t.color); circles0[0].setAttribute('opacity', '0.25'); }
+      if (circles0[1]) { circles0[1].setAttribute('cx', px0); circles0[1].setAttribute('cy', py0); circles0[1].setAttribute('fill', t.color); }
+      if (circles0[2]) { circles0[2].setAttribute('cx', px0); circles0[2].setAttribute('cy', py0); }
     } else if (isActive && progress <= 0.001) {
-      // At zero position (just armed / ready)
+      // Active but at zero (just armed)
       planet.style.display = '';
       var px0 = cx, py0 = cy - r;
       var circles0 = planet.querySelectorAll('circle');
