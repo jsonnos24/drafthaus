@@ -8545,6 +8545,20 @@ body.split-active #splitRightContent {
 /* Floating transport is only for mobile — hide on desktop */
 @media (min-width: 769px) {
   #sharedDrawerHeader { display: none !important; }
+  /* Desktop: ensure seq-drawer-body is a flex column so seq-panel can scroll */
+  .seq-drawer-body {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+  .seq-panel {
+    flex: 1 !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
 }
 /* ── Mobile 4-track transport bar ───────────────────────────────── */
 #mt4tMobileBar {
@@ -46379,21 +46393,29 @@ window.vrStop = function() {
   if (typeof seqStop === 'function') { try { seqStop(); } catch(e) {} }
 };
 function _mtStopAll() {
+  // If the sequencer is conducting a full-song playback, the 4-track is just a
+  // passenger — stop 4-track audio sources but leave the sequencer, metronome,
+  // and clock running.  The sequencer's own seqStop() will clean those up when
+  // the song finishes or the user presses stop.
+  var _seqIsConducting = (typeof _seqPlayMode !== 'undefined' && _seqPlayMode === 'song'
+                          && typeof seqIsPlaying !== 'undefined' && seqIsPlaying);
+
   _mtIsPlaying = false;
   _mtPlayStartOffset = 0;
   if (typeof _ftDetachAnalysers === 'function') _ftDetachAnalysers();
-  if (typeof _bgMaybeRelease === 'function') _bgMaybeRelease();
-  // Stop unified metronome — but NOT if still recording (metro should keep clicking through the take)
+  if (!_seqIsConducting && typeof _bgMaybeRelease === 'function') _bgMaybeRelease();
+  // Stop unified metronome — but NOT if still recording or if seq is conducting
   var _stillRecording = (typeof _vrRecording !== 'undefined' && _vrRecording);
-  if (!_stillRecording && typeof globalMetroStop === 'function') globalMetroStop();
-  // Also clean up any seq-link per-track playback
-  if (typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
-  // Stop sequencer if it was running (covers metronome-only and song playback)
-  if (typeof seqIsPlaying !== 'undefined' && seqIsPlaying && typeof seqStop === 'function') {
+  if (!_stillRecording && !_seqIsConducting && typeof globalMetroStop === 'function') globalMetroStop();
+  // Also clean up any seq-link per-track playback — but not when seq is conducting
+  // (the sequencer will re-trigger tracks for the next section)
+  if (!_seqIsConducting && typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
+  // Stop sequencer if it was running — skip when seq is conducting
+  if (!_seqIsConducting && typeof seqIsPlaying !== 'undefined' && seqIsPlaying && typeof seqStop === 'function') {
     try { seqStop(); } catch(e) {}
   }
-  // Stop header timecode clock
-  if (typeof htStopClock === 'function') htStopClock();
+  // Stop header timecode clock — skip when seq is conducting
+  if (!_seqIsConducting && typeof htStopClock === 'function') htStopClock();
   _mtTracks.forEach(t => {
     if (!t) return;
     if (t.sourceNode) { try { t.sourceNode.stop(); } catch(e) {} t.sourceNode = null; }
