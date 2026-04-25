@@ -5276,13 +5276,32 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* ═══════════════════ KEYBOARD DRAWER — MOBILE LANDSCAPE ═══════════════════ */
   @media (orientation: landscape) and (max-height: 500px) {
-    .keyboard-drawer {
+    /* ── Full-viewport drawer in landscape ── */
+    body.keyboard-drawer-open #siteHeader { display: none !important; }
+    body.keyboard-drawer-open .bottom-nav { display: none !important; }
+    body.keyboard-drawer-open #headerTransport { display: none !important; }
+    body.keyboard-drawer-open .global-seq-strip { display: none !important; }
+    body.keyboard-drawer-open .shared-drawer-header { display: none !important; }
+    body.keyboard-drawer-open .keyboard-drawer {
       width: 100vw !important;
-      border-left: none;
+      border-left: none !important;
+      top: 0 !important;
+      bottom: 0 !important;
+      height: 100dvh !important;
+      max-height: 100dvh !important;
+      border-radius: 0 !important;
+      transform: translateY(100%) !important;
     }
-    .keyboard-drawer-body {
+    body.keyboard-drawer-open .keyboard-drawer.open {
+      transform: translateY(0) !important;
+    }
+    body.keyboard-drawer-open .keyboard-drawer-body {
       padding: 0 !important;
       overflow: hidden !important;
+      flex: 1 !important;
+      min-height: 0 !important;
+      display: flex !important;
+      flex-direction: column !important;
     }
     /* ── Toolbar ── */
     .kbd-land-toolbar {
@@ -5301,8 +5320,9 @@ button, select, input, textarea { touch-action: manipulation; }
       display: grid;
       grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
       gap: 14px;
-      padding: 6px 14px;
-      height: calc(100% - 42px);
+      padding: 8px 14px;
+      flex: 1;
+      min-height: 0;
       overflow: hidden;
     }
     .kbd-land-col {
@@ -5321,8 +5341,14 @@ button, select, input, textarea { touch-action: manipulation; }
       display: flex; flex-direction: column; gap: 3px;
     }
     .kbd-land-palette .seq-chord-pill {
-      font-size: 12px; padding: 6px 2px; text-align: center;
+      font-size: 14px; padding: 4px 2px; text-align: center;
       min-height: 38px; display: flex; align-items: center; justify-content: center;
+      flex-direction: column; line-height: 1.05;
+      border-radius: 8px;
+    }
+    .kbd-land-palette .seq-chord-pill small,
+    .kbd-land-palette .seq-chord-pill .seq-chord-pill-symbol {
+      font-size: 9px; opacity: 0.75;
     }
     .kbd-land-palette .seq-chord-var-pill {
       font-size: 9px; padding: 2px 1px; text-align: center;
@@ -5338,9 +5364,18 @@ button, select, input, textarea { touch-action: manipulation; }
     }
     .kbd-land-seq-grid .seq-slot {
       width: 100% !important; height: auto !important;
-      font-size: 12px !important; border-radius: 6px;
+      font-size: 14px !important; border-radius: 6px;
       min-height: 0;
       display: flex; align-items: center; justify-content: center;
+    }
+    /* ── Propagate height through wrappers for seqChordGrid ── */
+    .kbd-land-col .seq-pattern-grid {
+      flex: 1 !important; min-height: 0 !important;
+      display: flex !important; flex-direction: column !important;
+    }
+    .kbd-land-col .seq-grid-row {
+      flex: 1 !important; min-height: 0 !important;
+      display: flex !important; flex-direction: column !important;
     }
     /* ── Instrument selectors row ── */
     .kbd-land-instruments {
@@ -5348,9 +5383,10 @@ button, select, input, textarea { touch-action: manipulation; }
     }
     .kbd-land-instruments .seq-label {
       font-size: 9px; font-weight: 700; letter-spacing: 0.12em;
-      text-transform: uppercase; color: var(--gold); flex-shrink: 0;
+      text-transform: uppercase; color: var(--ink-faint, var(--gold)); flex-shrink: 0;
+      font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
     }
-    .kbd-land-instruments .seq-select { flex: 1; max-width: 150px; font-size: 10px; }
+    .kbd-land-instruments .seq-select { flex: 1; max-width: 150px; font-size: 11px; }
     .kbd-land-instruments .melody-quant-btn { font-size: 9px; padding: 3px 8px; }
     /* ── Section heading ── */
     .kbd-land-section-title {
@@ -5363,12 +5399,22 @@ button, select, input, textarea { touch-action: manipulation; }
     .kbd-land-col .kbd-chord-seq-wrapper .seq-grid-row { gap: 0 !important; }
     .kbd-land-col .kbd-chord-seq-wrapper .seq-grid,
     .kbd-land-col #seqChordGrid {
+      display: grid !important;
       grid-template-columns: repeat(8, 1fr) !important;
-      gap: 3px !important; width: 100% !important;
+      grid-template-rows: repeat(4, 1fr) !important;
+      gap: 3px !important;
+      width: 100% !important;
+      flex: 1 !important;
+      min-height: 0 !important;
     }
     .kbd-land-col #seqChordGrid .seq-slot {
-      width: 100% !important; height: auto !important;
-      font-size: 12px !important; border-radius: 6px !important;
+      width: 100% !important; height: 100% !important;
+      min-height: 0 !important;
+      font-size: 14px !important; border-radius: 6px !important;
+      display: flex !important; align-items: center !important; justify-content: center !important;
+      font-family: 'Caveat', cursive !important;
+      font-weight: 700 !important;
+      font-style: italic !important;
     }
   }
   /* ═══════════════════ END KEYBOARD DRAWER MOBILE LANDSCAPE ═══════════════════ */
@@ -23861,13 +23907,8 @@ function seqSwitchToSequence(idx) {
   seqLoadSequenceIntoDOM(seqs[idx], song);
   seqRenderSequenceTabs();
 
-  // If playing in single-loop mode, re-trigger loops for the new sequence's part
-  if (seqIsPlaying && _seqPlayMode === 'loop') {
-    const _newSeq = seqs[idx];
-    const _newPartId = _newSeq?.partId || _newSeq?.part || document.getElementById('seqPartAssign')?.value || null;
-    _seqTriggerLoopsForPart(_newPartId);
-    _seqTriggerMtTracksForPart(_newPartId);
-  }
+  // Cross-instrument triggers only apply in song mode — loop mode is isolated
+  // (loops/4-track are only coordinated during full-sequence playback).
 }
 
 function seqSaveAllToCurrent(song) {
@@ -26788,24 +26829,33 @@ function sharedPlay() {
     sharedStop();
     return;
   }
-  seqPlay();
-  // If the looper drawer is open and has muted tracks with buffers, unmute them
+  // Play ONLY what the current drawer owns:
+  //   - Drums drawer  → drums (seqPlay schedules drum hits + chords/melody)
+  //   - Keys drawer   → chords/melody (seqPlay schedules chords + melody)
+  //   - Looper drawer → loops only (no sequencer)
+  //   - 4-track       → 4-track only (no sequencer)
+  // Cross-instrument playback (everything together) is ONLY via sharedPlaySong / ensemble.
   const loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
-  if (loopOpen && typeof loopTracks !== 'undefined') {
-    loopTracks.forEach(function(t, i) {
-      if (t && t.state === 'muted' && t.buffer) loopUnmuteTrack(i);
-    });
+  const vrOpen   = document.getElementById('vrOverlay')?.classList.contains('vr-open');
+  const ftOpen   = typeof ftIsOpen === 'function' && ftIsOpen();
+
+  if (loopOpen) {
+    // Looper: just start loops, not the sequencer or 4-track
+    if (typeof loopTracks !== 'undefined') {
+      loopTracks.forEach(function(t, i) {
+        if (t && t.state === 'muted' && t.buffer) loopUnmuteTrack(i);
+      });
+    }
+    return;
   }
-  // If 4-track is visible OR has preloaded content, play it too
-  const vrOpen = document.getElementById('vrOverlay')?.classList.contains('vr-open');
-  const miniVisible = (function() {
-    const mb = document.getElementById('vrMiniBar');
-    return mb && mb.style.display !== 'none' && mb.offsetParent !== null;
-  })();
-  const mt4tHasContent = typeof _mtTracks !== 'undefined' && _mtTracks.some(function(t){ return t && t.buffer; });
-  const inPerfMode = window._ilPerfMode;
-  const split4tActive = document.body.classList.contains('split-4track-active');
-  if ((vrOpen || miniVisible || mt4tHasContent || inPerfMode || split4tActive) && typeof mtPlay === 'function') mtPlay();
+  if (vrOpen || ftOpen) {
+    // 4-track: just play 4-track audio, not the sequencer
+    if (typeof mtPlay === 'function') mtPlay();
+    return;
+  }
+  // Keys or Drums drawer (or spacebar with no specific drawer):
+  // Play the sequencer loop (drums + chords + melody) — NO 4-track, NO loops
+  seqPlay();
 }
 
 // Full song play — SEQ full-song mode; also coordinates 4-track if visible
@@ -26855,9 +26905,15 @@ function sharedStop() {
   // Always stop looper — not just when drawer is open (seq song mode triggers loops without drawer)
   if (typeof loopMasterStop === 'function') { try { loopMasterStop(); } catch(e) {} }
   seqStop(); // always stop sequencer playback too
-  // Also stop 4-track if playing
-  if (typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying && typeof _mtStopAll === 'function') {
+  // Always stop 4-track — both standalone playback and seq-linked tracks.
+  // seqStop already clears _seqPlayMode so _seqIsConducting will be false,
+  // meaning _mtStopAll does its full cleanup.
+  if (typeof _mtStopAll === 'function') {
     try { _mtStopAll(); } catch(e) {}
+  }
+  // Also clean up any seq-linked tracks that seqStop may have missed
+  if (typeof _mtSeqStopAllTracks === 'function') {
+    try { _mtSeqStopAllTracks(); } catch(e) {}
   }
   // Reset 4-track stop buttons to disabled
   ['mtStopBtn','mtStopBtnM'].forEach(function(id) {
@@ -27053,14 +27109,8 @@ function seqPlay() {
   // Start unified metronome (no-op if already running from 4-track)
   globalMetroStartIfEnabled();
 
-  // Trigger looper tracks assigned to the current sequence's part.
-  // Prefer in-memory value; fall back to DOM in case the user changed the
-  // part dropdown without the object being saved yet.
-  const _curSeqForLoop = getSongSequences(getCurrentSong())[seqActiveIdx];
-  const _partFromDom = document.getElementById('seqPartAssign')?.value || null;
-  const _loopPartId  = _curSeqForLoop?.partId || _curSeqForLoop?.part || _partFromDom || null;
-  _seqTriggerLoopsForPart(_loopPartId);
-  _seqTriggerMtTracksForPart(_loopPartId);
+  // Loop + 4-track triggers are ONLY for full-song mode (seqPlaySong).
+  // In loop mode the user is previewing just drums/chords — don't cross-trigger.
 }
 
 async function seqPlaySong() {
@@ -34912,7 +34962,7 @@ function renderKeyboardDrawerHtml(song) {
       <div class="kbd-land-body">
         <!-- ── LEFT: Palette ── -->
         <div class="kbd-land-col">
-          <div style="display:flex;align-items:center;gap:6px;">
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
             <span class="kbd-land-section-title">Palette · <span id="kbdStagePaletteKey">${songKey || 'Select key'}</span></span>
           </div>
           <div id="seqChordModeHint" style="display:none;"></div>
@@ -34921,8 +34971,8 @@ function renderKeyboardDrawerHtml(song) {
 
         <!-- ── RIGHT: Sequence ── -->
         <div class="kbd-land-col">
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span class="kbd-land-section-title">Sequence</span>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+            <span class="kbd-land-section-title">Chord Sequence · 4×8</span>
             <span style="flex:1"></span>
             <button class="seq-btn" style="font-size:9px;padding:2px 8px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="seqClearAllChordSlots()" title="Clear all">Clear ×</button>
           </div>
@@ -44425,13 +44475,16 @@ document.addEventListener('keydown', function(e) {
   var _isLoopActive = typeof loopTracks !== 'undefined' && loopTracks.some(function(t) {
     return t && (t.state === 'playing' || t.state === 'recording');
   });
-  var _anythingOn   = _isRecording || _isSeqPlaying || _is4tPlaying || _isMetroOn || _isRtMetroOn || _isLoopActive;
+  var _is4tSeqLinked = typeof _mtSeqActiveTracks !== 'undefined' && _mtSeqActiveTracks.size > 0;
+  var _anythingOn   = _isRecording || _isSeqPlaying || _is4tPlaying || _is4tSeqLinked || _isMetroOn || _isRtMetroOn || _isLoopActive;
 
   // ── STOP: kill everything that's running ──
   if (_anythingOn) {
     if (_isRecording && typeof _mtStopRecording === 'function') _mtStopRecording();
     if (_isSeqPlaying && typeof seqStop === 'function') seqStop();
-    if (_is4tPlaying && typeof _mtStopAll === 'function') try { _mtStopAll(); } catch(_e) {}
+    // Always stop 4-track — both standalone and seq-linked
+    if (typeof _mtStopAll === 'function') try { _mtStopAll(); } catch(_e) {}
+    if (typeof _mtSeqStopAllTracks === 'function') try { _mtSeqStopAllTracks(); } catch(_e) {}
     if (_isMetroOn && typeof seqToggleMet === 'function') seqToggleMet();   // toggles off unified metro
     // Also stop looper tracks
     if (typeof loopMasterStop === 'function') try { loopMasterStop(); } catch(_e) {}
@@ -47224,8 +47277,14 @@ window.ensembleLaunch = function() {
   // Looper: respect part assignments
   if (prefs.loop) {
     if (prefs.seq || prefs.drums) {
-      // Sequencer is also launching — seqPlay() calls _seqTriggerLoopsForPart()
-      // internally, so loop triggering is already handled. Do nothing here.
+      // Sequencer is also launching — trigger loops for the current part explicitly
+      // (seqPlay no longer cross-triggers; that's reserved for seqPlaySong full-song mode).
+      loopEnsureAudioCtx().then(() => {
+        const _curSeq2 = song ? (getSongSequences(song)[seqActiveIdx] || getSongSequences(song)[0]) : null;
+        const _pd2 = document.getElementById('seqPartAssign')?.value || null;
+        const _pid2 = _curSeq2?.partId || _curSeq2?.part || _pd2 || null;
+        if (_pid2) _seqTriggerLoopsForPart(_pid2);
+      }).catch(() => {});
     } else {
       // Looper-only launch: trigger loops for the current sequence's part,
       // the same way seqPlay does it, so part assignments are respected.
@@ -49739,7 +49798,9 @@ function ftClose() {
   document.body.style.overflow = '';
   document.body.classList.remove('ft-drawer-open');
   _seqStripHideIfNoDrawer();
-  if (_vrRecording || _mtIsPlaying) vrStop();
+  // Only stop if actively recording — playback should persist across drawer switches.
+  // User stops playback explicitly via stop button or spacebar.
+  if (_vrRecording) vrStop();
   ftTickStop();
   ftCloseTakes();
 }
