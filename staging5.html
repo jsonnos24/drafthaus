@@ -5527,6 +5527,9 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ── Palette 4×2 (Build tab) ── */
   .kbd-port-palette {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
   .kbd-port-palette .seq-chord-pill-col {
     min-width: 0; max-width: none; flex: none;
@@ -5733,20 +5736,22 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   /* ── Drag-peek panel ── */
   .kbd-port-drag-peek {
-    position: absolute; left: 8px; right: 8px; top: 8px;
+    position: absolute; left: 8px; right: 8px; bottom: 38px;
     border: 2.5px solid var(--gold, #ffd166);
     background: var(--bg, #0d0e13);
-    border-radius: 8px 8px 14px 14px;
+    border-radius: 14px 14px 8px 8px;
     padding: 8px 8px 10px;
-    box-shadow: 0 4px 16px rgba(255,209,102,0.25);
+    box-shadow: 0 -4px 16px rgba(255,209,102,0.25);
     z-index: 990;
     display: none; flex-direction: column; gap: 5px;
-    transition: opacity 0.08s ease-out;
+    transition: transform 0.08s ease-out, opacity 0.08s ease-out;
+    transform: translateY(20px);
+    opacity: 0;
   }
-  .kbd-port-drag-peek.open { display: flex; }
+  .kbd-port-drag-peek.open { display: flex; transform: translateY(0); opacity: 1; }
   .kbd-port-drag-peek::after {
     content: ''; position: absolute;
-    bottom: -8px; left: 50%; transform: translateX(-50%);
+    top: -8px; left: 50%; transform: translateX(-50%);
     width: 50px; height: 4px;
     background: var(--gold, #ffd166); border-radius: 4px;
   }
@@ -35410,6 +35415,7 @@ var _kbdDragTimer = null;
 var _kbdDragStartXY = null;
 var _DRAG_THRESHOLD_MS = 450;
 var _DRAG_MOVE_CANCEL = 8; // px movement to cancel long-press
+var _kbdDragPointerId = null;
 
 function _kbdDragInit() {
   // Called after chord pills render in portrait mode
@@ -35418,7 +35424,7 @@ function _kbdDragInit() {
   if (!palette) return;
 
   palette.addEventListener('pointerdown', _kbdDragPointerDown, { passive: false });
-  palette.addEventListener('pointermove', _kbdDragPointerMoveCancel, { passive: true });
+  palette.addEventListener('pointermove', _kbdDragPointerMoveCancel, { passive: false });
   palette.addEventListener('pointerup', _kbdDragPointerUpCancel, { passive: true });
   palette.addEventListener('pointercancel', _kbdDragPointerUpCancel, { passive: true });
 
@@ -35426,7 +35432,7 @@ function _kbdDragInit() {
   const varRow = document.getElementById('kbdPortVariations');
   if (varRow) {
     varRow.addEventListener('pointerdown', _kbdDragPointerDown, { passive: false });
-    varRow.addEventListener('pointermove', _kbdDragPointerMoveCancel, { passive: true });
+    varRow.addEventListener('pointermove', _kbdDragPointerMoveCancel, { passive: false });
     varRow.addEventListener('pointerup', _kbdDragPointerUpCancel, { passive: true });
     varRow.addEventListener('pointercancel', _kbdDragPointerUpCancel, { passive: true });
   }
@@ -35435,9 +35441,14 @@ function _kbdDragInit() {
 function _kbdDragPointerDown(e) {
   const chip = e.target.closest('.seq-chord-pill, .kbd-port-var-chip');
   if (!chip) return;
+  // Prevent browser from converting pointer to scroll — critical for long-press
+  e.preventDefault();
   _kbdDragStartXY = { x: e.clientX, y: e.clientY };
+  _kbdDragPointerId = e.pointerId;
   clearTimeout(_kbdDragTimer);
-  _kbdDragTimer = setTimeout(() => _kbdDragStart(chip, e), _DRAG_THRESHOLD_MS);
+  // Snapshot coordinates + chip ref — event may be recycled by the time timeout fires
+  const cx = e.clientX, cy = e.clientY;
+  _kbdDragTimer = setTimeout(() => _kbdDragStart(chip, cx, cy), _DRAG_THRESHOLD_MS);
 }
 
 function _kbdDragPointerMoveCancel(e) {
@@ -35447,15 +35458,19 @@ function _kbdDragPointerMoveCancel(e) {
   if (dx > _DRAG_MOVE_CANCEL || dy > _DRAG_MOVE_CANCEL) {
     clearTimeout(_kbdDragTimer);
     _kbdDragTimer = null;
+  } else {
+    // Still within threshold — prevent scroll while waiting for long-press
+    e.preventDefault();
   }
 }
 
 function _kbdDragPointerUpCancel() {
   clearTimeout(_kbdDragTimer);
   _kbdDragTimer = null;
+  _kbdDragPointerId = null;
 }
 
-function _kbdDragStart(chip, e) {
+function _kbdDragStart(chip, cx, cy) {
   _kbdDragTimer = null;
   // Haptic tick
   if (navigator.vibrate) navigator.vibrate(10);
@@ -35464,6 +35479,11 @@ function _kbdDragStart(chip, e) {
   const degree = chip.dataset.degree || '';
   const roman = chip.querySelector('span[style]')?.textContent || '';
 
+  // Prevent browser scroll/zoom during the entire drag
+  document.body.style.touchAction = 'none';
+  document.body.style.userSelect = 'none';
+  document.body.style.webkitUserSelect = 'none';
+
   // Dim origin
   chip.classList.add('kbd-port-origin');
 
@@ -35471,8 +35491,8 @@ function _kbdDragStart(chip, e) {
   const ghost = document.createElement('div');
   ghost.className = 'kbd-port-ghost';
   ghost.innerHTML = (roman ? `<small>${roman}</small>` : '') + chord.replace('_viii','');
-  ghost.style.left = (e.clientX - 30) + 'px';
-  ghost.style.top = (e.clientY - 40) + 'px';
+  ghost.style.left = (cx - 30) + 'px';
+  ghost.style.top = (cy - 40) + 'px';
   document.body.appendChild(ghost);
 
   // Build drag-peek panel
@@ -35484,14 +35504,22 @@ function _kbdDragStart(chip, e) {
     drawer.appendChild(peek);
   }
   _kbdDragBuildPeek(peek, chord);
+  // Force layout then add open class for transition
+  peek.offsetHeight;
   peek.classList.add('open');
 
   _kbdDragState = { chord, degree, roman, originEl: chip, ghostEl: ghost, peekEl: peek };
 
-  // Listen for move + release on document
-  document.addEventListener('pointermove', _kbdDragMove);
+  // Listen for move + release on document — use non-passive to allow preventDefault
+  document.addEventListener('pointermove', _kbdDragMove, { passive: false });
   document.addEventListener('pointerup', _kbdDragEnd);
   document.addEventListener('pointercancel', _kbdDragEnd);
+  // Also listen for touchmove to prevent scroll during drag
+  document.addEventListener('touchmove', _kbdDragTouchBlock, { passive: false });
+}
+
+function _kbdDragTouchBlock(e) {
+  if (_kbdDragState) e.preventDefault();
 }
 
 function _kbdDragBuildPeek(peek, chord) {
@@ -35524,13 +35552,19 @@ function _kbdDragBuildPeek(peek, chord) {
 
 function _kbdDragMove(e) {
   if (!_kbdDragState) return;
+  e.preventDefault(); // prevent scroll while dragging
   const { ghostEl, peekEl } = _kbdDragState;
 
   // Move ghost
   ghostEl.style.left = (e.clientX - 30) + 'px';
   ghostEl.style.top = (e.clientY - 40) + 'px';
 
-  // Hit-test: is finger over a peek cell?
+  // Hit-test: temporarily hide ghost so elementFromPoint sees the peek cells
+  ghostEl.style.display = 'none';
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  ghostEl.style.display = '';
+
+  // Highlight target cell
   const peekGrid = peekEl.querySelector('.dp-grid');
   if (!peekGrid) return;
   const cells = peekGrid.querySelectorAll('.dp-cell');
@@ -35538,8 +35572,6 @@ function _kbdDragMove(e) {
 
   cells.forEach(c => c.classList.remove('target'));
 
-  // Find cell under finger
-  const el = document.elementFromPoint(e.clientX, e.clientY);
   if (el && el.classList.contains('dp-cell')) {
     el.classList.add('target');
     const idx = parseInt(el.dataset.dpIdx || '0');
@@ -35555,40 +35587,60 @@ function _kbdDragEnd(e) {
   if (!_kbdDragState) return;
   const { chord, degree, originEl, ghostEl, peekEl } = _kbdDragState;
 
-  // Remove listeners
-  document.removeEventListener('pointermove', _kbdDragMove);
-  document.removeEventListener('pointerup', _kbdDragEnd);
-  document.removeEventListener('pointercancel', _kbdDragEnd);
+  try {
+    // Remove listeners
+    document.removeEventListener('pointermove', _kbdDragMove);
+    document.removeEventListener('pointerup', _kbdDragEnd);
+    document.removeEventListener('pointercancel', _kbdDragEnd);
+    document.removeEventListener('touchmove', _kbdDragTouchBlock);
 
-  // Find target cell
-  const el = document.elementFromPoint(e.clientX, e.clientY);
-  const targetCell = el && el.classList.contains('dp-cell') ? el : null;
+    // Find target cell — hide ghost for accurate hit testing
+    if (ghostEl) ghostEl.style.display = 'none';
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const targetCell = el && el.classList.contains('dp-cell') ? el : null;
 
-  if (targetCell) {
-    const idx = parseInt(targetCell.dataset.dpIdx || '0');
-    // Place chord in the actual sequence grid
-    const grid = document.getElementById('seqChordGrid');
-    const slots = grid ? [...grid.querySelectorAll('.seq-slot')] : [];
-    const slot = slots[idx];
-    if (slot) {
-      _seqSlotSetText(slot, chord);
-      slot.classList.add('filled');
-      slot.classList.remove('chord-tail');
-      slot.dataset.seqChordRaw = chord;
-      if (degree !== '') slot.dataset.chordDegree = String(degree);
-      else delete slot.dataset.chordDegree;
-      slot.classList.add('just-dropped');
-      slot.addEventListener('animationend', () => slot.classList.remove('just-dropped'), { once: true });
-      seqSaveChordSlots();
+    if (targetCell) {
+      const idx = parseInt(targetCell.dataset.dpIdx || '0');
+      // Place chord in the actual sequence grid
+      const grid = document.getElementById('seqChordGrid');
+      const slots = grid ? [...grid.querySelectorAll('.seq-slot')] : [];
+      const slot = slots[idx];
+      if (slot) {
+        _seqSlotSetText(slot, chord);
+        slot.classList.add('filled');
+        slot.classList.remove('chord-tail');
+        slot.dataset.seqChordRaw = chord;
+        if (degree !== '') slot.dataset.chordDegree = String(degree);
+        else delete slot.dataset.chordDegree;
+        slot.classList.add('just-dropped');
+        slot.addEventListener('animationend', () => slot.classList.remove('just-dropped'), { once: true });
+        seqSaveChordSlots();
+        // Update badge + peek in portrait
+        if (typeof kbdPortUpdateBadge === 'function') kbdPortUpdateBadge();
+        if (typeof kbdPortUpdatePeek === 'function') kbdPortUpdatePeek();
+      }
     }
+  } finally {
+    // Robust cleanup — always runs even if something above throws
+    if (originEl) originEl.classList.remove('kbd-port-origin');
+    if (ghostEl && ghostEl.parentNode) ghostEl.remove();
+    if (peekEl) peekEl.classList.remove('open');
+    _kbdDragState = null;
+    _kbdDragPointerId = null;
+    // Restore touch behavior
+    document.body.style.touchAction = '';
+    document.body.style.userSelect = '';
+    document.body.style.webkitUserSelect = '';
   }
-
-  // Clean up
-  originEl.classList.remove('kbd-port-origin');
-  ghostEl.remove();
-  peekEl.classList.remove('open');
-  _kbdDragState = null;
 }
+
+// Global safety: clean up any orphaned drag state on touch end / click outside
+document.addEventListener('pointerdown', function(e) {
+  if (_kbdDragState && !e.target.closest('.kbd-port-drag-peek, .kbd-port-ghost')) {
+    // User tapped somewhere else — cancel drag
+    _kbdDragEnd(e);
+  }
+}, { passive: true });
 /* ═══ END DRAG-TO-ARRANGE ═══ */
 // Keyboard drawer song-picker callbacks (window-level for inline onclick)
 function _kbdInitMelodyForSong(song) {
