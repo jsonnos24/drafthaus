@@ -23136,6 +23136,101 @@ function _ftSyncLinkBorders() {
   }
 }
 
+// ── Looper ↔ Sequence linking (mirrors 4-track ft-link) ─────────────────────
+var _loopLinkOpenTrack = -1;
+
+function loopLinkToggleDropdown(trackIdx, event) {
+  event.stopPropagation();
+  if (_loopLinkOpenTrack === trackIdx) { loopLinkCloseDropdown(); return; }
+  loopLinkCloseDropdown();
+  _loopLinkOpenTrack = trackIdx;
+  var btn = document.querySelector('[data-loop-link-btn="' + trackIdx + '"]');
+  if (!btn) return;
+
+  var song = getCurrentSong();
+  var seqs = song ? getSongSequences(song) : [];
+  if (!seqs.length) { showToast('Add a sequence first', 'info', 1500); return; }
+
+  var linksLoop = _seqLinksLoad('loop');
+  var linked = linksLoop[trackIdx] || [];
+
+  var dd = document.createElement('div');
+  dd.className = 'ft-link-dropdown';
+  dd.id = 'loopLinkDropdown';
+  dd.innerHTML = '<div class="ft-link-dropdown-title">Link to sequence</div>'
+    + seqs.map(function(seq, i) {
+      var partId = seq.partId || seq.part;
+      var label = seqGetPartLabel(partId);
+      var color = seqGetPartColor(partId);
+      var isLinked = linked.indexOf(seq.id) >= 0;
+      var tabColor = color === 'var(--faint)' ? '#888' : color;
+      return '<div class="ft-link-dropdown-item' + (isLinked ? ' checked' : '') + '" data-seq-id="' + seq.id + '" data-track="' + trackIdx + '">'
+        + '<span class="ft-link-dropdown-check">' + (isLinked ? '✓' : '') + '</span>'
+        + '<span class="ft-link-dropdown-dot" style="background:' + tabColor + '"></span>'
+        + '<span class="ft-link-dropdown-label" style="color:' + tabColor + '">' + label + '</span>'
+        + '</div>';
+    }).join('');
+
+  var rect = btn.getBoundingClientRect();
+  dd.style.position = 'fixed';
+  dd.style.top = (rect.bottom + 4) + 'px';
+  dd.style.right = (window.innerWidth - rect.right) + 'px';
+  dd.style.left = 'auto';
+  dd.style.zIndex = '10100';
+  document.body.appendChild(dd);
+
+  dd.addEventListener('click', function(e) {
+    var item = e.target.closest('.ft-link-dropdown-item');
+    if (!item) return;
+    e.stopPropagation();
+    var seqId = item.dataset.seqId;
+    var tIdx = parseInt(item.dataset.track);
+    var links = _seqLinksLoad('loop');
+    var arr = links[tIdx] || [];
+    var pos = arr.indexOf(seqId);
+    if (pos >= 0) { arr.splice(pos, 1); item.classList.remove('checked'); item.querySelector('.ft-link-dropdown-check').textContent = ''; }
+    else { arr.push(seqId); item.classList.add('checked'); item.querySelector('.ft-link-dropdown-check').textContent = '✓'; }
+    links[tIdx] = arr;
+    _seqLinksSave('loop', links);
+    _seqApplyAllTrackLinkStyles();
+    _loopLinkSyncBtnState(tIdx);
+  });
+
+  setTimeout(function() { document.addEventListener('click', _loopLinkOutsideClick); }, 0);
+}
+
+function _loopLinkOutsideClick(e) {
+  var dd = document.getElementById('loopLinkDropdown');
+  if (dd && !dd.contains(e.target) && !e.target.closest('[data-loop-link-btn]')) {
+    loopLinkCloseDropdown();
+  }
+}
+
+function loopLinkCloseDropdown() {
+  _loopLinkOpenTrack = -1;
+  var dd = document.getElementById('loopLinkDropdown');
+  if (dd) dd.remove();
+  document.removeEventListener('click', _loopLinkOutsideClick);
+}
+
+function _loopLinkSyncBtnState(trackIdx) {
+  var btn = document.querySelector('[data-loop-link-btn="' + trackIdx + '"]');
+  if (!btn) return;
+  var linksLoop = _seqLinksLoad('loop');
+  var arr = linksLoop[trackIdx] || [];
+  if (arr.length) {
+    btn.classList.add('has-links');
+    btn.textContent = 'Link (' + arr.length + ')';
+  } else {
+    btn.classList.remove('has-links');
+    btn.textContent = 'Link';
+  }
+}
+
+function _loopSyncAllLinkBtns() {
+  for (var i = 0; i < 4; i++) _loopLinkSyncBtnState(i);
+}
+
 function seqSwitchToSequence(idx) {
   const song = getCurrentSong();
   if (!song) return;
@@ -36812,6 +36907,8 @@ function loopBuildUI() {
 
   // Apply seq-link border colors
   if (typeof _seqApplyAllTrackLinkStyles === 'function') _seqApplyAllTrackLinkStyles();
+  // Sync looper link button states
+  if (typeof _loopSyncAllLinkBtns === 'function') _loopSyncAllLinkBtns();
 }
 
 function buildOrbitRings() {
@@ -37116,6 +37213,7 @@ function buildOrbitLegendCard(i) {
     </div>
     <div class="orbit-parts-pills" id="ltrack-pills-${i}"></div>
     <div class="orbit-legend-actions">
+      <button class="ft-link-btn" data-loop-link-btn="${i}" onclick="loopLinkToggleDropdown(${i},event)">Link</button>
       <button class="orbit-dl-btn" id="ldl-btn-${i}" onclick="loopDownloadTrack(${i})" disabled>↓</button>
       <button class="orbit-clear-btn" onclick="loopClearTrack(${i})">✕</button>
       <div class="orbit-vu-tiny" id="lvu-wrap-${i}">
