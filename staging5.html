@@ -8115,6 +8115,14 @@ body.il-perf-active.split-active .looper-drawer.open {
   top: calc(43px + env(safe-area-inset-top, 0px)) !important;
   height: calc(100dvh - 43px - env(safe-area-inset-top, 0px)) !important;
 }
+/* ── Looper drawer: keep dark background in perf mode so orbit rings stay visible ── */
+body.il-perf-active .looper-drawer,
+body.il-perf-active .looper-drawer-body,
+body.il-perf-active .orbit-center,
+body.il-perf-active #splitRightContent .looper-drawer,
+body.il-perf-active #splitRightContent .looper-drawer-body {
+  background: #08060f !important;
+}
 /* Seq drawer is a bottom-sheet — just cap its height so it doesn't reach under the header */
 body.il-perf-active.split-active .seq-drawer.open {
   height: calc(100dvh - 43px - env(safe-area-inset-top, 0px)) !important;
@@ -36889,9 +36897,9 @@ function buildOrbitRings() {
     base.setAttribute('r', r);
     base.setAttribute('fill', 'none');
     base.setAttribute('stroke', t.color);
-    base.setAttribute('stroke-width', '1.2');
+    base.setAttribute('stroke-width', '1.8');
     base.setAttribute('stroke-dasharray', '2 4');
-    base.setAttribute('stroke-opacity', '0.55');
+    base.setAttribute('stroke-opacity', '0.75');
     svg.appendChild(base);
 
     // Active thick ring (hidden by default)
@@ -38894,7 +38902,9 @@ function _syncLyricsToolbar() {
   }
   // Arm T1 (handled by _syncRehArmT1Btn)
   _syncRehArmT1Btn();
-  // Seq
+  // Prime Seq (handled by _syncRehArmBtn)
+  if (typeof _syncRehArmBtn === 'function') _syncRehArmBtn();
+  // Seq play
   var seqBtn = document.getElementById('rehSeqPlayBtn');
   if (seqBtn) {
     var seqOn = typeof seqIsPlaying !== 'undefined' && seqIsPlaying;
@@ -39110,14 +39120,11 @@ function ilTogglePerfMode() {
   _ensureDetailView();
   // Close any open drawers before switching to perf/view mode
   closeAllDrawers();
-  // If we're in backend, switch to the editor view first, then enter perf mode
+  // If we're in backend, switch to runthrough first
   if (window._songViewMode !== 'runthrough') {
     setSongViewMode('runthrough');
     const song = getCurrentSong();
     if (song) ilInitAndRender(song);
-    // ilInitAndRender calls ilSetPerfMode(false), so now activate perf
-    ilSetPerfMode(true);
-    return;
   }
   ilSetPerfMode(!window._ilPerfMode);
 }
@@ -39164,8 +39171,7 @@ var _ilInitSongId    = null; // tracks which song was last initialized in Lyrics
 
 function ilInitAndRender(song) {
   _ilInitSongId = song?.id || null;
-  // Always start in editor mode when re-rendering
-  ilSetPerfMode(false);
+  // Preserve current perf mode state during re-render (unified lyrics mode uses perf mode)
   const activeParts = getActiveParts(song);
   rtActiveParts = activeParts.slice();
   rtAddedParts  = [];
@@ -51363,6 +51369,12 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   <span class="reh-sep"></span>
   <!-- ARM T1 -->
   <button class="reh-btn reh-arm-btn" id="rehArmT1Btn" onclick="rehArmTrack1();_syncLyricsToolbar()" title="Arm Track 1 for recording">ARM T1</button>
+  <span class="reh-sep"></span>
+  <!-- Prime Seq — arms sequencer to auto-start with recording -->
+  <button class="reh-btn" id="rehArmSeqBtn" onclick="vrToggleArmSeq()" title="Prime Sequencer — auto-starts when recording begins">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    Prime Seq
+  </button>
   <span class="reh-sep"></span>
   <!-- Sequencer with 1-bar count-in -->
   <button class="reh-btn" id="rehSeqPlayBtn" onclick="rtSeqTogglePlay()" title="Play sequencer with 1-bar count-in">
