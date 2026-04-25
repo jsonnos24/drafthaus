@@ -5019,7 +5019,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .mix-pan-val{font-size:9px;color:var(--muted);font-variant-numeric:tabular-nums;font-family:'IBM Plex Mono',monospace}
 
   /* Fader + meter zone */
-  .mix-fader-zone{flex:1;display:flex;padding:4px 4px 5px;gap:4px;align-items:stretch;min-height:140px}
+  .mix-fader-zone{flex:1;display:flex;padding:4px 4px 5px;gap:4px;align-items:stretch;min-height:240px}
   .mix-fader-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
   .mix-fader-wrap{flex:1;width:100%;position:relative;display:flex;align-items:stretch;justify-content:center;touch-action:none}
 
@@ -5070,10 +5070,10 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Density tweaks */
   .mix-density-compact{--mix-chan-gap:4px;--mix-chan-width:62px;--mix-meter-h:80px}
   .mix-density-compact .mix-strips{gap:4px}
-  .mix-density-compact .mix-fader-zone{min-height:100px}
+  .mix-density-compact .mix-fader-zone{min-height:180px}
   .mix-density-spacious{--mix-chan-gap:14px;--mix-chan-width:92px;--mix-meter-h:130px}
   .mix-density-spacious .mix-strips{gap:8px}
-  .mix-density-spacious .mix-fader-zone{min-height:180px}
+  .mix-density-spacious .mix-fader-zone{min-height:300px}
 
   /* ── Bounce modal ── */
   .mix-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:9200;backdrop-filter:blur(4px)}
@@ -5099,7 +5099,7 @@ button, select, input, textarea { touch-action: manipulation; }
     .mix-strips{grid-template-columns:repeat(4,1fr);gap:5px;padding:6px}
     .mix-strip{min-width:0}
     .mix-strip.mix-master{min-width:0}
-    .mix-fader-zone{min-height:100px}
+    .mix-fader-zone{min-height:160px}
     .mix-strip-top{padding:3px 3px 3px;min-height:28px}
     .mix-chan-name{font-size:11px}
     .mix-chan-num{font-size:8px}
@@ -41668,8 +41668,17 @@ function wireMixerInteractions() {
       var onFaderDown = function(e) {
         e.preventDefault();
         var r = faderWrap.getBoundingClientRect();
+        var cap = faderWrap.querySelector('.mix-fader-cap');
+        // Capture grab offset so fader doesn't jump to click position
+        var grabOffset = 0;
+        if (cap) {
+          var capRect = cap.getBoundingClientRect();
+          var capCenter = capRect.top + capRect.height / 2;
+          var clickY = (e.touches ? e.touches[0].clientY : e.clientY);
+          grabOffset = clickY - capCenter;
+        }
         var onMove = function(ev) {
-          var y = (ev.touches ? ev.touches[0].clientY : ev.clientY);
+          var y = (ev.touches ? ev.touches[0].clientY : ev.clientY) - grabOffset;
           var pos = Math.max(0, Math.min(1, 1 - (y - r.top) / r.height));
           var level = _mixPosToLevel(pos);
           // Update UI
@@ -41714,6 +41723,29 @@ function wireMixerInteractions() {
       };
       faderWrap.addEventListener('mousedown', onFaderDown);
       faderWrap.addEventListener('touchstart', onFaderDown, {passive:false});
+      // Double-click → reset to unity (0dB = level 1.0)
+      faderWrap.addEventListener('dblclick', function(e) {
+        e.preventDefault();
+        var unityLevel = 1.0;
+        var unityPos = _mixLevelToPos(unityLevel);
+        faderWrap.dataset.level = unityLevel;
+        var cap = faderWrap.querySelector('.mix-fader-cap');
+        if (cap) cap.style.top = ((1 - unityPos) * 100) + '%';
+        var dbEl = strip.querySelector('.mix-fader-db');
+        if (dbEl) dbEl.textContent = _mixDbLabel(unityLevel);
+        if (source === 'seqmaster')       { mixSetSeqMaster(100); }
+        else if (source === 'loopmaster') { mixSetLoopMaster(100); }
+        else if (source === 'mainmaster') { mixSetMainMaster(unityLevel); }
+        else if (source === 'fourtrack' && mtIdx >= 0) {
+          if (window._mtTracks && window._mtTracks[mtIdx]) {
+            window._mtTracks[mtIdx].volume = 100;
+            if (typeof _mtApplyMuteGain === 'function') _mtApplyMuteGain(mtIdx);
+          }
+          if (typeof mtSaveTrackSetting === 'function') mtSaveTrackSetting(mtIdx, 'volume', 100);
+        } else if (key) {
+          seqMixerChange(key, 'Vol', unityLevel);
+        }
+      });
     }
 
     // ── Helper: ensure _mtTracks[idx] exists ───────────────────
