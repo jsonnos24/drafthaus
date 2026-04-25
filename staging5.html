@@ -5121,7 +5121,7 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .keyboard-drawer {
     position: fixed; top: 0; right: 0;
-    width: min(560px, 100vw); height: 100dvh;
+    width: min(800px, 100vw); height: 100dvh;
     background: #0d0e13;
     border-left: 1px solid rgba(255,209,102,0.3);
     box-shadow: -8px 0 40px rgba(0,0,0,0.6);
@@ -5158,6 +5158,106 @@ button, select, input, textarea { touch-action: manipulation; }
     overscroll-behavior-y: contain;
     padding: 8px 16px 120px;
   }
+  /* ═══ Stage layout — desktop two-column grid ═══ */
+  .kbd-stage-toolbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 20px; border-bottom: 1px solid var(--border);
+  }
+  .kbd-stage-toolbar .spacer { flex: 1; }
+  .kbd-stage-toolbar .right-cluster { display: flex; gap: 8px; align-items: center; }
+  .kbd-stage-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 24px;
+    padding: 16px 20px 8px;
+  }
+  .kbd-stage-col { display: flex; flex-direction: column; gap: 10px; }
+  /* Section headings */
+  .kbd-stage-section-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint);
+    margin-bottom: 2px;
+  }
+  /* ── Finger chord row (Stage) ── */
+  .kbd-stage-finger-row {
+    display: flex; gap: 4px; flex-wrap: nowrap;
+  }
+  .kbd-stage-finger-slot {
+    width: 48px; height: 48px; border-radius: 8px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: 'IBM Plex Mono', monospace; cursor: pointer;
+    user-select: none; -webkit-user-select: none; transition: all 0.12s;
+    flex-shrink: 0;
+  }
+  .kbd-stage-finger-slot.has-chord {
+    border: 2px solid var(--teal, #2dd4bf); background: rgba(45,212,191,0.10);
+  }
+  .kbd-stage-finger-slot:not(.has-chord) {
+    border: 2px dashed rgba(255,255,255,0.15); background: transparent;
+  }
+  .kbd-stage-finger-num {
+    font-size: 14px; font-weight: 700; line-height: 1;
+    color: var(--text);
+  }
+  .kbd-stage-finger-slot:not(.has-chord) .kbd-stage-finger-num { color: var(--faint); }
+  .kbd-stage-finger-chord {
+    font-size: 9px; margin-top: 1px;
+    color: var(--teal, #2dd4bf);
+  }
+  .kbd-stage-finger-slot:not(.has-chord) .kbd-stage-finger-chord { color: var(--faint); }
+  /* ── Chord palette (Stage) — 8 columns, variations stacked ── */
+  .kbd-stage-palette {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 4px;
+  }
+  .kbd-stage-palette .seq-chord-pill-col {
+    min-width: 0; max-width: none; flex: none;
+  }
+  .kbd-stage-palette .seq-chord-pill {
+    font-size: 11px; padding: 6px 4px; text-align: center;
+  }
+  .kbd-stage-palette .seq-chord-var-pill {
+    font-size: 9px; padding: 3px 2px; text-align: center;
+  }
+  /* ── Right column: chord sequence ── */
+  .kbd-stage-seq-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 5px;
+  }
+  .kbd-stage-seq-grid .seq-slot {
+    width: 100% !important; height: 42px !important;
+    font-size: 10px !important; border-radius: 8px;
+  }
+  /* Instrument selectors row */
+  .kbd-stage-instruments {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .kbd-stage-instruments .seq-label {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--gold); flex-shrink: 0;
+  }
+  .kbd-stage-instruments .seq-select { flex: 1; max-width: 180px; font-size: 10px; }
+  /* Piano pinned below grid */
+  .kbd-stage-piano-area {
+    padding: 4px 20px 16px; border-top: 1px solid var(--border);
+  }
+  /* Stage layout overrides for chord sequence grid */
+  .kbd-stage-col .kbd-chord-seq-wrapper .seq-grid,
+  .kbd-stage-col #seqChordGrid {
+    grid-template-columns: repeat(8, 1fr) !important;
+    gap: 5px !important;
+    width: 100% !important;
+  }
+  .kbd-stage-col #seqChordGrid .seq-slot {
+    width: 100% !important; height: 42px !important;
+    font-size: 10px !important; border-radius: 8px !important;
+  }
+  .kbd-stage-col .kbd-chord-seq-wrapper { margin-left: 0 !important; margin-right: 0 !important; padding: 0 !important; }
+  .kbd-stage-col .kbd-chord-seq-wrapper .seq-row-label { display: none !important; }
+  .kbd-stage-col .kbd-chord-seq-wrapper .seq-grid-row { gap: 0 !important; }
   .kbd-open-seq-hint {
     display: flex; align-items: center; gap: 8px;
     padding: 10px 14px; margin-bottom: 16px;
@@ -25307,17 +25407,27 @@ function seqRenderChordPills(song) {
     </div>`;
   }
 
-  // ── Render into split group containers (Group1: I–IV, Group2: V–VIII) ──
+  // ── Render into containers ──
   const g1 = document.getElementById('seqChordPillsGroup1');
   const g2 = document.getElementById('seqChordPillsGroup2');
+  const isDesktopStage = g1 && g1.classList.contains('kbd-stage-palette');
   const half = Math.min(4, names.length);
   const group1Html = names.slice(0, half).map((n, i) => _pillColHtml(n, i)).join('');
   const group2Html = names.slice(half).map((n, i) => _pillColHtml(n, half + i)).join('');
 
   const isMobilePortrait = window.innerWidth <= 600 && window.innerHeight > window.innerWidth;
 
-  if (g1 && g2) {
-    // Split rendering into two containers
+  if (isDesktopStage) {
+    // Desktop Stage: all 8 columns in one grid, no group split
+    const allHtml = names.map((name, i) => _pillColHtml(name, i)).join('');
+    g1.innerHTML = allHtml;
+    if (g2) g2.innerHTML = '';
+    el.innerHTML = '';
+    // Update palette key label
+    const palKeyEl = document.getElementById('kbdStagePaletteKey');
+    if (palKeyEl) palKeyEl.textContent = key ? `Key of ${key}` : 'Select key';
+  } else if (g1 && g2) {
+    // Mobile: split rendering into two containers
     if (isMobilePortrait) {
       g1.classList.add('kbd-chord-grid-mode');
       g2.classList.add('kbd-chord-grid-mode');
@@ -34205,6 +34315,157 @@ function renderKeyboardDrawerHtml(song) {
   const songKey = song?.key || sd.key || '';
   const chordInstrument = sd.instrument || 'piano';
 
+  const isDesktop = window.innerWidth >= 768;
+
+  // ── Shared HTML fragments ──
+  const _keyOptions = `
+    <option value="">— Key —</option>
+    <option${songKey==='C major'?' selected':''}>C major</option><option${songKey==='C minor'?' selected':''}>C minor</option>
+    <option${songKey==='C# / Db major'?' selected':''}>C# / Db major</option><option${songKey==='C# / Db minor'?' selected':''}>C# / Db minor</option>
+    <option${songKey==='D major'?' selected':''}>D major</option><option${songKey==='D minor'?' selected':''}>D minor</option>
+    <option${songKey==='D# / Eb major'?' selected':''}>D# / Eb major</option><option${songKey==='D# / Eb minor'?' selected':''}>D# / Eb minor</option>
+    <option${songKey==='E major'?' selected':''}>E major</option><option${songKey==='E minor'?' selected':''}>E minor</option>
+    <option${songKey==='F major'?' selected':''}>F major</option><option${songKey==='F minor'?' selected':''}>F minor</option>
+    <option${songKey==='F# / Gb major'?' selected':''}>F# / Gb major</option><option${songKey==='F# / Gb minor'?' selected':''}>F# / Gb minor</option>
+    <option${songKey==='G major'?' selected':''}>G major</option><option${songKey==='G minor'?' selected':''}>G minor</option>
+    <option${songKey==='G# / Ab major'?' selected':''}>G# / Ab major</option><option${songKey==='G# / Ab minor'?' selected':''}>G# / Ab minor</option>
+    <option${songKey==='A major'?' selected':''}>A major</option><option${songKey==='A minor'?' selected':''}>A minor</option>
+    <option${songKey==='A# / Bb major'?' selected':''}>A# / Bb major</option><option${songKey==='A# / Bb minor'?' selected':''}>A# / Bb minor</option>
+    <option${songKey==='B major'?' selected':''}>B major</option><option${songKey==='B minor'?' selected':''}>B minor</option>`;
+
+  const _progressionOptions = `
+    <option value="">— Progression —</option>
+    ${['Classic Rock & Pop','Jazz & Soul','Indie & Pop','Rock Anthems','Minor & Dark'].map(grp => `
+    <optgroup label="${grp}">
+      ${SEQ_PROGRESSIONS.filter(p => p.group === grp).map(p =>
+        `<option value="${p.id}"${_activeProgressionId === p.id ? ' selected' : ''}>${p.label}  ·  ${p.moods}</option>`
+      ).join('')}
+    </optgroup>`).join('')}`;
+
+  const _chordInstrumentOptions = `
+    <option value="synth"${chordInstrument==='synth'?' selected':''}>Synth</option>
+    <option value="piano"${chordInstrument==='piano'?' selected':''}>Grand Piano</option>
+    <option value="piano2"${chordInstrument==='piano2'?' selected':''}>Upright Piano</option>
+    <option value="piano+piano2"${chordInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
+    <option value="guitar"${chordInstrument==='guitar'?' selected':''}>Guitar</option>
+    <option value="guitar+piano"${chordInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
+    <option value="guitar+piano2"${chordInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
+    <option value="guitar+synth"${chordInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
+    <option value="piano+synth"${chordInstrument==='piano+synth'?' selected':''}>Grand + Synth</option>
+    <option value="piano2+synth"${chordInstrument==='piano2+synth'?' selected':''}>Upright + Synth</option>
+    <option value="guitar+piano+synth"${chordInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Grand + Synth</option>
+    <option value="guitar+piano2+synth"${chordInstrument==='guitar+piano2+synth'?' selected':''}>Guitar + Upright + Synth</option>`;
+
+  const _melodyInstrumentOptions = `
+    <option value="synth"${melodyInstrument==='synth'?' selected':''}>Synth</option>
+    <option value="piano"${melodyInstrument==='piano'?' selected':''}>Grand Piano</option>
+    <option value="piano2"${melodyInstrument==='piano2'?' selected':''}>Upright Piano</option>
+    <option value="piano+piano2"${melodyInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
+    <option value="guitar"${melodyInstrument==='guitar'?' selected':''}>Guitar</option>
+    <option value="guitar+piano"${melodyInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
+    <option value="guitar+piano2"${melodyInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
+    <option value="guitar+synth"${melodyInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
+    <option value="piano+synth"${melodyInstrument==='piano+synth'?' selected':''}>Grand + Synth</option>
+    <option value="piano2+synth"${melodyInstrument==='piano2+synth'?' selected':''}>Upright + Synth</option>
+    <option value="guitar+piano+synth"${melodyInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Grand + Synth</option>
+    <option value="guitar+piano2+synth"${melodyInstrument==='guitar+piano2+synth'?' selected':''}>Guitar + Upright + Synth</option>`;
+
+  // ════════════════════════════════════════════════════════════════
+  //  DESKTOP: Stage two-column layout
+  // ════════════════════════════════════════════════════════════════
+  if (isDesktop) {
+    return `
+      <!-- Settings strip — rendered into body, removed by openKeyboardDrawer() -->
+      <div class="kbd-settings-strip" style="display:none;"></div>
+
+      <!-- ═══ STAGE TOOLBAR ═══ -->
+      <div class="kbd-stage-toolbar">
+        <button class="seq-chord-mode-btn${seqChordMode==='preview'?' active':''}" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Preview — clicking a chord just plays it">▶ Preview</button>
+        <button class="seq-chord-mode-btn" id="seqSweepBtn" onclick="seqToggleSweepMode()" title="Sweep — hover over chord pills to auto-play">⟿ Sweep</button>
+        <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;max-width:140px;">
+          ${_keyOptions}
+        </select>
+        <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="font-size:10px;max-width:200px;">
+          ${_progressionOptions}
+        </select>
+        <button id="seqProgressionReHumBtn" onclick="seqRehumanizeProgression()" class="seq-btn"
+          title="Re-shuffle rhythm" style="${_activeProgressionId ? '' : 'display:none;'}font-size:10px;padding:3px 10px;font-weight:700;letter-spacing:0.04em;">
+          ↺ Shuffle
+        </button>
+        <span class="spacer"></span>
+        <div class="right-cluster">
+          <button class="seq-gen-btn seq-undo-btn" id="kbdKeysUndoBtn" onclick="keysUndoApply()" title="Undo" disabled>↩</button>
+          <button class="seq-gen-btn seq-undo-btn" id="kbdKeysRedoBtn" onclick="keysRedoApply()" title="Redo" disabled>↪</button>
+          <button class="seq-humanize-btn${seqHumanizeChords?' active':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords" style="border-color:var(--teal,#2dd4bf);color:var(--teal,#2dd4bf);">〜 Humanize</button>
+        </div>
+      </div>
+
+      <!-- ═══ STAGE TWO-COLUMN GRID ═══ -->
+      <div class="kbd-stage-grid">
+        <!-- ── LEFT COLUMN: palette ── -->
+        <div class="kbd-stage-col">
+          <div>
+            <div class="kbd-stage-section-title">Finger Chords · Keys 1–9</div>
+            <div class="seq-chords-row" id="seqKeyTriggerRow"></div>
+          </div>
+          <div>
+            <div class="kbd-stage-section-title">Chord Palette · <span id="kbdStagePaletteKey">${songKey || 'Select key'}</span></div>
+            <div id="seqChordModeHint" style="display:none;"></div>
+            <div class="kbd-stage-palette" id="seqChordPillsGroup1"></div>
+          </div>
+        </div>
+
+        <!-- ── RIGHT COLUMN: sequence ── -->
+        <div class="kbd-stage-col">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span class="kbd-stage-section-title" style="margin-bottom:0;">Chord Sequence</span>
+              <span style="flex:1"></span>
+              <button class="seq-btn" style="font-size:9px;padding:3px 8px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="seqClearAllChordSlots()" title="Clear all">Clear</button>
+            </div>
+            <div class="kbd-chord-seq-wrapper" style="margin-bottom:0;">
+              <button id="kbdChordRecBtn" class="kbd-chord-rec-btn" onclick="kbdToggleChordRec()" style="display:none;">● REC</button>
+              <div class="seq-pattern-grid" style="margin:0;">
+                <div class="seq-grid-row" data-row="chord">
+                  <div class="seq-grid" id="seqChordGrid"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Instrument selectors -->
+          <div class="kbd-stage-instruments">
+            <span class="seq-label">Chords</span>
+            <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()">
+              ${_chordInstrumentOptions}
+            </select>
+            <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
+          </div>
+          <div class="kbd-stage-instruments">
+            <span class="seq-label">Keys</span>
+            <select class="seq-select" id="melodyInstrumentSelect" onchange="melodyInstrumentChanged()">
+              ${_melodyInstrumentOptions}
+            </select>
+            <span id="melodyInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
+            <button class="melody-quant-btn${melodyQuantize ? ' active' : ''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()">Qz</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hidden containers for legacy references -->
+      <div id="seqChordPillsGroup2" style="display:none;"></div>
+      <div id="seqChordPills" style="display:none;"></div>
+
+      <!-- ═══ PIANO + MELODY ROLL (pinned below grid) ═══ -->
+      <div class="kbd-stage-piano-area">
+        <div id="seqKeyboard" style="margin-bottom:6px;"></div>
+        <div class="melody-roll" id="melodyRoll"></div>
+      </div>
+    `;
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  MOBILE: Original vertical stack layout (unchanged)
+  // ════════════════════════════════════════════════════════════════
   return `
       <!-- Settings strip — rendered into body, removed by openKeyboardDrawer() -->
       <div class="kbd-settings-strip" style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;flex:1;overflow-x:auto;">
@@ -34230,7 +34491,7 @@ function renderKeyboardDrawerHtml(song) {
           </select>
           <button id="midiLearnBtn" onclick="midiLearnChannel()" title="Play a note to auto-detect your keyboard's MIDI channel" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:10px;background:transparent;border:1px solid var(--border2);color:var(--muted);border-radius:4px;padding:3px 7px;cursor:pointer;transition:all 0.15s;white-space:nowrap;">Learn Ch</button>
         </div>
-        <!-- Key (editable — syncs song key and chord pills) -->
+        <!-- Key -->
         <div class="seq-ctrl-group">
           <span class="seq-label">Key</span>
           <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;">
@@ -34360,18 +34621,7 @@ function renderKeyboardDrawerHtml(song) {
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
       <span class="seq-label" style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--gold);flex-shrink:0;">CHORDS</span>
       <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()" style="flex:1;max-width:280px;">
-        <option value="synth"${chordInstrument==='synth'?' selected':''}>Synth</option>
-        <option value="piano"${chordInstrument==='piano'?' selected':''}>Grand Piano</option>
-        <option value="piano2"${chordInstrument==='piano2'?' selected':''}>Upright Piano</option>
-        <option value="piano+piano2"${chordInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
-        <option value="guitar"${chordInstrument==='guitar'?' selected':''}>Guitar</option>
-        <option value="guitar+piano"${chordInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
-        <option value="guitar+piano2"${chordInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
-        <option value="guitar+synth"${chordInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
-        <option value="piano+synth"${chordInstrument==='piano+synth'?' selected':''}>Grand + Synth</option>
-        <option value="piano2+synth"${chordInstrument==='piano2+synth'?' selected':''}>Upright + Synth</option>
-        <option value="guitar+piano+synth"${chordInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Grand + Synth</option>
-        <option value="guitar+piano2+synth"${chordInstrument==='guitar+piano2+synth'?' selected':''}>Guitar + Upright + Synth</option>
+        ${_chordInstrumentOptions}
       </select>
       <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
     </div>
@@ -34380,18 +34630,7 @@ function renderKeyboardDrawerHtml(song) {
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
       <span class="seq-label" style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--gold);flex-shrink:0;">KEYBOARD</span>
       <select class="seq-select" id="melodyInstrumentSelect" onchange="melodyInstrumentChanged()" style="flex:1;max-width:280px;">
-        <option value="synth"${melodyInstrument==='synth'?' selected':''}>Synth</option>
-        <option value="piano"${melodyInstrument==='piano'?' selected':''}>Grand Piano</option>
-        <option value="piano2"${melodyInstrument==='piano2'?' selected':''}>Upright Piano</option>
-        <option value="piano+piano2"${melodyInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
-        <option value="guitar"${melodyInstrument==='guitar'?' selected':''}>Guitar</option>
-        <option value="guitar+piano"${melodyInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
-        <option value="guitar+piano2"${melodyInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
-        <option value="guitar+synth"${melodyInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
-        <option value="piano+synth"${melodyInstrument==='piano+synth'?' selected':''}>Grand + Synth</option>
-        <option value="piano2+synth"${melodyInstrument==='piano2+synth'?' selected':''}>Upright + Synth</option>
-        <option value="guitar+piano+synth"${melodyInstrument==='guitar+piano+synth'?' selected':''}>Guitar + Grand + Synth</option>
-        <option value="guitar+piano2+synth"${melodyInstrument==='guitar+piano2+synth'?' selected':''}>Guitar + Upright + Synth</option>
+        ${_melodyInstrumentOptions}
       </select>
       <span id="melodyInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
       <button class="melody-quant-btn${melodyQuantize ? ' active' : ''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()" style="margin-left:auto;">Quantize</button>
