@@ -4948,7 +4948,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .mix-ic{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
   /* ── Channel strips ── */
-  .mix-strips{display:grid;grid-template-columns:repeat(6,1fr);grid-auto-rows:auto;gap:6px;padding:6px 8px 8px;min-height:0;overflow-x:visible}
+  .mix-strips{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:auto;gap:6px;padding:6px 8px 8px;min-height:0;overflow-x:visible}
   .mix-strips::-webkit-scrollbar{height:8px}
   .mix-strips::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
   .mix-strip{
@@ -5085,7 +5085,7 @@ button, select, input, textarea { touch-action: manipulation; }
     .mix-drawer-header{padding:12px 14px 8px}
     .mix-drawer-body{padding:10px}
     .mix-desk{padding:10px 8px}
-    .mix-strips{grid-template-columns:repeat(5,1fr);gap:5px;padding:6px}
+    .mix-strips{grid-template-columns:repeat(4,1fr);gap:5px;padding:6px}
     .mix-strip{min-width:0}
     .mix-strip.mix-master{min-width:0}
     .mix-fader-zone{min-height:60px}
@@ -8665,6 +8665,14 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
 .il-section-menu button.danger { color: #f87171; }
 .il-section-menu button.danger:hover { background: rgba(220,38,38,0.15); }
 /* Perf mode section label — dark text on white bg */
+/* Hide section labels in perf mode — reveal on hover */
+#songViewRunthrough.il-perf-mode .il-section-label {
+  opacity: 0; height: 0; min-height: 0; padding: 0; margin: 0; overflow: hidden;
+  transition: opacity 0.2s, height 0.2s, padding 0.2s;
+}
+#songViewRunthrough.il-perf-mode .il-part:hover .il-section-label {
+  opacity: 1; height: auto; padding: 2px 0 6px; overflow: visible;
+}
 #songViewRunthrough.il-perf-mode .il-section-menu-btn { color: rgba(0,0,0,0.2); }
 #songViewRunthrough.il-perf-mode .il-section-menu-btn:hover { color: rgba(0,0,0,0.5); }
 #songViewRunthrough.il-perf-mode .il-section-menu {
@@ -8900,6 +8908,13 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
   background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.15); color: #111;
 }
 #songViewRunthrough.il-perf-mode .il-cc-empty-edit:focus { border-color: rgba(26,58,107,0.5); }
+/* Clickable add-lyrics zone below existing lyrics */
+.il-cc-add-lyrics {
+  min-height: 48px; cursor: text; border-radius: 6px;
+  transition: background 0.15s;
+}
+.il-cc-add-lyrics:hover { background: rgba(255,255,255,0.04); }
+#songViewRunthrough.il-perf-mode .il-cc-add-lyrics:hover { background: rgba(0,0,0,0.03); }
 
 /* Inline per-line lyrics editor */
 .il-cc-line-edit-input {
@@ -9158,12 +9173,15 @@ body.il-perf-active .reh-btn.reh-seq-active { color: #2563eb; border-color: #256
 body.il-perf-active .reh-btn.reh-arm-active { color: #dc2626; border-color: #dc2626; background: rgba(220,38,38,0.10); }
 body.il-perf-active .reh-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(167,139,250,0.10); }
 body.il-perf-active .reh-sep { background: rgba(0,0,0,0.12); }
-/* Global seq strip in perf → keep dark */
+/* Global seq strip + transport in perf (lyrics mode) → hide to keep focus on lyrics */
 body.il-perf-active .global-seq-strip {
-  background: rgba(10,10,12,0.97);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom-color: var(--gold);
+  display: none !important;
+}
+body.il-perf-active #headerTransport {
+  display: none !important;
+}
+body.il-perf-active #sharedDrawerHeader {
+  display: none !important;
 }
 /* Bottom nav in perf mode → keep dark */
 body.il-perf-active .bottom-nav {
@@ -39101,7 +39119,7 @@ function rtSeqTogglePlay() {
     if (count === 0) {
       cd.remove();
       _rtSeqCountdownTimer = null;
-      seqPlay();
+      seqPlaySong();
       ilScrollStart();
       return;
     }
@@ -39485,8 +39503,40 @@ function ilRenderChordChartHtml(partId) {
       html += `</div>`; // .il-cc-line
     }
   });
+  // Clickable zone below lyrics to append new lines
+  html += `<div class="il-cc-add-lyrics" onclick="ilAddLyricsTap('${partId}', this)"></div>`;
   html += `</div>`;
   return html;
+}
+
+function ilAddLyricsTap(partId, el) {
+  if (el.querySelector('textarea')) return;
+  var ta = document.createElement('textarea');
+  ta.className = 'il-cc-empty-edit';
+  ta.placeholder = 'Add more lyrics…';
+  ta.rows = 3;
+  el.appendChild(ta);
+  el.style.minHeight = '0';
+  setTimeout(function() { ta.focus(); }, 30);
+  var committed = false;
+  function commit() {
+    if (committed) return; committed = true;
+    var val = ta.value.trim();
+    if (val) {
+      var existing = (rtLyricEdits[partId] || '').replace(/\n+$/, '');
+      rtLyricEdits[partId] = existing ? existing + '\n' + val : val;
+      var hidden = document.getElementById('illyricsedit-' + partId);
+      if (hidden) hidden.value = rtLyricEdits[partId];
+      ilRefreshPartView(partId); ilScheduleSave();
+    } else {
+      ta.remove();
+      el.style.minHeight = '';
+    }
+  }
+  ta.addEventListener('blur', function() { setTimeout(commit, 80); });
+  ta.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit(); }
+  });
 }
 
 function ilBuildAddOptions() {
@@ -41372,7 +41422,7 @@ function buildMixerChannels(song, mix) {
   ];
   var _drumBgTint = 'rgba(232,116,154,0.10)'; // shared rose tint for all drum channels
   return [
-    // Vox 1–4 (live mirror of 4-track)
+    // ── Row 1: 4-Track ──
     ...[0,1,2,3].map(function(i) {
       return {
         id: 'v'+(i+1),
@@ -41386,27 +41436,28 @@ function buildMixerChannels(song, mix) {
         channelKey: 'mt'+i, source: 'fourtrack', mtIndex: i,
       };
     }),
-    // Sequencer bus channels
+    // ── Row 2: Instrument buses ──
+    { id:'drums',  name:'Drums',  kind:'bus',    color:'#e8749a', bgTint: _drumBgTint,
+      level: mix.drumsVol  !== undefined ? parseFloat(mix.drumsVol)  : 0.82,
+      pan:   mix.drumsPan  !== undefined ? parseFloat(mix.drumsPan)  : 0,
+      mute:!!mix.drumsMute,  solo:!!mix.drumsSolo,  channelKey:'drums'  },
     { id:'chords', name:'Chords', kind:'track',  color:'#785aa0', bgTint:'rgba(120,90,160,0.12)',
       colorTagHtml:'<div class="mix-color-tag" style="background:linear-gradient(90deg,#1a1520 20%,#e8ddd0 20%,#e8ddd0 40%,#1a1520 40%,#1a1520 60%,#e8ddd0 60%,#e8ddd0 80%,#1a1520 80%)"></div>',
       level: mix.chordsVol !== undefined ? parseFloat(mix.chordsVol) : 0.8,  mute:!!mix.chordsMute, solo:!!mix.chordsSolo, channelKey:'chords' },
     { id:'melody', name:'Keys',   kind:'track',  color:'#f5a623', bgTint:'rgba(245,166,35,0.10)',
       level: mix.melodyVol !== undefined ? parseFloat(mix.melodyVol) : 0.8,  mute:!!mix.melodyMute, solo:!!mix.melodySolo, channelKey:'melody' },
-    { id:'drums',  name:'Drums',  kind:'bus',    color:'#e8749a', bgTint: _drumBgTint,
-      level: mix.drumsVol  !== undefined ? parseFloat(mix.drumsVol)  : 0.82, mute:!!mix.drumsMute,  solo:!!mix.drumsSolo,  channelKey:'drums'  },
-    // Drum sub-channels (all share rose tint)
-    { id:'kick',   name:'Kick',   kind:'drumchild', color:'#e8749a', bgTint: _drumBgTint, level: mix.kickVol  !== undefined ? parseFloat(mix.kickVol)  : 0.88, mute:!!mix.kickMute,  solo:!!mix.kickSolo,  parent:'drums', channelKey:'kick'  },
-    { id:'snare',  name:'Snare',  kind:'drumchild', color:'#e8749a', bgTint: _drumBgTint, level: mix.snareVol !== undefined ? parseFloat(mix.snareVol) : 0.85, mute:!!mix.snareMute, solo:!!mix.snareSolo, parent:'drums', channelKey:'snare' },
-    { id:'hat',    name:'Hats',   kind:'drumchild', color:'#e8749a', bgTint: _drumBgTint, level: mix.hatVol   !== undefined ? parseFloat(mix.hatVol)   : 0.7,  mute:!!mix.hatMute,   solo:!!mix.hatSolo,   parent:'drums', channelKey:'hat'   },
-    { id:'perc',   name:'Perc',   kind:'drumchild', color:'#e8749a', bgTint: _drumBgTint, level: mix.percVol  !== undefined ? parseFloat(mix.percVol)  : 0.75, mute:!!mix.percMute,  solo:!!mix.percSolo,  parent:'drums', channelKey:'perc'  },
-    // Metronome
-    { id:'metro', name:'Metro', kind:'track', color:'#b0b8c8', bgTint:'rgba(176,184,200,0.08)', level: mix.metroVol !== undefined ? parseFloat(mix.metroVol) : 0.8, mute:!!mix.metroMute, solo:false, channelKey:'metro', noSolo: true },
-    // Masters
-    { id:'seqmaster',  name:'Seq Master', kind:'master', color:'#f5a623', level: song?.sequencer?.masterVol ?? 1.0, source:'seqmaster'  },
     { id:'loopmaster', name:'Looper',     kind:'master', color:'#64dcb4',
       colorTagHtml:'<div class="mix-color-tag" style="background:transparent;display:flex;align-items:center;justify-content:center;height:4px"><svg width="20" height="4" viewBox="0 0 20 4"><circle cx="4" cy="2" r="1.5" fill="none" stroke="#ff6b9d" stroke-width="0.8"/><circle cx="8" cy="2" r="1.5" fill="none" stroke="#6bc5ff" stroke-width="0.8"/><circle cx="12" cy="2" r="1.5" fill="none" stroke="#a5ff6b" stroke-width="0.8"/><circle cx="16" cy="2" r="1.5" fill="none" stroke="#ffb86b" stroke-width="0.8"/></svg></div>',
       level: song?.loopMixer?.masterVol ?? 1.0, source:'loopmaster' },
+    // ── Row 3: Masters ──
+    { id:'seqmaster',  name:'Seq Master', kind:'master', color:'#f5a623', level: song?.sequencer?.masterVol ?? 1.0, source:'seqmaster'  },
+    { id:'metro', name:'Metro', kind:'track', color:'#b0b8c8', bgTint:'rgba(176,184,200,0.08)', level: mix.metroVol !== undefined ? parseFloat(mix.metroVol) : 0.5, mute:!!mix.metroMute, solo:false, channelKey:'metro', noSolo: true },
     { id:'main',       name:'Main',       kind:'master', color:'#eeeef5', level: song?.mixer?.mainVol       ?? 1.0, source:'mainmaster' },
+    // ── Row 4: Drum sub-channels (panned for stereo spread) ──
+    { id:'kick',   name:'Kick',   kind:'drumchild', color:'#e8749a', bgTint: _drumBgTint, level: mix.kickVol  !== undefined ? parseFloat(mix.kickVol)  : 0.90, pan: mix.kickPan  !== undefined ? parseFloat(mix.kickPan)  : 0,     mute:!!mix.kickMute,  solo:!!mix.kickSolo,  parent:'drums', channelKey:'kick'  },
+    { id:'snare',  name:'Snare',  kind:'drumchild', color:'#e8749a', bgTint: _drumBgTint, level: mix.snareVol !== undefined ? parseFloat(mix.snareVol) : 0.85, pan: mix.snarePan !== undefined ? parseFloat(mix.snarePan) : -0.08, mute:!!mix.snareMute, solo:!!mix.snareSolo, parent:'drums', channelKey:'snare' },
+    { id:'hat',    name:'Hats',   kind:'drumchild', color:'#e8749a', bgTint: _drumBgTint, level: mix.hatVol   !== undefined ? parseFloat(mix.hatVol)   : 0.65, pan: mix.hatPan   !== undefined ? parseFloat(mix.hatPan)   : 0.35,  mute:!!mix.hatMute,   solo:!!mix.hatSolo,   parent:'drums', channelKey:'hat'   },
+    { id:'perc',   name:'Perc',   kind:'drumchild', color:'#e8749a', bgTint: _drumBgTint, level: mix.percVol  !== undefined ? parseFloat(mix.percVol)  : 0.70, pan: mix.percPan  !== undefined ? parseFloat(mix.percPan)  : -0.30, mute:!!mix.percMute,  solo:!!mix.percSolo,  parent:'drums', channelKey:'perc'  },
   ];
 }
 
@@ -41481,15 +41532,8 @@ function _mixRenderStripHtml(c) {
     + '<div class="mix-fader-db">' + _mixDbLabel(faderPct) + '</div>'
     + '</div>';
 
-  // Meter (segmented)
-  var segs = '';
-  for (var si = 0; si < 16; si++) {
-    var segClass = 'mix-seg';
-    if (si >= 14) segClass += ' mix-seg-hot';
-    else if (si >= 11) segClass += ' mix-seg-warn';
-    segs += '<div class="' + segClass + '" data-i="' + si + '"></div>';
-  }
-  faderHtml += '<div class="mix-meter mix-segmented" data-meter>' + segs + '</div>';
+  // Meter (gradient fill)
+  faderHtml += '<div class="mix-meter mix-gradient" data-meter><div class="mix-gfill"></div></div>';
   faderHtml += '</div>'; // close mix-fader-zone
 
   var bgStyle = c.bgTint ? ' style="background:' + c.bgTint + '"' : '';
@@ -41991,14 +42035,17 @@ function _mixSetMeterLevel(stripEl, level) {
   if (!stripEl) return;
   var meter = stripEl.querySelector('[data-meter]');
   if (!meter) return;
+  var fill = meter.querySelector('.mix-gfill');
+  if (fill) {
+    fill.style.setProperty('--level', Math.min(100, Math.round(level * 100)) + '%');
+    return;
+  }
+  // Legacy segmented fallback
   var segs = meter.querySelectorAll('.mix-seg');
   var litCount = Math.round(level * segs.length);
   for (var i = 0; i < segs.length; i++) {
-    if (i < litCount) {
-      segs[i].classList.add('mix-seg-on');
-    } else {
-      segs[i].classList.remove('mix-seg-on');
-    }
+    if (i < litCount) segs[i].classList.add('mix-seg-on');
+    else segs[i].classList.remove('mix-seg-on');
   }
 }
 
@@ -42032,10 +42079,12 @@ function _mixMeterRAF() {
 
   // Vox 1–4 — reuse existing 4-track analysers (+ mic input for armed track)
   var _isArmed = (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack >= 0);
+  var _seqActive = (typeof _mtSeqActiveTracks !== 'undefined') ? _mtSeqActiveTracks : new Set();
   for (var vi = 0; vi < 4; vi++) {
     var vStrip = document.querySelector('.mix-strip[data-id="v' + (vi+1) + '"]');
     if (!vStrip) continue;
     var vRms = 0;
+    var _trackActive = isPlaying || _seqActive.has(vi);
     // Armed track: use mic input analyser for live VU
     if (_isArmed && vi === _mtArmedTrack && typeof _vuAnalyser !== 'undefined' && _vuAnalyser && typeof _vuActive !== 'undefined' && _vuActive) {
       if (!_mixMicBuf || _mixMicBuf.length < _vuAnalyser.fftSize) {
@@ -42049,7 +42098,7 @@ function _mixMeterRAF() {
       // Playing track: use 4-track analyser
       var vAn = (typeof _ftAnalysers !== 'undefined') ? _ftAnalysers[vi] : null;
       if (!vAn && typeof _ftEnsureAnalyser === 'function') vAn = _ftEnsureAnalyser(vi);
-      vRms = (isPlaying && vAn) ? _mixMeterRMS(vAn) : 0;
+      vRms = (_trackActive && vAn) ? _mixMeterRMS(vAn) : 0;
     }
     _mixSetMeterLevel(vStrip, Math.min(1, vRms * 3.5));
   }
