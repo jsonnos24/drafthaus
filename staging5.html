@@ -21616,7 +21616,9 @@ function seqApplyMixer() {
   const now = seqAudioCtx.currentTime;
 
   // ── Tier 1: Bus-level solo (global — drums/chords/melody) ──
-  const busSoloChannel = ['drums','chords','melody'].find(c => mix[c + 'Solo']);
+  // If any drum sub-channel is soloed, treat Drums bus as implicitly soloed
+  const drumSubHasSolo = ['kick','snare','hat','perc'].some(c => mix[c + 'Solo']);
+  const busSoloChannel = ['drums','chords','melody'].find(c => mix[c + 'Solo']) || (drumSubHasSolo ? 'drums' : null);
   [
     [seqChordsGain, 'chords'],
     [seqDrumsGain,  'drums'],
@@ -21625,7 +21627,7 @@ function seqApplyMixer() {
     if (!gainNode) return;
     const vol    = mix[ch + 'Vol'] !== undefined ? parseFloat(mix[ch + 'Vol']) : 0.8;
     const muted  = !!(mix[ch + 'Mute']);
-    const soloed = !!(mix[ch + 'Solo']);
+    const soloed = !!(mix[ch + 'Solo']) || (ch === 'drums' && drumSubHasSolo);
     const active = busSoloChannel ? soloed : !muted;
     gainNode.gain.cancelScheduledValues(now);
     gainNode.gain.setTargetAtTime(active ? vol : 0, now, 0.015);
