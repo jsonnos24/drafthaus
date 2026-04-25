@@ -41314,16 +41314,7 @@ function _mixLog(category, msg, data) {
   if (data !== undefined) console.log(prefix, msg, data);
   else console.log(prefix, msg);
 }
-// Shift+D toggles debug while mixer is open
-document.addEventListener('keydown', function(e) {
-  if (e.shiftKey && e.key === 'D') {
-    var mixOpen = document.getElementById('mixDrawer')?.classList.contains('open');
-    if (mixOpen) {
-      MIX_DEBUG = !MIX_DEBUG;
-      console.log('[MIX] Debug ' + (MIX_DEBUG ? 'ON' : 'OFF'));
-    }
-  }
-});
+// Shift+D now toggles the live audio debug panel (see audioDebug() below)
 
 // ═══════════════════════════════════════════════════════════════
 // ── MAIN MASTER (simulated unified fader) ─────────────────────
@@ -42402,6 +42393,284 @@ openMixDrawer = function() {
     setTimeout(function() { mixDebugDump(); }, 100);
   }
 };
+
+// ═══════════════════════════════════════════════════════════════
+// ── LIVE AUDIO DEBUG PANEL — toggle via Shift+D or audioDebug() ─
+// ═══════════════════════════════════════════════════════════════
+var _audioDebugOpen = false;
+var _audioDebugRafId = null;
+
+window.audioDebug = function() {
+  _audioDebugOpen = !_audioDebugOpen;
+  var panel = document.getElementById('audioDebugPanel');
+  if (_audioDebugOpen) {
+    if (!panel) _audioDebugCreatePanel();
+    document.getElementById('audioDebugPanel').style.display = 'block';
+    _audioDebugTick();
+    console.log('[AUDIO-DEBUG] Panel ON');
+  } else {
+    if (panel) panel.style.display = 'none';
+    if (_audioDebugRafId) { cancelAnimationFrame(_audioDebugRafId); _audioDebugRafId = null; }
+    console.log('[AUDIO-DEBUG] Panel OFF');
+  }
+};
+
+function _audioDebugCreatePanel() {
+  var el = document.createElement('div');
+  el.id = 'audioDebugPanel';
+  el.style.cssText = 'position:fixed;top:8px;right:8px;width:380px;max-height:90vh;overflow-y:auto;'
+    + 'background:rgba(10,10,14,0.95);border:1px solid #333;border-radius:8px;padding:10px 12px;'
+    + 'font:11px/1.45 "IBM Plex Mono",monospace;color:#c8c8d0;z-index:99999;'
+    + 'box-shadow:0 8px 30px rgba(0,0,0,.7);backdrop-filter:blur(8px);'
+    + 'pointer-events:auto;user-select:text;';
+  el.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+    + '<span style="font-weight:700;color:#C8A06E;letter-spacing:.1em">AUDIO DEBUG</span>'
+    + '<button onclick="audioDebug()" style="background:none;border:1px solid #444;color:#888;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:10px">✕</button>'
+    + '</div>'
+    + '<div id="audioDebugContent"></div>';
+  document.body.appendChild(el);
+  // Make draggable
+  var hdr = el.querySelector('span');
+  var dx = 0, dy = 0, ox = 0, oy = 0;
+  hdr.style.cursor = 'grab';
+  hdr.addEventListener('mousedown', function(e) {
+    ox = e.clientX; oy = e.clientY;
+    var onM = function(ev) {
+      dx = ev.clientX - ox; dy = ev.clientY - oy; ox = ev.clientX; oy = ev.clientY;
+      el.style.top = (el.offsetTop + dy) + 'px';
+      el.style.right = 'auto';
+      el.style.left = (el.offsetLeft + dx) + 'px';
+    };
+    var onU = function() { document.removeEventListener('mousemove', onM); document.removeEventListener('mouseup', onU); };
+    document.addEventListener('mousemove', onM);
+    document.addEventListener('mouseup', onU);
+  });
+}
+
+function _audioDebugTick() {
+  if (!_audioDebugOpen) return;
+  var el = document.getElementById('audioDebugContent');
+  if (!el) return;
+
+  var h = '';
+  var _g = function(v) { return v !== null && v !== undefined ? v.toFixed(4) : '—'; };
+  var _c = function(ok) { return ok ? '#3DC982' : '#E8496B'; };
+  var _dot = function(ok) { return '<span style="color:' + _c(ok) + '">●</span> '; };
+
+  // ── 1. Audio Contexts ──
+  h += '<div style="color:#6BC5FF;font-weight:700;margin:6px 0 2px">CONTEXTS</div>';
+  var ctxs = [
+    { name: '4-Track', ref: typeof _mtAudioCtx !== 'undefined' ? _mtAudioCtx : null },
+    { name: 'Sequencer', ref: typeof seqAudioCtx !== 'undefined' ? seqAudioCtx : null },
+    { name: 'Looper', ref: typeof loopAudioCtx !== 'undefined' ? loopAudioCtx : null },
+  ];
+  ctxs.forEach(function(c) {
+    if (c.ref) {
+      var st = c.ref.state;
+      h += _dot(st === 'running') + c.name + ': <span style="color:' + (st === 'running' ? '#3DC982' : st === 'suspended' ? '#C8A06E' : '#E8496B') + '">' + st + '</span>'
+        + ' ' + c.ref.sampleRate + 'Hz'
+        + ' t=' + c.ref.currentTime.toFixed(1) + 's<br>';
+    } else {
+      h += _dot(false) + c.name + ': <span style="color:#555">not created</span><br>';
+    }
+  });
+
+  // ── 2. Playback State ──
+  h += '<div style="color:#6BC5FF;font-weight:700;margin:8px 0 2px">PLAYBACK</div>';
+  var seqPlaying = typeof seqIsPlaying !== 'undefined' && seqIsPlaying;
+  var mtPlaying = typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying;
+  var seqMode = typeof _seqPlayMode !== 'undefined' ? _seqPlayMode : '?';
+  var loopPlaying = typeof loopIsPlaying !== 'undefined' && loopIsPlaying;
+  h += _dot(seqPlaying) + 'Seq: ' + (seqPlaying ? '<span style="color:#3DC982">PLAYING</span> (' + seqMode + ')' : 'stopped') + '<br>';
+  h += _dot(mtPlaying) + '4-Track: ' + (mtPlaying ? '<span style="color:#3DC982">PLAYING</span>' : 'stopped');
+  if (typeof _mtSeqActiveTracks !== 'undefined' && _mtSeqActiveTracks.size > 0) {
+    h += ' seq-linked=[' + Array.from(_mtSeqActiveTracks).join(',') + ']';
+  }
+  h += '<br>';
+  h += _dot(loopPlaying) + 'Looper: ' + (loopPlaying ? '<span style="color:#3DC982">PLAYING</span>' : 'stopped') + '<br>';
+  if (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack >= 0) {
+    h += '<span style="color:#E8496B">● REC ARMED: Track ' + (_mtArmedTrack + 1) + '</span>';
+    if (typeof _vrRecording !== 'undefined' && _vrRecording) h += ' <span style="color:#E8496B;font-weight:700">⏺ RECORDING</span>';
+    h += '<br>';
+  }
+
+  // ── 3. Master Gains ──
+  h += '<div style="color:#6BC5FF;font-weight:700;margin:8px 0 2px">MASTER GAINS</div>';
+  var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+  var mainVol = song?.mixer?.mainVol ?? 1;
+  h += '<table style="border-collapse:collapse;width:100%;font-size:10px">';
+  h += '<tr style="color:#666"><td>Node</td><td>Stored</td><td>Actual</td><td>Δ</td></tr>';
+  var masters = [
+    { name: 'Main',     stored: mainVol, node: typeof _mtMasterGain !== 'undefined' ? _mtMasterGain : null },
+    { name: 'SeqMaster', stored: (song?.sequencer?.masterVol ?? 1) * mainVol, node: typeof seqMasterGain !== 'undefined' ? seqMasterGain : null },
+    { name: 'LoopMaster', stored: (song?.loopMixer?.masterVol ?? 1) * mainVol, node: typeof loopMasterGain !== 'undefined' ? loopMasterGain : null },
+  ];
+  masters.forEach(function(m) {
+    var actual = m.node ? m.node.gain.value : null;
+    var delta = actual !== null ? Math.abs(actual - m.stored) : null;
+    var ok = delta !== null && delta < 0.01;
+    h += '<tr><td>' + m.name + '</td><td>' + m.stored.toFixed(3) + '</td><td>'
+      + (actual !== null ? actual.toFixed(4) : '—') + '</td>'
+      + '<td style="color:' + (ok ? '#3DC982' : (actual === null ? '#555' : '#E8496B')) + '">'
+      + (delta !== null ? (ok ? '✓' : delta.toFixed(4)) : '—') + '</td></tr>';
+  });
+  h += '</table>';
+
+  // ── 4. Channel Gains (4-track) ──
+  h += '<div style="color:#6BC5FF;font-weight:700;margin:8px 0 2px">4-TRACK CHANNELS</div>';
+  var mt = window._mtTracks || [];
+  if (mt.length) {
+    h += '<table style="border-collapse:collapse;width:100%;font-size:10px">';
+    h += '<tr style="color:#666"><td>Ch</td><td>Vol</td><td>Gain</td><td>Pan</td><td>M</td><td>S</td><td>NG</td><td>Buf</td></tr>';
+    mt.forEach(function(t, i) {
+      if (!t) { h += '<tr><td>T' + (i+1) + '</td><td colspan="7" style="color:#555">null</td></tr>'; return; }
+      var gv = t.gainNode ? t.gainNode.gain.value.toFixed(3) : '—';
+      var pv = t.panNode ? (t.panNode.pan.value * 100).toFixed(0) : '—';
+      h += '<tr>'
+        + '<td style="color:' + (t.color || '#888') + '">T' + (i+1) + '</td>'
+        + '<td>' + t.volume + '</td>'
+        + '<td>' + gv + '</td>'
+        + '<td>' + pv + '</td>'
+        + '<td style="color:' + (t.muted ? '#E8496B' : '#555') + '">' + (t.muted ? 'M' : '·') + '</td>'
+        + '<td style="color:' + (t.soloed ? '#C8A06E' : '#555') + '">' + (t.soloed ? 'S' : '·') + '</td>'
+        + '<td style="color:' + (t.noiseGate !== false ? '#3DC982' : '#555') + '">' + (t.noiseGate !== false ? 'G' : '·') + '</td>'
+        + '<td>' + (t.buffer ? t.buffer.duration.toFixed(1) + 's' : '—') + '</td>'
+        + '</tr>';
+    });
+    h += '</table>';
+  } else {
+    h += '<span style="color:#555">_mtTracks empty</span><br>';
+  }
+
+  // ── 5. Seq Bus Channels ──
+  h += '<div style="color:#6BC5FF;font-weight:700;margin:8px 0 2px">SEQ BUS CHANNELS</div>';
+  var mix = song?.sequencer?.mixer || {};
+  h += '<table style="border-collapse:collapse;width:100%;font-size:10px">';
+  h += '<tr style="color:#666"><td>Ch</td><td>Vol</td><td>Gain</td><td>M</td><td>S</td></tr>';
+  var seqBuses = [
+    { name:'Drums', key:'drums', node: typeof seqDrumsGain !== 'undefined' ? seqDrumsGain : null },
+    { name:'Chords', key:'chords', node: typeof seqChordsGain !== 'undefined' ? seqChordsGain : null },
+    { name:'Keys', key:'melody', node: typeof seqMelodyGain !== 'undefined' ? seqMelodyGain : null },
+    { name:'Metro', key:'metro', node: typeof seqMetroGain !== 'undefined' ? seqMetroGain : null },
+  ];
+  seqBuses.forEach(function(c) {
+    var vol = mix[c.key + 'Vol'] !== undefined ? parseFloat(mix[c.key + 'Vol']) : 0.8;
+    var gv = c.node ? c.node.gain.value.toFixed(3) : '—';
+    var m = !!mix[c.key + 'Mute'];
+    var s = !!mix[c.key + 'Solo'];
+    h += '<tr><td>' + c.name + '</td><td>' + vol.toFixed(2) + '</td><td>' + gv + '</td>'
+      + '<td style="color:' + (m ? '#E8496B' : '#555') + '">' + (m ? 'M' : '·') + '</td>'
+      + '<td style="color:' + (s ? '#C8A06E' : '#555') + '">' + (s ? 'S' : '·') + '</td></tr>';
+  });
+  h += '</table>';
+
+  // ── 6. Drum Sub-channels ──
+  h += '<div style="color:#6BC5FF;font-weight:700;margin:8px 0 2px">DRUM SUB-CHANNELS</div>';
+  h += '<table style="border-collapse:collapse;width:100%;font-size:10px">';
+  h += '<tr style="color:#666"><td>Ch</td><td>Vol</td><td>Gain</td><td>Pan</td><td>M</td><td>S</td></tr>';
+  var drumSubs = [
+    { name:'Kick',  key:'kick',  node: typeof seqKickGain  !== 'undefined' ? seqKickGain  : null, panNode: typeof seqKickPan  !== 'undefined' ? seqKickPan  : null },
+    { name:'Snare', key:'snare', node: typeof seqSnareGain !== 'undefined' ? seqSnareGain : null, panNode: typeof seqSnarePan !== 'undefined' ? seqSnarePan : null },
+    { name:'Hats',  key:'hat',   node: typeof seqHatGain   !== 'undefined' ? seqHatGain   : null, panNode: typeof seqHatPan   !== 'undefined' ? seqHatPan   : null },
+    { name:'Perc',  key:'perc',  node: typeof seqPercGain  !== 'undefined' ? seqPercGain  : null, panNode: typeof seqPercPan  !== 'undefined' ? seqPercPan  : null },
+  ];
+  drumSubs.forEach(function(c) {
+    var vol = mix[c.key + 'Vol'] !== undefined ? parseFloat(mix[c.key + 'Vol']) : 0.8;
+    var gv = c.node ? c.node.gain.value.toFixed(3) : '—';
+    var pv = c.panNode ? (c.panNode.pan.value * 100).toFixed(0) : '—';
+    var m = !!mix[c.key + 'Mute']; var s = !!mix[c.key + 'Solo'];
+    h += '<tr><td>' + c.name + '</td><td>' + vol.toFixed(2) + '</td><td>' + gv + '</td><td>' + pv + '</td>'
+      + '<td style="color:' + (m ? '#E8496B' : '#555') + '">' + (m ? 'M' : '·') + '</td>'
+      + '<td style="color:' + (s ? '#C8A06E' : '#555') + '">' + (s ? 'S' : '·') + '</td></tr>';
+  });
+  h += '</table>';
+
+  // ── 7. Analyser Nodes ──
+  h += '<div style="color:#6BC5FF;font-weight:700;margin:8px 0 2px">ANALYSERS</div>';
+  var anKeys = ['drums','chords','melody','kick','snare','hat','perc','master'];
+  var anParts = [];
+  anKeys.forEach(function(k) {
+    var an = _mixSeqAnalysers ? _mixSeqAnalysers[k] : null;
+    anParts.push('<span style="color:' + (an ? '#3DC982' : '#555') + '">' + k + (an ? '✓' : '✗') + '</span>');
+  });
+  h += 'Seq: ' + anParts.join(' ') + '<br>';
+  var ftAnParts = [];
+  for (var fi = 0; fi < 4; fi++) {
+    var ftAn = (typeof _ftAnalysers !== 'undefined') ? _ftAnalysers[fi] : null;
+    ftAnParts.push('<span style="color:' + (ftAn ? '#3DC982' : '#555') + '">T' + (fi+1) + (ftAn ? '✓' : '✗') + '</span>');
+  }
+  h += '4-Tk: ' + ftAnParts.join(' ') + '<br>';
+
+  // ── 8. Mixer UI Sync ──
+  h += '<div style="color:#6BC5FF;font-weight:700;margin:8px 0 2px">MIXER UI ↔ DATA</div>';
+  var strips = document.querySelectorAll('#mixDesk .mix-strip');
+  if (strips.length) {
+    var issues = 0;
+    strips.forEach(function(strip) {
+      var id = strip.dataset.id || '?';
+      var src = strip.dataset.source || '';
+      var key = strip.dataset.channelKey || '';
+      var mtIdx = strip.dataset.mtIndex !== undefined ? parseInt(strip.dataset.mtIndex, 10) : -1;
+      var faderW = strip.querySelector('[data-fader]');
+      var uiLvl = faderW ? parseFloat(faderW.dataset.level || 0) : null;
+
+      var dataVol = null;
+      if (src === 'fourtrack' && mtIdx >= 0 && mt[mtIdx]) {
+        dataVol = (mt[mtIdx].volume || 0) / 100;
+      } else if (key) {
+        dataVol = mix[key + 'Vol'] !== undefined ? parseFloat(mix[key + 'Vol']) : 0.8;
+      }
+
+      if (uiLvl !== null && dataVol !== null && Math.abs(uiLvl - dataVol) > 0.02) {
+        issues++;
+        h += '<span style="color:#E8496B">⚠ ' + id + ' fader=' + uiLvl.toFixed(2) + ' data=' + dataVol.toFixed(2) + '</span><br>';
+      }
+    });
+    if (!issues) h += '<span style="color:#3DC982">✓ All ' + strips.length + ' strips synced</span><br>';
+  } else {
+    h += '<span style="color:#555">Mixer not rendered</span><br>';
+  }
+
+  // ── 9. Meter Activity ──
+  h += '<div style="color:#6BC5FF;font-weight:700;margin:8px 0 2px">METER ACTIVITY</div>';
+  h += 'RAF running: ' + (_dot(!!_mixMeterRafId)) + (!!_mixMeterRafId ? 'yes' : 'no') + '<br>';
+  var meterCols = document.querySelectorAll('#mixDesk .mix-gfill');
+  var activeMeterCount = 0;
+  meterCols.forEach(function(mf) {
+    var val = getComputedStyle(mf).getPropertyValue('--meter-pos');
+    if (val && parseInt(val) > 0) activeMeterCount++;
+  });
+  h += 'Active meters: ' + activeMeterCount + '/' + meterCols.length + '<br>';
+
+  // ── 10. Mic / Recording ──
+  h += '<div style="color:#6BC5FF;font-weight:700;margin:8px 0 2px">MIC / INPUT</div>';
+  var micStream = typeof _mtStream !== 'undefined' ? _mtStream : null;
+  var vuStream = typeof _vuStream !== 'undefined' ? _vuStream : null;
+  h += 'Mic stream: ' + (micStream ? _dot(micStream.active) + (micStream.active ? 'active' : 'ended') : '<span style="color:#555">none</span>') + '<br>';
+  h += 'VU stream: ' + (vuStream ? _dot(vuStream.active) + (vuStream.active ? 'active' : 'ended') : '<span style="color:#555">none</span>') + '<br>';
+  if (micStream && vuStream) {
+    h += 'Shared: ' + (micStream.id === vuStream.id ? '<span style="color:#3DC982">yes</span>' : '<span style="color:#C8A06E">no (dual)</span>') + '<br>';
+  }
+
+  // timestamp
+  h += '<div style="color:#444;margin-top:6px;font-size:9px">Updated: ' + new Date().toLocaleTimeString() + '</div>';
+
+  el.innerHTML = h;
+  _audioDebugRafId = requestAnimationFrame(_audioDebugTick);
+}
+
+// Upgrade Shift+D: toggle debug panel instead of just console flag
+(function() {
+  var _origShiftD = null;
+  document.addEventListener('keydown', function(e) {
+    if (e.shiftKey && e.key === 'D' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Don't trigger if typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+      e.preventDefault();
+      audioDebug();
+    }
+  }, true); // capture phase to beat the old listener
+})();
 
 // Double-click any mix slider to return it to unity (100)
 function mixResetToUnity(sliderId, applyFn, unityVal) {
