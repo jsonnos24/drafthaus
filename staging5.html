@@ -5035,7 +5035,7 @@ button, select, input, textarea { touch-action: manipulation; }
   @media (max-width: 768px) {
 
     /* Drawer chrome — full-screen sheet */
-    .mix-desk{width:100vw;padding:12px 14px 24px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+    .mix-desk{width:100vw;padding:12px 16px 300px;overflow-y:auto;-webkit-overflow-scrolling:touch;box-sizing:border-box}
     .mix-header-rail{position:sticky;top:0;z-index:5;padding:12px 16px;background:var(--panel,#16161A);border-bottom:1px solid var(--border,#2a2a33)}
 
     /* Row group — single-column stack, keep accent rail + label */
@@ -42671,6 +42671,324 @@ function _audioDebugTick() {
     }
   }, true); // capture phase to beat the old listener
 })();
+
+// ══════════════════════════════════════════════════════════════════
+// VISUAL SIGNAL CHAIN DEBUGGER — toggle via Shift+V or signalChain()
+// ══════════════════════════════════════════════════════════════════
+var _sigChainOpen = false;
+var _sigChainRafId = null;
+
+window.signalChain = function() {
+  _sigChainOpen = !_sigChainOpen;
+  var panel = document.getElementById('sigChainPanel');
+  if (_sigChainOpen) {
+    if (!panel) _sigChainCreatePanel();
+    document.getElementById('sigChainPanel').style.display = 'block';
+    _sigChainTick();
+    console.log('[SIGNAL-CHAIN] Panel ON');
+  } else {
+    if (panel) panel.style.display = 'none';
+    if (_sigChainRafId) { cancelAnimationFrame(_sigChainRafId); _sigChainRafId = null; }
+    console.log('[SIGNAL-CHAIN] Panel OFF');
+  }
+};
+
+function _sigChainCreatePanel() {
+  var el = document.createElement('div');
+  el.id = 'sigChainPanel';
+  el.style.cssText = 'position:fixed;top:40px;left:40px;width:720px;max-width:95vw;max-height:85vh;'
+    + 'background:#0c0c10;border:1px solid #C8A06E;border-radius:10px;z-index:99999;'
+    + 'box-shadow:0 8px 40px rgba(0,0,0,.85);overflow:auto;font-family:"IBM Plex Mono",monospace;'
+    + 'font-size:10px;color:#ccc;user-select:none;';
+  // Drag bar
+  el.innerHTML = '<div id="sigChainDragBar" style="display:flex;align-items:center;justify-content:space-between;'
+    + 'padding:8px 14px;background:#111116;border-bottom:1px solid #2a2a33;cursor:grab;border-radius:10px 10px 0 0">'
+    + '<span style="font-weight:700;color:#C8A06E;letter-spacing:.15em;font-size:11px">⛓ SIGNAL CHAIN</span>'
+    + '<div style="display:flex;gap:8px;align-items:center">'
+    + '<span id="sigChainCtxIndicator" style="font-size:9px;color:#666"></span>'
+    + '<button onclick="signalChain()" style="background:none;border:1px solid #444;color:#888;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:10px">✕</button>'
+    + '</div></div>'
+    + '<div id="sigChainContent" style="padding:12px 14px"></div>';
+  document.body.appendChild(el);
+
+  // Make draggable
+  var bar = document.getElementById('sigChainDragBar');
+  var dragging = false, dx = 0, dy = 0;
+  bar.addEventListener('pointerdown', function(e) {
+    dragging = true; dx = e.clientX - el.offsetLeft; dy = e.clientY - el.offsetTop;
+    bar.style.cursor = 'grabbing'; bar.setPointerCapture(e.pointerId);
+  });
+  bar.addEventListener('pointermove', function(e) {
+    if (!dragging) return;
+    el.style.left = (e.clientX - dx) + 'px'; el.style.top = (e.clientY - dy) + 'px';
+  });
+  bar.addEventListener('pointerup', function() { dragging = false; bar.style.cursor = 'grab'; });
+}
+
+function _sigGainDb(gainNode) {
+  if (!gainNode) return '-∞';
+  var v = gainNode.gain ? gainNode.gain.value : 0;
+  if (v < 0.0001) return '-∞';
+  return (20 * Math.log10(v)).toFixed(1);
+}
+
+function _sigAnalyserRMS(analyser) {
+  if (!analyser) return 0;
+  try {
+    var buf = new Float32Array(analyser.fftSize || 256);
+    analyser.getFloatTimeDomainData(buf);
+    var sum = 0;
+    for (var i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    return Math.sqrt(sum / buf.length);
+  } catch(e) { return 0; }
+}
+
+function _sigMeterBar(rms, width) {
+  width = width || 80;
+  var pct = Math.min(100, Math.round(rms * 350));
+  var color = pct > 80 ? '#E8496B' : pct > 55 ? '#C8A06E' : '#3DC982';
+  return '<div style="display:inline-block;width:' + width + 'px;height:6px;background:#1a1a22;border-radius:3px;vertical-align:middle;overflow:hidden;margin-left:6px">'
+    + '<div style="width:' + pct + '%;height:100%;background:' + color + ';border-radius:3px;transition:width 60ms"></div></div>';
+}
+
+function _sigStateTag(label, active, color) {
+  if (!active) return '<span style="color:#333;margin:0 1px">' + label + '</span>';
+  return '<span style="color:' + color + ';font-weight:700;margin:0 1px;text-shadow:0 0 4px ' + color + '">' + label + '</span>';
+}
+
+function _sigNodeRow(name, gainNode, analyser, opts) {
+  opts = opts || {};
+  var db = _sigGainDb(gainNode);
+  var rms = _sigAnalyserRMS(analyser);
+  var nameColor = opts.color || '#ccc';
+  var kindBadge = opts.kind ? '<span style="color:#555;font-size:8px;margin-left:4px">[' + opts.kind + ']</span>' : '';
+  var meterW = opts.meterWidth || 80;
+
+  // State tags
+  var stateHtml = '';
+  if (opts.muted !== undefined || opts.soloed !== undefined || opts.ng !== undefined) {
+    stateHtml = ' '
+      + _sigStateTag('M', opts.muted, '#E8496B')
+      + _sigStateTag('S', opts.soloed, '#C8A06E')
+      + (opts.ng !== undefined ? _sigStateTag('NG', opts.ng, '#3DC982') : '');
+  }
+
+  // Pan
+  var panHtml = '';
+  if (opts.pan !== undefined && opts.pan !== null) {
+    var panVal = typeof opts.pan === 'number' ? opts.pan : 0;
+    var panLabel = panVal === 0 ? 'C' : (panVal < 0 ? 'L' + Math.abs(Math.round(panVal * 100)) : 'R' + Math.round(panVal * 100));
+    panHtml = ' <span style="color:#666">P:</span><span style="color:#8888aa">' + panLabel + '</span>';
+  }
+
+  var dbColor = db === '-∞' ? '#444' : (parseFloat(db) > 0 ? '#E8496B' : '#8CD46E');
+
+  return '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #1a1a22">'
+    + '<span style="color:' + nameColor + ';font-weight:600;min-width:' + (opts.nameWidth || 80) + 'px">' + (opts.indent ? '└ ' : '') + name + kindBadge + '</span>'
+    + '<span style="color:' + dbColor + ';min-width:42px;text-align:right">' + db + ' dB</span>'
+    + _sigMeterBar(rms, meterW)
+    + '<span style="min-width:60px;font-size:9px">' + stateHtml + '</span>'
+    + '<span style="font-size:9px">' + panHtml + '</span>'
+    + '</div>';
+}
+
+function _sigSectionHeader(label, color, arrow) {
+  return '<div style="margin:10px 0 4px;padding:4px 8px;background:rgba(' + _sigHexToRgb(color) + ',.1);'
+    + 'border-left:3px solid ' + color + ';color:' + color + ';font-weight:700;font-size:10px;letter-spacing:.12em;'
+    + 'border-radius:0 4px 4px 0;display:flex;align-items:center;justify-content:space-between">'
+    + label
+    + (arrow ? '<span style="color:#555;font-size:9px">' + arrow + '</span>' : '')
+    + '</div>';
+}
+
+function _sigHexToRgb(hex) {
+  hex = hex.replace('#', '');
+  return parseInt(hex.substring(0,2),16) + ',' + parseInt(hex.substring(2,4),16) + ',' + parseInt(hex.substring(4,6),16);
+}
+
+function _sigChainTick() {
+  if (!_sigChainOpen) return;
+  var el = document.getElementById('sigChainContent');
+  if (!el) return;
+
+  var html = '';
+
+  // Context status indicators
+  var ctxInd = document.getElementById('sigChainCtxIndicator');
+  if (ctxInd) {
+    var ctxInfo = [];
+    if (typeof _mtAudioCtx !== 'undefined' && _mtAudioCtx) ctxInfo.push('4T:' + _mtAudioCtx.state);
+    if (typeof seqAudioCtx !== 'undefined' && seqAudioCtx) ctxInfo.push('SEQ:' + seqAudioCtx.state);
+    if (typeof loopAudioCtx !== 'undefined' && loopAudioCtx) ctxInfo.push('LOOP:' + (loopAudioCtx.state || '?'));
+    ctxInd.textContent = ctxInfo.join(' · ');
+  }
+
+  // ── 4-TRACK SIGNAL CHAIN ──
+  html += _sigSectionHeader('4-TRACK RECORDER', '#6BC5FF', '→ _mtMasterGain → destination');
+
+  // Individual tracks
+  if (typeof _mtTracks !== 'undefined' && _mtTracks) {
+    for (var i = 0; i < 4; i++) {
+      var t = _mtTracks[i];
+      if (!t) {
+        html += _sigNodeRow('Track ' + (i+1), null, null, {color: '#444', nameWidth: 70});
+        continue;
+      }
+      var ftAnalyser = (typeof _ftAnalysers !== 'undefined' && _ftAnalysers) ? _ftAnalysers[i] : null;
+      var panVal = t.panNode ? t.panNode.pan.value : (t.pan !== undefined ? t.pan / 100 : 0);
+      html += _sigNodeRow('Track ' + (i+1), t.gainNode, ftAnalyser, {
+        color: ['#ff6b9d','#6bc5ff','#a5ff6b','#ffb86b'][i],
+        muted: t.muted,
+        soloed: t.soloed,
+        ng: t.noiseGate,
+        pan: panVal,
+        kind: t.boostActive ? 'BOOST ×4' : null,
+        nameWidth: 70
+      });
+    }
+  }
+  // Master
+  html += _sigNodeRow('4T Master', typeof _mtMasterGain !== 'undefined' ? _mtMasterGain : null, null, {
+    color: '#6BC5FF', kind: 'master', nameWidth: 70, indent: false
+  });
+
+  // Arrow
+  html += '<div style="text-align:center;color:#333;font-size:14px;margin:2px 0">▼ destination</div>';
+
+  // ── SEQUENCER SIGNAL CHAIN ──
+  html += _sigSectionHeader('SEQUENCER', '#785AA0', '→ seqMasterGain → destination');
+
+  // Get mixer state from song if available
+  var mx = {};
+  if (typeof song !== 'undefined' && song && song.sequencer && song.sequencer.mixer) mx = song.sequencer.mixer;
+
+  // Drums bus
+  var drumsAnalyser = (typeof _mixSeqAnalysers !== 'undefined') ? _mixSeqAnalysers.drums : null;
+  html += _sigNodeRow('Drums Bus', typeof seqDrumsGain !== 'undefined' ? seqDrumsGain : null, drumsAnalyser, {
+    color: '#E8749A', kind: 'bus',
+    muted: mx.drumsMuted, soloed: mx.drumsSoloed,
+    nameWidth: 85
+  });
+
+  // Drum sub-channels
+  var drumVoices = [
+    { name: 'Kick',  gain: 'seqKickGain',  key: 'kick',  color: '#E8749A' },
+    { name: 'Snare', gain: 'seqSnareGain', key: 'snare', color: '#E8749A' },
+    { name: 'Hi-Hat', gain: 'seqHatGain',  key: 'hat',   color: '#E8749A' },
+    { name: 'Perc',  gain: 'seqPercGain',  key: 'perc',  color: '#E8749A' }
+  ];
+  drumVoices.forEach(function(dv) {
+    var gn = (typeof window[dv.gain] !== 'undefined') ? window[dv.gain] : null;
+    var an = (typeof _mixSeqAnalysers !== 'undefined') ? _mixSeqAnalysers[dv.key] : null;
+    html += _sigNodeRow(dv.name, gn, an, {
+      color: dv.color, indent: true, kind: 'sub',
+      muted: mx[dv.key + 'Muted'], soloed: mx[dv.key + 'Soloed'],
+      nameWidth: 85
+    });
+  });
+
+  // Chords
+  var chordsAnalyser = (typeof _mixSeqAnalysers !== 'undefined') ? _mixSeqAnalysers.chords : null;
+  html += _sigNodeRow('Chords', typeof seqChordsGain !== 'undefined' ? seqChordsGain : null, chordsAnalyser, {
+    color: '#c8a0ff', kind: 'bus',
+    muted: mx.chordsMuted, soloed: mx.chordsSoloed,
+    nameWidth: 85
+  });
+
+  // Melody/Keys
+  var melodyAnalyser = (typeof _mixSeqAnalysers !== 'undefined') ? _mixSeqAnalysers.melody : null;
+  html += _sigNodeRow('Keys', typeof seqMelodyGain !== 'undefined' ? seqMelodyGain : null, melodyAnalyser, {
+    color: '#80e0d0', kind: 'bus',
+    muted: mx.melodyMuted, soloed: mx.melodySoloed,
+    nameWidth: 85
+  });
+
+  // Metronome (bypasses master)
+  html += _sigNodeRow('Metronome', typeof seqMetroGain !== 'undefined' ? seqMetroGain : null, null, {
+    color: '#888', kind: 'bypass',
+    muted: mx.metMuted,
+    nameWidth: 85
+  });
+  html += '<div style="text-align:right;color:#555;font-size:8px;margin:-2px 0 4px">↗ direct to destination (bypasses master)</div>';
+
+  // Seq Master
+  var masterAnalyser = (typeof _mixSeqAnalysers !== 'undefined') ? _mixSeqAnalysers.master : null;
+  html += _sigNodeRow('Seq Master', typeof seqMasterGain !== 'undefined' ? seqMasterGain : null, masterAnalyser, {
+    color: '#C8A06E', kind: 'master', nameWidth: 85
+  });
+
+  html += '<div style="text-align:center;color:#333;font-size:14px;margin:2px 0">▼ destination</div>';
+
+  // ── LOOPER SIGNAL CHAIN ──
+  html += _sigSectionHeader('LOOPER', '#64DCB4', '→ loopMasterGain → destination');
+
+  html += _sigNodeRow('Loop Master', typeof loopMasterGain !== 'undefined' ? loopMasterGain : null, null, {
+    color: '#64DCB4', kind: 'master', nameWidth: 85
+  });
+  html += '<div style="text-align:center;color:#333;font-size:14px;margin:2px 0">▼ destination</div>';
+
+  // ── ANALYSER STATUS ──
+  html += _sigSectionHeader('ANALYSERS', '#888', '');
+  if (typeof _mixSeqAnalysers !== 'undefined' && _mixSeqAnalysers) {
+    var anKeys = Object.keys(_mixSeqAnalysers);
+    var connected = anKeys.filter(function(k) { return _mixSeqAnalysers[k] != null; });
+    html += '<div style="padding:2px 0;color:#666">Seq analysers: '
+      + connected.map(function(k) {
+        var rms = _sigAnalyserRMS(_mixSeqAnalysers[k]);
+        var dot = rms > 0.001 ? '🟢' : '⚫';
+        return dot + ' ' + k;
+      }).join(' · ')
+      + '</div>';
+  }
+  if (typeof _ftAnalysers !== 'undefined' && _ftAnalysers) {
+    html += '<div style="padding:2px 0;color:#666">4T analysers: '
+      + _ftAnalysers.map(function(a, i) {
+        if (!a) return '⚫ T' + (i+1);
+        var rms = _sigAnalyserRMS(a);
+        return (rms > 0.001 ? '🟢' : '⚫') + ' T' + (i+1);
+      }).join(' · ')
+      + '</div>';
+  }
+
+  // ── MIC/INPUT ──
+  if (typeof _vuAnalyser !== 'undefined' && _vuAnalyser) {
+    html += _sigSectionHeader('MIC INPUT', '#ff6b9d', '');
+    var micRms = _sigAnalyserRMS(_vuAnalyser);
+    html += '<div style="padding:2px 0">Live input ' + _sigMeterBar(micRms, 120) + '</div>';
+  }
+
+  // ── ROUTING DIAGRAM ──
+  html += _sigSectionHeader('ROUTING OVERVIEW', '#C8A06E', '');
+  html += '<pre style="color:#666;font-size:9px;line-height:1.5;margin:4px 0;overflow-x:auto">'
+    + '<span style="color:#ff6b9d">Track 1</span>─┐\n'
+    + '<span style="color:#6bc5ff">Track 2</span>─┤\n'
+    + '<span style="color:#a5ff6b">Track 3</span>─┼→ <span style="color:#6BC5FF">_mtMasterGain</span> ──→ <span style="color:#fff">🔊 4T Out</span>\n'
+    + '<span style="color:#ffb86b">Track 4</span>─┘\n'
+    + '\n'
+    + '<span style="color:#E8749A">Kick</span>──┐\n'
+    + '<span style="color:#E8749A">Snare</span>─┤\n'
+    + '<span style="color:#E8749A">Hat</span>───┼→ <span style="color:#E8749A">seqDrumsGain</span>─┐\n'
+    + '<span style="color:#E8749A">Perc</span>──┘                 │\n'
+    + '<span style="color:#c8a0ff">Chords</span> → seqChordsGain──┼→ <span style="color:#C8A06E">seqMasterGain</span> ──→ <span style="color:#fff">🔊 Seq Out</span>\n'
+    + '<span style="color:#80e0d0">Keys</span> ──→ seqMelodyGain──┘\n'
+    + '\n'
+    + '<span style="color:#888">Metro</span> ─→ seqMetroGain ─────────────────→ <span style="color:#fff">🔊 Direct Out</span>\n'
+    + '\n'
+    + '<span style="color:#64DCB4">Looper</span> → loopMasterGain ─────────────→ <span style="color:#fff">🔊 Loop Out</span>\n'
+    + '</pre>';
+
+  el.innerHTML = html;
+  _sigChainRafId = requestAnimationFrame(_sigChainTick);
+}
+
+// Shift+V handler
+document.addEventListener('keydown', function(e) {
+  if (e.shiftKey && e.key === 'V' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+    e.preventDefault();
+    signalChain();
+  }
+}, true);
 
 // Double-click any mix slider to return it to unity (100)
 function mixResetToUnity(sliderId, applyFn, unityVal) {
