@@ -4912,7 +4912,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .bottom-nav-item.nav-mix .bottom-nav-icon  { filter: drop-shadow(0 0 4px #c8a0ff); }
 
   /* ═══════════════════ NEW MIXER DESK ═══════════════════ */
-  .mix-desk{padding:18px 24px;background:linear-gradient(180deg,#0e0e11,#0a0a0c);flex:1;display:flex;flex-direction:column;min-height:0}
+  .mix-desk{padding:18px 24px;background:linear-gradient(180deg,#0e0e11,#0a0a0c);display:flex;flex-direction:column;min-height:0;padding-bottom:80px}
   .mix-desk-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;flex-wrap:wrap;gap:8px}
   .mix-section-title{font-family:'Playfair Display',serif;font-style:italic;font-size:17px;color:var(--text)}
   .mix-section-sub{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:700}
@@ -5019,7 +5019,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .mix-pan-val{font-size:9px;color:var(--muted);font-variant-numeric:tabular-nums;font-family:'IBM Plex Mono',monospace}
 
   /* Fader + meter zone */
-  .mix-fader-zone{flex:1;display:flex;padding:4px 4px 5px;gap:4px;align-items:stretch;min-height:80px}
+  .mix-fader-zone{flex:1;display:flex;padding:4px 4px 5px;gap:4px;align-items:stretch;min-height:140px}
   .mix-fader-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
   .mix-fader-wrap{flex:1;width:100%;position:relative;display:flex;align-items:stretch;justify-content:center;touch-action:none}
 
@@ -5029,14 +5029,25 @@ button, select, input, textarea { touch-action: manipulation; }
   .mix-fader-classic .mix-fader-marks span{height:1px;background:var(--border);display:block}
   .mix-fader-classic .mix-fader-cap{
     position:absolute;left:50%;transform:translate(-50%,50%);
-    width:26px;height:10px;border-radius:2px;
-    background:linear-gradient(180deg,#2a2a31,#16161a);
-    border:1px solid var(--border2);
-    box-shadow:0 2px 4px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.06);
+    width:44px;height:22px;border-radius:4px;
+    background:linear-gradient(180deg,#3a3a44,#1e1e24);
+    border:1.5px solid var(--border2);
+    box-shadow:0 3px 8px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.1);
     cursor:grab;
+    z-index:2;
   }
   .mix-fader-classic .mix-fader-cap::before{
-    content:'';position:absolute;left:4px;right:4px;top:50%;height:1px;background:var(--gold);
+    content:'';position:absolute;left:8px;right:8px;top:50%;height:1px;background:var(--gold);
+    box-shadow:0 2px 0 rgba(0,0,0,.3), 0 -2px 0 rgba(0,0,0,.3);
+  }
+  .mix-fader-classic .mix-fader-cap::after{
+    content:'';position:absolute;left:8px;right:8px;top:calc(50% - 3px);height:1px;background:rgba(255,255,255,.08);
+  }
+  /* Unity (0dB) mark at 75% from bottom = 25% from top */
+  .mix-fader-unity-mark{
+    position:absolute;top:25%;left:0;right:0;height:0;
+    border-top:1px dashed rgba(245,166,35,0.4);
+    pointer-events:none;z-index:1;
   }
 
   /* Meter */
@@ -5059,10 +5070,10 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Density tweaks */
   .mix-density-compact{--mix-chan-gap:4px;--mix-chan-width:62px;--mix-meter-h:80px}
   .mix-density-compact .mix-strips{gap:4px}
-  .mix-density-compact .mix-fader-zone{min-height:60px}
+  .mix-density-compact .mix-fader-zone{min-height:100px}
   .mix-density-spacious{--mix-chan-gap:14px;--mix-chan-width:92px;--mix-meter-h:130px}
   .mix-density-spacious .mix-strips{gap:8px}
-  .mix-density-spacious .mix-fader-zone{min-height:100px}
+  .mix-density-spacious .mix-fader-zone{min-height:180px}
 
   /* ── Bounce modal ── */
   .mix-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:9200;backdrop-filter:blur(4px)}
@@ -5088,7 +5099,7 @@ button, select, input, textarea { touch-action: manipulation; }
     .mix-strips{grid-template-columns:repeat(4,1fr);gap:5px;padding:6px}
     .mix-strip{min-width:0}
     .mix-strip.mix-master{min-width:0}
-    .mix-fader-zone{min-height:60px}
+    .mix-fader-zone{min-height:100px}
     .mix-strip-top{padding:3px 3px 3px;min-height:28px}
     .mix-chan-name{font-size:11px}
     .mix-chan-num{font-size:8px}
@@ -41464,7 +41475,22 @@ function buildMixerChannels(song, mix) {
 function _mixDbLabel(l) {
   if (l <= 0.001) return '-∞';
   var db = 20 * Math.log10(l);
+  if (db < -60) return '-∞';
   return (db > 0 ? '+' : '') + db.toFixed(1);
+}
+
+// Fader position (0–1) ↔ linear gain (0 to ~3.98 i.e. +12dB)
+// Unity (0dB, gain=1.0) sits at 75% of fader travel
+function _mixPosToLevel(pos) {
+  if (pos <= 0) return 0;
+  if (pos <= 0.75) return pos / 0.75;                              // 0 → 1.0 (linear)
+  return Math.pow(10, ((pos - 0.75) / 0.25) * 12 / 20);           // 1.0 → ~3.98 (+12dB)
+}
+function _mixLevelToPos(level) {
+  if (level <= 0.001) return 0;
+  if (level <= 1.0) return level * 0.75;                           // 0–1.0 → 0–0.75
+  var db = 20 * Math.log10(level);
+  return Math.min(1, 0.75 + (db / 12) * 0.25);                    // 0–12dB → 0.75–1.0
 }
 
 function _mixPanLabel(p) {
@@ -41519,17 +41545,19 @@ function _mixRenderStripHtml(c) {
     ctrlHtml += '</div>';
   }
 
-  // Fader (classic style)
-  var faderPct = c.level || 0;
-  var faderTopPct = ((1 - faderPct) * 100);
+  // Fader (classic style) — range: -∞ to +12dB
+  var faderLevel = c.level || 0;
+  var faderPos = _mixLevelToPos(faderLevel);
+  var faderTopPct = ((1 - faderPos) * 100);
   var faderHtml = '<div class="mix-fader-zone">'
     + '<div class="mix-fader-col">'
-    + '<div class="mix-fader-wrap" data-fader data-level="' + faderPct + '">'
+    + '<div class="mix-fader-wrap" data-fader data-level="' + faderLevel + '">'
     + '<div class="mix-fader-classic">'
     + '<div class="mix-fader-marks"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>'
+    + '<div class="mix-fader-unity-mark"></div>'
     + '<div class="mix-fader-cap" style="top:' + faderTopPct + '%"></div>'
     + '</div></div>'
-    + '<div class="mix-fader-db">' + _mixDbLabel(faderPct) + '</div>'
+    + '<div class="mix-fader-db">' + _mixDbLabel(faderLevel) + '</div>'
     + '</div>';
 
   // Meter (gradient fill)
@@ -41642,26 +41670,27 @@ function wireMixerInteractions() {
         var r = faderWrap.getBoundingClientRect();
         var onMove = function(ev) {
           var y = (ev.touches ? ev.touches[0].clientY : ev.clientY);
-          var pct = Math.max(0, Math.min(1, 1 - (y - r.top) / r.height));
+          var pos = Math.max(0, Math.min(1, 1 - (y - r.top) / r.height));
+          var level = _mixPosToLevel(pos);
           // Update UI
-          faderWrap.dataset.level = pct;
+          faderWrap.dataset.level = level;
           var cap = faderWrap.querySelector('.mix-fader-cap');
-          if (cap) cap.style.top = ((1 - pct) * 100) + '%';
+          if (cap) cap.style.top = ((1 - pos) * 100) + '%';
           var dbEl = strip.querySelector('.mix-fader-db');
-          if (dbEl) dbEl.textContent = _mixDbLabel(pct);
+          if (dbEl) dbEl.textContent = _mixDbLabel(level);
           // Route to correct handler
-          if (source === 'seqmaster')       { mixSetSeqMaster(Math.round(pct * 100)); }
-          else if (source === 'loopmaster') { mixSetLoopMaster(Math.round(pct * 100)); }
-          else if (source === 'mainmaster') { mixSetMainMaster(pct); }
+          if (source === 'seqmaster')       { mixSetSeqMaster(Math.round(level * 100)); }
+          else if (source === 'loopmaster') { mixSetLoopMaster(Math.round(level * 100)); }
+          else if (source === 'mainmaster') { mixSetMainMaster(level); }
           else if (source === 'fourtrack' && mtIdx >= 0) {
-            var v = Math.round(pct * 100);
+            var v = Math.round(level * 100);
             if (window._mtTracks && window._mtTracks[mtIdx]) {
               window._mtTracks[mtIdx].volume = v;
               if (typeof _mtApplyMuteGain === 'function') _mtApplyMuteGain(mtIdx);
               // Sync 4-track volume slider + dB display
               var ftVolSliders = document.querySelectorAll('[data-ft-volume]');
               if (ftVolSliders[mtIdx]) {
-                ftVolSliders[mtIdx].value = v;
+                ftVolSliders[mtIdx].value = Math.min(100, v);
                 var ftDbEls = document.querySelectorAll('[data-ft-vol-db]');
                 if (ftDbEls[mtIdx] && typeof ftVolToDB === 'function') ftDbEls[mtIdx].textContent = ftVolToDB(v);
               }
@@ -41669,7 +41698,7 @@ function wireMixerInteractions() {
             if (typeof mtSaveTrackSetting === 'function') mtSaveTrackSetting(mtIdx, 'volume', v);
             _mixLog('FADER', 'vox' + mtIdx + ' vol=' + v);
           } else if (key) {
-            seqMixerChange(key, 'Vol', pct);
+            seqMixerChange(key, 'Vol', level);
           }
         };
         var onUp = function() {
@@ -41912,7 +41941,8 @@ function mixRefreshVoxStrip(i) {
     var cap = faderWrap.querySelector('.mix-fader-cap');
     var dbEl = strip.querySelector('.mix-fader-db');
     var lvl = (t.volume || 85) / 100;
-    if (cap) cap.style.top = ((1 - lvl) * 100) + '%';
+    var pos = _mixLevelToPos(lvl);
+    if (cap) cap.style.top = ((1 - pos) * 100) + '%';
     if (dbEl) dbEl.textContent = _mixDbLabel(lvl);
     faderWrap.dataset.level = lvl;
   }
@@ -44420,6 +44450,9 @@ function _mtStartPlayback(offsetSec) {
 
 function _mtCheckAllEnded() {
   if (!_mtIsPlaying) return;
+  // If the sequencer is driving song playback, don't stop — it will re-trigger
+  // tracks for each section. Let the sequencer manage the lifecycle.
+  if (typeof _seqPlayMode !== 'undefined' && _seqPlayMode === 'song' && typeof seqIsPlaying !== 'undefined' && seqIsPlaying) return;
   const dur = _mtMaxDuration();
   const elapsed = _mtAudioCtx.currentTime - _mtPlayStartCtx;
   if (elapsed >= dur - 0.05) {
