@@ -18577,14 +18577,30 @@ function v4RenderProjectTabs() {
     const dropAttrs = isDroppable
       ? ` ondragover="v4TabDragOver(event)" ondragleave="v4TabDragLeave(event)" ondrop="v4TabDrop(event, '${p.id.replace(/'/g, "\\'")}')" `
       : '';
+    const isDeletable = (p.id !== 'recents' && p.id !== 'all' && p.id !== 'unfiled');
+    const longPressAttrs = isDeletable
+      ? ` onmousedown="_v4ProjLongStart(event,'${p.id.replace(/'/g, "\\'")}')" onmouseup="_v4ProjLongCancel()" onmouseleave="_v4ProjLongCancel()" ontouchstart="_v4ProjLongStart(event,'${p.id.replace(/'/g, "\\'")}')" ontouchend="_v4ProjLongCancel()" ontouchcancel="_v4ProjLongCancel()"`
+      : '';
     return `<button class="v4-project-tab ${window._v4ProjectFilter === p.id ? 'active' : ''}"
-            onclick="v4SetProjectFilter('${p.id}')"${dropAttrs}>
+            onclick="v4SetProjectFilter('${p.id}')"${dropAttrs}${longPressAttrs}>
       ${p.name}<span class="count">${p.count}</span>
     </button>`;
   }).join('') + `
     <div style="flex:1"></div>
     <button class="v4-project-tab" onclick="var _n=prompt('New project name:');if(_n&&_n.trim())createProject(_n.trim());">+ New project</button>
   `;
+}
+
+// Long-press to delete a project tab
+var _v4ProjLongTimer = null;
+function _v4ProjLongStart(e, projId) {
+  _v4ProjLongTimer = setTimeout(function() {
+    _v4ProjLongTimer = null;
+    promptDeleteProject(projId);
+  }, 600);
+}
+function _v4ProjLongCancel() {
+  if (_v4ProjLongTimer) { clearTimeout(_v4ProjLongTimer); _v4ProjLongTimer = null; }
 }
 
 // ── Welcome prompt for returning users ──────────────────────────
@@ -40877,11 +40893,6 @@ function navSongsTap() {
     _songListExpanded = true;
     document.getElementById('navSongsBtn')?.classList.add('active');
     showList();
-    // Scroll so project tabs (Recents, All Drafts…) are in view
-    setTimeout(function() {
-      var tabs = document.getElementById('v4ProjectTabs');
-      if (tabs) tabs.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 80);
   }
 }
 
