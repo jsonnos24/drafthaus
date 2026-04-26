@@ -30467,6 +30467,15 @@ function showInspoResult(data, dieLabel, dieRoll) {
     : '';
   const sassyLine = INSPO_SUCCESS_LINES[Math.floor(Math.random() * INSPO_SUCCESS_LINES.length)];
 
+  // Section structure preview with energy indicators
+  const _previewSections = ['Intro','Verse','Verse','Chorus','Verse','Chorus','Bridge','Chorus 3','Outro'];
+  const _previewEnergies = [0.25, 0.3, 0.4, 0.7, 0.45, 0.8, 0.55, 0.9, 0.35];
+  const _sectionPreviewHtml = _previewSections.map((s, i) => {
+    const barCount = Math.max(1, Math.round(_previewEnergies[i] * 4));
+    const bars = '▮'.repeat(barCount) + '▯'.repeat(4 - barCount);
+    return `<span style="font-size:10px;color:rgba(255,255,255,${0.4 + _previewEnergies[i] * 0.5});margin:0 2px;">${s}<span style="font-size:8px;opacity:0.5;margin-left:2px;">${bars}</span></span>`;
+  }).join(' → ');
+
   result.innerHTML = `
     <div style="font-family:'Playfair Display',serif;font-size:20px;font-style:italic;color:rgba(200,160,255,0.85);margin-bottom:14px;line-height:1.3;">${sassyLine}</div>
     <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:0.15em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;">Title</div>
@@ -30482,6 +30491,10 @@ function showInspoResult(data, dieLabel, dieRoll) {
       <div class="inspo-chip">${data.timeSig === '6' ? '6/8' : data.timeSig === '5' ? '5/4' : data.timeSig + '/4'}</div>
       <div class="inspo-chip">🥁 ${data.pattern}</div>
       ${uniqueChords.map(c => `<div class="inspo-chip">${c}</div>`).join('')}
+    </div>
+    <div style="margin-top:10px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06);text-align:center;line-height:1.8;overflow-x:auto;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);margin-bottom:4px;">Structure & Energy Arc</div>
+      ${_sectionPreviewHtml}
     </div>
   `;
   result.style.opacity = '1';
@@ -30516,31 +30529,73 @@ function launchInspoSong() {
   };
   const _inspoSectionOrder = ['intro','verse-1','verse-2','chorus-1','verse-3','chorus-2','bridge','chorus-3','outro'];
 
-  // Build per-section sequences — each section gets its own sequence copy
-  // with energy-appropriate settings (chorus-3 is a slight variation of chorus-1/2)
-  const _makeSeq = function(overrides) {
-    return Object.assign({
-      bpm: String(d.bpm), time: d.timeSig, bars: '2', grid: '1',
-      key: d.root || d.key.split(' ')[0],
-      chordSlots: d.chordSlots ? [...d.chordSlots] : [],
-      kick: d.kick ? [...d.kick] : [], snare: d.snare ? [...d.snare] : [],
-      hat: d.hat ? [...d.hat] : [], crash: d.crash ? [...d.crash] : [],
-      clap: d.clap ? [...d.clap] : [],
-    }, overrides || {});
-  };
+  // ── Energy-differentiated sequences with arc ─────────────────────────────
+  // Each section gets unique chord density + drum intensity based on energy level.
+  // Sections are RELATED (same key/progression family) but VARIED (density, rotation).
+  const _totalSections = _inspoSectionOrder.length;
+  const _baseChords = d.chordSlots ? d.chordSlots.filter(Boolean) : [];
+  const _allSlotCount = d.chordSlots ? d.chordSlots.length : 8;
 
-  // Chorus 3 variation: shift chords by one position for a slightly different feel
-  const _c3Chords = d.chordSlots ? [...d.chordSlots] : [];
-  if (_c3Chords.length > 1) {
-    // Rotate chord slots by 1 position — same chords, different starting point
-    const first = _c3Chords.shift();
-    _c3Chords.push(first);
+  // Build chord slots with energy-based density + rotation for variation
+  function _buildEnergyChords(energy, variation) {
+    var slots = new Array(_allSlotCount).fill(null);
+    if (!_baseChords.length) return slots;
+    // High energy: use all chords; low energy: use fewer, spaced out
+    var numToUse = Math.max(1, Math.round(_baseChords.length * (0.4 + energy * 0.6)));
+    // Rotation creates relatedness with variation — same chords, different starting point
+    var rotated = [..._baseChords];
+    for (var r = 0; r < (variation || 0); r++) { rotated.push(rotated.shift()); }
+    // Place evenly spaced, favoring strong beats
+    var spacing = Math.max(1, Math.floor(_allSlotCount / numToUse));
+    for (var i = 0; i < numToUse; i++) {
+      var pos = Math.min(i * spacing, _allSlotCount - 1);
+      slots[pos] = rotated[i % rotated.length];
+    }
+    return slots;
   }
 
-  const _inspoSequences = _inspoSectionOrder.map(function(sid) {
-    if (sid === 'chorus-3') return _makeSeq({ partId: sid, part: sid, chordSlots: _c3Chords });
-    if (sid === 'intro' || sid === 'outro') return _makeSeq({ partId: sid, part: sid, crash: new Array(16).fill(0) }); // quieter bookends
-    return _makeSeq({ partId: sid, part: sid });
+  // Build drums with energy-based density — thin out hits at lower energy
+  function _buildEnergyDrums(energy) {
+    var kick = d.kick ? [...d.kick] : [];
+    var snare = d.snare ? [...d.snare] : [];
+    var hat = d.hat ? [...d.hat] : [];
+    var crash = d.crash ? [...d.crash] : [];
+    var clap = d.clap ? [...d.clap] : [];
+    var dropRate = Math.max(0, (1 - energy) * 0.6);
+    function thin(arr) {
+      return arr.map(function(v) { return (v && Math.random() < dropRate) ? 0 : v; });
+    }
+    if (energy < 0.7) {
+      hat = thin(hat);
+      clap = thin(clap);
+    }
+    if (energy < 0.4) {
+      snare = thin(snare);
+      crash = new Array(crash.length).fill(0);
+    }
+    if (energy < 0.25) {
+      kick = thin(kick); // intro/outro: even kick is sparse
+    }
+    return { kick: kick, snare: snare, hat: hat, crash: crash, clap: clap };
+  }
+
+  const _inspoSequences = _inspoSectionOrder.map(function(sid, idx) {
+    var energy = _getSectionEnergy(sid, idx, _totalSections);
+    var variation = 0;
+    if (sid === 'chorus-3') variation = 1;
+    if (sid === 'bridge') variation = 2;
+    if (sid === 'verse-2') variation = 0; // same as verse-1 for familiarity
+    if (sid === 'verse-3') variation = 1; // slight shift to keep interest
+    var chords = _buildEnergyChords(energy, variation);
+    var drums = _buildEnergyDrums(energy);
+    return {
+      partId: sid, part: sid,
+      bpm: String(d.bpm), time: d.timeSig, bars: '2', grid: '1',
+      key: d.root || d.key.split(' ')[0],
+      chordSlots: chords,
+      kick: drums.kick, snare: drums.snare, hat: drums.hat,
+      crash: drums.crash, clap: drums.clap,
+    };
   });
 
   const song = {
