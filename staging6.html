@@ -29960,10 +29960,8 @@ const INSPO_KEYS = [
   'G# major','D# major','A# minor','D# major','G major','A minor',
 ];
 const INSPO_BPMS = [
-  60,65,68,70,72,75,78,80,82,85,
-  88,90,92,95,98,100,102,104,106,108,
-  110,112,115,118,120,122,124,125,128,130,
-  132,135,138,140,145,150,155,160,
+  83,85,88,90,92,95,98,100,102,104,106,108,
+  110,112,115,118,120,122,124,125,128,130,132,135,
 ];
 const INSPO_TIME_SIGS = ['4','4','4','4','4','4','3','3','6','5'];  // mostly 4/4, some odd
 
@@ -30379,46 +30377,43 @@ function generateInspoSong() {
   const scale = SEQ_SCALES[isMinor ? 'minor' : 'major'];
   const scaleChords = seqGetScaleChords(root, isMinor ? 'minor' : 'major');
 
-  // Pick 2–4 chords, placed on strong beats, allowing repetition for a less busy feel
-  const numChords = randInt(2, 4);
-  const chordSlots = [];
+  // Fill the FULL grid with chords — every slot gets a chord so nothing looks empty.
+  // Use 3–4 unique chords distributed evenly across all slots (held/sustained).
   const totalSlots = parseInt(timeSig) * 2; // 2 bars worth
-  for (let i = 0; i < totalSlots; i++) {
-    chordSlots.push(null);
-  }
-  // Strong-beat positions: beat 1 of each bar, then beat 3 (or halfway) of each bar
-  const beatsPerBar = parseInt(timeSig);
-  const strongPositions = [0, beatsPerBar]; // downbeats of bar 1 and bar 2
-  if (beatsPerBar >= 4) { strongPositions.push(Math.floor(beatsPerBar / 2), beatsPerBar + Math.floor(beatsPerBar / 2)); }
-  // Pick from strong positions first, only go random if we need more
-  const positions = [];
-  const available = [...strongPositions].sort((a,b) => a-b);
-  for (let i = 0; i < Math.min(numChords, available.length); i++) {
-    positions.push(available[i]);
-  }
-  positions.sort((a,b) => a-b);
-  // Build chord choices with repetition bias: 40% chance to repeat the previous chord
   const usableChords = scaleChords.filter(c => !c.includes('_viii') && !c.includes('dim'));
-  let lastChord = null;
-  positions.forEach(pos => {
-    if (lastChord && Math.random() < 0.4) {
-      chordSlots[pos] = lastChord;
+  const numUnique = randInt(3, 4);
+  // Pick our progression chords (allow one repeat for familiarity)
+  const progChords = [];
+  for (let i = 0; i < numUnique; i++) {
+    if (i > 0 && Math.random() < 0.3) {
+      progChords.push(progChords[0]); // repeat tonic for grounding
     } else {
-      lastChord = rand(usableChords);
-      chordSlots[pos] = lastChord;
+      progChords.push(rand(usableChords));
     }
-  });
+  }
+  // Distribute across all slots — each chord holds for (totalSlots/numUnique) beats
+  const chordSlots = [];
+  const beatsPerChord = Math.max(1, Math.floor(totalSlots / progChords.length));
+  for (let i = 0; i < totalSlots; i++) {
+    const chordIdx = Math.min(Math.floor(i / beatsPerChord), progChords.length - 1);
+    chordSlots.push(progChords[chordIdx]);
+  }
 
-  // Generate drum pattern
+  // Generate drum pattern — pad/tile to always fill 16 steps
   const dp = DRUM_PATTERNS[pattern];
-  const steps = parseInt(timeSig) * 2; // 2 bars at quarter grid
-  const kick  = (dp?.kick  || []).slice(0, 16);
-  const snare = (dp?.snare || []).slice(0, 16);
-  const hat   = (dp?.hat   || []).slice(0, 16);
-  const crash = (dp?.crash || []).slice(0, 16);
-  const clap  = (dp?.clap  || []).slice(0, 16);
-  const hitom = (dp?.hitom || []).slice(0, 16);
-  const lotom = (dp?.lotom || []).slice(0, 16);
+  function _padDrum(arr, len) {
+    if (!arr || !arr.length) return new Array(len).fill(0);
+    const out = [];
+    for (let i = 0; i < len; i++) out.push(arr[i % arr.length] || 0);
+    return out;
+  }
+  const kick  = _padDrum(dp?.kick,  16);
+  const snare = _padDrum(dp?.snare, 16);
+  const hat   = _padDrum(dp?.hat,   16);
+  const crash = _padDrum(dp?.crash, 16);
+  const clap  = _padDrum(dp?.clap,  16);
+  const hitom = _padDrum(dp?.hitom, 16);
+  const lotom = _padDrum(dp?.lotom, 16);
 
   return { key, bpm, timeSig, pattern, title, chordSlots, kick, snare, hat, crash, clap, hitom, lotom, root };
 }
@@ -30467,14 +30462,27 @@ function showInspoResult(data, dieLabel, dieRoll) {
     : '';
   const sassyLine = INSPO_SUCCESS_LINES[Math.floor(Math.random() * INSPO_SUCCESS_LINES.length)];
 
-  // Section structure preview with energy indicators
-  const _previewSections = ['Intro','Verse','Verse','Chorus','Verse','Chorus','Bridge','Chorus 3','Outro'];
-  const _previewEnergies = [0.25, 0.3, 0.4, 0.7, 0.45, 0.8, 0.55, 0.9, 0.35];
-  const _sectionPreviewHtml = _previewSections.map((s, i) => {
-    const barCount = Math.max(1, Math.round(_previewEnergies[i] * 4));
-    const bars = '▮'.repeat(barCount) + '▯'.repeat(4 - barCount);
-    return `<span style="font-size:10px;color:rgba(255,255,255,${0.4 + _previewEnergies[i] * 0.5});margin:0 2px;">${s}<span style="font-size:8px;opacity:0.5;margin-left:2px;">${bars}</span></span>`;
-  }).join(' → ');
+  // Structure preview: show each section with its color and which chords it'll use
+  const _prevParts = [
+    { id:'intro',    label:'Intro',    color:'#5cb85c' },
+    { id:'verse-1',  label:'Verse 1',  color:'#6aabee' },
+    { id:'verse-2',  label:'Verse 2',  color:'#5596d8' },
+    { id:'chorus-1', label:'Chorus 1', color:'#ffe066' },
+    { id:'verse-3',  label:'Verse 3',  color:'#4282c2' },
+    { id:'chorus-2', label:'Chorus 2', color:'#e8c248' },
+    { id:'bridge',   label:'Bridge',   color:'#4dc9b0' },
+    { id:'chorus-3', label:'Chorus 3', color:'#d0a830' },
+    { id:'outro',    label:'Outro',    color:'#6aabee' },
+  ];
+  const _structPreviewHtml = _prevParts.map(p => {
+    const chordsForPart = uniqueChords.length
+      ? uniqueChords.map(c => `<span style="font-size:10px;background:${p.color}18;border:1px solid ${p.color}44;border-radius:4px;padding:1px 5px;color:${p.color};">${c}</span>`).join(' ')
+      : '<span style="font-size:9px;color:var(--faint);font-style:italic;">—</span>';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;">
+      <span style="font-size:11px;font-weight:600;color:${p.color};min-width:64px;">${p.label}</span>
+      <div style="display:flex;gap:3px;flex-wrap:wrap;">${chordsForPart}</div>
+    </div>`;
+  }).join('');
 
   result.innerHTML = `
     <div style="font-family:'Playfair Display',serif;font-size:20px;font-style:italic;color:rgba(200,160,255,0.85);margin-bottom:14px;line-height:1.3;">${sassyLine}</div>
@@ -30490,11 +30498,9 @@ function showInspoResult(data, dieLabel, dieRoll) {
       <div class="inspo-chip">♩ ${data.bpm} BPM</div>
       <div class="inspo-chip">${data.timeSig === '6' ? '6/8' : data.timeSig === '5' ? '5/4' : data.timeSig + '/4'}</div>
       <div class="inspo-chip">🥁 ${data.pattern}</div>
-      ${uniqueChords.map(c => `<div class="inspo-chip">${c}</div>`).join('')}
     </div>
-    <div style="margin-top:10px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06);text-align:center;line-height:1.8;overflow-x:auto;">
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);margin-bottom:4px;">Structure & Energy Arc</div>
-      ${_sectionPreviewHtml}
+    <div style="margin-top:10px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06);text-align:left;">
+      ${_structPreviewHtml}
     </div>
   `;
   result.style.opacity = '1';
@@ -30530,63 +30536,60 @@ function launchInspoSong() {
   const _inspoSectionOrder = ['intro','verse-1','verse-2','chorus-1','verse-3','chorus-2','bridge','chorus-3','outro'];
 
   // ── Energy-differentiated sequences with arc ─────────────────────────────
-  // Each section gets unique chord density + drum intensity based on energy level.
-  // Sections are RELATED (same key/progression family) but VARIED (density, rotation).
+  // All sections share the SAME chord progression (cohesion) but differ in:
+  // - Drum density (energy controls how many hits remain)
+  // - Chord voicing: bridge/chorus-3 rotate the chord order for variation
+  // This creates songs that breathe and build without losing musicality.
   const _totalSections = _inspoSectionOrder.length;
-  const _baseChords = d.chordSlots ? d.chordSlots.filter(Boolean) : [];
-  const _allSlotCount = d.chordSlots ? d.chordSlots.length : 8;
+  const _fullChords = d.chordSlots ? [...d.chordSlots] : [];
 
-  // Build chord slots with energy-based density + rotation for variation
-  function _buildEnergyChords(energy, variation) {
-    var slots = new Array(_allSlotCount).fill(null);
-    if (!_baseChords.length) return slots;
-    // High energy: use all chords; low energy: use fewer, spaced out
-    var numToUse = Math.max(1, Math.round(_baseChords.length * (0.4 + energy * 0.6)));
-    // Rotation creates relatedness with variation — same chords, different starting point
-    var rotated = [..._baseChords];
-    for (var r = 0; r < (variation || 0); r++) { rotated.push(rotated.shift()); }
-    // Place evenly spaced, favoring strong beats
-    var spacing = Math.max(1, Math.floor(_allSlotCount / numToUse));
-    for (var i = 0; i < numToUse; i++) {
-      var pos = Math.min(i * spacing, _allSlotCount - 1);
-      slots[pos] = rotated[i % rotated.length];
-    }
-    return slots;
+  // Rotate chord slots for variation (bridge, chorus 3) — keeps same chords, shifts start
+  function _rotateChords(slots, amount) {
+    if (!amount || !slots.length) return [...slots];
+    var result = [...slots];
+    var filled = result.map(function(c, i) { return c ? { c: c, i: i } : null; }).filter(Boolean);
+    if (filled.length < 2) return result;
+    // Rotate the chord values among filled positions
+    var vals = filled.map(function(f) { return f.c; });
+    for (var r = 0; r < amount; r++) { vals.push(vals.shift()); }
+    filled.forEach(function(f, i) { result[f.i] = vals[i]; });
+    return result;
   }
 
-  // Build drums with energy-based density — thin out hits at lower energy
+  // Build drums with energy-based layering (not random thinning — structured)
   function _buildEnergyDrums(energy) {
     var kick = d.kick ? [...d.kick] : [];
     var snare = d.snare ? [...d.snare] : [];
     var hat = d.hat ? [...d.hat] : [];
     var crash = d.crash ? [...d.crash] : [];
     var clap = d.clap ? [...d.clap] : [];
-    var dropRate = Math.max(0, (1 - energy) * 0.6);
-    function thin(arr) {
-      return arr.map(function(v) { return (v && Math.random() < dropRate) ? 0 : v; });
-    }
-    if (energy < 0.7) {
-      hat = thin(hat);
-      clap = thin(clap);
-    }
-    if (energy < 0.4) {
-      snare = thin(snare);
+    // Layer approach: at low energy, remove entire instrument layers
+    if (energy < 0.3) {
+      // Intro/outro: kick + light hat only
+      snare = snare.map(function(v,i) { return i % 8 === 4 ? v : 0; }); // only backbeat
+      hat = hat.map(function(v,i) { return i % 4 === 0 ? v : 0; }); // quarter notes only
+      crash = new Array(crash.length).fill(0);
+      clap = new Array(clap.length).fill(0);
+    } else if (energy < 0.5) {
+      // Verse: kick + snare + sparse hat, no crash/clap
+      hat = hat.map(function(v,i) { return i % 2 === 0 ? v : 0; }); // 8th notes only
+      crash = new Array(crash.length).fill(0);
+      clap = new Array(clap.length).fill(0);
+    } else if (energy < 0.7) {
+      // Pre-chorus/building: full hat, snare, add clap, no crash
       crash = new Array(crash.length).fill(0);
     }
-    if (energy < 0.25) {
-      kick = thin(kick); // intro/outro: even kick is sparse
-    }
+    // energy >= 0.7: full kit — chorus/climax gets everything
     return { kick: kick, snare: snare, hat: hat, crash: crash, clap: clap };
   }
 
   const _inspoSequences = _inspoSectionOrder.map(function(sid, idx) {
     var energy = _getSectionEnergy(sid, idx, _totalSections);
-    var variation = 0;
-    if (sid === 'chorus-3') variation = 1;
-    if (sid === 'bridge') variation = 2;
-    if (sid === 'verse-2') variation = 0; // same as verse-1 for familiarity
-    if (sid === 'verse-3') variation = 1; // slight shift to keep interest
-    var chords = _buildEnergyChords(energy, variation);
+    // Chords: same progression everywhere, but rotated for bridge & chorus-3
+    var chords = _fullChords;
+    if (sid === 'bridge') chords = _rotateChords(_fullChords, 2);
+    else if (sid === 'chorus-3') chords = _rotateChords(_fullChords, 1);
+    else chords = [..._fullChords];
     var drums = _buildEnergyDrums(energy);
     return {
       partId: sid, part: sid,
@@ -35910,10 +35913,10 @@ function kbdBarsChanged(callerVal) {
   if (!val) return;
   document.querySelectorAll('[id="kbdBars"]').forEach(el => { if (el.value !== val) el.value = val; });
   const mt4tBr = document.getElementById('mt4tBars'); if (mt4tBr && mt4tBr.value !== val) mt4tBr.value = val;
-  const song = getCurrentSong();
-  if (song) { seqGetData(song); song.sequencer.bars = val; save(); scheduleSyncToSheet(song); }
+  // Sync seqBars BEFORE seqRebuild so it reads the new value from DOM correctly
   const seqBarsEl = document.getElementById('seqBars');
   if (seqBarsEl) seqBarsEl.value = val;
+  // Don't pre-save bars — let seqRebuild() detect old→new change and tile patterns
   seqRebuild();
 }
 
