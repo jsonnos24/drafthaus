@@ -4862,6 +4862,15 @@ button, select, input, textarea { touch-action: manipulation; }
   .mix-chip.mix-bounce:hover{background:rgba(100,220,180,.12)}
   .mix-chip.mix-share{color:var(--purple);border-color:rgba(200,160,255,.4)}
   .mix-chip.mix-share:hover{background:rgba(200,160,255,.12)}
+  .mix-share-status{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--purple);padding:6px 12px;display:none;align-items:center;gap:8px}
+  .mix-share-status.on{display:flex}
+  .mix-share-status .mix-share-spinner{width:12px;height:12px;border:2px solid rgba(200,160,255,.3);border-top-color:var(--purple);border-radius:50%;animation:mixSpin .6s linear infinite}
+  @keyframes mixSpin{to{transform:rotate(360deg)}}
+  .mix-share-link-row{display:none;align-items:center;gap:6px;padding:4px 12px 8px;font-family:'IBM Plex Mono',monospace;font-size:10px}
+  .mix-share-link-row.on{display:flex}
+  .mix-share-link-row input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:10px;padding:5px 8px;cursor:text}
+  .mix-share-link-row button{white-space:nowrap;background:rgba(200,160,255,0.15);color:var(--purple);border:1px solid rgba(200,160,255,0.35);border-radius:4px;padding:5px 10px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer}
+  .mix-share-link-row button:hover{background:rgba(200,160,255,0.25)}
 
   /* ── Row grouping (left-edge accent rail per row) ── */
   .mix-row{border-left:2px solid var(--row-accent, var(--gold-dim, #C8A06E));padding:3px 0 4px 10px;margin-left:2px;position:relative}
@@ -27044,7 +27053,9 @@ document.addEventListener('click', function(e) {
 });
 
 function seqPlay() {
-  if (seqIsPlaying) return;
+  var _sp0 = performance.now();
+  console.log('[ENS-DEBUG] seqPlay START, seqIsPlaying=' + seqIsPlaying);
+  if (seqIsPlaying) { console.log('[ENS-DEBUG] seqPlay: already playing, bail'); return; }
   if (typeof _trialNudge === 'function') _trialNudge('chord', 3);
   _seqPlayMode = 'loop';
   seqIsPlaying = true;
@@ -27056,8 +27067,12 @@ function seqPlay() {
   if (typeof _bgEnsureKeepAlive === 'function') _bgEnsureKeepAlive();
 
   const ctx = getSeqAudioCtx();
+  console.log('[ENS-DEBUG] seqPlay: ctx.state=' + ctx.state + ' sampleRate=' + ctx.sampleRate + ' @' + (performance.now()-_sp0).toFixed(1)+'ms');
   // Resume within the user gesture (or as close as possible).
-  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  if (ctx.state === 'suspended') {
+    console.log('[ENS-DEBUG] seqPlay: resuming suspended ctx');
+    ctx.resume().catch(() => {});
+  }
   _seqSchedulerCtx = ctx;
   _seqStepIndex = 0;
   _seqNextNoteTime = ctx.currentTime + 0.05;
@@ -27069,6 +27084,7 @@ function seqPlay() {
 
   // Start unified metronome (no-op if already running from 4-track)
   globalMetroStartIfEnabled();
+  console.log('[ENS-DEBUG] seqPlay END:', (performance.now()-_sp0).toFixed(1)+'ms');
 
   // Loop + 4-track triggers are ONLY for full-song mode (seqPlaySong).
   // In loop mode the user is previewing just drums/chords — don't cross-trigger.
@@ -30294,15 +30310,19 @@ function generateInspoSong() {
   const usable = scaleChords.filter(c => !c.includes('_viii') && !c.includes('dim'));
 
   // ── Musically sensible chord progression templates (scale degree indices) ──
-  // Major templates: I=0, ii=1, iii=2, IV=3, V=4, vi=5
-  // Minor templates: i=0, ii°=1(skip), III=2, iv=3, v=4, VI=5, VII=6
+  // Major: I=0, ii=1, iii=2, IV=3, V=4, vi=5
+  // Minor: i=0, (skip dim), III=2, iv=3, v=4, VI=5, VII=6
   const majorProgs = [
     [0,3,4,0], [0,5,3,4], [0,3,5,4], [5,3,0,4], [0,2,5,3],
     [0,4,5,3], [3,0,4,0], [0,5,4,3], [3,4,5,0], [0,3,0,4],
+    [0,3,4,5], [0,4,3,5], [5,0,3,4], [0,2,3,4], [3,5,0,4],
+    [0,5,0,3], [4,3,5,0], [0,3,2,4], [5,4,3,0], [0,0,3,4],
   ];
   const minorProgs = [
     [0,5,6,4], [0,3,5,6], [0,6,5,3], [0,3,4,0], [5,6,3,4],
     [0,4,5,6], [0,5,3,4], [0,6,3,5], [3,0,5,6], [0,3,6,5],
+    [0,5,4,3], [6,5,3,0], [0,3,6,4], [5,3,0,6], [0,6,4,5],
+    [3,5,6,0], [0,4,6,3], [0,0,5,6], [6,0,5,3], [0,3,5,4],
   ];
   const templates = isMinor ? minorProgs : majorProgs;
 
@@ -30312,7 +30332,6 @@ function generateInspoSong() {
   }
 
   // Chord variation: swap a chord for one of its quality variants
-  // e.g. C → Csus2, Am → Am7. Skip dim chords entirely.
   const INSPO_VARIANTS = {
     '':    ['sus2','sus4','add9','maj7','7'],
     'm':   ['m7','m9','madd9','msus4'],
@@ -30321,38 +30340,123 @@ function generateInspoSong() {
     const clean = name.replace('_viii','');
     const chordRoot = (clean.length >= 2 && clean[1] === '#') ? clean.slice(0,2) : clean[0];
     const qual = clean.slice(chordRoot.length);
-    // Never vary dim chords
     if (qual.includes('dim')) return name;
     const pool = INSPO_VARIANTS[qual];
     if (!pool || !pool.length) return name;
-    // ~35% chance to use a variation
     if (Math.random() > 0.35) return name;
     return chordRoot + rand(pool);
   }
 
-  // Build chord slots for 4 bars (each chord = 1 bar in quarter grid)
   const beatsPerBar = parseInt(timeSig);
   const grid = 4; // 16th note grid
   const stepsPerBar = beatsPerBar * grid;
   const totalSteps = stepsPerBar * 4; // 4 bars
 
+  // ── Genre-aware chord rhythm patterns ──
+  // Each pattern is an array of step offsets within a bar where chords trigger.
+  // 0 = beat 1, 4 = beat 2, 8 = beat 3, 12 = beat 4 (in 4/4 16th grid)
+  // "and" of a beat = +2 (8th note), "e" = +1, "a" = +3
+  const _bpm = parseInt(bpm);
+  function _pickChordRhythm() {
+    // Slow ballad (< 80 BPM): whole/half note feels
+    if (_bpm < 80) return rand([
+      // whole bar chord
+      [[0]],
+      // half notes
+      [[0, 8]],
+      // dotted half + quarter anticipation
+      [[0, 14]],
+      // beat 1 + "and" of 3
+      [[0, 10]],
+      // beat 1, anticipation into next bar on "and" of 4
+      [[0, 14]],
+    ]);
+    // Mid-tempo (80–115): rhythmic strumming
+    if (_bpm <= 115) {
+      if (pattern === 'hiphop') return rand([
+        [[0, 6, 10]],         // 1, and-of-2, and-of-3
+        [[0, 10, 14]],        // 1, and-of-3, and-of-4
+        [[0, 6, 12]],         // 1, and-of-2, 4
+        [[0, 4, 10, 14]],     // 1, 2, and-of-3, and-of-4
+        [[0, 6, 8, 14]],      // 1, and-of-2, 3, and-of-4
+      ]);
+      if (pattern === 'blues' || pattern === 'country' || pattern === 'motown') return rand([
+        [[0, 4, 8, 12]],          // straight quarters
+        [[0, 8, 12]],             // 1, 3, 4
+        [[0, 4, 8, 14]],          // 1, 2, 3, anticipate
+        [[0, 6, 8, 12]],          // 1, and-of-2, 3, 4
+        [[0, 4, 10, 12]],         // 1, 2, and-of-3, 4
+      ]);
+      if (pattern === 'jazz') return rand([
+        [[0, 6, 10]],         // comping: 1, and-of-2, and-of-3
+        [[2, 6, 10, 14]],     // all off-beats (Freddie Green style)
+        [[0, 10, 14]],        // 1, and-of-3, and-of-4
+        [[0, 6, 14]],         // 1, and-of-2, and-of-4
+        [[6, 10]],            // just the ands — sparse comping
+      ]);
+      // Generic mid-tempo (rock, pop, alt, etc.)
+      return rand([
+        [[0, 4, 8, 12]],          // straight quarter strumming
+        [[0, 2, 8, 10]],          // down-up on 1 and 3
+        [[0, 4, 8, 14]],          // 1, 2, 3, anticipation
+        [[0, 2, 4, 8, 10, 12]],   // 8th note strumming (full)
+        [[0, 6, 8, 14]],          // syncopated: 1, and-of-2, 3, and-of-4
+        [[0, 4, 10, 12]],         // 1, 2, and-of-3, 4
+        [[0, 8, 10, 14]],         // 1, 3, and-of-3, and-of-4
+        [[0, 2, 8, 12]],          // 1, and-of-1, 3, 4
+      ]);
+    }
+    // Fast (116–140): driving patterns
+    if (_bpm <= 140) {
+      if (pattern === 'punk') return rand([
+        [[0, 2, 4, 6, 8, 10, 12, 14]],  // all 8ths — full downstroke
+        [[0, 4, 8, 12]],                  // power chord quarters
+        [[0, 8]],                          // half notes (let ring)
+        [[0, 2, 8, 10]],                  // 8ths on 1 and 3
+      ]);
+      if (pattern === 'edm') return rand([
+        [[0, 8]],             // half note stabs
+        [[0, 6, 8, 14]],     // off-beat stabs
+        [[0, 4, 8, 12]],     // four-on-the-floor chords
+        [[0, 14]],            // 1 + anticipation
+        [[0, 6, 12]],         // syncopated stabs
+      ]);
+      return rand([
+        [[0, 4, 8, 12]],          // quarters
+        [[0, 2, 4, 8, 10, 12]],   // driving 8ths
+        [[0, 8, 14]],             // 1, 3, anticipation
+        [[0, 4, 10, 14]],         // 1, 2, and-of-3, and-of-4
+        [[0, 6, 8, 12]],          // 1, and-of-2, 3, 4
+      ]);
+    }
+    // Very fast (140+): simpler, wider hits
+    return rand([
+      [[0, 8]],               // half notes
+      [[0]],                   // whole bar
+      [[0, 4, 8, 12]],        // quarters
+      [[0, 12]],              // 1 and 4
+      [[0, 8, 14]],           // 1, 3, push into next bar
+    ]);
+  }
+
   function buildChordSlots(prog) {
-    // totalSteps = beatsPerBar * grid * 4 bars (e.g. 4*4*4 = 64 for 4/4 16th grid)
     const slots = new Array(totalSteps).fill(null);
-    // Place a chord on beat 1 of each bar, plus a passing chord on beat 3
+    const rhythmPattern = _pickChordRhythm();
+    // Use one rhythm pattern for the whole 4 bars, or per-bar if array has multiple
     prog.forEach((chord, barIdx) => {
       const barStart = barIdx * stepsPerBar;
-      slots[barStart] = varyChord(chord); // beat 1 — may get a variation
-      // Add a chord on beat 3 for density (half-bar changes feel fuller)
-      const beat3 = barStart + Math.floor(stepsPerBar / 2);
-      if (beat3 < totalSteps && !slots[beat3]) {
-        // 50% chance: repeat same chord (possibly varied), 50% chance: next chord in progression
-        if (Math.random() < 0.5) {
-          slots[beat3] = varyChord(chord);
+      const barRhythm = rhythmPattern[barIdx % rhythmPattern.length];
+      const varied = varyChord(chord);
+      const nextChord = varyChord(prog[(barIdx + 1) % prog.length]);
+      barRhythm.forEach(offset => {
+        if (barStart + offset >= totalSteps) return;
+        // Last hit in bar: 40% chance use next chord as anticipation
+        if (offset === barRhythm[barRhythm.length - 1] && offset >= 12 && Math.random() < 0.4) {
+          slots[barStart + offset] = nextChord;
         } else {
-          slots[beat3] = varyChord(prog[(barIdx + 1) % prog.length]);
+          slots[barStart + offset] = varied;
         }
-      }
+      });
     });
     return slots;
   }
@@ -33819,13 +33923,24 @@ async function exportBounce() {
 // ── MP3 Encoding (lamejs) ─────────────────────────────────────────
 // Lazy-load lamejs from CDN, encode AudioBuffer → MP3 Blob
 var _lamejsLoaded = false;
+var _lamejsCDNs = [
+  'https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js',
+  'https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js',
+  'https://unpkg.com/lamejs@1.2.1/lame.min.js',
+];
 function _ensureLamejs() {
-  if (_lamejsLoaded) return Promise.resolve();
+  if (_lamejsLoaded && typeof lamejs !== 'undefined') return Promise.resolve();
+  return _tryLoadLamejs(0);
+}
+function _tryLoadLamejs(idx) {
+  if (idx >= _lamejsCDNs.length) return Promise.reject(new Error('Failed to load lamejs from all CDNs'));
   return new Promise(function(resolve, reject) {
     var s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js';
-    s.onload = function() { _lamejsLoaded = true; resolve(); };
-    s.onerror = function() { reject(new Error('Failed to load lamejs')); };
+    s.src = _lamejsCDNs[idx];
+    s.timeout = 8000;
+    var timer = setTimeout(function() { s.onerror(); }, 8000);
+    s.onload = function() { clearTimeout(timer); _lamejsLoaded = true; console.log('[SHARE] lamejs loaded from', _lamejsCDNs[idx]); resolve(); };
+    s.onerror = function() { clearTimeout(timer); console.warn('[SHARE] lamejs CDN failed:', _lamejsCDNs[idx]); s.remove(); _tryLoadLamejs(idx + 1).then(resolve, reject); };
     document.head.appendChild(s);
   });
 }
@@ -33865,7 +33980,21 @@ async function bounceAndShare() {
   if (!song || !song.id) { showToast('Open a song first', 'error'); return; }
 
   const shareBtn = document.getElementById('mixShareBtn');
-  if (shareBtn) { shareBtn.disabled = true; shareBtn.textContent = 'Rendering…'; }
+  const statusEl = document.getElementById('mixShareStatus');
+  const statusText = document.getElementById('mixShareStatusText');
+  const linkRow = document.getElementById('mixShareLinkRow');
+  function _shareStatus(msg) {
+    if (shareBtn) { shareBtn.disabled = true; shareBtn.textContent = msg; }
+    if (statusEl) statusEl.classList.add('on');
+    if (statusText) statusText.textContent = msg;
+    if (linkRow) linkRow.classList.remove('on');
+    console.log('[SHARE]', msg);
+  }
+  function _shareReset() {
+    if (shareBtn) { shareBtn.disabled = false; shareBtn.textContent = 'Bounce + Share'; }
+    if (statusEl) statusEl.classList.remove('on');
+  }
+  _shareStatus('Rendering mix…');
 
   try {
     const mix = song.mixer || {};
@@ -34000,7 +34129,7 @@ async function bounceAndShare() {
     }
 
     // ── 4-Track recordings: play buffers into offCtx with volume + pan ──
-    if (shareBtn) shareBtn.textContent = 'Mixing tracks…';
+    _shareStatus('Mixing tracks…');
     await new Promise(r => setTimeout(r, 20));
 
     for (let i = 0; i < mt.length; i++) {
@@ -34043,18 +34172,21 @@ async function bounceAndShare() {
       src.stop(totalDur);
     }
 
-    if (shareBtn) shareBtn.textContent = 'Rendering…';
+    _shareStatus('Rendering audio…');
     await new Promise(r => setTimeout(r, 20));
 
     const rendered = await offCtx.startRendering();
 
     // ── Encode to MP3 ──
-    if (shareBtn) shareBtn.textContent = 'Encoding MP3…';
+    _shareStatus('Loading MP3 encoder…');
     await new Promise(r => setTimeout(r, 30));
     await _ensureLamejs();
+    _shareStatus('Encoding MP3…');
+    await new Promise(r => setTimeout(r, 30));
     const mp3Blob = encodeMP3(rendered);
+    console.log('[SHARE] MP3 blob size:', (mp3Blob.size / 1024).toFixed(0) + 'KB');
 
-    if (shareBtn) shareBtn.textContent = 'Uploading…';
+    _shareStatus('Uploading…');
     await new Promise(r => setTimeout(r, 30));
 
     // ── 3. Upload to Firebase Storage ──
@@ -34089,14 +34221,34 @@ async function bounceAndShare() {
     }
 
     showToast('Share link copied! Expires in 30 days.', 'success', 4000);
-    if (shareBtn) { shareBtn.disabled = false; shareBtn.textContent = 'Bounce + Share'; }
+    _shareReset();
+    // Show the link row with copy button
+    if (linkRow) {
+      linkRow.classList.add('on');
+      var linkInput = document.getElementById('mixShareLinkInput');
+      if (linkInput) linkInput.value = shareUrl;
+    }
     _incrementExportCount();
     renderSharePublicLink(song);
 
   } catch(e) {
     console.error('bounceAndShare error:', e);
     showToast('Share failed: ' + e.message, 'error', 6000);
-    if (shareBtn) { shareBtn.disabled = false; shareBtn.textContent = 'Bounce + Share'; }
+    _shareReset();
+  }
+}
+
+function mixCopyShareLink() {
+  var inp = document.getElementById('mixShareLinkInput');
+  if (!inp || !inp.value) return;
+  inp.select();
+  try {
+    navigator.clipboard.writeText(inp.value).then(function() {
+      showToast('Link copied!', 'success', 2000);
+    });
+  } catch(e) {
+    document.execCommand('copy');
+    showToast('Link copied!', 'success', 2000);
   }
 }
 
@@ -42961,9 +43113,13 @@ function _slFmtDur(sec) {
 // (Takes dropdown close is handled by the centralized _slCloseAllMenus system)
 
 function rowSeqToggle(id) {
+  var _rst0 = performance.now();
+  console.log('[ENS-DEBUG] rowSeqToggle START id=' + id);
+
   // If the ensemble is running, stop everything
   if (seqIsPlaying || _mtIsPlaying) {
     ensembleStop();
+    console.log('[ENS-DEBUG] stopped existing playback:', (performance.now()-_rst0).toFixed(1)+'ms');
     if (currentId === id) { renderGrid(); return; } // was this song — just stop
   }
   const song = songs.find(s => s.id === id);
@@ -42971,46 +43127,72 @@ function rowSeqToggle(id) {
 
   currentId = id;
   populateSongFields(song);
+  console.log('[ENS-DEBUG] populateSongFields:', (performance.now()-_rst0).toFixed(1)+'ms');
 
   // ── Synchronous setup within the user gesture ──────────────────
   // AudioContext must be created+resumed HERE (inside the click handler)
   // so iOS Safari permits it. Any later async resume will be blocked.
   _mtEnsureTrackObjects();
+  console.log('[ENS-DEBUG] _mtEnsureTrackObjects:', (performance.now()-_rst0).toFixed(1)+'ms');
   _mtCreateCtxSync();
+  console.log('[ENS-DEBUG] _mtCreateCtxSync:', (performance.now()-_rst0).toFixed(1)+'ms');
   if (_mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(() => {});
 
   const prefs = _ensembleGetPrefs();
+  console.log('[ENS-DEBUG] prefs:', JSON.stringify(prefs));
 
   if (prefs['4track']) {
     // Preload takes first; fire ensemble launch the moment buffers are ready.
     // Sequencer/looper/kbd start immediately — 4-track joins as soon as it loads.
+    console.log('[ENS-DEBUG] → ensembleLaunch (4track path):', (performance.now()-_rst0).toFixed(1)+'ms');
     ensembleLaunch();   // starts seq + looper + kbd now; 4-track skipped (no buffers yet)
     renderGrid();
+    console.log('[ENS-DEBUG] renderGrid done:', (performance.now()-_rst0).toFixed(1)+'ms');
     mtPreloadForSong(id).then(() => {
+      console.log('[ENS-DEBUG] mtPreloadForSong resolved:', (performance.now()-_rst0).toFixed(1)+'ms');
       if (currentId !== id) return;  // user switched away
       if (_mtIsPlaying) return;      // already playing (was preloaded before launch)
       if (_mtTracks.some(t => t && t.buffer)) mtPlay();
     }).catch(() => {});
   } else {
+    console.log('[ENS-DEBUG] → ensembleLaunch (no 4track):', (performance.now()-_rst0).toFixed(1)+'ms');
     ensembleLaunch();
     renderGrid();
+    console.log('[ENS-DEBUG] renderGrid done:', (performance.now()-_rst0).toFixed(1)+'ms');
   }
+  console.log('[ENS-DEBUG] rowSeqToggle END:', (performance.now()-_rst0).toFixed(1)+'ms');
 }
 
 function _rowSeqBoot(song) {
+  var _rb0 = performance.now();
+  console.log('[ENS-DEBUG] _rowSeqBoot START songId=' + song.id + ' seqSongId=' + seqSongId);
   const body = document.getElementById('seqDrawerBody');
-  if (!body) return;
+  if (!body) { console.warn('[ENS-DEBUG] _rowSeqBoot: NO seqDrawerBody!'); return; }
   // Render HTML if not already rendered for this song (check drum grid — chord grid now lives in keyboard drawer)
-  if (seqSongId !== song.id || !document.querySelector('#seqKick .seq-slot')) {
+  var _needsRender = seqSongId !== song.id || !document.querySelector('#seqKick .seq-slot');
+  console.log('[ENS-DEBUG] needsRender=' + _needsRender + ' (seqSongId=' + seqSongId + ' vs ' + song.id + ')');
+  if (_needsRender) {
     body.innerHTML = renderSequencerHtml(song);
+    console.log('[ENS-DEBUG] renderSequencerHtml:', (performance.now()-_rb0).toFixed(1)+'ms');
     initSequencer(song);
+    console.log('[ENS-DEBUG] initSequencer:', (performance.now()-_rb0).toFixed(1)+'ms');
     // initSequencer uses two nested rAFs — wait for both then play
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      setTimeout(() => { seqPlay(); renderGrid(); }, 30);
-    }));
+    requestAnimationFrame(() => {
+      console.log('[ENS-DEBUG] rAF1:', (performance.now()-_rb0).toFixed(1)+'ms');
+      requestAnimationFrame(() => {
+        console.log('[ENS-DEBUG] rAF2:', (performance.now()-_rb0).toFixed(1)+'ms');
+        setTimeout(() => {
+          console.log('[ENS-DEBUG] setTimeout(30) → seqPlay():', (performance.now()-_rb0).toFixed(1)+'ms');
+          seqPlay(); renderGrid();
+          console.log('[ENS-DEBUG] seqPlay + renderGrid done:', (performance.now()-_rb0).toFixed(1)+'ms');
+        }, 30);
+      });
+    });
   } else {
+    console.log('[ENS-DEBUG] already rendered — seqPlay() direct:', (performance.now()-_rb0).toFixed(1)+'ms');
     seqPlay();
     renderGrid();
+    console.log('[ENS-DEBUG] seqPlay + renderGrid done:', (performance.now()-_rb0).toFixed(1)+'ms');
   }
 }
 
@@ -43598,6 +43780,8 @@ function renderMixDrawerHtml() {
     + '<svg class="mix-ic" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>'
     + 'Bounce + Share</button>'
     + '</div>'
+    + '<div class="mix-share-status" id="mixShareStatus"><div class="mix-share-spinner"></div><span id="mixShareStatusText">Rendering…</span></div>'
+    + '<div class="mix-share-link-row" id="mixShareLinkRow"><input id="mixShareLinkInput" type="text" readonly onclick="this.select()"><button onclick="mixCopyShareLink()">Copy Link</button></div>'
     + '<div class="mix-desk" id="mixDesk">' + rowsHtml + '</div>'
     + '<div class="mix-modal-bg" id="mixBounceModal">'
     + '<div class="mix-modal">'
@@ -47909,42 +48093,52 @@ function _ensembleApplyAllGains(prefs) {
 function _ensembleApplyDrumGain(prefs) { _ensembleApplyAllGains(prefs); }
 
 window.ensembleLaunch = function() {
+  var _el0 = performance.now();
+  console.log('[ENS-DEBUG] ensembleLaunch START');
   const prefs = _ensembleGetPrefs();
   const song = songs.find(s => s.id === currentId);
 
   // 4-Track: play only if there are loaded tracks
   if (prefs['4track']) {
-    if (_mtTracks.some(t => t && t.buffer) && !_mtIsPlaying) {
+    var _hasBufs = _mtTracks.some(t => t && t.buffer);
+    console.log('[ENS-DEBUG] 4track: hasBufs=' + _hasBufs + ' isPlaying=' + _mtIsPlaying);
+    if (_hasBufs && !_mtIsPlaying) {
       mtPlay();
+      console.log('[ENS-DEBUG] mtPlay() called:', (performance.now()-_el0).toFixed(1)+'ms');
     }
   }
 
   // Chord Progression + Drum Beat (both use the same sequencer)
   if ((prefs.seq || prefs.drums) && !seqIsPlaying) {
+    console.log('[ENS-DEBUG] seq/drums: starting sequencer, seqSongId=' + seqSongId + ' songId=' + (song?.id||'none'));
     if (song) {
+      console.log('[ENS-DEBUG] → _rowSeqBoot:', (performance.now()-_el0).toFixed(1)+'ms');
       _rowSeqBoot(song);
+      console.log('[ENS-DEBUG] ← _rowSeqBoot returned:', (performance.now()-_el0).toFixed(1)+'ms');
     } else {
       seqPlay();
+      console.log('[ENS-DEBUG] seqPlay() (no song):', (performance.now()-_el0).toFixed(1)+'ms');
     }
   }
   // Apply all channel mutes — runs whether or not things just started or were already playing
   _ensembleApplyAllGains(prefs);
+  console.log('[ENS-DEBUG] gains applied:', (performance.now()-_el0).toFixed(1)+'ms');
 
   // Looper: respect part assignments
   if (prefs.loop) {
+    console.log('[ENS-DEBUG] loop: starting looper');
     if (prefs.seq || prefs.drums) {
-      // Sequencer is also launching — trigger loops for the current part explicitly
-      // (seqPlay no longer cross-triggers; that's reserved for seqPlaySong full-song mode).
       loopEnsureAudioCtx().then(() => {
+        console.log('[ENS-DEBUG] loopEnsureAudioCtx resolved:', (performance.now()-_el0).toFixed(1)+'ms');
         const _curSeq2 = song ? (getSongSequences(song)[seqActiveIdx] || getSongSequences(song)[0]) : null;
         const _pd2 = document.getElementById('seqPartAssign')?.value || null;
         const _pid2 = _curSeq2?.partId || _curSeq2?.part || _pd2 || null;
+        console.log('[ENS-DEBUG] loop partId=' + _pid2);
         if (_pid2) _seqTriggerLoopsForPart(_pid2);
       }).catch(() => {});
     } else {
-      // Looper-only launch: trigger loops for the current sequence's part,
-      // the same way seqPlay does it, so part assignments are respected.
       loopEnsureAudioCtx().then(() => {
+        console.log('[ENS-DEBUG] loopEnsureAudioCtx (loop-only) resolved:', (performance.now()-_el0).toFixed(1)+'ms');
         const _curSeq = song ? (getSongSequences(song)[seqActiveIdx] || getSongSequences(song)[0]) : null;
         const _partFromDom = document.getElementById('seqPartAssign')?.value || null;
         const partId = _curSeq?.partId || _curSeq?.part || _partFromDom || null;
@@ -47952,7 +48146,6 @@ window.ensembleLaunch = function() {
           _seqTriggerLoopsForPart(partId);
           _seqTriggerMtTracksForPart(partId);
         } else {
-          // No part context at all — fall back to starting any loaded, idle tracks
           loopTracks.forEach((t, i) => {
             if (t.buffer && t.state !== 'playing' && t.state !== 'recording') {
               t.state = 'playing'; loopStartPlayback(i);
@@ -47968,7 +48161,9 @@ window.ensembleLaunch = function() {
   if (prefs.kbd) {
     const kd = document.getElementById('keyboardDrawer');
     if (kd && !kd.classList.contains('open')) openKeyboardDrawer();
+    console.log('[ENS-DEBUG] kbd drawer opened:', (performance.now()-_el0).toFixed(1)+'ms');
   }
+  console.log('[ENS-DEBUG] ensembleLaunch END:', (performance.now()-_el0).toFixed(1)+'ms');
 };
 
 window.ensembleStop = function() {
