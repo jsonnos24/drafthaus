@@ -8127,7 +8127,7 @@ body.split-active #splitLeftHeader { display: none; }
 #splitRightPanel {
   display: none;
   position: fixed;
-  top: calc(93px + env(safe-area-inset-top, 0px)); left: var(--split-left); right: 0; bottom: 0;
+  top: calc(97px + env(safe-area-inset-top, 0px)); left: var(--split-left); right: 0; bottom: 0;
   background: var(--bg);
   border-left: 1px solid var(--border2);
   z-index: 202;
@@ -8546,6 +8546,7 @@ body.split-active #splitRightContent {
     min-height: 0 !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
+    padding-top: 8px !important; /* Breathing room so toolbar isn't flush against seq strip */
     padding-bottom: 200px !important; /* Scroll clearance so grid can be scrolled above bottom chrome */
   }
 }
@@ -11847,6 +11848,10 @@ body.il-perf-active #ilScrollFloat { display: none; }
 @keyframes mtArmedPulse {
   0%, 100% { box-shadow: inset 0 0 0 0 rgba(192,64,64,0); }
   50%      { box-shadow: inset 0 0 12px 0 rgba(192,64,64,0.15); }
+}
+@keyframes welcomePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(160,100,255,0); }
+  50%      { box-shadow: 0 0 16px 4px rgba(160,100,255,0.45); }
 }
 .mt-track.mt-playing { border-color: #2a4a30; }
 /* Seq link mode: glowing tap-to-assign highlight */
@@ -30302,6 +30307,25 @@ function generateInspoSong() {
     return tmpl.map(idx => usable[idx % usable.length]);
   }
 
+  // Chord variation: swap a chord for one of its quality variants
+  // e.g. C → Csus2, Am → Am7. Skip dim chords entirely.
+  const INSPO_VARIANTS = {
+    '':    ['sus2','sus4','add9','maj7','7'],
+    'm':   ['m7','m9','madd9','msus4'],
+  };
+  function varyChord(name) {
+    const clean = name.replace('_viii','');
+    const chordRoot = (clean.length >= 2 && clean[1] === '#') ? clean.slice(0,2) : clean[0];
+    const qual = clean.slice(chordRoot.length);
+    // Never vary dim chords
+    if (qual.includes('dim')) return name;
+    const pool = INSPO_VARIANTS[qual];
+    if (!pool || !pool.length) return name;
+    // ~35% chance to use a variation
+    if (Math.random() > 0.35) return name;
+    return chordRoot + rand(pool);
+  }
+
   // Build chord slots for 4 bars (each chord = 1 bar in quarter grid)
   const beatsPerBar = parseInt(timeSig);
   const grid = 4; // 16th note grid
@@ -30309,9 +30333,22 @@ function generateInspoSong() {
   const totalSteps = stepsPerBar * 4; // 4 bars
 
   function buildChordSlots(prog) {
-    const slots = new Array(beatsPerBar * 4).fill(null); // 1 slot per beat across 4 bars
+    // totalSteps = beatsPerBar * grid * 4 bars (e.g. 4*4*4 = 64 for 4/4 16th grid)
+    const slots = new Array(totalSteps).fill(null);
+    // Place a chord on beat 1 of each bar, plus a passing chord on beat 3
     prog.forEach((chord, barIdx) => {
-      slots[barIdx * beatsPerBar] = chord; // chord on beat 1 of each bar
+      const barStart = barIdx * stepsPerBar;
+      slots[barStart] = varyChord(chord); // beat 1 — may get a variation
+      // Add a chord on beat 3 for density (half-bar changes feel fuller)
+      const beat3 = barStart + Math.floor(stepsPerBar / 2);
+      if (beat3 < totalSteps && !slots[beat3]) {
+        // 50% chance: repeat same chord (possibly varied), 50% chance: next chord in progression
+        if (Math.random() < 0.5) {
+          slots[beat3] = varyChord(chord);
+        } else {
+          slots[beat3] = varyChord(prog[(barIdx + 1) % prog.length]);
+        }
+      }
     });
     return slots;
   }
@@ -30508,6 +30545,96 @@ function showInspoResult(data, dieLabel, dieRoll) {
     </div>
   `;
   result.style.opacity = '1';
+}
+
+// ── Welcome Song — auto-created for first-time users ──────────────
+function createWelcomeSong() {
+  const d = generateInspoSong();
+
+  // Override title
+  d.title = 'Welcome to the Drafthaus';
+
+  // Build sequences array — same logic as launchInspoSong
+  const seqKey = d.root || d.key.split(' ')[0];
+  const sequences = (d.sections || []).map((sec, i) => {
+    const seq = {
+      id:         'seq_' + Date.now() + '_' + i,
+      partId:     sec.partId,
+      part:       sec.partId,
+      bpm:        String(d.bpm),
+      time:       d.timeSig,
+      bars:       '4',
+      grid:       '4',
+      key:        seqKey,
+      chordSlots: sec.chordSlots,
+      kick:       sec.drums.kick   || [],
+      snare:      sec.drums.snare  || [],
+      hat:        sec.drums.hat    || [],
+      crash:      sec.drums.crash  || [],
+      clap:       sec.drums.clap   || [],
+      hitom:      sec.drums.hitom  || [],
+      lotom:      sec.drums.lotom  || [],
+      melody:     [],
+    };
+    ['kickVel','snareVel','hatVel','crashVel','clapVel','hitomVel','lotomVel'].forEach(k => {
+      if (sec.drums[k]) seq[k] = sec.drums[k];
+    });
+    return seq;
+  });
+
+  // Build structure + sectionOrder
+  const structure = {};
+  const sectionOrder = [];
+  (d.sections || []).forEach(sec => {
+    structure[sec.partId] = { checked: true, count: 1 };
+    if (!sectionOrder.includes(sec.partId)) sectionOrder.push(sec.partId);
+  });
+
+  // Lyrics mapped to each section
+  const lyrics = {
+    'intro':    'Late nights, neon glow,\nscreen light in my eyes\nHalf-built dreams and coffee rings,\nnothing ever dies',
+    'verse-1':  'Every line a lifeline, every note a spark\nBuilding something outta nothing in the dark',
+    'verse-2':  'Yeah, we don\'t wait for permission\nWe don\'t follow tradition',
+    'chorus-1': 'Welcome to the Drafthaus\nWhere the ghosts all come alive\nEvery scratch, every demo\nIs a reason to survive',
+    'verse-3':  'Turn the noise into a lifeline\nLet it echo through the sound',
+    'chorus-2': 'In the Drafthaus, in the Drafthaus\nWe don\'t ever shut it down',
+  };
+
+  const song = {
+    id: genId(),
+    workingTitle: d.title,
+    title: d.title,
+    bpm: String(d.bpm),
+    key: d.key,
+    tuning: '', project: '', status: 'idea',
+    structure: structure,
+    sectionOrder: sectionOrder,
+    chords: {}, instruments: {}, notes: '', moods: [],
+    createdAt: Date.now(), updatedAt: Date.now(),
+    sequences: sequences,
+    sequencer: sequences[0],
+    lyrics: lyrics,
+  };
+
+  songs.unshift(song);
+  save();
+  scheduleSyncToSheet(song);
+
+  // Open the song so the user lands right in it
+  setTimeout(() => {
+    openSong(song.id);
+    _setWorkLayout();
+    // Show onboarding toast pointing to Play Sequence
+    setTimeout(() => {
+      showToast('🎵 Click ▶▶ Seq to play your first song ↓', 'info', 8000);
+      // Pulse the ▶▶ Seq button to draw attention
+      const seqBtn = document.querySelector('.split-play-btn[onclick*="sharedPlaySong"]');
+      if (seqBtn) {
+        seqBtn.style.animation = 'welcomePulse 1.5s ease-in-out 4';
+        seqBtn.addEventListener('animationend', () => { seqBtn.style.animation = ''; }, { once: true });
+      }
+    }, 800);
+  }, 200);
 }
 
 function launchInspoSong() {
@@ -31757,8 +31884,9 @@ async function loadSongsFromSheet() {
     const readOnlyIds = new Set(readOnlySnap.docs.map(d => d.id));
     if (!allDocs.length && !readOnlySnap.docs.length) {
       setSyncStatus('saved', 'No drafts yet');
+      // First-time user with no drafts — auto-create a welcome song
+      createWelcomeSong();
       renderGrid();
-      // First-time user with no drafts — just show empty song list
       return;
     }
 
