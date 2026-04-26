@@ -30270,7 +30270,6 @@ function generateInspoSong() {
   const key     = rand(INSPO_KEYS);
   const bpm     = rand(INSPO_BPMS);
   const timeSig = rand(INSPO_TIME_SIGS);
-  // Pick a drum pattern appropriate to the time signature
   const patternPool = timeSig === '6' ? INSPO_DRUM_PATTERNS_68
                     : timeSig === '5' ? INSPO_DRUM_PATTERNS_54
                     : timeSig === '3' ? ['waltz', ...INSPO_DRUM_PATTERNS_44]
@@ -30278,44 +30277,161 @@ function generateInspoSong() {
   const pattern = rand(patternPool);
   const title   = rand(INSPO_WORDS_A) + ' ' + rand(INSPO_WORDS_B) + (Math.random() > 0.5 ? ' ' + rand(INSPO_WORDS_C) : '');
 
-  // Generate random chord progression (4–6 chords from the key)
   const keyRoot = key.split(' ')[0].replace('b','').trim();
   const isMinor = key.includes('minor');
   const enharmonic = {'Db':'C#','Eb':'D#','Fb':'E','Gb':'F#','Ab':'G#','Bb':'A#','Cb':'B'};
   const root = enharmonic[keyRoot] || keyRoot;
-  const scale = SEQ_SCALES[isMinor ? 'minor' : 'major'];
   const scaleChords = seqGetScaleChords(root, isMinor ? 'minor' : 'major');
+  const usable = scaleChords.filter(c => !c.includes('_viii') && !c.includes('dim'));
 
-  // Pick 4–8 random slots from the chord grid, using chords from scale
-  const numSlots = randInt(4, 8);
-  const chordSlots = [];
-  const totalSlots = parseInt(timeSig) * 2; // 2 bars worth
-  for (let i = 0; i < totalSlots; i++) {
-    chordSlots.push(null);
+  // ── Musically sensible chord progression templates (scale degree indices) ──
+  // Major templates: I=0, ii=1, iii=2, IV=3, V=4, vi=5
+  // Minor templates: i=0, ii°=1(skip), III=2, iv=3, v=4, VI=5, VII=6
+  const majorProgs = [
+    [0,3,4,0], [0,5,3,4], [0,3,5,4], [5,3,0,4], [0,2,5,3],
+    [0,4,5,3], [3,0,4,0], [0,5,4,3], [3,4,5,0], [0,3,0,4],
+  ];
+  const minorProgs = [
+    [0,5,6,4], [0,3,5,6], [0,6,5,3], [0,3,4,0], [5,6,3,4],
+    [0,4,5,6], [0,5,3,4], [0,6,3,5], [3,0,5,6], [0,3,6,5],
+  ];
+  const templates = isMinor ? minorProgs : majorProgs;
+
+  function pickProgression() {
+    const tmpl = rand(templates);
+    return tmpl.map(idx => usable[idx % usable.length]);
   }
-  // Place chords at random positions
-  const positions = [];
-  while (positions.length < Math.min(numSlots, totalSlots)) {
-    const p = randInt(0, totalSlots - 1);
-    if (!positions.includes(p)) positions.push(p);
+
+  // Build chord slots for 4 bars (each chord = 1 bar in quarter grid)
+  const beatsPerBar = parseInt(timeSig);
+  const grid = 4; // 16th note grid
+  const stepsPerBar = beatsPerBar * grid;
+  const totalSteps = stepsPerBar * 4; // 4 bars
+
+  function buildChordSlots(prog) {
+    const slots = new Array(beatsPerBar * 4).fill(null); // 1 slot per beat across 4 bars
+    prog.forEach((chord, barIdx) => {
+      slots[barIdx * beatsPerBar] = chord; // chord on beat 1 of each bar
+    });
+    return slots;
   }
-  positions.sort((a,b) => a-b);
-  positions.forEach(pos => {
-    chordSlots[pos] = rand(scaleChords.filter(c => !c.includes('_viii') && !c.includes('dim')));
+
+  // ── Drum helpers ──
+  const dp = DRUM_PATTERNS[pattern];
+  const oneBar = {};
+  ['kick','snare','hat','crash','clap','hitom','lotom'].forEach(v => {
+    oneBar[v] = (dp?.[v] || []).slice(0, stepsPerBar);
   });
 
-  // Generate drum pattern
-  const dp = DRUM_PATTERNS[pattern];
-  const steps = parseInt(timeSig) * 2; // 2 bars at quarter grid
-  const kick  = (dp?.kick  || []).slice(0, 16);
-  const snare = (dp?.snare || []).slice(0, 16);
-  const hat   = (dp?.hat   || []).slice(0, 16);
-  const crash = (dp?.crash || []).slice(0, 16);
-  const clap  = (dp?.clap  || []).slice(0, 16);
-  const hitom = (dp?.hitom || []).slice(0, 16);
-  const lotom = (dp?.lotom || []).slice(0, 16);
+  // Tile a 1-bar pattern to 4 bars
+  function tileDrums(src, bars) {
+    const out = {};
+    ['kick','snare','hat','crash','clap','hitom','lotom'].forEach(v => {
+      out[v] = [];
+      for (let b = 0; b < bars; b++) {
+        const bar = (src[v] || []).slice(0, stepsPerBar);
+        for (let s = 0; s < stepsPerBar; s++) out[v].push(bar[s] || 0);
+      }
+    });
+    return out;
+  }
 
-  return { key, bpm, timeSig, pattern, title, chordSlots, kick, snare, hat, crash, clap, hitom, lotom, root };
+  // Apply probability hits to empty slots (ghost notes, variation)
+  function applyProb(drums, probMap) {
+    ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(v => {
+      const pct = probMap[v] || 0;
+      if (!pct || !drums[v]) return;
+      if (!drums[v + 'Vel']) drums[v + 'Vel'] = [];
+      for (let i = 0; i < drums[v].length; i++) {
+        if (drums[v][i]) continue;
+        if (Math.random() * 100 < pct) {
+          drums[v][i] = 1;
+          drums[v + 'Vel'][i] = +(0.3 + Math.random() * 0.4).toFixed(2); // ghost velocity
+        }
+      }
+    });
+  }
+
+  // Apply a snare/tom fill in the last bar
+  function applyFill(drums) {
+    const fillStart = stepsPerBar * 3; // last bar
+    const q = stepsPerBar / 4;
+    for (let i = fillStart; i < drums.kick.length; i++) {
+      const progress = (i - fillStart) / stepsPerBar;
+      // Clear existing to replace with fill
+      drums.kick[i] = 0; drums.snare[i] = 0; drums.hat[i] = 0;
+      drums.hitom[i] = 0; drums.lotom[i] = 0;
+      // Building snare roll
+      if (i % Math.max(1, Math.round(q * (1 - progress * 0.8))) === 0) {
+        drums.snare[i] = 1;
+        if (!drums.snareVel) drums.snareVel = [];
+        drums.snareVel[i] = +(0.5 + progress * 0.45).toFixed(2);
+      }
+      // Toms in second half of fill
+      if (progress > 0.5 && Math.random() < 0.35) {
+        const voice = Math.random() > 0.5 ? 'hitom' : 'lotom';
+        drums[voice][i] = 1;
+        if (!drums[voice + 'Vel']) drums[voice + 'Vel'] = [];
+        drums[voice + 'Vel'][i] = +(0.5 + Math.random() * 0.4).toFixed(2);
+      }
+    }
+    // Crash on beat 1 of what would be the next section (mark for later)
+    drums._crashOnBeat1 = true;
+  }
+
+  // ── Build each section ──
+  const introChords  = pickProgression();
+  const verseChords  = pickProgression();
+  const chorusChords = pickProgression();
+  // Verse 3 gets a slight variation of the verse
+  const verse3Chords = verseChords.slice();
+  if (verse3Chords.length >= 4) verse3Chords[3] = rand(usable); // swap last chord
+  // Chorus 2 same as chorus 1
+
+  const sectionDefs = [
+    { partId: 'intro',    label: 'Intro',    chords: introChords,  drumStyle: 'sparse',  fill: false },
+    { partId: 'verse-1',  label: 'Verse 1',  chords: verseChords,  drumStyle: 'normal',  fill: false },
+    { partId: 'verse-2',  label: 'Verse 2',  chords: verseChords,  drumStyle: 'normal',  fill: true  },
+    { partId: 'chorus-1', label: 'Chorus 1', chords: chorusChords, drumStyle: 'full',    fill: false },
+    { partId: 'verse-3',  label: 'Verse 3',  chords: verse3Chords, drumStyle: 'normal',  fill: true  },
+    { partId: 'chorus-2', label: 'Chorus 2', chords: chorusChords, drumStyle: 'full',    fill: true  },
+  ];
+
+  const sections = sectionDefs.map(sec => {
+    const drums = tileDrums(oneBar, 4);
+
+    // Intro: sparse — strip snare/clap, thin out hats, no crash
+    if (sec.drumStyle === 'sparse') {
+      for (let i = 0; i < drums.snare.length; i++) drums.snare[i] = 0;
+      for (let i = 0; i < drums.clap.length; i++) drums.clap[i] = 0;
+      for (let i = 0; i < drums.crash.length; i++) drums.crash[i] = 0;
+      // Keep only every other hat hit
+      for (let i = 0; i < drums.hat.length; i++) { if (i % 2 !== 0) drums.hat[i] = 0; }
+      // Light probability: just a few ghost hats
+      applyProb(drums, { hat: 15 });
+    }
+    // Normal verse: base pattern + light ghost notes
+    if (sec.drumStyle === 'normal') {
+      applyProb(drums, { hat: 12, kick: 5, snare: 4 });
+    }
+    // Full chorus: more energy — add crash on beat 1, probability fills, thicker hats
+    if (sec.drumStyle === 'full') {
+      drums.crash[0] = 1; // crash on downbeat
+      applyProb(drums, { hat: 20, kick: 10, snare: 8, clap: 10 });
+    }
+
+    if (sec.fill) applyFill(drums);
+
+    return {
+      partId:     sec.partId,
+      label:      sec.label,
+      chords:     sec.chords,
+      chordSlots: buildChordSlots(sec.chords),
+      drums:      drums,
+    };
+  });
+
+  return { key, bpm, timeSig, pattern, title, root, sections };
 }
 
 const INSPO_SUCCESS_LINES = [
@@ -30355,12 +30471,21 @@ function showInspoResult(data, dieLabel, dieRoll) {
   const result = document.getElementById('inspoResult');
   if (!result) return;
 
-  const chords = data.chordSlots.filter(Boolean).map(c => c.replace('_viii',''));
-  const uniqueChords = [...new Set(chords)];
   const dieChip = (dieLabel && dieRoll != null)
     ? `<div class="inspo-chip" style="background:rgba(200,160,255,0.18);border-color:rgba(200,160,255,0.5);color:#e0b8ff;font-weight:700;">${dieLabel} · ${dieRoll}</div>`
     : '';
   const sassyLine = INSPO_SUCCESS_LINES[Math.floor(Math.random() * INSPO_SUCCESS_LINES.length)];
+
+  // Build section preview chips
+  const sectionHtml = (data.sections || []).map(sec => {
+    const chords = sec.chords.map(c => c.replace('_viii','')).join(' → ');
+    const fillTag = sec.drums?._crashOnBeat1 !== undefined || Object.values(sec.drums || {}).some(a => Array.isArray(a) && a.some((v,i) => v && i >= a.length - 16))
+      ? ' <span style="opacity:0.5;font-size:9px;">[fill]</span>' : '';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-family:'IBM Plex Mono',monospace;font-size:11px;">
+      <span style="min-width:72px;color:${(STRUCTURE_PARTS.find(p=>p.id===sec.partId)||{}).color||'var(--text)'};font-weight:700;text-transform:uppercase;letter-spacing:0.08em;font-size:10px;">${sec.label}</span>
+      <span style="color:var(--text);opacity:0.7;">${chords}${fillTag}</span>
+    </div>`;
+  }).join('');
 
   result.innerHTML = `
     <div style="font-family:'Playfair Display',serif;font-size:20px;font-style:italic;color:rgba(200,160,255,0.85);margin-bottom:14px;line-height:1.3;">${sassyLine}</div>
@@ -30376,7 +30501,10 @@ function showInspoResult(data, dieLabel, dieRoll) {
       <div class="inspo-chip">♩ ${data.bpm} BPM</div>
       <div class="inspo-chip">${data.timeSig === '6' ? '6/8' : data.timeSig === '5' ? '5/4' : data.timeSig + '/4'}</div>
       <div class="inspo-chip">🥁 ${data.pattern}</div>
-      ${uniqueChords.map(c => `<div class="inspo-chip">${c}</div>`).join('')}
+    </div>
+    <div style="margin-top:12px;padding:8px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;">Song structure — 6 sections, 4 bars each</div>
+      ${sectionHtml}
     </div>
   `;
   result.style.opacity = '1';
@@ -30396,7 +30524,44 @@ function launchInspoSong() {
     return;
   }
 
-  // Create new song
+  // Build sequences array — one per section, each with 4 bars
+  const seqKey = d.root || d.key.split(' ')[0];
+  const sequences = (d.sections || []).map((sec, i) => {
+    const seq = {
+      id:         'seq_' + Date.now() + '_' + i,
+      partId:     sec.partId,
+      part:       sec.partId,
+      bpm:        String(d.bpm),
+      time:       d.timeSig,
+      bars:       '4',
+      grid:       '4',
+      key:        seqKey,
+      chordSlots: sec.chordSlots,
+      kick:       sec.drums.kick   || [],
+      snare:      sec.drums.snare  || [],
+      hat:        sec.drums.hat    || [],
+      crash:      sec.drums.crash  || [],
+      clap:       sec.drums.clap   || [],
+      hitom:      sec.drums.hitom  || [],
+      lotom:      sec.drums.lotom  || [],
+      melody:     [],
+    };
+    // Copy velocity arrays if present
+    ['kickVel','snareVel','hatVel','crashVel','clapVel','hitomVel','lotomVel'].forEach(k => {
+      if (sec.drums[k]) seq[k] = sec.drums[k];
+    });
+    return seq;
+  });
+
+  // Build structure + sectionOrder from sections
+  const structure = {};
+  const sectionOrder = [];
+  (d.sections || []).forEach(sec => {
+    structure[sec.partId] = { checked: true, count: 1 };
+    if (!sectionOrder.includes(sec.partId)) sectionOrder.push(sec.partId);
+  });
+
+  // Create new song with multi-section sequences
   const song = {
     id: genId(),
     workingTitle: d.title,
@@ -30404,21 +30569,12 @@ function launchInspoSong() {
     bpm: String(d.bpm),
     key: d.key,
     tuning: '', project: '', status: 'idea',
-    structure: {}, chords: {}, instruments: {}, notes: '', moods: [],
+    structure: structure,
+    sectionOrder: sectionOrder,
+    chords: {}, instruments: {}, notes: '', moods: [],
     createdAt: Date.now(), updatedAt: Date.now(),
-    sequencer: {
-      bpm:        String(d.bpm),
-      time:       d.timeSig,
-      bars:       '2',
-      grid:       '1',
-      key:        d.root || d.key.split(' ')[0],
-      chordSlots: d.chordSlots,
-      kick:       d.kick,
-      snare:      d.snare,
-      hat:        d.hat,
-      crash:      d.crash,
-      clap:       d.clap,
-    }
+    sequences: sequences,
+    sequencer: sequences[0],
   };
 
   songs.unshift(song);
