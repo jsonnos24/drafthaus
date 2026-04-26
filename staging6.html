@@ -16716,8 +16716,8 @@ body.app-loading > *:not(#appLoadingScreen) { visibility: hidden; }
       </select>
       <!-- Grid -->
       <div class="ht-sep"></div>
-      <span class="ht-lbl">Grid</span>
-      <select class="ht-sel" id="seqGrid" onchange="seqRebuild()" title="Grid resolution">
+      <span class="ht-lbl">Steps</span>
+      <select class="ht-sel" id="seqGrid" onchange="seqRebuild()" title="Steps per beat">
         <option value="1">1/4</option>
         <option value="2">1/8</option>
         <option value="4" selected>1/16</option>
@@ -19438,8 +19438,11 @@ function saveField() {
   song.title        = document.getElementById('fTitle').value;
   _updateDraftingHeader();
   song.bpm          = document.getElementById('fBpm').value;
-  // Only sync song-level BPM display; don't push into the active sequence
-  syncSongBpmUI(song.bpm);
+  // BPM is song-wide: propagate to ALL sequences
+  var _seqsAll = song.sequences || [];
+  for (var _si = 0; _si < _seqsAll.length; _si++) { _seqsAll[_si].bpm = song.bpm; }
+  if (song.sequencer) song.sequencer.bpm = song.bpm;
+  syncBpmUI(song.bpm);
   song.key          = document.getElementById('fKey').value;
   song.tuning       = document.getElementById('fTuning').value;
   song.notes        = document.getElementById('fNotes').value;
@@ -23114,6 +23117,16 @@ function seqRenderSequenceTabs() {
     <button class="seq-tab-add" onclick="seqClearActiveSequence()" title="Clear sequence" style="color:#ff5f5f;border-color:rgba(255,95,95,0.35);">✕ Clear</button>`;
   _seqSyncUndoBtn();
   _ucbSyncDropdownBorderColor();
+
+  // Auto-scroll the strip to keep the playing tab visible during ensemble playback
+  if (nowPlayingIdx >= 0) {
+    const playingBtn = document.getElementById('seq-tab-btn-' + nowPlayingIdx);
+    if (playingBtn && strip.scrollWidth > strip.clientWidth) {
+      // Scroll so the playing tab is centered in the strip
+      const targetScroll = playingBtn.offsetLeft - (strip.clientWidth / 2) + (playingBtn.offsetWidth / 2);
+      strip.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+    }
+  }
 }
 
 // ── Sync UCB dropdown borders to active pill color ─────────────────────────
@@ -23928,9 +23941,10 @@ function seqSaveAllToCurrent(song) {
 
 function seqLoadSequenceIntoDOM(seq, song) {
   if (!seq) return;
-  // Update BPM/time/bars/grid controls — per-sequence BPM
-  const bpmEl = document.getElementById('seqBpm');   if (bpmEl) bpmEl.value = seq.bpm || '100';
-  syncSeqBpmUI(seq.bpm || song?.bpm || '100');
+  // BPM is song-wide — always use song.bpm, not per-sequence
+  const _songBpm = song?.bpm || seq.bpm || '100';
+  const bpmEl = document.getElementById('seqBpm');   if (bpmEl) bpmEl.value = _songBpm;
+  syncSeqBpmUI(_songBpm);
   const timeEl = document.getElementById('seqTime');  if (timeEl) timeEl.value = seq.time || '4';
   const barsEl = document.getElementById('seqBars');  if (barsEl) barsEl.value = seq.bars || '2';
   const gridEl = document.getElementById('seqGrid');  if (gridEl) gridEl.value = seq.grid || '4';
@@ -24559,14 +24573,16 @@ function seqSaveSettings() {
   song.sequencer.bars  = _v('seqBars',  'kbdBars',    sd.bars  || '2');
   song.sequencer.grid  = _v('seqGrid',  null,          sd.grid  || '4');
   song.sequencer.bpm   = _v('seqBpm',   'kbdBpm',     sd.bpm   || '120');
+  // BPM is song-wide: sync to song.bpm and propagate to ALL sequences
+  song.bpm = song.sequencer.bpm;
+  const seqs = song.sequences || [];
+  for (var _bi = 0; _bi < seqs.length; _bi++) { seqs[_bi].bpm = song.bpm; }
   const partVal = document.getElementById('seqPartAssign')?.value || sd.part || '';
   song.sequencer.part  = partVal;
   song.sequencer.partId= partVal;
   // Re-render tabs and chord progression if part assignment changed
   seqRenderSequenceTabs();
   if (typeof renderStructure === 'function') renderStructure(song);
-  // Sequence BPM is per-sequence; don't overwrite song.bpm here.
-  // Only sync the transport/UI to show the active sequence's tempo.
   syncSeqBpmUI(song.sequencer.bpm);
   syncTimeSigUI();
   song.sequencer.swing = document.getElementById('seqSwing')?.value || sd.swing || '0';
@@ -24617,15 +24633,25 @@ function syncSongBpmUI(rawBpm) {
   }
 }
 
-// Syncs transport/playback UI to the active sequence's BPM WITHOUT touching
-// the song-info fBpm field or song.bpm.  Used when sequencer BPM changes.
+// Syncs BPM across ALL sequences + song.bpm + all UI elements.
+// BPM is song-wide — every section plays at the same tempo.
 function syncSeqBpmUI(rawBpm) {
   const bpm = Math.max(40, Math.min(240, parseInt(rawBpm, 10) || 100));
-  rtMetroBpm = bpm; // keep global metronome in sync
-  const sEl = document.getElementById('seqBpm'); if (sEl && parseInt(sEl.value) !== bpm) sEl.value = bpm;
+  rtMetroBpm = bpm;
   loopBpm = bpm;
+  // Propagate to song + all sequences
+  const _bSong = getCurrentSong();
+  if (_bSong) {
+    _bSong.bpm = String(bpm);
+    var _bSeqs = _bSong.sequences || [];
+    for (var _bi = 0; _bi < _bSeqs.length; _bi++) { _bSeqs[_bi].bpm = String(bpm); }
+    if (_bSong.sequencer) _bSong.sequencer.bpm = String(bpm);
+  }
+  // Sync all UI elements
+  const sEl = document.getElementById('seqBpm'); if (sEl && parseInt(sEl.value) !== bpm) sEl.value = bpm;
   const lEl = document.getElementById('loopBpmDisplay'); if (lEl) lEl.textContent = bpm;
   const kEl = document.getElementById('kbdBpm'); if (kEl && parseInt(kEl.value) !== bpm) kEl.value = bpm;
+  const fEl = document.getElementById('fBpm'); if (fEl && document.activeElement !== fEl && parseInt(fEl.value) !== bpm) fEl.value = bpm;
   const htEl = document.getElementById('htBpmDisplay'); if (htEl) htEl.textContent = bpm;
   const ktEl = document.getElementById('kbdTapBpmNum'); if (ktEl) { if (ktEl.tagName === 'INPUT') ktEl.value = bpm; else ktEl.textContent = bpm; }
   const mt4tBpmEl = document.getElementById('mt4tTapBpmNum'); if (mt4tBpmEl) { if (mt4tBpmEl.tagName === 'INPUT') mt4tBpmEl.value = bpm; else mt4tBpmEl.textContent = bpm; }
@@ -27204,8 +27230,9 @@ async function seqPlaySong() {
   // Pre-load all section data (not from DOM — avoids DOM reads during playback)
   const key  = seqCurrentKey();
   const mode = seqCurrentMode();
+  const _songWideBpm = parseFloat(song?.bpm || 100);
   _seqSongSections = sorted.map(seq => {
-    const bpm  = parseFloat(seq.bpm || 100);
+    const bpm  = _songWideBpm;
     const grid = parseInt(seq.grid || 4);
     const time = parseInt(seq.time || 4);
     const bars = parseInt(seq.bars || 2);
@@ -27508,10 +27535,14 @@ function seqScheduleNotes() {
                     || _loopSong?.sequencer?.bpm
                     || _loopSong?.bpm
                     || 100);
-  const grid      = parseInt(document.getElementById('seqGrid')?.value    || 2);
   const swing     = parseFloat(document.getElementById('seqSwing')?.value || 0);
   const vel       = parseFloat(document.getElementById('seqVel')?.value   || 0.8);
   const time_sig  = parseInt(document.getElementById('seqTime')?.value    || 4);
+  // Use the saved grid from the sequence data, NOT the DOM dropdown.
+  // This prevents speed changes when the user adjusts the steps control
+  // before the data has been remapped.
+  const _loopSeqData = _loopSong?.sequencer || {};
+  const grid      = parseInt(_loopSeqData.grid || document.getElementById('seqGrid')?.value || 1);
   const beatsPerBar = time_sig * grid;
   const stepDur   = (60 / bpm) / grid;
 
@@ -53867,7 +53898,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <option value="2" selected>2</option>
         <option value="4">4</option>
       </select>
-      <select class="seq-select ucb-select" id="mt4tGrid" onchange="kbdGridChanged(this.value)" title="Grid">
+      <select class="seq-select ucb-select" id="mt4tGrid" onchange="kbdGridChanged(this.value)" title="Steps per beat">
         <option value="1">1/4</option>
         <option value="2">1/8</option>
         <option value="4" selected>1/16</option>
@@ -54724,7 +54755,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <option value="2" selected>2</option>
         <option value="4">4</option>
       </select>
-      <select class="seq-select ucb-select" id="kbdGrid" onchange="kbdGridChanged(this.value)" title="Grid">
+      <select class="seq-select ucb-select" id="kbdGrid" onchange="kbdGridChanged(this.value)" title="Steps per beat">
         <option value="1">1/4</option>
         <option value="2">1/8</option>
         <option value="4" selected>1/16</option>
