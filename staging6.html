@@ -30571,8 +30571,10 @@ function launchInspoSong() {
   };
 
   // Fill chord slots to completely cover a section's grid (no empty slots)
-  function _fillSectionChords(chords, bars, timeSig) {
-    var numSlots = parseInt(timeSig) * parseInt(bars); // 1 slot per beat at grid=1
+  // grid multiplier: at grid=1 → 1 slot/beat, grid=2 → 2 slots/beat, grid=4 → 4 slots/beat
+  function _fillSectionChords(chords, bars, timeSig, grid) {
+    var g = parseInt(grid) || 1;
+    var numSlots = parseInt(timeSig) * parseInt(bars) * g;
     var slots = [];
     var beatsPerChord = Math.max(1, Math.floor(numSlots / chords.length));
     for (var i = 0; i < numSlots; i++) {
@@ -30583,10 +30585,9 @@ function launchInspoSong() {
   }
 
   // Build drums tiled to fill the section's full step count
-  function _buildSectionDrums(energy, bars, timeSig) {
-    var totalSteps = parseInt(timeSig) * parseInt(bars) * 4; // at 16th-note resolution internally
-    // But drums in sequencer are at grid=1 (quarter note), so steps = timeSig * bars
-    var numSteps = parseInt(timeSig) * parseInt(bars);
+  function _buildSectionDrums(energy, bars, timeSig, grid) {
+    var g = parseInt(grid) || 1;
+    var numSteps = parseInt(timeSig) * parseInt(bars) * g;
     function _tileDrum(src, len) {
       if (!src || !src.length) return new Array(len).fill(0);
       var out = [];
@@ -30616,8 +30617,9 @@ function launchInspoSong() {
 
   const _inspoSequences = _inspoSectionOrder.map(function(sid) {
     var cfg = _sectionConfig[sid] || { bars: 4, chords: d.verseChords, energy: 0.5 };
-    var chordSlots = _fillSectionChords(cfg.chords, cfg.bars, d.timeSig);
-    var drums = _buildSectionDrums(cfg.energy, cfg.bars, d.timeSig);
+    var seqGrid = '1'; // generated sequences use quarter-note grid
+    var chordSlots = _fillSectionChords(cfg.chords, cfg.bars, d.timeSig, seqGrid);
+    var drums = _buildSectionDrums(cfg.energy, cfg.bars, d.timeSig, seqGrid);
     return {
       partId: sid, part: sid,
       bpm: String(d.bpm), time: d.timeSig, bars: String(cfg.bars), grid: '1',
@@ -35957,8 +35959,7 @@ function kbdGridChanged(callerVal) {
   // Sync 4-track unified bar grid
   const mt4tGr = document.getElementById('mt4tGrid');
   if (mt4tGr && mt4tGr.value !== val) mt4tGr.value = val;
-  const song = getCurrentSong();
-  if (song?.sequencer) { song.sequencer.grid = val; save(); scheduleSyncToSheet(song); }
+  // Don't pre-save grid — let seqRebuild() detect old→new change and remap patterns
   seqRebuild();
 }
 
