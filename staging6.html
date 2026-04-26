@@ -32864,18 +32864,23 @@ async function generatePublicLink() {
   }
 }
 
+// Silent clipboard copy — no permission prompt
+function _silentCopy(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+}
+
 function copyPublicLink() {
   const inp = document.getElementById('shareLinkInput');
   if (!inp) return;
-  inp.select();
-  try {
-    navigator.clipboard.writeText(inp.value).then(() => {
-      const btn = inp.nextElementSibling;
-      if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; setTimeout(() => { btn.textContent = orig; }, 2000); }
-    });
-  } catch(e) {
-    document.execCommand('copy');
-  }
+  _silentCopy(inp.value);
+  const btn = inp.nextElementSibling;
+  if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; setTimeout(() => { btn.textContent = orig; }, 2000); }
 }
 
 async function revokePublicLink() {
@@ -33035,7 +33040,7 @@ function _renderPublicView(song) {
     </div>`;
 
   pv.innerHTML = `
-    <div style="max-width:680px;margin:0 auto;padding:40px 24px 80px;">
+    <div style="max-width:680px;margin:0 auto;padding:100px 24px 80px;">
       <!-- Header -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;color:var(--purple);letter-spacing:0.04em;">Draft<span style="color:var(--gold);">haus</span></div>
@@ -34213,12 +34218,7 @@ async function bounceAndShare() {
     // ── 5. Copy link to clipboard ──
     const base = window.location.href.split('?')[0].split('#')[0];
     const shareUrl = base + '?view=' + song.id + '&token=' + token;
-    try { await navigator.clipboard.writeText(shareUrl); } catch(e) {
-      var tmp = document.createElement('textarea');
-      tmp.value = shareUrl; document.body.appendChild(tmp);
-      tmp.select(); document.execCommand('copy');
-      document.body.removeChild(tmp);
-    }
+    _silentCopy(shareUrl);
 
     showToast('Share link copied! Expires in 30 days.', 'success', 4000);
     _shareReset();
@@ -34241,15 +34241,8 @@ async function bounceAndShare() {
 function mixCopyShareLink() {
   var inp = document.getElementById('mixShareLinkInput');
   if (!inp || !inp.value) return;
-  inp.select();
-  try {
-    navigator.clipboard.writeText(inp.value).then(function() {
-      showToast('Link copied!', 'success', 2000);
-    });
-  } catch(e) {
-    document.execCommand('copy');
-    showToast('Link copied!', 'success', 2000);
-  }
+  _silentCopy(inp.value);
+  showToast('Link copied!', 'success', 2000);
 }
 
 // ── MIDI + ZIP Export ─────���───────────────────────────────────────
@@ -43781,7 +43774,7 @@ function renderMixDrawerHtml() {
     + 'Bounce + Share</button>'
     + '</div>'
     + '<div class="mix-share-status" id="mixShareStatus"><div class="mix-share-spinner"></div><span id="mixShareStatusText">Rendering…</span></div>'
-    + '<div class="mix-share-link-row" id="mixShareLinkRow"><input id="mixShareLinkInput" type="text" readonly onclick="this.select()"><button onclick="mixCopyShareLink()">Copy Link</button></div>'
+    + '<div class="mix-share-link-row" id="mixShareLinkRow"><input id="mixShareLinkInput" type="hidden"><button onclick="mixCopyShareLink()">Copy Share Link</button></div>'
     + '<div class="mix-desk" id="mixDesk">' + rowsHtml + '</div>'
     + '<div class="mix-modal-bg" id="mixBounceModal">'
     + '<div class="mix-modal">'
