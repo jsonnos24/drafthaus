@@ -30570,24 +30570,59 @@ function launchInspoSong() {
     'outro':    { bars: 8,  chords: d.verseChords,   energy: 0.3  },
   };
 
-  // Fill chord slots to completely cover a section's grid (no empty slots)
-  // grid multiplier: at grid=1 → 1 slot/beat, grid=2 → 2 slots/beat, grid=4 → 4 slots/beat
+  // Fill chord slots with mixed durations: whole notes, half notes, quarter notes.
+  // Chords hold for varying lengths to create natural phrasing, not a rigid grid.
   function _fillSectionChords(chords, bars, timeSig, grid) {
     var g = parseInt(grid) || 1;
-    var numSlots = parseInt(timeSig) * parseInt(bars) * g;
-    var slots = [];
-    var beatsPerChord = Math.max(1, Math.floor(numSlots / chords.length));
-    for (var i = 0; i < numSlots; i++) {
-      var idx = Math.min(Math.floor(i / beatsPerChord), chords.length - 1);
-      slots.push(chords[idx]);
+    var ts = parseInt(timeSig) || 4;
+    var numSlots = ts * parseInt(bars) * g;
+    var slots = new Array(numSlots).fill('');
+    if (!chords.length) return slots;
+
+    // Duration options in beats (at grid=1): whole=4, half=2, quarter=1
+    // Weighted toward longer holds for less busy feel
+    var durations = [
+      { beats: 4, weight: 0.35 },  // whole note
+      { beats: 2, weight: 0.40 },  // half note
+      { beats: 1, weight: 0.25 },  // quarter note
+    ];
+    function _pickDuration() {
+      var r = Math.random(), cum = 0;
+      for (var di = 0; di < durations.length; di++) {
+        cum += durations[di].weight;
+        if (r < cum) return durations[di].beats * g; // scale by grid
+      }
+      return 2 * g; // fallback: half note
+    }
+
+    var pos = 0;
+    var chordIdx = 0;
+    while (pos < numSlots) {
+      var chord = chords[chordIdx % chords.length];
+      var dur = _pickDuration();
+      // Don't let duration exceed remaining slots
+      dur = Math.min(dur, numSlots - pos);
+      // On strong beats (bar starts), bias toward longer durations
+      var beatsPerBar = ts * g;
+      if (pos % beatsPerBar === 0 && dur < 2 * g) {
+        dur = Math.min(2 * g, numSlots - pos); // at least a half note on downbeats
+      }
+      // Fill slots for this chord's duration
+      for (var s = 0; s < dur && pos + s < numSlots; s++) {
+        slots[pos + s] = chord;
+      }
+      pos += dur;
+      chordIdx++;
     }
     return slots;
   }
 
-  // Build drums tiled to fill the section's full step count
-  function _buildSectionDrums(energy, bars, timeSig, grid) {
+  // Build drums tiled to fill the section's full step count, with fills at transitions
+  function _buildSectionDrums(energy, bars, timeSig, grid, sectionId) {
     var g = parseInt(grid) || 1;
-    var numSteps = parseInt(timeSig) * parseInt(bars) * g;
+    var ts = parseInt(timeSig) || 4;
+    var numSteps = ts * parseInt(bars) * g;
+    var beatsPerBar = ts * g;
     function _tileDrum(src, len) {
       if (!src || !src.length) return new Array(len).fill(0);
       var out = [];
@@ -30599,19 +30634,59 @@ function launchInspoSong() {
     var hat   = _tileDrum(d.hat,   numSteps);
     var crash = _tileDrum(d.crash, numSteps);
     var clap  = _tileDrum(d.clap,  numSteps);
+
     // Energy-based layering
     if (energy < 0.3) {
       snare = snare.map(function(v,i) { return i % 8 === 4 ? v : 0; });
       hat = hat.map(function(v,i) { return i % 4 === 0 ? v : 0; });
-      crash = new Array(crash.length).fill(0);
-      clap = new Array(clap.length).fill(0);
+      crash = new Array(numSteps).fill(0);
+      clap = new Array(numSteps).fill(0);
     } else if (energy < 0.5) {
       hat = hat.map(function(v,i) { return i % 2 === 0 ? v : 0; });
-      crash = new Array(crash.length).fill(0);
-      clap = new Array(clap.length).fill(0);
+      crash = new Array(numSteps).fill(0);
+      clap = new Array(numSteps).fill(0);
     } else if (energy < 0.7) {
-      crash = new Array(crash.length).fill(0);
+      crash = new Array(numSteps).fill(0);
     }
+
+    // ── Drum fills at section boundaries ──────────────────────────────
+    // Add a fill in the last bar (or last 2 beats for short sections).
+    // Fill = snare 16ths leading into a crash on beat 1 of next section.
+    var fillStart = Math.max(0, numSteps - beatsPerBar); // last bar
+    var fillProb = 0.7; // 70% chance of a fill
+    if (sectionId === 'intro' || sectionId === 'outro') fillProb = 0.4;
+    if (sectionId === 'bridge') fillProb = 0.85; // bridge almost always fills into final chorus
+
+    if (Math.random() < fillProb) {
+      // Build up: snare hits on every beat in the fill zone, hat doubles up
+      for (var f = fillStart; f < numSteps; f++) {
+        var posInFill = f - fillStart;
+        var fillProgress = posInFill / (numSteps - fillStart); // 0→1
+        // Snare: starts sparse, gets denser toward end
+        if (fillProgress > 0.5 || (fillProgress > 0.25 && f % 2 === 0)) {
+          snare[f] = 1;
+        }
+        // Hat opens up (remove to let snare breathe) in last quarter
+        if (fillProgress > 0.75) hat[f] = 0;
+        // Kick drops out in last half of fill for contrast
+        if (fillProgress > 0.5) kick[f] = 0;
+      }
+      // Crash on the very last beat (will ring into next section)
+      if (energy >= 0.5) crash[numSteps - 1] = 1;
+    }
+
+    // ── Random probability rolls for ghost notes / embellishments ─────
+    // Higher energy = more ghost notes on snare and extra hat hits
+    if (energy > 0.5) {
+      var ghostProb = (energy - 0.5) * 0.3; // 0–15% chance per step
+      for (var gi = 0; gi < numSteps; gi++) {
+        // Ghost snare: light hits between main snare beats
+        if (!snare[gi] && gi % 2 === 1 && Math.random() < ghostProb) snare[gi] = 1;
+        // Extra hat: fill gaps for busier feel
+        if (!hat[gi] && Math.random() < ghostProb * 0.5) hat[gi] = 1;
+      }
+    }
+
     return { kick: kick, snare: snare, hat: hat, crash: crash, clap: clap };
   }
 
@@ -30619,7 +30694,7 @@ function launchInspoSong() {
     var cfg = _sectionConfig[sid] || { bars: 4, chords: d.verseChords, energy: 0.5 };
     var seqGrid = '1'; // generated sequences use quarter-note grid
     var chordSlots = _fillSectionChords(cfg.chords, cfg.bars, d.timeSig, seqGrid);
-    var drums = _buildSectionDrums(cfg.energy, cfg.bars, d.timeSig, seqGrid);
+    var drums = _buildSectionDrums(cfg.energy, cfg.bars, d.timeSig, seqGrid, sid);
     return {
       partId: sid, part: sid,
       bpm: String(d.bpm), time: d.timeSig, bars: String(cfg.bars), grid: '1',
