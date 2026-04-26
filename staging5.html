@@ -5736,24 +5736,23 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   /* ── Drag-peek panel ── */
   .kbd-port-drag-peek {
-    position: absolute; left: 8px; right: 8px; bottom: 38px;
+    position: fixed; left: 50%; top: 50%;
+    transform: translate(-50%, -50%) scale(0.92);
+    width: calc(100vw - 24px); max-width: 380px;
     border: 2.5px solid var(--gold, #ffd166);
     background: var(--bg, #0d0e13);
-    border-radius: 14px 14px 8px 8px;
-    padding: 8px 8px 10px;
-    box-shadow: 0 -4px 16px rgba(255,209,102,0.25);
-    z-index: 990;
-    display: none; flex-direction: column; gap: 5px;
-    transition: transform 0.08s ease-out, opacity 0.08s ease-out;
-    transform: translateY(20px);
+    border-radius: 14px;
+    padding: 10px 10px 12px;
+    box-shadow: 0 0 40px rgba(255,209,102,0.3), 0 0 0 9999px rgba(0,0,0,0.55);
+    z-index: 99999;
+    display: none; flex-direction: column; gap: 6px;
+    transition: transform 0.1s ease-out, opacity 0.1s ease-out;
     opacity: 0;
   }
-  .kbd-port-drag-peek.open { display: flex; transform: translateY(0); opacity: 1; }
-  .kbd-port-drag-peek::after {
-    content: ''; position: absolute;
-    top: -8px; left: 50%; transform: translateX(-50%);
-    width: 50px; height: 4px;
-    background: var(--gold, #ffd166); border-radius: 4px;
+  .kbd-port-drag-peek.open {
+    display: flex;
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
   }
   .kbd-port-drag-peek .dp-head {
     display: flex; justify-content: space-between; align-items: center;
@@ -5765,9 +5764,9 @@ button, select, input, textarea { touch-action: manipulation; }
     grid-template-rows: repeat(4, 1fr); gap: 2px;
   }
   .kbd-port-drag-peek .dp-cell {
-    height: 22px; border: 1px solid var(--border2, #333); border-radius: 4px;
+    height: 28px; border: 1.5px solid var(--border2, #333); border-radius: 5px;
     background: transparent;
-    font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    font-family: 'Caveat', cursive; font-size: 12px; font-weight: 600;
     display: flex; align-items: center; justify-content: center;
     color: var(--faint);
   }
@@ -5779,7 +5778,7 @@ button, select, input, textarea { touch-action: manipulation; }
     background: rgba(255,209,102,0.2);
     border: 2px dashed var(--gold, #ffd166);
     color: var(--gold, #ffd166);
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700;
+    font-family: 'Caveat', cursive; font-size: 13px; font-weight: 700;
     animation: kbdPortPulse 0.9s ease-in-out infinite;
   }
   .kbd-port-drag-peek .dp-cell.hint {
@@ -35495,13 +35494,12 @@ function _kbdDragStart(chip, cx, cy) {
   ghost.style.top = (cy - 40) + 'px';
   document.body.appendChild(ghost);
 
-  // Build drag-peek panel
-  const drawer = document.getElementById('keyboardDrawer');
-  let peek = drawer.querySelector('.kbd-port-drag-peek');
+  // Build drag-peek panel (fixed overlay on body, not inside drawer — avoids overflow clipping)
+  let peek = document.querySelector('.kbd-port-drag-peek');
   if (!peek) {
     peek = document.createElement('div');
     peek.className = 'kbd-port-drag-peek';
-    drawer.appendChild(peek);
+    document.body.appendChild(peek);
   }
   _kbdDragBuildPeek(peek, chord);
   // Force layout then add open class for transition
@@ -35890,6 +35888,16 @@ function openKeyboardDrawer() {
 
 function closeKeyboardDrawer() {
   if (_splitActive && _splitCurrentTool === 'keyboard') { splitExpandPane('left'); return; }
+
+  // ── Clean up any active drag-to-arrange state ──
+  if (_kbdDragState) {
+    try { _kbdDragEnd({ clientX: 0, clientY: 0 }); } catch(e) {}
+  }
+  // Remove orphaned peek panel from body
+  var _peekOrphan = document.querySelector('.kbd-port-drag-peek');
+  if (_peekOrphan) _peekOrphan.classList.remove('open');
+  // Remove orphaned ghost pills
+  document.querySelectorAll('.kbd-port-ghost').forEach(function(g) { g.remove(); });
 
   // ── Flush all keyboard-drawer state before closing ──
   try {
