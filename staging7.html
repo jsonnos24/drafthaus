@@ -44023,12 +44023,21 @@ async function mixBounceShareRun() {
       src.buffer = buf; g.gain.setValueAtTime(0.45 * vel, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
       src.connect(g); g.connect(drumBusGain); src.start(t);
     }
+    const chordBaseStep = (60 / bpm) / chordSteps; // chord step duration (e.g. 0.6s at 100bpm/1)
     function schedChord(freqs, t, vel, w) {
-      freqs.forEach(function(f) {
+      const amps   = [0.26, 0.15, 0.10];
+      const decays = [0.90, 0.68, 0.52];
+      freqs.forEach(function(f, fi) {
         const o = offCtx.createOscillator(), g = offCtx.createGain();
         o.type = w; o.frequency.value = f;
-        g.gain.setValueAtTime(0.18 * vel, t); g.gain.exponentialRampToValueAtTime(0.001, t + baseStep * 0.95);
-        o.connect(g); g.connect(chordBusGain); o.start(t); o.stop(t + baseStep);
+        o.connect(g); g.connect(chordBusGain);
+        const at = t + fi * 0.018; // staggered attack
+        const amp = (amps[fi] || 0.10) * vel;
+        const dec = decays[fi] || 0.52;
+        g.gain.setValueAtTime(0, at);
+        g.gain.linearRampToValueAtTime(amp, at + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.001, at + chordBaseStep * dec);
+        o.start(at); o.stop(at + chordBaseStep);
       });
     }
 
