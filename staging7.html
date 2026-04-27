@@ -33252,7 +33252,11 @@ function _renderPublicView(song) {
       <!-- Audio Player (bounced mix) -->
       ${song.bounceUrl ? `
         <div style="margin-bottom:28px;padding:16px;background:rgba(200,160,255,0.06);border:1px solid rgba(200,160,255,0.18);border-radius:10px;">
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.15em;color:var(--purple);margin-bottom:10px;">Mix</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.15em;color:var(--purple);">Mix</div>
+            <a href="${esc(song.bounceUrl)}" download="${esc(title)}_${new Date().toISOString().slice(0,10)}.mp3" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--purple);text-decoration:none;padding:4px 10px;border:1px solid rgba(200,160,255,0.3);border-radius:6px;transition:.15s;"
+              onmouseover="this.style.background='rgba(200,160,255,0.12)'" onmouseout="this.style.background='transparent'">↓ Download</a>
+          </div>
           <audio controls preload="metadata" style="width:100%;height:36px;border-radius:6px;outline:none;" src="${esc(song.bounceUrl)}"></audio>
         </div>` : ''}
 
@@ -44023,7 +44027,8 @@ async function mixBounceShareRun() {
       src.buffer = buf; g.gain.setValueAtTime(0.45 * vel, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
       src.connect(g); g.connect(drumBusGain); src.start(t);
     }
-    function schedChord(freqs, t, vel, w) {
+    // ── Synth fallback for chords (when no sampler loaded) ──
+    function schedChordSynth(freqs, t, vel, w) {
       var amps   = [0.26, 0.15, 0.10];
       var decays = [0.90, 0.68, 0.52];
       freqs.forEach(function(f, fi) {
@@ -44040,6 +44045,74 @@ async function mixBounceShareRun() {
       });
     }
 
+    // ── Sampler-based chord scheduling for offline context ──
+    // Copy an AudioBuffer's raw PCM into the offline context
+    function _offCopyBuf(srcBuf) {
+      var ob = offCtx.createBuffer(srcBuf.numberOfChannels, srcBuf.length, srcBuf.sampleRate);
+      for (var ch = 0; ch < srcBuf.numberOfChannels; ch++) ob.copyToChannel(srcBuf.getChannelData(ch), ch);
+      return ob;
+    }
+    // Generic: schedule one sampler note into offline context
+    function _offSamplerNote(bufMap, closestFn, midiNote, time, vel, dur, stagger) {
+      var closest = closestFn(midiNote);
+      if (closest === null) return false;
+      var srcBuf = bufMap[closest];
+      if (!srcBuf) return false;
+      var ob = _offCopyBuf(srcBuf);
+      var src = offCtx.createBufferSource(), g = offCtx.createGain();
+      src.buffer = ob;
+      src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+      var v = Math.min(1, (vel || 0.8) * 0.85);
+      g.gain.setValueAtTime(0, time);
+      g.gain.linearRampToValueAtTime(v, time + 0.06);
+      g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+      src.connect(g); g.connect(chordBusGain);
+      src.start(time); src.stop(time + dur + 0.1);
+      return true;
+    }
+
+    // Detect which instrument samplers are loaded (mirrors live scheduler)
+    const _bncInst     = sd.instrument || _activeInstrument || 'piano';
+    const _bncHasPiano  = _bncInst.includes('piano') && !_bncInst.includes('piano2');
+    const _bncHasPiano2 = _bncInst.includes('piano2');
+    const _bncHasGuitar = _bncInst.includes('guitar');
+    const _bncHasSynth  = _bncInst.includes('synth');
+    const _bncPianoOk   = _bncHasPiano  && typeof _pianoLoaded !== 'undefined' && _pianoLoaded && typeof _pianoBuffers !== 'undefined' && Object.keys(_pianoBuffers).length > 0;
+    const _bncPiano2Ok  = _bncHasPiano2 && typeof _piano2Loaded !== 'undefined' && _piano2Loaded && typeof _piano2Buffers !== 'undefined' && Object.keys(_piano2Buffers).length > 0;
+    const _bncGuitarOk  = _bncHasGuitar && typeof _guitarLoaded !== 'undefined' && _guitarLoaded && typeof _guitarBuffers !== 'undefined' && Object.keys(_guitarBuffers).length > 0;
+
+    console.log('[BOUNCE] Instrument: ' + _bncInst + ' | piano=' + _bncPianoOk + ' piano2=' + _bncPiano2Ok + ' guitar=' + _bncGuitarOk + ' synth=' + _bncHasSynth);
+
+    // Schedule a chord using the active instrument(s) — mirrors seqPlayChordByName
+    function schedChordInstr(midiNotes, t, vel) {
+      var samplerPlayed = false;
+      if (_bncPianoOk && midiNotes && midiNotes.length) {
+        midiNotes.forEach(function(midi, i) {
+          _offSamplerNote(_pianoBuffers, _pianoClosestMidi, midi, t + i * 0.022, vel, 2.8);
+        });
+        samplerPlayed = true;
+      }
+      if (_bncPiano2Ok && midiNotes && midiNotes.length) {
+        midiNotes.forEach(function(midi, i) {
+          _offSamplerNote(_piano2Buffers, _piano2ClosestMidi, midi, t + i * 0.022, vel, 2.8);
+        });
+        samplerPlayed = true;
+      }
+      if (_bncGuitarOk && midiNotes && midiNotes.length) {
+        midiNotes.forEach(function(midi, i) {
+          _offSamplerNote(_guitarBuffers, _guitarClosestMidi, midi, t + i * 0.028, vel, 2.4);
+        });
+        samplerPlayed = true;
+      }
+      // Synth fallback: if synth is selected, or no sampler played
+      if (_bncHasSynth || !samplerPlayed) {
+        var freqs = midiNotes && midiNotes.length
+          ? midiNotes.map(function(m) { return 440 * Math.pow(2, (m - 69) / 12); })
+          : null;
+        if (freqs) schedChordSynth(freqs, t, vel, wave);
+      }
+    }
+
     // ── Schedule sequencer notes ──
     const chordSlots = sd.chordSlots || [];
     const kickLane   = sd.kick  || [];
@@ -44047,7 +44120,7 @@ async function mixBounceShareRun() {
     const hatLane    = sd.hat   || [];
     const crashLane  = sd.crash || [];
     const clapLane   = sd.clap  || [];
-    const currentChords = seqGenChords(key, mode);
+    const chordMidiMap = seqGenChordMidi(key, mode);
 
     setProgress(25, 'Scheduling sequencer…');
     await new Promise(r => setTimeout(r, 20));
@@ -44057,12 +44130,10 @@ async function mixBounceShareRun() {
 
     if (seqHasContent) {
       // Determine actual chord slot resolution from the data
-      // (old songs may have chordSlots sized to the unified grid, not chordSteps)
       const chordSlotCount = chordSlots.length;
       const expectedChordSlots = timeSig * bars * chordSteps;
       const actualChordGrid = (chordSlotCount > 0 && chordSlotCount !== expectedChordSlots)
         ? chordSlotCount : expectedChordSlots;
-      // Chord timing: one chord slot = this many seconds
       const chordSlotDur = (totalDrumSteps * baseStep) / actualChordGrid;
 
       for (let loop = 0; loop < LOOPS; loop++) {
@@ -44080,21 +44151,19 @@ async function mixBounceShareRun() {
           if (clapLane[i])  schedClap(t, vel * 0.75);
         }
 
-        // Schedule chords at their own resolution
+        // Schedule chords at their own resolution using active instrument
         for (let ci = 0; ci < actualChordGrid; ci++) {
           const chordName = chordSlots[ci] || '';
           if (!chordName) continue;
           const t = loopStart + ci * chordSlotDur;
           const vel = velBase * (0.85 + Math.random() * 0.3);
-          // Try diatonic map first, then variant fallback
-          var cFreqs = currentChords[chordName];
-          if (!cFreqs) {
-            var midiNotes = (typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(chordName) : null;
-            if (midiNotes && midiNotes.length) {
-              cFreqs = midiNotes.map(function(m) { return 440 * Math.pow(2, (m - 69) / 12); });
-            }
+          // Resolve chord name → MIDI notes (diatonic map first, then variant fallback)
+          var midiNotes = (chordMidiMap && chordMidiMap[chordName])
+            ? chordMidiMap[chordName]
+            : ((typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(chordName) : null);
+          if (midiNotes && midiNotes.length) {
+            schedChordInstr(midiNotes, t, vel);
           }
-          if (cFreqs && cFreqs.length) schedChord(cFreqs, t, vel, wave);
         }
       }
     }
@@ -44103,56 +44172,73 @@ async function mixBounceShareRun() {
     await new Promise(r => setTimeout(r, 20));
     const rendered = await offCtx.startRendering();
 
-    setProgress(60, 'Encoding audio…');
+    setProgress(55, 'Loading MP3 encoder…');
     await new Promise(r => setTimeout(r, 20));
 
-    // Encode rendered AudioBuffer → WebM/Opus via MediaRecorder
-    // (self-contained — doesn't depend on IIFE-scoped _ftEncodeViaMediaRecorder)
-    const bounceBlob = await new Promise(function(resolve, reject) {
-      var encMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
-          ? 'audio/ogg;codecs=opus' : 'audio/webm';
+    // Load lamejs (LAME MP3 encoder in pure JS) from CDN if not already loaded
+    if (typeof lamejs === 'undefined') {
+      await new Promise(function(resolve, reject) {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js';
+        s.onload = resolve;
+        s.onerror = function() { reject(new Error('Failed to load lamejs')); };
+        document.head.appendChild(s);
+      });
+    }
 
-      // Need a real-time AudioContext for MediaStreamDestination
-      var rtCtx = new (window.AudioContext || window.webkitAudioContext)();
-      var dest = rtCtx.createMediaStreamDestination();
-      var rtSrc = rtCtx.createBufferSource();
-      rtSrc.buffer = rendered;
-      rtSrc.connect(dest);
+    setProgress(60, 'Encoding MP3…');
+    await new Promise(r => setTimeout(r, 20));
 
-      var chunks = [];
-      var recorder = new MediaRecorder(dest.stream, { mimeType: encMime });
-      recorder.ondataavailable = function(e) {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
-      recorder.onstop = function() {
-        var blob = new Blob(chunks, { type: encMime });
-        rtCtx.close().catch(function(){});
-        resolve(blob);
-      };
-      recorder.start();
-      rtSrc.start(0);
+    // Encode rendered AudioBuffer → MP3 via lamejs (fast, no real-time playback)
+    const mp3Blob = await new Promise(function(resolve) {
+      var numCh = rendered.numberOfChannels;
+      var sr    = rendered.sampleRate;
+      var len   = rendered.length;
+      var kbps  = 192; // good quality for music
 
-      var durMs = Math.ceil(rendered.duration * 1000) + 200;
-      setTimeout(function() {
-        try { rtSrc.stop(); } catch(e) {}
-        try { recorder.stop(); } catch(e) {}
-      }, durMs);
+      // Get PCM data as Int16 arrays
+      var left  = rendered.getChannelData(0);
+      var right = numCh > 1 ? rendered.getChannelData(1) : left;
 
-      // Timeout safety
-      setTimeout(function() { reject(new Error('Encode timeout')); }, Math.max(durMs + 5000, 30000));
+      // Convert Float32 → Int16
+      var leftI16  = new Int16Array(len);
+      var rightI16 = new Int16Array(len);
+      for (var i = 0; i < len; i++) {
+        var sL = Math.max(-1, Math.min(1, left[i]));
+        var sR = Math.max(-1, Math.min(1, right[i]));
+        leftI16[i]  = sL < 0 ? sL * 0x8000 : sL * 0x7FFF;
+        rightI16[i] = sR < 0 ? sR * 0x8000 : sR * 0x7FFF;
+      }
+
+      var mp3enc = new lamejs.Mp3Encoder(numCh > 1 ? 2 : 1, sr, kbps);
+      var mp3Chunks = [];
+      var blockSize = 1152; // LAME standard frame size
+
+      for (var pos = 0; pos < len; pos += blockSize) {
+        var end = Math.min(pos + blockSize, len);
+        var lChunk = leftI16.subarray(pos, end);
+        var rChunk = rightI16.subarray(pos, end);
+        var mp3buf = (numCh > 1)
+          ? mp3enc.encodeBuffer(lChunk, rChunk)
+          : mp3enc.encodeBuffer(lChunk);
+        if (mp3buf.length > 0) mp3Chunks.push(mp3buf);
+      }
+      var tail = mp3enc.flush();
+      if (tail.length > 0) mp3Chunks.push(tail);
+
+      resolve(new Blob(mp3Chunks, { type: 'audio/mpeg' }));
     });
 
-    // ── Step 2: Upload to Firebase Storage ──
-    setProgress(70, 'Uploading to cloud…');
+    setProgress(75, 'Uploading MP3…');
     await new Promise(r => setTimeout(r, 20));
 
+    const bounceBlob = mp3Blob;
+
+    // ── Step 2: Upload to Firebase Storage ──
     const safeTitle = (song.title || song.workingTitle || 'bounce').replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    const ext = bounceBlob.type.includes('ogg') ? 'ogg' : 'webm';
-    const storagePath = 'loop_tracks/' + song.id + '/bounce_' + safeTitle + '_' + Date.now() + '.' + ext;
+    const storagePath = 'loop_tracks/' + song.id + '/bounce_' + safeTitle + '_' + Date.now() + '.mp3';
     const storageRef = firebase.storage().ref(storagePath);
-    const snap = await storageRef.put(bounceBlob, { contentType: bounceBlob.type || 'audio/webm' });
+    const snap = await storageRef.put(bounceBlob, { contentType: 'audio/mpeg' });
     const bounceUrl = await snap.ref.getDownloadURL();
 
     setProgress(85, 'Generating share link…');
