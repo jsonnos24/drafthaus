@@ -24760,6 +24760,7 @@ function seqRebuild() {
 
   // Remap drum + chord data when grid resolution changes so patterns keep
   // the same musical timing instead of playing at a different speed.
+  // Grid is song-wide, so remap ALL sequences — not just the active one.
   if (oldGrid !== newGrid && oldGrid > 0 && newGrid > 0) {
     const ratio = newGrid / oldGrid; // e.g. 2 when going from 1/8 → 1/16
 
@@ -24797,26 +24798,33 @@ function seqRebuild() {
       }
     }
 
-    // Remap drum lanes (binary + velocity)
-    ['kick','snare','hat','crash','clap','hitom','lotom'].forEach(lane => {
-      if (sd[lane] && sd[lane].length)         sd[lane]         = _remapArray(sd[lane], ratio, 0);
-      if (sd[lane+'Vel'] && sd[lane+'Vel'].length) sd[lane+'Vel'] = _remapArray(sd[lane+'Vel'], ratio, 0);
-    });
-
-    // Remap chord slots
-    if (sd.chordSlots && sd.chordSlots.length) {
-      sd.chordSlots     = _remapArray(sd.chordSlots, ratio, '');
-      sd.chordDegrees   = _remapArray(sd.chordDegrees || [], ratio, '');
-      sd.chordContinued = _remapArray(sd.chordContinued || [], ratio, false);
+    // Remap helper for a single sequence object
+    function _remapSequence(seq) {
+      // Remap drum lanes (binary + velocity)
+      ['kick','snare','hat','crash','clap','hitom','lotom'].forEach(lane => {
+        if (seq[lane] && seq[lane].length)             seq[lane]         = _remapArray(seq[lane], ratio, 0);
+        if (seq[lane+'Vel'] && seq[lane+'Vel'].length) seq[lane+'Vel'] = _remapArray(seq[lane+'Vel'], ratio, 0);
+      });
+      // Remap chord slots
+      if (seq.chordSlots && seq.chordSlots.length) {
+        seq.chordSlots     = _remapArray(seq.chordSlots, ratio, '');
+        seq.chordDegrees   = _remapArray(seq.chordDegrees || [], ratio, '');
+        seq.chordContinued = _remapArray(seq.chordContinued || [], ratio, false);
+      }
+      // Remap melody note start/end times proportionally
+      if (seq.melody && seq.melody.length) {
+        seq.melody = seq.melody.map(n => ({
+          ...n,
+          start: n.start * ratio,
+          end:   n.end   * ratio,
+        }));
+      }
     }
 
-    // Remap melody note start/end times proportionally
-    if (sd.melody && sd.melody.length) {
-      sd.melody = sd.melody.map(n => ({
-        ...n,
-        start: n.start * ratio,
-        end:   n.end   * ratio,
-      }));
+    // Remap ALL sequences (grid is song-wide)
+    const allSeqs = song.sequences || [];
+    for (var _ri = 0; _ri < allSeqs.length; _ri++) {
+      _remapSequence(allSeqs[_ri]);
     }
 
     save();
