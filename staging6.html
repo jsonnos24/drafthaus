@@ -2443,6 +2443,9 @@ button, select, input, textarea { touch-action: manipulation; }
   [data-row="chord"] .seq-slot.filled[data-chord-degree="5"] { background: #3d246c; border-color: #8a38d8; color: #e6b4ff; }
   [data-row="chord"] .seq-slot.filled[data-chord-degree="6"] { background: #452a78; border-color: #9a44e8; color: #edbeff; }
   [data-row="chord"] .seq-slot.filled[data-chord-degree="7"] { background: #4d3084; border-color: #aa52f0; color: #f3c8ff; }
+  /* Chord variants (sus2, m7, add9, etc.) — cream/black to stand out */
+  [data-row="chord"] .seq-slot.filled.chord-variant { background: #f5f0e0 !important; border-color: #d4c89a !important; color: #1a1a1a !important; }
+  [data-row="chord"] .seq-slot.filled.chord-variant.chord-tail { background: #ede8d6 !important; border-color: #c4b88a !important; color: #333 !important; }
   [data-row="kick"]  .seq-slot.drum-on { background: rgba(195,20,50,0.80);  border-color: #ff4466; }
   [data-row="snare"] .seq-slot.drum-on { background: rgba(100,190,230,0.80); border-color: #aaddff; }
   [data-row="hat"]   .seq-slot.drum-on { background: rgba(245,166,35,0.85); border-color: #ffd080; }
@@ -2569,7 +2572,7 @@ button, select, input, textarea { touch-action: manipulation; }
   [data-row="chord"] .seq-slot .seq-resize-handle {
     position: absolute; right: 0; top: 0; bottom: 0; width: 8px;
     cursor: ew-resize; opacity: 0; z-index: 6;
-    display: flex; align-items: center; justify-content: center;
+    display: flex; align-items: center; justify-content: flex-end;
     pointer-events: none;
     transition: opacity 0.12s;
   }
@@ -2593,7 +2596,8 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ── Mobile: bigger touch target + always-visible indicator on filled slots ── */
   @media (max-width: 768px) {
     [data-row="chord"] .seq-slot .seq-resize-handle {
-      width: 28px;
+      width: 16px;
+      padding-right: 2px;
     }
     [data-row="chord"] .seq-slot.filled .seq-resize-handle,
     [data-row="chord"] .seq-slot.chord-tail .seq-resize-handle {
@@ -2602,7 +2606,7 @@ button, select, input, textarea { touch-action: manipulation; }
     [data-row="chord"] .seq-slot.filled .seq-resize-handle::after,
     [data-row="chord"] .seq-slot.chord-tail .seq-resize-handle::after {
       background: var(--gold);
-      width: 4px;
+      width: 3px;
     }
   }
 
@@ -16688,24 +16692,6 @@ body.app-loading > *:not(#appLoadingScreen) { visibility: hidden; }
         <div class="ht-time" id="htTime">0:00</div>
         <div class="ht-pos" id="htPos">1.1</div>
       </div>
-      <!-- BPM -->
-      <div class="ht-sep"></div>
-      <button class="ht-mbtn" onclick="rtMetroDelta(-1)" title="BPM −1">−</button>
-      <span class="ht-bpm" id="htBpmDisplay">120</span>
-      <button class="ht-mbtn" onclick="rtMetroDelta(1)" title="BPM +1">+</button>
-      <span class="ht-lbl">BPM</span>
-      <!-- Time Sig -->
-      <div class="ht-sep"></div>
-      <select class="ht-sel" id="htTimeSel" onchange="rtMetroChangeTime(this.value)" title="Time Signature">
-        <option value="4">4/4</option>
-        <option value="3">3/4</option>
-        <option value="2">2/4</option>
-        <option value="6">6/8</option>
-        <option value="5">5/4</option>
-      </select>
-      <!-- TAP -->
-      <div class="ht-sep"></div>
-      <button class="ht-mbtn ht-tap" id="htTapBtn" onclick="rtTapTempo()" ondblclick="event.stopPropagation()" title="Tap Tempo (Tab)">TAP</button>
       <!-- Bars -->
       <div class="ht-sep"></div>
       <span class="ht-lbl">Bars</span>
@@ -16714,15 +16700,46 @@ body.app-loading > *:not(#appLoadingScreen) { visibility: hidden; }
         <option value="2" selected>2</option>
         <option value="4">4</option>
       </select>
-      <!-- Grid -->
+      <!-- Key -->
       <div class="ht-sep"></div>
-      <span class="ht-lbl">Steps</span>
-      <select class="ht-sel" id="seqGrid" onchange="seqRebuild()" title="Steps per beat">
+      <select class="ht-sel" id="htKeySelect" onchange="seqKeySelectChanged(this)" title="Key" style="min-width:60px;">
+        <option value="">Key</option>
+        <option>C major</option><option>C minor</option>
+        <option>C# / Db major</option><option>C# / Db minor</option>
+        <option>D major</option><option>D minor</option>
+        <option>D# / Eb major</option><option>D# / Eb minor</option>
+        <option>E major</option><option>E minor</option>
+        <option>F major</option><option>F minor</option>
+        <option>F# / Gb major</option><option>F# / Gb minor</option>
+        <option>G major</option><option>G minor</option>
+        <option>G# / Ab major</option><option>G# / Ab minor</option>
+        <option>A major</option><option>A minor</option>
+        <option>A# / Bb major</option><option>A# / Bb minor</option>
+        <option>B major</option><option>B minor</option>
+      </select>
+      <!-- BPM -->
+      <div class="ht-sep"></div>
+      <button class="ht-mbtn" onclick="rtMetroDelta(-1)" title="BPM −1">−</button>
+      <span class="ht-bpm" id="htBpmDisplay">120</span>
+      <button class="ht-mbtn" onclick="rtMetroDelta(1)" title="BPM +1">+</button>
+      <span class="ht-lbl">BPM</span>
+      <!-- TAP -->
+      <div class="ht-sep"></div>
+      <button class="ht-mbtn ht-tap" id="htTapBtn" onclick="rtTapTempo()" ondblclick="event.stopPropagation()" title="Tap Tempo (Tab)">TAP</button>
+      <!-- Hidden canonical elements for JS compat -->
+      <select id="seqGrid" onchange="seqRebuild()" style="display:none;" title="Steps per beat">
         <option value="1">1/4</option>
         <option value="2">1/8</option>
         <option value="4" selected>1/16</option>
         <option value="8">1/32</option>
         <option value="3">Triplets</option>
+      </select>
+      <select id="htTimeSel" onchange="rtMetroChangeTime(this.value)" style="display:none;">
+        <option value="4">4/4</option>
+        <option value="3">3/4</option>
+        <option value="2">2/4</option>
+        <option value="6">6/8</option>
+        <option value="5">5/4</option>
       </select>
     </div>
   </div>
@@ -19275,6 +19292,11 @@ function populateSongFields(song) {
   document.getElementById('fKey').value          = song.key || '';
   const seqKeySel = document.getElementById('seqKeySelect');
   if (seqKeySel) seqKeySel.value = song.key || '';
+  // Sync all Key dropdowns in control bars
+  const _htKeySel = document.getElementById('htKeySelect');
+  if (_htKeySel) _htKeySel.value = song.key || '';
+  const _mt4tKeySel = document.getElementById('mt4tKeySelect');
+  if (_mt4tKeySel) _mt4tKeySel.value = song.key || '';
   // Ensure song.sequencer.key/mode are always in sync with song.key so
   // that key-change transposition can reliably capture the "old" key.
   if (song.key) {
@@ -22564,7 +22586,7 @@ function renderSequencerHtml(song) {
         <!-- Time Signature -->
         <div class="seq-ctrl-group">
           <span class="seq-label">Time</span>
-          <select class="seq-select" id="seqTime" onchange="seqRebuild()">
+          <select class="seq-select" id="seqTime" onchange="seqRebuild(); kbdTimeSigChanged(this.value);">
             <option value="4"${time==='4'?' selected':''}>4/4</option>
             <option value="3"${time==='3'?' selected':''}>3/4</option>
             <option value="2"${time==='2'?' selected':''}>2/4</option>
@@ -22573,7 +22595,17 @@ function renderSequencerHtml(song) {
           </select>
         </div>
 
-        <!-- Bars moved to main transport bar -->
+        <!-- Steps (Grid) -->
+        <div class="seq-ctrl-group">
+          <span class="seq-label">Steps</span>
+          <select class="seq-select" id="seqDrumSteps" onchange="kbdGridChanged(this.value)" title="Steps per beat">
+            <option value="1"${grid==='1'?' selected':''}>1/4</option>
+            <option value="2"${grid==='2'?' selected':''}>1/8</option>
+            <option value="4"${grid==='4'?' selected':''}>1/16</option>
+            <option value="8"${grid==='8'?' selected':''}>1/32</option>
+            <option value="3"${grid==='3'?' selected':''}>Triplets</option>
+          </select>
+        </div>
 
       </div>
 
@@ -23975,9 +24007,18 @@ function seqLoadSequenceIntoDOM(seq, song) {
   document.querySelectorAll('[id="kbdGrid"]').forEach(function(el) { el.value = _songGrid; });
   document.querySelectorAll('[id="kbdTimeSig"]').forEach(function(el) { el.value = seq.time || '4'; });
   document.querySelectorAll('[id="kbdBars"]').forEach(function(el) { el.value = seq.bars || '2'; });
-  // Sync key select to UCB
+  // Sync key select to all control bars
   var _mt4tKey = document.getElementById('mt4tKeySelect');
   if (_mt4tKey && song?.key) _mt4tKey.value = song.key;
+  var _htKey = document.getElementById('htKeySelect');
+  if (_htKey && song?.key) _htKey.value = song.key;
+  // Sync Steps to drum machine + Keys drawer
+  var _seqDrumSteps = document.getElementById('seqDrumSteps');
+  if (_seqDrumSteps) _seqDrumSteps.value = _songGrid;
+  var _kbdKeysSteps = document.getElementById('kbdKeysSteps');
+  if (_kbdKeysSteps) _kbdKeysSteps.value = _songGrid;
+  var _kbdPortSteps = document.getElementById('kbdPortSteps');
+  if (_kbdPortSteps) _kbdPortSteps.value = _songGrid;
   // Rebuild grids with this sequence's data
   seqBuildGrids({ sequencer: seq });
   seqRenderChordPills(song);
@@ -24680,8 +24721,15 @@ function syncTimeSigUI() {
   const seqTimeEl = document.getElementById('seqTime');
   const song = getCurrentSong();
   const timeSig = seqTimeEl?.value || song?.sequencer?.time || '4';
+  // Sync all time sig elements
   const kEl = document.getElementById('kbdTimeSig');
   if (kEl && kEl.tagName === 'SELECT' && kEl.value !== timeSig) kEl.value = timeSig;
+  const mt4tTs = document.getElementById('mt4tTimeSig');
+  if (mt4tTs && mt4tTs.value !== timeSig) mt4tTs.value = timeSig;
+  const htTs = document.getElementById('htTimeSel');
+  if (htTs && htTs.value !== timeSig) htTs.value = timeSig;
+  const kbdKeysTs = document.getElementById('kbdKeysTimeSig');
+  if (kbdKeysTs && kbdKeysTs.value !== timeSig) kbdKeysTs.value = timeSig;
 }
 
 function seqChangeKey() {
@@ -24845,6 +24893,18 @@ function _seqSlotSetText(slot, text) {
   slot.dataset.seqChordRaw = raw;
   // Display a clean version: _viii → ⁸
   slot.textContent = raw.replace('_viii', '⁸');
+  // Detect chord variants (extensions beyond basic triad)
+  if (raw) {
+    const _rt = (raw.length >= 2 && raw[1] === '#') ? raw.slice(0, 2) : raw[0];
+    const _qu = raw.slice(_rt.length).replace('_viii', '');
+    if (_qu && /\d|sus|add|maj7|dim7|m7b5/.test(_qu) && _qu !== 'm') {
+      slot.classList.add('chord-variant');
+    } else {
+      slot.classList.remove('chord-variant');
+    }
+  } else {
+    slot.classList.remove('chord-variant');
+  }
   // Re-attach handle (or create one if missing)
   if (handle) {
     slot.appendChild(handle);
@@ -24894,6 +24954,12 @@ function seqBuildGrids(song) {
         if (savedContinued[i]) slot.classList.add('chord-tail');
         const deg = savedDegrees[i];
         if (deg !== undefined && deg !== '') slot.dataset.chordDegree = deg;
+        // Detect chord variants (extensions beyond basic triad: sus2, m7, add9, etc.)
+        const _root = (val.length >= 2 && val[1] === '#') ? val.slice(0, 2) : val[0];
+        const _qual = val.slice(_root.length).replace('_viii', '');
+        if (_qual && /\d|sus|add|maj7|dim7|m7b5/.test(_qual) && _qual !== 'm') {
+          slot.classList.add('chord-variant');
+        }
       }
       // Resize handle — always appended last so textContent overwrites don't kill it
       const rHandle = document.createElement('div');
@@ -35185,6 +35251,7 @@ function renderKeyboardDrawerHtml(song) {
   ).join('');
   const bpm     = sd.bpm  || song?.bpm  || '100';
   const timeSig = sd.time || song?.time || '4';
+  const songGrid = song?.grid || sd.grid || '4';
   const songKey = song?.key || sd.key || '';
   const chordInstrument = sd.instrument || 'piano';
 
@@ -35339,6 +35406,20 @@ function renderKeyboardDrawerHtml(song) {
         <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;max-width:140px;">
           ${_keyOptions}
         </select>
+        <select class="seq-select" id="kbdKeysTimeSig" onchange="kbdTimeSigChanged(this.value)" style="font-size:10px;width:52px;" title="Time Signature">
+          <option value="4"${timeSig==='4'?' selected':''}>4/4</option>
+          <option value="3"${timeSig==='3'?' selected':''}>3/4</option>
+          <option value="2"${timeSig==='2'?' selected':''}>2/4</option>
+          <option value="6"${timeSig==='6'?' selected':''}>6/8</option>
+          <option value="5"${timeSig==='5'?' selected':''}>5/4</option>
+        </select>
+        <select class="seq-select" id="kbdKeysSteps" onchange="kbdGridChanged(this.value)" style="font-size:10px;width:52px;" title="Steps per beat">
+          <option value="1"${songGrid==='1'?' selected':''}>1/4</option>
+          <option value="2"${songGrid==='2'?' selected':''}>1/8</option>
+          <option value="4"${songGrid==='4'?' selected':''}>1/16</option>
+          <option value="8"${songGrid==='8'?' selected':''}>1/32</option>
+          <option value="3"${songGrid==='3'?' selected':''}>Triplets</option>
+        </select>
         <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="font-size:10px;max-width:200px;">
           ${_progressionOptions}
         </select>
@@ -35448,6 +35529,13 @@ function renderKeyboardDrawerHtml(song) {
             <option value="2"${timeSig==='2'?' selected':''}>2/4</option>
             <option value="6"${timeSig==='6'?' selected':''}>6/8</option>
             <option value="5"${timeSig==='5'?' selected':''}>5/4</option>
+          </select>
+          <select class="seq-select" id="kbdPortSteps" onchange="kbdGridChanged(this.value)" style="width:52px;" title="Steps per beat">
+            <option value="1"${songGrid==='1'?' selected':''}>1/4</option>
+            <option value="2"${songGrid==='2'?' selected':''}>1/8</option>
+            <option value="4"${songGrid==='4'?' selected':''}>1/16</option>
+            <option value="8"${songGrid==='8'?' selected':''}>1/32</option>
+            <option value="3"${songGrid==='3'?' selected':''}>Triplets</option>
           </select>
         </div>
         <!-- Progression dropdown -->
@@ -36062,15 +36150,19 @@ function kbdTimeSigChanged(callerVal) {
   // Accept value directly from the calling element (avoids duplicate-ID ambiguity)
   const val = callerVal || document.getElementById('kbdTimeSig')?.value;
   if (!val) return;
-  // Keep all kbdTimeSig selects in sync (there may be more than one in the DOM)
+  // Sync ALL time sig elements across all drawers and toolbars
   document.querySelectorAll('[id="kbdTimeSig"]').forEach(el => { if (el.value !== val) el.value = val; });
   const mt4tTs = document.getElementById('mt4tTimeSig'); if (mt4tTs && mt4tTs.value !== val) mt4tTs.value = val;
+  const htTs = document.getElementById('htTimeSel'); if (htTs && htTs.value !== val) htTs.value = val;
+  // Sync Keys drawer Time Sig (desktop)
+  const kbdKeysTs = document.getElementById('kbdKeysTimeSig');
+  if (kbdKeysTs && kbdKeysTs.value !== val) kbdKeysTs.value = val;
+  // Sync drum machine Time Sig (seqTime)
+  const seqTimeEl = document.getElementById('seqTime');
+  if (seqTimeEl && seqTimeEl.value !== val) seqTimeEl.value = val;
   // Save to song data
   const song = getCurrentSong();
   if (song) { seqGetData(song); song.sequencer.time = val; save(); scheduleSyncToSheet(song); }
-  // Sync seqTime element if the seq drawer is also rendered
-  const seqTimeEl = document.getElementById('seqTime');
-  if (seqTimeEl) seqTimeEl.value = val;
   // Always rebuild — seqBuildGrids falls back to song.sequencer.time when seqTime is absent
   seqRebuild();
 }
@@ -36090,13 +36182,20 @@ function kbdBarsChanged(callerVal) {
 function kbdGridChanged(callerVal) {
   const val = callerVal || document.getElementById('kbdGrid')?.value;
   if (!val) return;
+  // Sync ALL grid/steps elements across all drawers and toolbars
   document.querySelectorAll('[id="kbdGrid"]').forEach(el => { if (el.value !== val) el.value = val; });
-  // Sync the canonical seqGrid element so all existing sequencer code picks it up
   const seqGridEl = document.getElementById('seqGrid');
   if (seqGridEl && seqGridEl.value !== val) seqGridEl.value = val;
-  // Sync 4-track unified bar grid
   const mt4tGr = document.getElementById('mt4tGrid');
   if (mt4tGr && mt4tGr.value !== val) mt4tGr.value = val;
+  // Sync Keys drawer Steps (desktop + mobile)
+  const kbdKeysSteps = document.getElementById('kbdKeysSteps');
+  if (kbdKeysSteps && kbdKeysSteps.value !== val) kbdKeysSteps.value = val;
+  const kbdPortSteps = document.getElementById('kbdPortSteps');
+  if (kbdPortSteps && kbdPortSteps.value !== val) kbdPortSteps.value = val;
+  // Sync drum machine Steps
+  const seqDrumSteps = document.getElementById('seqDrumSteps');
+  if (seqDrumSteps && seqDrumSteps.value !== val) seqDrumSteps.value = val;
   // Don't pre-save grid — let seqRebuild() detect old→new change and remap patterns
   seqRebuild();
 }
@@ -36772,6 +36871,9 @@ function seqKeySelectChanged(triggerEl) {
   // Sync 4-track unified bar key select
   const mt4tKeySel = document.getElementById('mt4tKeySelect');
   if (mt4tKeySel) mt4tKeySel.value = newVal;
+  // Sync header transport key select
+  const htKeySel = document.getElementById('htKeySelect');
+  if (htKeySel) htKeySel.value = newVal;
 
   // Refresh pills, keyboard, and key display
   seqRenderChordPills(song);
@@ -41002,6 +41104,7 @@ function ilRenderBody(song) {
       <span id="ilAddWrap" style="display:inline-flex;">
         <select class="il-add-sel" id="ilAddSel" onchange="ilAddSection(this)">${addSelHtml}</select>
       </span>
+      <select class="il-add-sel" id="ilArrangeSel" onchange="ilApplyArrangement(this)">${ilBuildArrangementOptions()}</select>
     </div>
     ${partsHtml}`;
 
@@ -41264,6 +41367,104 @@ function ilBuildAddOptions() {
     .map(p => `<option value="${p.id}">${esc(p.label)}</option>`)
     .join('');
   return `<option value="">+ Section</option>${opts}`;
+}
+
+// ── Common Arrangements ──────────────────────────────────────────
+const COMMON_ARRANGEMENTS = [
+  { id:'pop-standard', label:'Pop Standard',
+    parts:['intro','verse-1','verse-2','pre-chorus','chorus-1','verse-3','pre-chorus-2','chorus-2','bridge','chorus-3','outro'] },
+  { id:'rock-classic', label:'Rock Classic',
+    parts:['intro','verse-1','chorus-1','verse-2','chorus-2','solo','chorus-3','outro'] },
+  { id:'verse-chorus', label:'Verse-Chorus',
+    parts:['intro','verse-1','chorus-1','verse-2','chorus-2','outro'] },
+  { id:'aaba', label:'AABA (Jazz / Standards)',
+    parts:['verse-1','verse-2','bridge','verse-3'] },
+  { id:'epic-prog', label:'Epic / Progressive',
+    parts:['intro','verse-1','pre-chorus','chorus-1','verse-2','pre-chorus-2','chorus-2','bridge','breakdown','chorus-3','outro'] },
+  { id:'singer-songwriter', label:'Singer-Songwriter',
+    parts:['intro','verse-1','verse-2','chorus-1','verse-3','chorus-2','bridge','chorus-3','outro'] },
+  { id:'hip-hop', label:'Hip-Hop / Rap',
+    parts:['intro','chorus-1','verse-1','chorus-2','verse-2','chorus-3','verse-3','outro'] },
+  { id:'ballad', label:'Ballad',
+    parts:['intro','verse-1','verse-2','chorus-1','verse-3','chorus-2','bridge','chorus-3','outro'] },
+  { id:'edm-dance', label:'EDM / Dance',
+    parts:['intro','breakdown','chorus-1','verse-1','breakdown','chorus-2','bridge','chorus-3','outro'] },
+  { id:'blues-12bar', label:'Blues (12-Bar)',
+    parts:['intro','verse-1','verse-2','verse-3','solo','verse-4','outro'] },
+  { id:'punk-fast', label:'Punk / Fast',
+    parts:['intro','verse-1','chorus-1','verse-2','chorus-2','bridge','chorus-3'] },
+];
+
+function ilBuildArrangementOptions() {
+  return '<option value="">Common Arrangements</option>' +
+    COMMON_ARRANGEMENTS.map(a => `<option value="${a.id}">${esc(a.label)}</option>`).join('');
+}
+
+function ilApplyArrangement(sel) {
+  const arrId = sel.value;
+  if (!arrId) return;
+  sel.value = '';
+  const arr = COMMON_ARRANGEMENTS.find(a => a.id === arrId);
+  if (!arr) return;
+  const song = getCurrentSong();
+  if (!song) return;
+
+  _pushStructUndo(song);
+
+  // 1. Unassign all existing sequences (move to unassigned)
+  const seqs = getSongSequences(song);
+  for (var _ai = 0; _ai < seqs.length; _ai++) {
+    seqs[_ai].partId = '';
+    seqs[_ai].part = '';
+  }
+
+  // 2. Clear existing structure
+  song.structure = {};
+  song.sectionOrder = [];
+
+  // 3. Add each section in the arrangement — deduplicate repeats
+  const seen = {};
+  for (var _aj = 0; _aj < arr.parts.length; _aj++) {
+    const partId = arr.parts[_aj];
+    // EDM uses 'breakdown' twice — only create section once
+    if (seen[partId]) continue;
+    seen[partId] = true;
+
+    song.structure[partId] = { checked: true, count: 1 };
+    song.sectionOrder.push(partId);
+
+    // Auto-create a blank sequence for this part
+    const alreadyHasSeq = seqs.some(s => (s.partId || s.part) === partId);
+    if (!alreadyHasSeq) {
+      const cur = seqs[0] || {};
+      seqs.push({
+        id: 'seq_' + Date.now() + '_' + _aj,
+        partId: partId, part: partId,
+        bpm: song.bpm || cur.bpm || '120', time: cur.time || '4',
+        bars: cur.bars || '2', grid: song.grid || cur.grid || '4',
+        swing: cur.swing || '0', vel: cur.vel || '0.8',
+        wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
+        chordSlots: [], chordDegrees: [],
+        kick: [], snare: [], hat: [], crash: [], clap: [], hitom: [], lotom: [], melody: [],
+        melodyQuantize: false, mixer: {},
+      });
+    }
+  }
+
+  song.updatedAt = Date.now();
+  save();
+
+  // 4. Refresh UI
+  rtActiveParts = getActiveParts(song);
+  rtAddedParts = rtActiveParts.map(p => p.id);
+  rtChordEdits = {}; rtChordPositions = {}; rtLyricEdits = {};
+  rtActiveParts.forEach(function(p) {
+    rtChordEdits[p.id] = []; rtChordPositions[p.id] = []; rtLyricEdits[p.id] = '';
+  });
+  if (typeof renderStructure === 'function') renderStructure(song);
+  if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
+  if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
+  ilRenderBody(song);
 }
 
 // ── Refresh helpers ───────────────────────────────────────────────
@@ -53925,26 +54126,19 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 <div id="splitTransportDock">
   <!-- 4-track control bar — mobile only, unified layout mirrors sharedSettingsRow -->
   <div id="mt4tSettingsRow" class="shared-settings-row mt4t-settings-row unified-ctrl-bar">
-    <!-- LEFT: Bars, Steps, Time -->
+    <!-- LEFT: Bars -->
     <div class="ucb-left">
       <select class="seq-select ucb-select" id="mt4tBars" onchange="kbdBarsChanged(this.value)" title="Bars">
         <option value="1">1</option>
         <option value="2" selected>2</option>
         <option value="4">4</option>
       </select>
-      <select class="seq-select ucb-select" id="mt4tGrid" onchange="kbdGridChanged(this.value)" title="Steps per beat">
-        <option value="1">1/4</option>
-        <option value="2">1/8</option>
-        <option value="4" selected>1/16</option>
-        <option value="8">1/32</option>
-        <option value="3">Triplets</option>
+      <!-- Hidden: kept for JS sync -->
+      <select id="mt4tGrid" onchange="kbdGridChanged(this.value)" style="display:none;">
+        <option value="1">1/4</option><option value="2">1/8</option><option value="4" selected>1/16</option><option value="8">1/32</option><option value="3">Triplets</option>
       </select>
-      <select class="seq-select ucb-select" id="mt4tTimeSig" onchange="kbdTimeSigChanged(this.value)" title="Time Signature">
-        <option value="4">4/4</option>
-        <option value="3">3/4</option>
-        <option value="2">2/4</option>
-        <option value="6">6/8</option>
-        <option value="5">5/4</option>
+      <select id="mt4tTimeSig" onchange="kbdTimeSigChanged(this.value)" style="display:none;">
+        <option value="4">4/4</option><option value="3">3/4</option><option value="2">2/4</option><option value="6">6/8</option><option value="5">5/4</option>
       </select>
     </div>
     <!-- CENTER: Drum Pattern, Chord Progression, Key Signature -->
@@ -54782,26 +54976,19 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   <div id="sharedSettingsRow" class="shared-settings-row unified-ctrl-bar">
     <!-- Song title — desktop only -->
     <span id="sharedDrawerSongTitle" class="shared-drawer-song-title shared-ctrl-desktop-only" title="Current song"></span>
-    <!-- LEFT: Bars, Steps, Time -->
+    <!-- LEFT: Bars -->
     <div class="ucb-left">
       <select class="seq-select ucb-select" id="kbdBars" onchange="kbdBarsChanged(this.value)" title="Bars">
         <option value="1">1</option>
         <option value="2" selected>2</option>
         <option value="4">4</option>
       </select>
-      <select class="seq-select ucb-select" id="kbdGrid" onchange="kbdGridChanged(this.value)" title="Steps per beat">
-        <option value="1">1/4</option>
-        <option value="2">1/8</option>
-        <option value="4" selected>1/16</option>
-        <option value="8">1/32</option>
-        <option value="3">Triplets</option>
+      <!-- Hidden: kept for JS sync -->
+      <select id="kbdGrid" onchange="kbdGridChanged(this.value)" style="display:none;">
+        <option value="1">1/4</option><option value="2">1/8</option><option value="4" selected>1/16</option><option value="8">1/32</option><option value="3">Triplets</option>
       </select>
-      <select class="seq-select ucb-select" id="kbdTimeSig" onchange="kbdTimeSigChanged(this.value)" title="Time Signature">
-        <option value="4">4/4</option>
-        <option value="3">3/4</option>
-        <option value="2">2/4</option>
-        <option value="6">6/8</option>
-        <option value="5">5/4</option>
+      <select id="kbdTimeSig" onchange="kbdTimeSigChanged(this.value)" style="display:none;">
+        <option value="4">4/4</option><option value="3">3/4</option><option value="2">2/4</option><option value="6">6/8</option><option value="5">5/4</option>
       </select>
     </div>
     <!-- CENTER: Drum Pattern, Chord Progression, Key Signature -->
