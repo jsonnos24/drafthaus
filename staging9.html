@@ -27877,6 +27877,8 @@ function _seqIsAccentBeat(stepInBar, beatsPerBar, timeSig) {
 function seqScheduleNotes() {
   const ctx = _seqSchedulerCtx;
   if (!ctx || !seqIsPlaying) return;
+  // If unified timeline is handling audio, old scheduler only does visuals
+  const _tlTakeover = (typeof TL !== 'undefined' && typeof TL.isAudioEnabled === 'function' && TL.isAudioEnabled());
 
   const LOOKAHEAD = 0.15;
 
@@ -27917,6 +27919,7 @@ function seqScheduleNotes() {
         : _chordIdx - 1;
       const _chordTrigger = (_chordIdx !== _prevChordIdx);
       const chordName = (_chordTrigger && !sec.chordContinued?.[_chordIdx]) ? (sec.chordSlots[_chordIdx] || '') : '';
+      if (!_tlTakeover) {
       if (chordName) {
         const midiNotes = loopChordsMidi?.[chordName] || _chordVariantToMidi(chordName);
         let samplerPlayed = false;
@@ -27953,6 +27956,7 @@ function seqScheduleNotes() {
           seqScheduleMelody(ctx, baseTime, secLoopDurMs, sec.melody, sec.melodyInstrument);
         }
       }
+      } // end _tlTakeover guard
 
       // Visual delay for step indicator
       const visualDelay = Math.max(0, (_seqNextNoteTime - ctx.currentTime) * 1000);
@@ -28093,6 +28097,7 @@ function seqScheduleNotes() {
       // Metronome: only on beat boundaries (every _kGrid steps), not every sequencer step
       // [UNIFIED METRO] — metro clicks now handled by globalMetroStart(), removed inline seqClick
       // Chord playback from chord grid slots
+      if (!_tlTakeover) {
       if (chordSlots.length) {
         const slot = chordSlots[i];
         if (slot && slot.classList.contains('filled') && !slot.classList.contains('chord-tail')) {
@@ -28124,6 +28129,7 @@ function seqScheduleNotes() {
           seqScheduleMelody(ctx, baseTime, _kLoopMs, melodyNotes, _kbdMelodyInstrument);
         }
       }
+      } // end _tlTakeover guard (keyboard-only)
       // Visual highlight for chord slots
       if (chordSlots.length) {
         const visualDelay = Math.max(0, (_seqNextNoteTime - ctx.currentTime) * 1000);
@@ -28170,6 +28176,7 @@ function seqScheduleNotes() {
         : ((getCurrentSong()?.sequencer?.chordSlots?.[_lChordIdx] && !getCurrentSong()?.sequencer?.chordContinued?.[_lChordIdx])
             ? (getCurrentSong()?.sequencer?.chordSlots?.[_lChordIdx]) : ''))
       : '';
+    if (!_tlTakeover) {
     if (_chordName) {
       const midiNotes = loopChordsMidi?.[_chordName] || _chordVariantToMidi(_chordName);
       let samplerPlayed = false;
@@ -28209,6 +28216,7 @@ function seqScheduleNotes() {
       const song2 = getCurrentSong();
       if (song2?.sequencer?.melody?.length) seqHighlightMelodyKeys(song2.sequencer.melody, noteTime, ctx);
     }
+    } // end _tlTakeover guard (full loop mode)
 
     // ── Visual highlight (setTimeout is fine — slight drift is imperceptible) ──
     const visualDelay = Math.max(0, (_seqNextNoteTime - ctx.currentTime) * 1000);
