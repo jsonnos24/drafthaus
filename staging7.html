@@ -33848,32 +33848,54 @@ async function exportBounce() {
   const song = getCurrentSong();
   if (!song) return;
 
-  const sd = song.sequencer || {};
-  const bpm      = parseFloat(sd.bpm  || 100);
-  const grid     = parseInt(sd.grid   || 2);
-  const timeSig  = parseInt(sd.time   || 4);
-  const bars     = parseInt(sd.bars   || 8);
-  const swing    = parseFloat(sd.swing || 0);
-  const velBase  = parseFloat(sd.vel  || 0.8);
   const wave     = document.getElementById('seqWave')?.value || 'triangle';
   const key      = seqCurrentKey();
   const mode     = seqCurrentMode();
-  const LOOPS    = 4;
+  const SR       = 44100;
 
-  const baseStep    = (60 / bpm) / grid;
-  const totalSteps  = timeSig * bars * grid;
-  const loopDur     = totalSteps * baseStep;
-  const totalDur    = loopDur * LOOPS + 2; // +2s tail
-  const SR          = 44100;
+  // ── Build sorted section list (same order as seqPlaySong) ──
+  if (typeof seqSaveAllToCurrent === 'function') seqSaveAllToCurrent(song);
+  const allSeqs = getSongSequences(song);
+  const partOrder = STRUCTURE_PARTS.map(p => p.id);
+  const validPartIds = new Set(partOrder);
+  const unassignedSeqs = allSeqs.filter(s => !validPartIds.has(s.partId || s.part || ''));
+  const assignedSeqs = [...allSeqs]
+    .filter(s => validPartIds.has(s.partId || s.part || ''))
+    .sort((a, b) => {
+      const ai = partOrder.indexOf(a.partId || a.part || '');
+      const bi = partOrder.indexOf(b.partId || b.part || '');
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
+  const sortedSections = [...unassignedSeqs, ...assignedSeqs];
+  if (!sortedSections.length) { showToast('No sequences to bounce.', 'warn'); return; }
 
-  const chordSlots = sd.chordSlots || [];
-  const kickLane   = sd.kick  || [];
-  const snareLane  = sd.snare || [];
-  const hatLane    = sd.hat   || [];
-  const crashLane  = sd.crash || [];
-  const clapLane   = sd.clap  || [];
+  const _songBpm = parseFloat(song.bpm || 100);
 
-  const currentChords = seqGenChords(key, mode);
+  // Pre-compute per-section timing
+  const bnSections = sortedSections.map(seq => {
+    const bpm       = _songBpm;
+    const drumSteps = parseInt(song.drumSteps || seq.drumSteps || seq.grid || 4);
+    const chordSteps= parseInt(song.chordSteps || seq.chordSteps || 1);
+    const timeSig   = parseInt(seq.time || 4);
+    const bars      = parseInt(seq.bars || 2);
+    const totalDrumSlots  = timeSig * bars * drumSteps;
+    const stepDur         = (60 / bpm) / drumSteps;
+    const sectionDur      = totalDrumSlots * stepDur;
+    const totalChordSlots = timeSig * bars * chordSteps;
+    return {
+      seq, bpm, drumSteps, chordSteps, timeSig, bars,
+      totalDrumSlots, stepDur, sectionDur, totalChordSlots,
+      swing: parseFloat(seq.swing || 0),
+      vel:   parseFloat(seq.vel || 0.8),
+      kick: seq.kick || [], snare: seq.snare || [], hat: seq.hat || [],
+      crash: seq.crash || [], clap: seq.clap || [],
+      hitom: seq.hitom || [], lotom: seq.lotom || [],
+      chordSlots: seq.chordSlots || [],
+      chordContinued: seq.chordContinued || [],
+    };
+  });
+
+  const totalDur = bnSections.reduce((sum, s) => sum + s.sectionDur, 0) + 2;
 
   // Show progress
   const btn = document.getElementById('wavBounceBtn');
@@ -33997,6 +34019,28 @@ async function exportBounce() {
         s2.buffer = b2; s2.connect(f2); f2.connect(master); s2.start(t);
       }
     }
+    function schedHiTom(t, vel) {
+      if (_drumIsAcoustic() && offAcousticBufs.hitom) {
+        const src = offCtx.createBufferSource(), g = offCtx.createGain();
+        src.buffer = offAcousticBufs.hitom; g.gain.setValueAtTime(vel * 0.8, t);
+        src.connect(g); g.connect(offCtx.destination); src.start(t); return;
+      }
+      const o = offCtx.createOscillator(), g = offCtx.createGain();
+      o.frequency.setValueAtTime(280, t); o.frequency.exponentialRampToValueAtTime(160, t + 0.08);
+      g.gain.setValueAtTime(0.6 * vel, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      o.connect(g); g.connect(offCtx.destination); o.start(t); o.stop(t + 0.2);
+    }
+    function schedLoTom(t, vel) {
+      if (_drumIsAcoustic() && offAcousticBufs.lotom) {
+        const src = offCtx.createBufferSource(), g = offCtx.createGain();
+        src.buffer = offAcousticBufs.lotom; g.gain.setValueAtTime(vel * 0.85, t);
+        src.connect(g); g.connect(offCtx.destination); src.start(t); return;
+      }
+      const o = offCtx.createOscillator(), g = offCtx.createGain();
+      o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(90, t + 0.1);
+      g.gain.setValueAtTime(0.65 * vel, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+      o.connect(g); g.connect(offCtx.destination); o.start(t); o.stop(t + 0.25);
+    }
     // ── Synth chord fallback ──
     function schedChordSynth(freqs, t, vel, waveType, dur) {
       const amps   = [0.26, 0.15, 0.10];
@@ -34038,8 +34082,8 @@ async function exportBounce() {
       return true;
     }
 
-    // Detect loaded instruments
-    const _bnInst     = sd.instrument || _activeInstrument || 'piano';
+    // Detect loaded instruments (song-wide — instrument is the same for all sections)
+    const _bnInst     = (song.sequencer || {}).instrument || _activeInstrument || 'piano';
     const _bnPianoOk  = _bnInst.includes('piano') && !_bnInst.includes('piano2') && typeof _pianoLoaded !== 'undefined' && _pianoLoaded && Object.keys(_pianoBuffers || {}).length > 0;
     const _bnPiano2Ok = _bnInst.includes('piano2') && typeof _piano2Loaded !== 'undefined' && _piano2Loaded && Object.keys(_piano2Buffers || {}).length > 0;
     const _bnGuitarOk = _bnInst.includes('guitar') && typeof _guitarLoaded !== 'undefined' && _guitarLoaded && Object.keys(_guitarBuffers || {}).length > 0;
@@ -34066,41 +34110,48 @@ async function exportBounce() {
     }
 
     const chordMidiMap = seqGenChordMidi(key, mode);
-    const chordCont = sd.chordContinued || [];
 
     progLabel.textContent = 'Scheduling notes…';
     await new Promise(r => setTimeout(r, 20));
 
-    // Schedule 4 loops
-    for (let loop = 0; loop < LOOPS; loop++) {
-      const loopStart = loop * loopDur;
+    // Schedule ALL sections in arrangement order
+    let sectionOffset = 0;
+    for (let si = 0; si < bnSections.length; si++) {
+      const sec = bnSections[si];
+
       // Drums
-      for (let i = 0; i < totalSteps; i++) {
-        const swingOff = (i % 2 === 1) ? baseStep * swing * 0.5 : 0;
-        const t = loopStart + i * baseStep + swingOff;
-        const vel = velBase * (0.85 + Math.random() * 0.3);
-        if (kickLane[i])  schedKick(t, vel);
-        if (snareLane[i]) schedSnare(t, vel * 0.85);
-        if (hatLane[i])   schedHat(t, vel * 0.65);
-        if (crashLane[i]) schedCrash(t, vel * 0.9);
-        if (clapLane[i])  schedClap(t, vel * 0.75);
+      for (let i = 0; i < sec.totalDrumSlots; i++) {
+        const swingOff = (i % 2 === 1) ? sec.stepDur * sec.swing * 0.5 : 0;
+        const t = sectionOffset + i * sec.stepDur + swingOff;
+        const vel = sec.vel * (0.85 + Math.random() * 0.3);
+        if (sec.kick[i])  schedKick(t, vel);
+        if (sec.snare[i]) schedSnare(t, vel * 0.85);
+        if (sec.hat[i])   schedHat(t, vel * 0.65);
+        if (sec.crash[i]) schedCrash(t, vel * 0.9);
+        if (sec.clap[i])  schedClap(t, vel * 0.75);
+        if (sec.hitom[i]) schedHiTom(t, vel * 0.8);
+        if (sec.lotom[i]) schedLoTom(t, vel * 0.85);
       }
       // Chords — respect held notes
-      for (let ci = 0; ci < chordSlots.length; ci++) {
-        const chordName = chordSlots[ci] || '';
-        if (!chordName || chordCont[ci]) continue;
-        // Count held tail slots
+      const chordSlotCount = sec.chordSlots.length;
+      const actualChordGrid = (chordSlotCount > 0 && chordSlotCount !== sec.totalChordSlots)
+        ? chordSlotCount : sec.totalChordSlots;
+      const chordSlotDur = sec.sectionDur / actualChordGrid;
+      for (let ci = 0; ci < actualChordGrid; ci++) {
+        const chordName = sec.chordSlots[ci] || '';
+        if (!chordName || sec.chordContinued[ci]) continue;
         let holdSlots = 1;
-        for (let hci = ci + 1; hci < chordSlots.length; hci++) {
-          if (chordCont[hci] && chordSlots[hci]) holdSlots++;
+        for (let hci = ci + 1; hci < actualChordGrid; hci++) {
+          if (sec.chordContinued[hci] && sec.chordSlots[hci]) holdSlots++;
           else break;
         }
-        const t = loopStart + ci * baseStep;
-        const vel = velBase * (0.85 + Math.random() * 0.3);
-        const holdDur = Math.max(holdSlots * baseStep, 0.9);
+        const t = sectionOffset + ci * chordSlotDur;
+        const vel = sec.vel * (0.85 + Math.random() * 0.3);
+        const holdDur = Math.max(holdSlots * chordSlotDur, 0.9);
         const midiNotes = chordMidiMap?.[chordName] || ((typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(chordName) : null);
         if (midiNotes?.length) schedChord(midiNotes, t, vel, holdDur);
       }
+      sectionOffset += sec.sectionDur;
     }
 
     progLabel.textContent = 'Rendering audio…';
@@ -43915,25 +43966,56 @@ async function mixBounceShareRun() {
     setProgress(5, 'Preparing mix…');
     await new Promise(r => setTimeout(r, 50));
 
-    const sd = song.sequencer || {};
     const mix = song.mix || {};
-    const bpm      = parseFloat(sd.bpm  || 100);
-    const drumSteps  = parseInt(sd.drumSteps || sd.grid || 4);
-    const chordSteps = parseInt(sd.chordSteps || 1);
-    const timeSig  = parseInt(sd.time  || 4);
-    const bars     = parseInt(sd.bars  || 8);
-    const swing    = parseFloat(sd.swing || 0);
-    const velBase  = parseFloat(sd.vel  || 0.8);
     const wave     = document.getElementById('seqWave')?.value || 'triangle';
     const key      = seqCurrentKey();
     const mode     = seqCurrentMode();
-    const LOOPS    = 4;
     const SR       = 44100;
 
-    const baseStep    = (60 / bpm) / drumSteps;
-    const totalDrumSteps  = timeSig * bars * drumSteps;
-    const loopDur     = totalDrumSteps * baseStep;
-    const seqTotalDur = loopDur * LOOPS + 2;
+    // ── Build sorted section list (same order as seqPlaySong) ──
+    // Flush current DOM state so any unsaved edits are captured
+    if (typeof seqSaveAllToCurrent === 'function') seqSaveAllToCurrent(song);
+    const allSeqs = getSongSequences(song);
+    const partOrder = STRUCTURE_PARTS.map(p => p.id);
+    const validPartIds = new Set(partOrder);
+    const unassignedSeqs = allSeqs.filter(s => !validPartIds.has(s.partId || s.part || ''));
+    const assignedSeqs = [...allSeqs]
+      .filter(s => validPartIds.has(s.partId || s.part || ''))
+      .sort((a, b) => {
+        const ai = partOrder.indexOf(a.partId || a.part || '');
+        const bi = partOrder.indexOf(b.partId || b.part || '');
+        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+      });
+    const sortedSections = [...unassignedSeqs, ...assignedSeqs];
+    if (!sortedSections.length) { showToast('No sequences to bounce.', 'warn'); return; }
+
+    const _songBpm = parseFloat(song.bpm || 100);
+
+    // Pre-compute per-section timing
+    const sectionData = sortedSections.map(seq => {
+      const bpm       = _songBpm;
+      const drumSteps = parseInt(song.drumSteps || seq.drumSteps || seq.grid || 4);
+      const chordSteps= parseInt(song.chordSteps || seq.chordSteps || 1);
+      const timeSig   = parseInt(seq.time || 4);
+      const bars      = parseInt(seq.bars || 2);
+      const totalDrumSlots  = timeSig * bars * drumSteps;
+      const stepDur         = (60 / bpm) / drumSteps;
+      const sectionDur      = totalDrumSlots * stepDur;
+      const totalChordSlots = timeSig * bars * chordSteps;
+      return {
+        seq, bpm, drumSteps, chordSteps, timeSig, bars,
+        totalDrumSlots, stepDur, sectionDur, totalChordSlots,
+        swing: parseFloat(seq.swing || 0),
+        vel:   parseFloat(seq.vel || 0.8),
+        kick: seq.kick || [], snare: seq.snare || [], hat: seq.hat || [],
+        crash: seq.crash || [], clap: seq.clap || [],
+        hitom: seq.hitom || [], lotom: seq.lotom || [],
+        chordSlots: seq.chordSlots || [],
+        chordContinued: seq.chordContinued || [],
+      };
+    });
+
+    const seqTotalDur = sectionData.reduce((sum, s) => sum + s.sectionDur, 0) + 2;
 
     // ── Gather 4-track buffers & mixer settings ──
     const mt = window._mtTracks || [];
@@ -43962,7 +44044,8 @@ async function mixBounceShareRun() {
     const offCtx = new OfflineAudioContext(2, Math.ceil(SR * totalDur), SR);
 
     // ── Master gain (main fader) ──
-    const masterVol = sd.masterVol !== undefined ? parseFloat(sd.masterVol) : 1.0;
+    const _sd0 = song.sequencer || {};
+    const masterVol = _sd0.masterVol !== undefined ? parseFloat(_sd0.masterVol) : 1.0;
     const masterGain = offCtx.createGain();
     masterGain.gain.setValueAtTime(masterVol, 0);
     masterGain.connect(offCtx.destination);
@@ -44124,6 +44207,28 @@ async function mixBounceShareRun() {
       src.buffer = buf; g.gain.setValueAtTime(0.45 * vel, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
       src.connect(g); g.connect(drumBusGain); src.start(t);
     }
+    function schedHiTom(t, vel) {
+      if (typeof _drumIsAcoustic === 'function' && _drumIsAcoustic() && offAcousticBufs.hitom) {
+        const src = offCtx.createBufferSource(), g = offCtx.createGain();
+        src.buffer = offAcousticBufs.hitom; g.gain.setValueAtTime(vel * 0.8, t);
+        src.connect(g); g.connect(drumBusGain); src.start(t); return;
+      }
+      const o = offCtx.createOscillator(), g = offCtx.createGain();
+      o.frequency.setValueAtTime(280, t); o.frequency.exponentialRampToValueAtTime(160, t + 0.08);
+      g.gain.setValueAtTime(0.6 * vel, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      o.connect(g); g.connect(drumBusGain); o.start(t); o.stop(t + 0.2);
+    }
+    function schedLoTom(t, vel) {
+      if (typeof _drumIsAcoustic === 'function' && _drumIsAcoustic() && offAcousticBufs.lotom) {
+        const src = offCtx.createBufferSource(), g = offCtx.createGain();
+        src.buffer = offAcousticBufs.lotom; g.gain.setValueAtTime(vel * 0.85, t);
+        src.connect(g); g.connect(drumBusGain); src.start(t); return;
+      }
+      const o = offCtx.createOscillator(), g = offCtx.createGain();
+      o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(90, t + 0.1);
+      g.gain.setValueAtTime(0.65 * vel, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+      o.connect(g); g.connect(drumBusGain); o.start(t); o.stop(t + 0.25);
+    }
     // ── Synth fallback for chords (when no sampler loaded) ──
     function schedChordSynth(freqs, t, vel, w, holdDur) {
       var amps   = [0.26, 0.15, 0.10];
@@ -44168,7 +44273,7 @@ async function mixBounceShareRun() {
     }
 
     // Detect which instrument samplers are loaded (mirrors live scheduler)
-    const _bncInst     = sd.instrument || _activeInstrument || 'piano';
+    const _bncInst     = (song.sequencer || {}).instrument || _activeInstrument || 'piano';
     const _bncHasPiano  = _bncInst.includes('piano') && !_bncInst.includes('piano2');
     const _bncHasPiano2 = _bncInst.includes('piano2');
     const _bncHasGuitar = _bncInst.includes('guitar');
@@ -44212,62 +44317,53 @@ async function mixBounceShareRun() {
       }
     }
 
-    // ── Schedule sequencer notes ──
-    const chordSlots = sd.chordSlots || [];
-    const kickLane   = sd.kick  || [];
-    const snareLane  = sd.snare || [];
-    const hatLane    = sd.hat   || [];
-    const crashLane  = sd.crash || [];
-    const clapLane   = sd.clap  || [];
+    // ── Schedule sequencer notes — iterate ALL sections in arrangement order ──
     const chordMidiMap = seqGenChordMidi(key, mode);
 
     setProgress(25, 'Scheduling sequencer…');
     await new Promise(r => setTimeout(r, 20));
 
-    const seqHasContent = kickLane.some(Boolean) || snareLane.some(Boolean) || hatLane.some(Boolean) ||
-      crashLane.some(Boolean) || clapLane.some(Boolean) || chordSlots.some(Boolean);
+    let sectionOffset = 0; // cumulative time offset
+    for (let si = 0; si < sectionData.length; si++) {
+      const sec = sectionData[si];
 
-    if (seqHasContent) {
-      // Determine actual chord slot resolution from the data
-      const chordSlotCount = chordSlots.length;
-      const expectedChordSlots = timeSig * bars * chordSteps;
-      const actualChordGrid = (chordSlotCount > 0 && chordSlotCount !== expectedChordSlots)
-        ? chordSlotCount : expectedChordSlots;
-      const chordSlotDur = (totalDrumSteps * baseStep) / actualChordGrid;
+      const seqHasContent = sec.kick.some(Boolean) || sec.snare.some(Boolean) || sec.hat.some(Boolean) ||
+        sec.crash.some(Boolean) || sec.clap.some(Boolean) || sec.chordSlots.some(Boolean);
 
-      for (let loop = 0; loop < LOOPS; loop++) {
-        const loopStart = loop * loopDur;
+      if (seqHasContent) {
+        // Determine actual chord slot resolution from the data
+        const chordSlotCount = sec.chordSlots.length;
+        const actualChordGrid = (chordSlotCount > 0 && chordSlotCount !== sec.totalChordSlots)
+          ? chordSlotCount : sec.totalChordSlots;
+        const chordSlotDur = sec.sectionDur / actualChordGrid;
 
         // Schedule drums at drum resolution
-        for (let i = 0; i < totalDrumSteps; i++) {
-          const swingOff = (i % 2 === 1) ? baseStep * swing * 0.5 : 0;
-          const t = loopStart + i * baseStep + swingOff;
-          const vel = velBase * (0.85 + Math.random() * 0.3);
-          if (kickLane[i])  schedKick(t, vel);
-          if (snareLane[i]) schedSnare(t, vel * 0.85);
-          if (hatLane[i])   schedHat(t, vel * 0.65);
-          if (crashLane[i]) schedCrash(t, vel * 0.9);
-          if (clapLane[i])  schedClap(t, vel * 0.75);
+        for (let i = 0; i < sec.totalDrumSlots; i++) {
+          const swingOff = (i % 2 === 1) ? sec.stepDur * sec.swing * 0.5 : 0;
+          const t = sectionOffset + i * sec.stepDur + swingOff;
+          const vel = sec.vel * (0.85 + Math.random() * 0.3);
+          if (sec.kick[i])  schedKick(t, vel);
+          if (sec.snare[i]) schedSnare(t, vel * 0.85);
+          if (sec.hat[i])   schedHat(t, vel * 0.65);
+          if (sec.crash[i]) schedCrash(t, vel * 0.9);
+          if (sec.clap[i])  schedClap(t, vel * 0.75);
+          if (sec.hitom[i]) schedHiTom(t, vel * 0.8);
+          if (sec.lotom[i]) schedLoTom(t, vel * 0.85);
         }
 
-        // Schedule chords at their own resolution using active instrument
-        // Respect chordContinued — skip tail slots, extend head chord duration
-        const chordCont = sd.chordContinued || [];
+        // Schedule chords — respect chordContinued (held notes)
         for (let ci = 0; ci < actualChordGrid; ci++) {
-          const chordName = chordSlots[ci] || '';
+          const chordName = sec.chordSlots[ci] || '';
           if (!chordName) continue;
-          // Skip tail slots (held notes — previous chord is still ringing)
-          if (chordCont[ci]) continue;
-          // Count how many tail slots follow to calculate held duration
+          if (sec.chordContinued[ci]) continue;
           var holdSlots = 1;
           for (var hci = ci + 1; hci < actualChordGrid; hci++) {
-            if (chordCont[hci] && chordSlots[hci]) holdSlots++;
+            if (sec.chordContinued[hci] && sec.chordSlots[hci]) holdSlots++;
             else break;
           }
-          const t = loopStart + ci * chordSlotDur;
-          const vel = velBase * (0.85 + Math.random() * 0.3);
+          const t = sectionOffset + ci * chordSlotDur;
+          const vel = sec.vel * (0.85 + Math.random() * 0.3);
           const holdDur = Math.max(holdSlots * chordSlotDur, 0.9);
-          // Resolve chord name → MIDI notes (diatonic map first, then variant fallback)
           var midiNotes = (chordMidiMap && chordMidiMap[chordName])
             ? chordMidiMap[chordName]
             : ((typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(chordName) : null);
@@ -44276,9 +44372,10 @@ async function mixBounceShareRun() {
           }
         }
       }
+      sectionOffset += sec.sectionDur;
     }
 
-    setProgress(40, 'Rendering mix (' + fourTrackCount + ' tracks + ' + (seqHasContent ? 'seq' : 'no seq') + ')…');
+    setProgress(40, 'Rendering mix (' + fourTrackCount + ' tracks + ' + sectionData.length + ' section(s))…');
     await new Promise(r => setTimeout(r, 20));
     const rendered = await offCtx.startRendering();
 
