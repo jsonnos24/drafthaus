@@ -34049,24 +34049,62 @@ async function exportBounce() {
 
     const rendered = await offCtx.startRendering();
 
-    progLabel.textContent = 'Encoding WebM/Opus…';
+    progLabel.textContent = 'Loading MP3 encoder…';
     await new Promise(r => setTimeout(r, 20));
 
-    // Encode as WebM/Opus via MediaRecorder (matches recording format)
-    const safeTitle = (song.title || song.workingTitle || 'bounce').replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    _ftEncodeViaMediaRecorder(rendered, function(blob, mimeType) {
-      const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = safeTitle + '_bounce.' + ext;
-      a.click();
-      URL.revokeObjectURL(url);
-      _incrementExportCount();
+    // Load lamejs if needed
+    if (typeof lamejs === 'undefined') {
+      await new Promise(function(resolve, reject) {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js';
+        s.onload = resolve;
+        s.onerror = function() { reject(new Error('Failed to load lamejs')); };
+        document.head.appendChild(s);
+      });
+    }
 
-      btn.disabled = false; btn.textContent = 'Bounce';
-      prog.style.display = 'none';
-      progLabel.textContent = '';
-    });
+    progLabel.textContent = 'Encoding MP3…';
+    await new Promise(r => setTimeout(r, 20));
+
+    // Encode rendered AudioBuffer → MP3 via lamejs
+    const safeTitle = (song.title || song.workingTitle || 'bounce').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const _numCh = rendered.numberOfChannels;
+    const _sr    = rendered.sampleRate;
+    const _len   = rendered.length;
+    const _left  = rendered.getChannelData(0);
+    const _right = _numCh > 1 ? rendered.getChannelData(1) : _left;
+    const _leftI16  = new Int16Array(_len);
+    const _rightI16 = new Int16Array(_len);
+    for (let _i = 0; _i < _len; _i++) {
+      const sL = Math.max(-1, Math.min(1, _left[_i]));
+      const sR = Math.max(-1, Math.min(1, _right[_i]));
+      _leftI16[_i]  = sL < 0 ? sL * 0x8000 : sL * 0x7FFF;
+      _rightI16[_i] = sR < 0 ? sR * 0x8000 : sR * 0x7FFF;
+    }
+    const _mp3enc = new lamejs.Mp3Encoder(_numCh > 1 ? 2 : 1, _sr, 192);
+    const _mp3Chunks = [];
+    const _blkSz = 1152;
+    for (let _p = 0; _p < _len; _p += _blkSz) {
+      const _e = Math.min(_p + _blkSz, _len);
+      const _lc = _leftI16.subarray(_p, _e);
+      const _rc = _rightI16.subarray(_p, _e);
+      const _mb = (_numCh > 1) ? _mp3enc.encodeBuffer(_lc, _rc) : _mp3enc.encodeBuffer(_lc);
+      if (_mb.length > 0) _mp3Chunks.push(_mb);
+    }
+    const _tail = _mp3enc.flush();
+    if (_tail.length > 0) _mp3Chunks.push(_tail);
+    const mp3Blob = new Blob(_mp3Chunks, { type: 'audio/mpeg' });
+
+    const url = URL.createObjectURL(mp3Blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = safeTitle + '_bounce.mp3';
+    a.click();
+    URL.revokeObjectURL(url);
+    _incrementExportCount();
+
+    btn.disabled = false; btn.textContent = 'Bounce';
+    prog.style.display = 'none';
+    progLabel.textContent = '';
 
   } catch(e) {
     console.error('Bounce error:', e);
@@ -44028,19 +44066,18 @@ async function mixBounceShareRun() {
       src.connect(g); g.connect(drumBusGain); src.start(t);
     }
     // ── Synth fallback for chords (when no sampler loaded) ──
-    function schedChordSynth(freqs, t, vel, w) {
+    function schedChordSynth(freqs, t, vel, w, holdDur) {
       var amps   = [0.26, 0.15, 0.10];
-      var decays = [0.90, 0.68, 0.52];
       freqs.forEach(function(f, fi) {
         var o = offCtx.createOscillator(), g = offCtx.createGain();
         o.type = w; o.frequency.value = f;
         o.connect(g); g.connect(chordBusGain);
         var at  = t + fi * 0.018;
         var amp = (amps[fi] || 0.10) * vel;
-        var dec = decays[fi] || 0.52;
+        var dec = holdDur || 0.90;
         g.gain.setValueAtTime(0, at);
         g.gain.linearRampToValueAtTime(amp, at + 0.08);
-        g.gain.exponentialRampToValueAtTime(0.001, at + dec);
+        g.gain.exponentialRampToValueAtTime(0.001, at + dec * 0.95);
         o.start(at); o.stop(at + dec + 0.05);
       });
     }
@@ -44084,23 +44121,24 @@ async function mixBounceShareRun() {
     console.log('[BOUNCE] Instrument: ' + _bncInst + ' | piano=' + _bncPianoOk + ' piano2=' + _bncPiano2Ok + ' guitar=' + _bncGuitarOk + ' synth=' + _bncHasSynth);
 
     // Schedule a chord using the active instrument(s) — mirrors seqPlayChordByName
-    function schedChordInstr(midiNotes, t, vel) {
+    function schedChordInstr(midiNotes, t, vel, holdDur) {
+      var dur = holdDur || 2.8;
       var samplerPlayed = false;
       if (_bncPianoOk && midiNotes && midiNotes.length) {
         midiNotes.forEach(function(midi, i) {
-          _offSamplerNote(_pianoBuffers, _pianoClosestMidi, midi, t + i * 0.022, vel, 2.8);
+          _offSamplerNote(_pianoBuffers, _pianoClosestMidi, midi, t + i * 0.022, vel, dur);
         });
         samplerPlayed = true;
       }
       if (_bncPiano2Ok && midiNotes && midiNotes.length) {
         midiNotes.forEach(function(midi, i) {
-          _offSamplerNote(_piano2Buffers, _piano2ClosestMidi, midi, t + i * 0.022, vel, 2.8);
+          _offSamplerNote(_piano2Buffers, _piano2ClosestMidi, midi, t + i * 0.022, vel, dur);
         });
         samplerPlayed = true;
       }
       if (_bncGuitarOk && midiNotes && midiNotes.length) {
         midiNotes.forEach(function(midi, i) {
-          _offSamplerNote(_guitarBuffers, _guitarClosestMidi, midi, t + i * 0.028, vel, 2.4);
+          _offSamplerNote(_guitarBuffers, _guitarClosestMidi, midi, t + i * 0.028, vel, Math.min(dur, 2.4));
         });
         samplerPlayed = true;
       }
@@ -44109,7 +44147,7 @@ async function mixBounceShareRun() {
         var freqs = midiNotes && midiNotes.length
           ? midiNotes.map(function(m) { return 440 * Math.pow(2, (m - 69) / 12); })
           : null;
-        if (freqs) schedChordSynth(freqs, t, vel, wave);
+        if (freqs) schedChordSynth(freqs, t, vel, wave, dur);
       }
     }
 
@@ -44152,17 +44190,28 @@ async function mixBounceShareRun() {
         }
 
         // Schedule chords at their own resolution using active instrument
+        // Respect chordContinued — skip tail slots, extend head chord duration
+        const chordCont = sd.chordContinued || [];
         for (let ci = 0; ci < actualChordGrid; ci++) {
           const chordName = chordSlots[ci] || '';
           if (!chordName) continue;
+          // Skip tail slots (held notes — previous chord is still ringing)
+          if (chordCont[ci]) continue;
+          // Count how many tail slots follow to calculate held duration
+          var holdSlots = 1;
+          for (var hci = ci + 1; hci < actualChordGrid; hci++) {
+            if (chordCont[hci] && chordSlots[hci]) holdSlots++;
+            else break;
+          }
           const t = loopStart + ci * chordSlotDur;
           const vel = velBase * (0.85 + Math.random() * 0.3);
+          const holdDur = holdSlots * chordSlotDur;
           // Resolve chord name → MIDI notes (diatonic map first, then variant fallback)
           var midiNotes = (chordMidiMap && chordMidiMap[chordName])
             ? chordMidiMap[chordName]
             : ((typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(chordName) : null);
           if (midiNotes && midiNotes.length) {
-            schedChordInstr(midiNotes, t, vel);
+            schedChordInstr(midiNotes, t, vel, holdDur);
           }
         }
       }
