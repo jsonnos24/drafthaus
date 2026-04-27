@@ -56717,20 +56717,18 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     keys.innerHTML = html;
   }
 
-  // Track scroll-based redraw — skip when playhead auto-scroll caused it
+  // Track scroll-based redraw — debounced to avoid thrashing during playback
   let _prGridScrollRAF = null;
-  let _prAutoScrolling = false; // set true while playhead auto-scroll is moving scrollLeft
+  let _prScrollDebounce = null;
   function _prOnGridScroll() {
     // Always sync ruler playhead position immediately
     _prSyncRulerScroll();
-    // Skip canvas redraw if playhead auto-scroll triggered this
-    if (_prAutoScrolling) return;
-    if (_prGridScrollRAF) return;
-    _prGridScrollRAF = requestAnimationFrame(() => {
-      _prGridScrollRAF = null;
+    // Debounce the heavy canvas re-render (150ms after scroll stops)
+    clearTimeout(_prScrollDebounce);
+    _prScrollDebounce = setTimeout(() => {
       prRenderGrid();
       prRenderRuler();
-    });
+    }, 150);
   }
 
   function prRenderGrid() {
@@ -57587,7 +57585,10 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     if (playIdx < 0 || allSlots.length === 0) return;
 
     // Map chord slot index → piano roll X position
-    const colsPerSlot = prTotalCols / allSlots.length;
+    // Use the SECTION's beats (not the full 5-min grid) for the mapping
+    const sectionBeats = allSlots.length / (prChordSteps || 1);
+    const sectionCols = sectionBeats * prSnap;
+    const colsPerSlot = sectionCols / allSlots.length;
     const playCol = playIdx * colsPerSlot;
     const xPos = playCol * PR_COL_W;
 
@@ -57624,9 +57625,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         needsScroll = true;
       }
       if (needsScroll) {
-        _prAutoScrolling = true;
         scroll.scrollLeft = newScrollLeft;
-        _prAutoScrolling = false;
       }
     }
   }
