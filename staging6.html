@@ -19265,6 +19265,13 @@ function populateSongFields(song) {
   document.getElementById('fTitle').value        = song.title || '';
   document.getElementById('fBpm').value          = song.bpm || '';
   syncBpmUI(song.bpm || song.sequencer?.bpm || '120');
+  // Sync grid DOM early so tab switches before initSequencer don't corrupt grid
+  const _sgGrid = song.grid || song.sequencer?.grid || song.sequences?.[0]?.grid;
+  if (_sgGrid) {
+    var _sgEl = document.getElementById('seqGrid'); if (_sgEl) _sgEl.value = _sgGrid;
+    document.querySelectorAll('[id="kbdGrid"]').forEach(function(el) { el.value = _sgGrid; });
+    var _mt4tGrEl = document.getElementById('mt4tGrid'); if (_mt4tGrEl) _mt4tGrEl.value = _sgGrid;
+  }
   document.getElementById('fKey').value          = song.key || '';
   const seqKeySel = document.getElementById('seqKeySelect');
   if (seqKeySel) seqKeySel.value = song.key || '';
@@ -19695,7 +19702,7 @@ function addSectionToSong(partId) {
       id: 'seq_' + Date.now(),
       partId: partId, part: partId,
       bpm: cur.bpm || '120', time: cur.time || '4',
-      bars: cur.bars || '2', grid: cur.grid || '4',
+      bars: cur.bars || '2', grid: song.grid || cur.grid || '4',
       swing: cur.swing || '0', vel: cur.vel || '0.8',
       wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
       chordSlots: [], chordDegrees: [],
@@ -22535,8 +22542,8 @@ function renderSequencerHtml(song) {
   const key = (songObj?.key || 'C major').split(' ')[0];
   const time = seqData.time || '4';
   const bars = seqData.bars || '2';
-  const grid = seqData.grid || '4';
-  const bpm  = seqData.bpm  || song.bpm || '100';
+  const grid = song.grid || seqData.grid || '4';
+  const bpm  = song.bpm || seqData.bpm || '100';
 
   return `<div class="seq-panel" id="seqPanel">
 
@@ -22725,8 +22732,8 @@ function initSequencer(song) {
   const apply = (id, val) => { const el = document.getElementById(id); if (el && val !== undefined) el.value = val; };
   apply('seqTime',  sd.time  || '4');
   apply('seqBars',  sd.bars  || '2');
-  apply('seqGrid',  sd.grid  || '4');
-  apply('seqBpm',   sd.bpm   || '100');
+  apply('seqGrid',  fresh.grid || sd.grid  || '4');
+  apply('seqBpm',   fresh.bpm || sd.bpm   || '100');
   apply('seqSwing', sd.swing !== undefined ? sd.swing : 0);
   apply('seqVel',   sd.vel   !== undefined ? sd.vel   : 0.8);
   apply('seqWave',  sd.wave  || 'triangle');
@@ -22803,6 +22810,8 @@ function getSongSequences(song) {
   }
   // Ensure every sequence has an id
   song.sequences.forEach((s, i) => { if (!s.id) s.id = 'seq_' + Date.now() + '_' + i; });
+  // Migrate: ensure song.grid exists (song-wide grid, like song.bpm)
+  if (!song.grid && song.sequences.length) song.grid = song.sequences[0].grid || '4';
   // Keep song.sequencer pointing to the active sequence for backward compat
   const idx = Math.min(seqActiveIdx, song.sequences.length - 1);
   song.sequencer = song.sequences[idx];
@@ -23911,10 +23920,11 @@ function seqSaveAllToCurrent(song) {
   seqGetData(song); // ensure song.sequencer points to active seq
   // Save settings from DOM
   const sd = song.sequencer;
-  sd.bpm   = document.getElementById('seqBpm')?.value  || sd.bpm   || '120';
+  sd.bpm   = song.bpm || document.getElementById('seqBpm')?.value  || sd.bpm   || '120';
   sd.time  = document.getElementById('seqTime')?.value || sd.time  || '4';
   sd.bars  = document.getElementById('seqBars')?.value || sd.bars  || '2';
-  sd.grid  = document.getElementById('seqGrid')?.value || sd.grid  || '4';
+  // Grid is song-wide: prefer song.grid to avoid DOM default overwriting saved value
+  sd.grid  = song.grid || document.getElementById('seqGrid')?.value || sd.grid  || '4';
   sd.swing = document.getElementById('seqSwing')?.value|| sd.swing || '0';
   sd.vel   = document.getElementById('seqVel')?.value  || sd.vel   || '0.8';
   sd.part  = document.getElementById('seqPartAssign')?.value || sd.part || '';
@@ -23947,7 +23957,9 @@ function seqLoadSequenceIntoDOM(seq, song) {
   syncSeqBpmUI(_songBpm);
   const timeEl = document.getElementById('seqTime');  if (timeEl) timeEl.value = seq.time || '4';
   const barsEl = document.getElementById('seqBars');  if (barsEl) barsEl.value = seq.bars || '2';
-  const gridEl = document.getElementById('seqGrid');  if (gridEl) gridEl.value = seq.grid || '4';
+  // Grid is song-wide — use song.grid (like song.bpm)
+  const _songGrid = song?.grid || song?.sequences?.[0]?.grid || seq.grid || '4';
+  const gridEl = document.getElementById('seqGrid');  if (gridEl) gridEl.value = _songGrid;
   const swingEl = document.getElementById('seqSwing'); if (swingEl) swingEl.value = seq.swing || '0';
   const velEl = document.getElementById('seqVel');    if (velEl) velEl.value = seq.vel || '0.8';
   const partEl = document.getElementById('seqPartAssign'); if (partEl) partEl.value = seq.part || seq.partId || '';
@@ -23957,10 +23969,10 @@ function seqLoadSequenceIntoDOM(seq, song) {
   document.querySelectorAll('#ucbDrumPattern, #ucbDrumPattern2').forEach(function(el) { el.value = _ucbDp; });
   document.querySelectorAll('#ucbChordProg, #ucbChordProg2').forEach(function(el) { el.value = ''; }); // reset — progression state is per-session
   // Sync grid, time sig, bars to UCB
-  var _mt4tGr = document.getElementById('mt4tGrid'); if (_mt4tGr) _mt4tGr.value = seq.grid || '4';
+  var _mt4tGr = document.getElementById('mt4tGrid'); if (_mt4tGr) _mt4tGr.value = _songGrid;
   var _mt4tTs = document.getElementById('mt4tTimeSig'); if (_mt4tTs) _mt4tTs.value = seq.time || '4';
   var _mt4tBr = document.getElementById('mt4tBars'); if (_mt4tBr) _mt4tBr.value = seq.bars || '2';
-  document.querySelectorAll('[id="kbdGrid"]').forEach(function(el) { el.value = seq.grid || '4'; });
+  document.querySelectorAll('[id="kbdGrid"]').forEach(function(el) { el.value = _songGrid; });
   document.querySelectorAll('[id="kbdTimeSig"]').forEach(function(el) { el.value = seq.time || '4'; });
   document.querySelectorAll('[id="kbdBars"]').forEach(function(el) { el.value = seq.bars || '2'; });
   // Sync key select to UCB
@@ -23986,7 +23998,7 @@ function seqAddSequence(partId) {
     bpm:    song.bpm  || '120',
     time:   cur.time  || '4',
     bars:   cur.bars  || '2',
-    grid:   cur.grid  || '4',
+    grid:   song.grid || cur.grid  || '4',
     swing:  cur.swing || '0',
     vel:    cur.vel   || '0.8',
     wave:   cur.wave  || 'triangle',
@@ -24573,10 +24585,14 @@ function seqSaveSettings() {
   song.sequencer.bars  = _v('seqBars',  'kbdBars',    sd.bars  || '2');
   song.sequencer.grid  = _v('seqGrid',  null,          sd.grid  || '4');
   song.sequencer.bpm   = _v('seqBpm',   'kbdBpm',     sd.bpm   || '120');
-  // BPM is song-wide: sync to song.bpm and propagate to ALL sequences
+  // BPM + Grid are song-wide: propagate to ALL sequences
   song.bpm = song.sequencer.bpm;
+  song.grid = song.sequencer.grid;
   const seqs = song.sequences || [];
-  for (var _bi = 0; _bi < seqs.length; _bi++) { seqs[_bi].bpm = song.bpm; }
+  for (var _bi = 0; _bi < seqs.length; _bi++) {
+    seqs[_bi].bpm = song.bpm;
+    seqs[_bi].grid = song.grid;
+  }
   const partVal = document.getElementById('seqPartAssign')?.value || sd.part || '';
   song.sequencer.part  = partVal;
   song.sequencer.partId= partVal;
@@ -27233,7 +27249,7 @@ async function seqPlaySong() {
   const _songWideBpm = parseFloat(song?.bpm || 100);
   _seqSongSections = sorted.map(seq => {
     const bpm  = _songWideBpm;
-    const grid = parseInt(seq.grid || 4);
+    const grid = parseInt(song?.grid || seq.grid || 4);
     const time = parseInt(seq.time || 4);
     const bars = parseInt(seq.bars || 2);
     const totalSteps = time * bars * grid;
@@ -30721,14 +30737,21 @@ function launchInspoSong() {
     return { kick: kick, snare: snare, hat: hat, crash: crash, clap: clap };
   }
 
+  // Song-wide grid: all parts share the same grid value
+  var _songGrid = '1';
+
   const _inspoSequences = _inspoSectionOrder.map(function(sid) {
     var cfg = _sectionConfig[sid] || { bars: 4, chords: d.verseChords, energy: 0.5 };
-    var seqGrid = '1'; // generated sequences use quarter-note grid
-    var chordSlots = _fillSectionChords(cfg.chords, cfg.bars, d.timeSig, seqGrid);
-    var drums = _buildSectionDrums(cfg.energy, cfg.bars, d.timeSig, seqGrid, sid);
+    // Fallback: if section chords are empty/invalid, use verse chords, then scale chords
+    var sectionChords = (cfg.chords && cfg.chords.length && cfg.chords[0]) ? cfg.chords : d.verseChords;
+    if (!sectionChords || !sectionChords.length || !sectionChords[0]) {
+      sectionChords = d.chordSlots ? d.chordSlots.filter(Boolean) : ['C'];
+    }
+    var chordSlots = _fillSectionChords(sectionChords, cfg.bars, d.timeSig, _songGrid);
+    var drums = _buildSectionDrums(cfg.energy, cfg.bars, d.timeSig, _songGrid, sid);
     return {
       partId: sid, part: sid,
-      bpm: String(d.bpm), time: d.timeSig, bars: String(cfg.bars), grid: '1',
+      bpm: String(d.bpm), time: d.timeSig, bars: String(cfg.bars), grid: _songGrid,
       key: d.root || d.key.split(' ')[0],
       chordSlots: chordSlots,
       kick: drums.kick, snare: drums.snare, hat: drums.hat,
@@ -30741,6 +30764,7 @@ function launchInspoSong() {
     workingTitle: d.title,
     title: d.title,
     bpm: String(d.bpm),
+    grid: _songGrid,
     key: d.key,
     tuning: '', project: '', status: 'idea',
     structure: _inspoStructure,
@@ -36134,7 +36158,8 @@ function openKeyboardDrawer() {
     const seqBarsEl = document.getElementById('seqBars');
     if (seqBarsEl && sd.bars) seqBarsEl.value = String(sd.bars);
     const gridEl = document.getElementById('seqGrid');
-    if (gridEl && sd.grid) gridEl.value = String(sd.grid);
+    const _kbdSongGrid = song.grid || sd.grid;
+    if (gridEl && _kbdSongGrid) gridEl.value = String(_kbdSongGrid);
   }
 
   // Detect mobile orientation for conditional rendering
@@ -38218,7 +38243,8 @@ function openLooperDrawer() {
   const barsEl = document.getElementById('kbdBars');
   if (barsEl && sd.bars) barsEl.value = String(sd.bars);
   const gridEl = document.getElementById('seqGrid');
-  if (gridEl && sd.grid) gridEl.value = String(sd.grid);
+  const _loopSongGrid = song?.grid || sd.grid;
+  if (gridEl && _loopSongGrid) gridEl.value = String(_loopSongGrid);
   _midiUpdateUI();
   // Sync BPM and bars from the sequencer so looper stays in lockstep
   const syncBpm = parseInt(sd.bpm || song?.bpm || 120, 10);
@@ -41968,8 +41994,8 @@ function ilAddSection(sel) {
       const cur = seqs[seqActiveIdx] || seqs[0] || {};
       seqs.push({
         id: 'seq_' + Date.now(), partId, part: partId,
-        bpm: cur.bpm || '100', time: cur.time || '4',
-        bars: cur.bars || '16', grid: cur.grid || '2',
+        bpm: song.bpm || cur.bpm || '100', time: cur.time || '4',
+        bars: cur.bars || '16', grid: song.grid || cur.grid || '2',
         swing: cur.swing || '0', vel: cur.vel || '0.8',
         wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
         chordSlots: [], chordDegrees: [],
@@ -42226,8 +42252,8 @@ function ilImportApply(sections, mode) {
       const cur = seqs[seqActiveIdx] || seqs[0] || {};
       seqs.push({
         id: 'seq_' + Date.now() + '_' + idx, partId: part.id, part: part.id,
-        bpm: cur.bpm || '100', time: cur.time || '4',
-        bars: cur.bars || '16', grid: cur.grid || '2',
+        bpm: song.bpm || cur.bpm || '100', time: cur.time || '4',
+        bars: cur.bars || '16', grid: song.grid || cur.grid || '2',
         swing: cur.swing || '0', vel: cur.vel || '0.8',
         wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
         chordSlots: [], chordDegrees: [],
