@@ -33120,6 +33120,9 @@ async function checkPublicViewMode() {
   // Intercept landing — show public view overlay immediately
   const lo = document.getElementById('landingOverlay');
   if (lo) lo.classList.add('hidden');
+  // Hide global sequence strip on public share page
+  const gs = document.getElementById('globalSeqStrip');
+  if (gs) gs.style.display = 'none';
   const pv = document.getElementById('publicViewOverlay');
   if (!pv) return true;
   pv.style.display = 'block';
@@ -34004,22 +34007,76 @@ async function exportBounce() {
         s2.buffer = b2; s2.connect(f2); f2.connect(master); s2.start(t);
       }
     }
-    function schedChord(freqs, t, vel, waveType) {
+    // ── Synth chord fallback ──
+    function schedChordSynth(freqs, t, vel, waveType, dur) {
       const amps   = [0.26, 0.15, 0.10];
-      const decays = [0.90, 0.68, 0.52];
       freqs.forEach((f, fi) => {
         const o = offCtx.createOscillator(), g = offCtx.createGain();
         o.type = waveType; o.frequency.value = f;
         o.connect(g); g.connect(offCtx.destination);
         const at  = t + fi * 0.018;
         const amp = (amps[fi] ?? 0.10) * vel;
-        const dec = decays[fi] ?? 0.52;
+        const dec = dur || 0.90;
         g.gain.setValueAtTime(0, at);
         g.gain.linearRampToValueAtTime(amp, at + 0.08);
-        g.gain.exponentialRampToValueAtTime(0.001, at + dec);
+        g.gain.exponentialRampToValueAtTime(0.001, at + dec * 0.95);
         o.start(at); o.stop(at + dec + 0.05);
       });
     }
+
+    // ── Sampler note into offline context ──
+    function _bnCopyBuf(srcBuf) {
+      const ob = offCtx.createBuffer(srcBuf.numberOfChannels, srcBuf.length, srcBuf.sampleRate);
+      for (let ch = 0; ch < srcBuf.numberOfChannels; ch++) ob.copyToChannel(srcBuf.getChannelData(ch), ch);
+      return ob;
+    }
+    function _bnSamplerNote(bufMap, closestFn, midiNote, time, vel, dur) {
+      const closest = closestFn(midiNote);
+      if (closest === null) return false;
+      const srcBuf = bufMap[closest];
+      if (!srcBuf) return false;
+      const ob = _bnCopyBuf(srcBuf);
+      const src = offCtx.createBufferSource(), g = offCtx.createGain();
+      src.buffer = ob;
+      src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+      const v = Math.min(1, (vel || 0.8) * 0.85);
+      g.gain.setValueAtTime(0, time);
+      g.gain.linearRampToValueAtTime(v, time + 0.06);
+      g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+      src.connect(g); g.connect(offCtx.destination);
+      src.start(time); src.stop(time + dur + 0.1);
+      return true;
+    }
+
+    // Detect loaded instruments
+    const _bnInst     = sd.instrument || _activeInstrument || 'piano';
+    const _bnPianoOk  = _bnInst.includes('piano') && !_bnInst.includes('piano2') && typeof _pianoLoaded !== 'undefined' && _pianoLoaded && Object.keys(_pianoBuffers || {}).length > 0;
+    const _bnPiano2Ok = _bnInst.includes('piano2') && typeof _piano2Loaded !== 'undefined' && _piano2Loaded && Object.keys(_piano2Buffers || {}).length > 0;
+    const _bnGuitarOk = _bnInst.includes('guitar') && typeof _guitarLoaded !== 'undefined' && _guitarLoaded && Object.keys(_guitarBuffers || {}).length > 0;
+    const _bnSynth    = _bnInst.includes('synth');
+
+    function schedChord(midiNotes, t, vel, dur) {
+      let samplerPlayed = false;
+      if (_bnPianoOk && midiNotes?.length) {
+        midiNotes.forEach((midi, i) => _bnSamplerNote(_pianoBuffers, _pianoClosestMidi, midi, t + i * 0.022, vel, dur));
+        samplerPlayed = true;
+      }
+      if (_bnPiano2Ok && midiNotes?.length) {
+        midiNotes.forEach((midi, i) => _bnSamplerNote(_piano2Buffers, _piano2ClosestMidi, midi, t + i * 0.022, vel, dur));
+        samplerPlayed = true;
+      }
+      if (_bnGuitarOk && midiNotes?.length) {
+        midiNotes.forEach((midi, i) => _bnSamplerNote(_guitarBuffers, _guitarClosestMidi, midi, t + i * 0.028, vel, Math.min(dur, 2.4)));
+        samplerPlayed = true;
+      }
+      if (_bnSynth || !samplerPlayed) {
+        const freqs = midiNotes?.length ? midiNotes.map(m => 440 * Math.pow(2, (m - 69) / 12)) : null;
+        if (freqs) schedChordSynth(freqs, t, vel, wave, dur);
+      }
+    }
+
+    const chordMidiMap = seqGenChordMidi(key, mode);
+    const chordCont = sd.chordContinued || [];
 
     progLabel.textContent = 'Scheduling notes…';
     await new Promise(r => setTimeout(r, 20));
@@ -34027,22 +34084,32 @@ async function exportBounce() {
     // Schedule 4 loops
     for (let loop = 0; loop < LOOPS; loop++) {
       const loopStart = loop * loopDur;
+      // Drums
       for (let i = 0; i < totalSteps; i++) {
         const swingOff = (i % 2 === 1) ? baseStep * swing * 0.5 : 0;
         const t = loopStart + i * baseStep + swingOff;
         const vel = velBase * (0.85 + Math.random() * 0.3);
-
-        // Chord
-        const chordName = chordSlots[i] || '';
-        if (chordName && currentChords[chordName]) {
-          schedChord(currentChords[chordName], t, vel, wave);
-        }
-        // Drums
         if (kickLane[i])  schedKick(t, vel);
         if (snareLane[i]) schedSnare(t, vel * 0.85);
         if (hatLane[i])   schedHat(t, vel * 0.65);
         if (crashLane[i]) schedCrash(t, vel * 0.9);
         if (clapLane[i])  schedClap(t, vel * 0.75);
+      }
+      // Chords — respect held notes
+      for (let ci = 0; ci < chordSlots.length; ci++) {
+        const chordName = chordSlots[ci] || '';
+        if (!chordName || chordCont[ci]) continue;
+        // Count held tail slots
+        let holdSlots = 1;
+        for (let hci = ci + 1; hci < chordSlots.length; hci++) {
+          if (chordCont[hci] && chordSlots[hci]) holdSlots++;
+          else break;
+        }
+        const t = loopStart + ci * baseStep;
+        const vel = velBase * (0.85 + Math.random() * 0.3);
+        const holdDur = Math.max(holdSlots * baseStep, 0.9);
+        const midiNotes = chordMidiMap?.[chordName] || ((typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(chordName) : null);
+        if (midiNotes?.length) schedChord(midiNotes, t, vel, holdDur);
       }
     }
 
@@ -44124,23 +44191,25 @@ async function mixBounceShareRun() {
 
     // Schedule a chord using the active instrument(s) — mirrors seqPlayChordByName
     function schedChordInstr(midiNotes, t, vel, holdDur) {
-      var dur = holdDur || 2.8;
       var samplerPlayed = false;
       if (_bncPianoOk && midiNotes && midiNotes.length) {
+        var dur = Math.max(holdDur || 0.9, 2.8); // piano rings naturally for 2.8s minimum
         midiNotes.forEach(function(midi, i) {
           _offSamplerNote(_pianoBuffers, _pianoClosestMidi, midi, t + i * 0.022, vel, dur);
         });
         samplerPlayed = true;
       }
       if (_bncPiano2Ok && midiNotes && midiNotes.length) {
+        var dur = Math.max(holdDur || 0.9, 2.8);
         midiNotes.forEach(function(midi, i) {
           _offSamplerNote(_piano2Buffers, _piano2ClosestMidi, midi, t + i * 0.022, vel, dur);
         });
         samplerPlayed = true;
       }
       if (_bncGuitarOk && midiNotes && midiNotes.length) {
+        var dur = Math.max(holdDur || 0.9, 2.4); // guitar rings for 2.4s minimum
         midiNotes.forEach(function(midi, i) {
-          _offSamplerNote(_guitarBuffers, _guitarClosestMidi, midi, t + i * 0.028, vel, Math.min(dur, 2.4));
+          _offSamplerNote(_guitarBuffers, _guitarClosestMidi, midi, t + i * 0.028, vel, dur);
         });
         samplerPlayed = true;
       }
@@ -44207,7 +44276,7 @@ async function mixBounceShareRun() {
           }
           const t = loopStart + ci * chordSlotDur;
           const vel = velBase * (0.85 + Math.random() * 0.3);
-          const holdDur = holdSlots * chordSlotDur;
+          const holdDur = Math.max(holdSlots * chordSlotDur, 0.9);
           // Resolve chord name → MIDI notes (diatonic map first, then variant fallback)
           var midiNotes = (chordMidiMap && chordMidiMap[chordName])
             ? chordMidiMap[chordName]
