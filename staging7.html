@@ -44083,16 +44083,42 @@ async function mixBounceShareRun() {
     setProgress(60, 'Encoding audio…');
     await new Promise(r => setTimeout(r, 20));
 
-    // Encode via MediaRecorder (same as exportBounce)
+    // Encode rendered AudioBuffer → WebM/Opus via MediaRecorder
+    // (self-contained — doesn't depend on IIFE-scoped _ftEncodeViaMediaRecorder)
     const bounceBlob = await new Promise(function(resolve, reject) {
-      if (typeof _ftEncodeViaMediaRecorder !== 'function') {
-        reject(new Error('Encoder not available')); return;
-      }
-      _ftEncodeViaMediaRecorder(rendered, function(blob, mimeType) {
+      var encMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+          ? 'audio/ogg;codecs=opus' : 'audio/webm';
+
+      // Need a real-time AudioContext for MediaStreamDestination
+      var rtCtx = new (window.AudioContext || window.webkitAudioContext)();
+      var dest = rtCtx.createMediaStreamDestination();
+      var rtSrc = rtCtx.createBufferSource();
+      rtSrc.buffer = rendered;
+      rtSrc.connect(dest);
+
+      var chunks = [];
+      var recorder = new MediaRecorder(dest.stream, { mimeType: encMime });
+      recorder.ondataavailable = function(e) {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+      recorder.onstop = function() {
+        var blob = new Blob(chunks, { type: encMime });
+        rtCtx.close().catch(function(){});
         resolve(blob);
-      });
+      };
+      recorder.start();
+      rtSrc.start(0);
+
+      var durMs = Math.ceil(rendered.duration * 1000) + 200;
+      setTimeout(function() {
+        try { rtSrc.stop(); } catch(e) {}
+        try { recorder.stop(); } catch(e) {}
+      }, durMs);
+
       // Timeout safety
-      setTimeout(function() { reject(new Error('Encode timeout')); }, 30000);
+      setTimeout(function() { reject(new Error('Encode timeout')); }, Math.max(durMs + 5000, 30000));
     });
 
     // ── Step 2: Upload to Firebase Storage ──
