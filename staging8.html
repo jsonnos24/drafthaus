@@ -56717,9 +56717,14 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     keys.innerHTML = html;
   }
 
-  // Track scroll-based redraw
+  // Track scroll-based redraw — skip when playhead auto-scroll caused it
   let _prGridScrollRAF = null;
+  let _prAutoScrolling = false; // set true while playhead auto-scroll is moving scrollLeft
   function _prOnGridScroll() {
+    // Always sync ruler playhead position immediately
+    _prSyncRulerScroll();
+    // Skip canvas redraw if playhead auto-scroll triggered this
+    if (_prAutoScrolling) return;
     if (_prGridScrollRAF) return;
     _prGridScrollRAF = requestAnimationFrame(() => {
       _prGridScrollRAF = null;
@@ -57596,19 +57601,32 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       rulerPH.style.left = (PR_KEY_W + xPos) + 'px';
     }
 
+    // Keep ruler playhead transform in sync with scroll position
+    const _scrollNow = document.getElementById('prGridScroll');
+    if (rulerPH && _scrollNow) {
+      rulerPH.style.transform = `translateX(${-_scrollNow.scrollLeft}px)`;
+    }
+
     // Auto-scroll horizontally to keep playhead in view
     const scroll = document.getElementById('prGridScroll');
     if (scroll) {
       const viewLeft = scroll.scrollLeft;
       const viewRight = viewLeft + scroll.clientWidth;
-      const margin = 80; // keep some breathing room ahead
-      // If playhead is near the right edge or past it, scroll forward
+      const margin = 80;
+      let needsScroll = false;
+      let newScrollLeft = scroll.scrollLeft;
       if (xPos > viewRight - margin) {
-        scroll.scrollLeft = xPos - margin;
+        newScrollLeft = xPos - margin;
+        needsScroll = true;
       }
-      // If playhead wrapped back to start, snap scroll back
       if (xPos < viewLeft && playIdx === 0) {
-        scroll.scrollLeft = 0;
+        newScrollLeft = 0;
+        needsScroll = true;
+      }
+      if (needsScroll) {
+        _prAutoScrolling = true;
+        scroll.scrollLeft = newScrollLeft;
+        _prAutoScrolling = false;
       }
     }
   }
