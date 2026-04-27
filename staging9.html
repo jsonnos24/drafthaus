@@ -27992,7 +27992,8 @@ function seqScheduleNotes() {
       }
       } // end _tlTakeover guard
 
-      // Visual delay for step indicator
+      // Visual delay for step indicator (skip if TL handles visuals)
+      if (!_tlTakeover) {
       const visualDelay = Math.max(0, (_seqNextNoteTime - ctx.currentTime) * 1000);
       // Map drum step → chord step for visual highlight
       const _songVizChordIdx = (sec.chordSteps !== sec.drumSteps)
@@ -28020,6 +28021,7 @@ function seqScheduleNotes() {
           _mixUpdateTransport(si, beatsPerBar);
         }, visualDelay);
       })(i, _songVizChordIdx);
+      } // end _tlTakeover visual guard (song mode)
 
       _seqNextNoteTime += stepDur;
       _seqSongSectionStep++;
@@ -28164,8 +28166,8 @@ function seqScheduleNotes() {
         }
       }
       } // end _tlTakeover guard (keyboard-only)
-      // Visual highlight for chord slots
-      if (chordSlots.length) {
+      // Visual highlight for chord slots (skip if TL handles visuals)
+      if (!_tlTakeover && chordSlots.length) {
         const visualDelay = Math.max(0, (_seqNextNoteTime - ctx.currentTime) * 1000);
         (function(si) {
           setTimeout(() => {
@@ -28252,7 +28254,8 @@ function seqScheduleNotes() {
     }
     } // end _tlTakeover guard (full loop mode)
 
-    // ── Visual highlight (setTimeout is fine — slight drift is imperceptible) ──
+    // ── Visual highlight (skip if TL handles visuals) ──
+    if (!_tlTakeover) {
     const visualDelay = Math.max(0, (_seqNextNoteTime - ctx.currentTime) * 1000);
     // Map drum step to chord step for visual highlight
     const _vizChordIdx = (_loopChordSteps !== _loopDrumSteps)
@@ -28296,6 +28299,7 @@ function seqScheduleNotes() {
         _mixUpdateTransport(stepI, beatsPerBar);
       }, visualDelay);
     })(i, _vizChordIdx);
+    } // end _tlTakeover visual guard (loop mode)
 
     _seqStepIndex++;
     _seqNextNoteTime += stepDur;
@@ -57908,7 +57912,6 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
     if (!playing) {
       if (_prLastPlayState) {
-        // Just stopped — hide playhead
         if (playhead) playhead.classList.remove('active');
         if (rulerPH) rulerPH.classList.remove('active');
         _prLastPlayState = false;
@@ -57917,20 +57920,36 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     }
     _prLastPlayState = true;
 
-    // Find currently playing chord slot index from the DOM highlight
-    const allSlots = document.querySelectorAll('#seqChordGrid .seq-slot');
-    let playIdx = -1;
-    allSlots.forEach((s, i) => { if (s.classList.contains('playing')) playIdx = i; });
-
-    if (playIdx < 0 || allSlots.length === 0) return;
-
-    // Map chord slot index → piano roll X position
-    // Use the SECTION's beats (not the full 5-min grid) for the mapping
-    const sectionBeats = allSlots.length / (prChordSteps || 1);
-    const sectionCols = sectionBeats * prSnap;
-    const colsPerSlot = sectionCols / allSlots.length;
-    const playCol = playIdx * colsPerSlot;
-    const xPos = playCol * PR_COL_W;
+    // ── Get continuous beat position from TL (smooth) or fall back to slot index ──
+    let xPos = 0;
+    if (typeof TL !== 'undefined' && typeof TL.getCurrentBeat === 'function' && typeof TL.isPlaying === 'function' && TL.isPlaying()) {
+      var beat = TL.getCurrentBeat();
+      // In song mode, find the current section and compute local beat
+      if (typeof TL.isSongMode === 'function' && TL.isSongMode()) {
+        var secs = TL.getSections();
+        var localBeat = beat;
+        for (var si = 0; si < secs.length; si++) {
+          if (beat >= secs[si].beatStart && beat < secs[si].beatEnd) {
+            localBeat = beat - secs[si].beatStart;
+            break;
+          }
+        }
+        beat = localBeat;
+      }
+      // Convert beat → column → pixel position
+      var col = beat * prSnap;
+      xPos = col * PR_COL_W;
+    } else {
+      // Fallback: read from DOM slot highlight
+      const allSlots = document.querySelectorAll('#seqChordGrid .seq-slot');
+      let playIdx = -1;
+      allSlots.forEach((s, i) => { if (s.classList.contains('playing')) playIdx = i; });
+      if (playIdx < 0 || allSlots.length === 0) return;
+      const sectionBeats = allSlots.length / (prChordSteps || 1);
+      const sectionCols = sectionBeats * prSnap;
+      const colsPerSlot = sectionCols / allSlots.length;
+      xPos = playIdx * colsPerSlot * PR_COL_W;
+    }
 
     // Position both playheads
     if (playhead) {
@@ -57960,7 +57979,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         newScrollLeft = xPos - margin;
         needsScroll = true;
       }
-      if (xPos < viewLeft && playIdx === 0) {
+      if (xPos < viewLeft && xPos < 10) {
         newScrollLeft = 0;
         needsScroll = true;
       }
