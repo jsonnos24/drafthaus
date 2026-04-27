@@ -2325,6 +2325,15 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-chord-pill[data-degree="6"] { --pill-bg: #452a78; --pill-border: #9a44e8; --pill-color: #edbeff; }
   .seq-chord-pill[data-degree="7"] { --pill-bg: #4d3084; --pill-border: #aa52f0; --pill-color: #f3c8ff; }
   .seq-chord-pill:hover { filter: brightness(1.25); }
+  .seq-chord-pill.chord-playing,
+  .seq-chord-var-pill.chord-playing {
+    background: var(--gold, #f5a623) !important;
+    color: #0a0a0c !important;
+    border-color: #ffd080 !important;
+    filter: brightness(1.1);
+    box-shadow: 0 0 8px rgba(245, 166, 35, 0.5);
+    transition: all 0s !important;
+  }
   .seq-chord-pill:active { cursor: grabbing; }
   /* Column wrapper: main pill on top, variants stacked below */
   .seq-chord-pill-col {
@@ -24450,12 +24459,34 @@ function seqDeleteSequence(idx) {
 }
 
 // Helper: delete a sequence by partId (used by Edit Lyrics delete button)
+// Falls back to _doDeleteSongPart when no matching sequence exists,
+// so the part is always removed from structure + sectionOrder.
 function seqDeleteByPartId(partId) {
   const song = getCurrentSong();
   if (!song) return;
   const seqs = getSongSequences(song);
   const idx = seqs.findIndex(s => (s.partId || s.part) === partId);
-  if (idx >= 0) seqDeleteSequence(idx);
+  if (idx >= 0 && seqs.length > 1) {
+    seqDeleteSequence(idx);
+  } else {
+    // No matching sequence, or it's the last one — still remove the part
+    // from structure/sectionOrder so the UI entry disappears.
+    // deleteSongPart shows a lyrics warning if needed, then calls _doDeleteSongPart.
+    if (typeof deleteSongPart === 'function') {
+      deleteSongPart(partId);
+    } else if (typeof _doDeleteSongPart === 'function') {
+      _doDeleteSongPart(partId);
+    } else {
+      // Inline fallback
+      if (song.structure?.[partId]) song.structure[partId].checked = false;
+      if (song.sectionOrder) song.sectionOrder = song.sectionOrder.filter(id => id !== partId);
+      song.updatedAt = Date.now();
+      save();
+      if (typeof renderStructure === 'function') renderStructure(song);
+      if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
+      if (typeof ilRenderBody === 'function') ilRenderBody(song);
+    }
+  }
 }
 
 // Reassign a sequence to a new part — handles conflicts
@@ -27961,6 +27992,15 @@ function seqScheduleNotes() {
         const liveClap   = [...document.querySelectorAll('#seqClap .seq-slot')];
         // Chord grid highlights at chord step index
         if (liveChord[chordI])  liveChord[chordI].classList.add('playing');
+        // Highlight the matching chord pill/variant pill in the palette row
+        document.querySelectorAll('.seq-chord-pill.chord-playing, .seq-chord-var-pill.chord-playing').forEach(p => p.classList.remove('chord-playing'));
+        if (liveChord[chordI] && liveChord[chordI].classList.contains('filled')) {
+          const _cpName = liveChord[chordI].textContent.trim();
+          if (_cpName) {
+            const _allPills = document.querySelectorAll('.seq-chord-pill[data-chord], .seq-chord-var-pill[data-chord]');
+            _allPills.forEach(p => { if (p.dataset.chord === _cpName) p.classList.add('chord-playing'); });
+          }
+        }
         // Drum grids highlight at drum step index
         if (liveKick[stepI])   liveKick[stepI].classList.add('playing');
         if (liveSnare[stepI])  liveSnare[stepI].classList.add('playing');
@@ -28909,6 +28949,7 @@ function seqStop(letTracksFinish) {
   _seqSongSectionIdx  = 0;
   _seqSongSectionStep = 0;
   document.querySelectorAll('.seq-slot.playing').forEach(s => s.classList.remove('playing'));
+  document.querySelectorAll('.seq-chord-pill.chord-playing, .seq-chord-var-pill.chord-playing').forEach(p => p.classList.remove('chord-playing'));
   document.getElementById('seqDrawerTab')?.classList.remove('playing');
   // Reset mixer transport to 1.1
   _mixUpdateTransport(0, 4);
