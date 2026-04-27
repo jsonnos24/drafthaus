@@ -44056,30 +44056,45 @@ async function mixBounceShareRun() {
       crashLane.some(Boolean) || clapLane.some(Boolean) || chordSlots.some(Boolean);
 
     if (seqHasContent) {
+      // Determine actual chord slot resolution from the data
+      // (old songs may have chordSlots sized to the unified grid, not chordSteps)
+      const chordSlotCount = chordSlots.length;
+      const expectedChordSlots = timeSig * bars * chordSteps;
+      const actualChordGrid = (chordSlotCount > 0 && chordSlotCount !== expectedChordSlots)
+        ? chordSlotCount : expectedChordSlots;
+      // Chord timing: one chord slot = this many seconds
+      const chordSlotDur = (totalDrumSteps * baseStep) / actualChordGrid;
+
       for (let loop = 0; loop < LOOPS; loop++) {
         const loopStart = loop * loopDur;
+
+        // Schedule drums at drum resolution
         for (let i = 0; i < totalDrumSteps; i++) {
           const swingOff = (i % 2 === 1) ? baseStep * swing * 0.5 : 0;
           const t = loopStart + i * baseStep + swingOff;
           const vel = velBase * (0.85 + Math.random() * 0.3);
-
-          // Chord — map drum step to chord step
-          const chordIdx = (chordSteps !== drumSteps)
-            ? Math.floor(i * chordSteps / drumSteps) : i;
-          const prevChordIdx = (i > 0 && chordSteps !== drumSteps)
-            ? Math.floor((i - 1) * chordSteps / drumSteps) : chordIdx - 1;
-          if (chordIdx !== prevChordIdx || i === 0) {
-            const chordName = chordSlots[chordIdx] || '';
-            if (chordName && currentChords[chordName]) {
-              schedChord(currentChords[chordName], t, vel, wave);
-            }
-          }
-          // Drums
           if (kickLane[i])  schedKick(t, vel);
           if (snareLane[i]) schedSnare(t, vel * 0.85);
           if (hatLane[i])   schedHat(t, vel * 0.65);
           if (crashLane[i]) schedCrash(t, vel * 0.9);
           if (clapLane[i])  schedClap(t, vel * 0.75);
+        }
+
+        // Schedule chords at their own resolution
+        for (let ci = 0; ci < actualChordGrid; ci++) {
+          const chordName = chordSlots[ci] || '';
+          if (!chordName) continue;
+          const t = loopStart + ci * chordSlotDur;
+          const vel = velBase * (0.85 + Math.random() * 0.3);
+          // Try diatonic map first, then variant fallback
+          var cFreqs = currentChords[chordName];
+          if (!cFreqs) {
+            var midiNotes = (typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(chordName) : null;
+            if (midiNotes && midiNotes.length) {
+              cFreqs = midiNotes.map(function(m) { return 440 * Math.pow(2, (m - 69) / 12); });
+            }
+          }
+          if (cFreqs && cFreqs.length) schedChord(cFreqs, t, vel, wave);
         }
       }
     }
