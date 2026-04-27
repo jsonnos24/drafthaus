@@ -16398,7 +16398,9 @@ body.split-4track-active .ft-overlay { display: none !important; }
 .pr-time-ruler {
   height: 24px; flex-shrink: 0; background: #1a1a2e;
   border-bottom: 1px solid var(--border2, #333); position: relative; overflow: hidden;
+  cursor: pointer;
 }
+.pr-time-ruler:hover { background: #1e1e36; }
 .pr-time-ruler canvas { display: block; width: 100%; height: 100%; }
 /* scrollable grid */
 .pr-grid-scroll {
@@ -27920,11 +27922,13 @@ function seqScheduleNotes() {
         melodyScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} });
         melodyScheduledNodes = [];
         const secLoopDurMs = sec.totalSteps * sec.stepDur * 1000;
-        seqScheduleMelody(ctx, baseTime, secLoopDurMs, sec.melody, sec.melodyInstrument);
-        // Schedule piano roll recorded notes
-        if (typeof prSchedulePlayback === 'function') {
-          var _prN2 = prSchedulePlayback(ctx, baseTime, secLoopDurMs / 1000);
-          if (_prN2) melodyScheduledNodes.push(..._prN2);
+        // Piano roll is the source of truth — if it has notes, play from there;
+        // otherwise fall back to the section's melody array.
+        var _hasPrNotes2 = (typeof prSchedulePlayback === 'function' && window._prNotesCount && window._prNotesCount() > 0);
+        if (_hasPrNotes2) {
+          prSchedulePlayback(ctx, baseTime, secLoopDurMs / 1000);
+        } else {
+          seqScheduleMelody(ctx, baseTime, secLoopDurMs, sec.melody, sec.melodyInstrument);
         }
       }
 
@@ -28089,13 +28093,13 @@ function seqScheduleNotes() {
         melodyScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} });
         melodyScheduledNodes = [];
         clearMelodyKeyHighlights();
-        // Pass melodyNotes directly so we play the keyboard drawer's current notes
-        // (not song.sequencer.melody which might be a different sequence)
-        if (melodyNotes.length) seqScheduleMelody(ctx, baseTime, _kLoopMs, melodyNotes, _kbdMelodyInstrument);
-        // Schedule piano roll recorded notes
-        if (typeof prSchedulePlayback === 'function') {
-          var _prNodes = prSchedulePlayback(ctx, baseTime, _kLoopMs / 1000);
-          if (_prNodes) melodyScheduledNodes.push(..._prNodes);
+        // Piano roll is the source of truth — if it has notes, play from there;
+        // otherwise fall back to the old melodyNotes array.
+        var _hasPrNotes = (typeof prSchedulePlayback === 'function' && window._prNotesCount && window._prNotesCount() > 0);
+        if (_hasPrNotes) {
+          prSchedulePlayback(ctx, baseTime, _kLoopMs / 1000);
+        } else if (melodyNotes.length) {
+          seqScheduleMelody(ctx, baseTime, _kLoopMs, melodyNotes, _kbdMelodyInstrument);
         }
       }
       // Visual highlight for chord slots
@@ -56430,6 +56434,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   let prTool = 'pointer'; // pointer | pencil | eraser
   let prSnap = 4; // subdivisions per beat (4 = 1/16)
   let prNotes = []; // [{id, midi, startCol, durCols, chordName, degree, isPencil}]
+  window._prNotesCount = function() { return prNotes.length; };
   let prNextId = 1;
   let prTotalCols = 32;
   let prBars = 2;
@@ -57459,39 +57464,30 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   };
 
   // ── Schedule recorded notes for playback ──
+  // Converts prNotes (grid-column format) into the melody[] format
+  // that seqScheduleMelody expects, so we get real instrument sounds.
 
   window.prSchedulePlayback = function(audioCtx, loopStartTime, loopDurSec) {
     if (!prNotes.length) return null;
-    const nodes = [];
-    const song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
-    // Determine instrument
-    const inst = song?.sequencer?.melodyInstrument || 'piano';
+    var loopDurMs = loopDurSec * 1000;
+    // Build a melody-format array from prNotes
+    var melodyArr = [];
     prNotes.forEach(function(n) {
-      const startFrac = n.startCol / prTotalCols;
-      const durFrac = n.durCols / prTotalCols;
-      const noteStart = loopStartTime + startFrac * loopDurSec;
-      const noteDur = durFrac * loopDurSec;
-      if (noteStart < audioCtx.currentTime - 0.1) return; // skip past notes
-      try {
-        // Use the existing melody scheduling approach
-        const freq = 440 * Math.pow(2, (n.midi - 69) / 12);
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        // Choose waveform based on instrument
-        if (inst === 'synth') osc.type = 'sawtooth';
-        else if (inst === 'guitar') osc.type = 'triangle';
-        else osc.type = 'sine'; // piano default
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.25, noteStart);
-        gain.gain.exponentialRampToValueAtTime(0.001, noteStart + noteDur);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(noteStart);
-        osc.stop(noteStart + noteDur + 0.05);
-        nodes.push(osc);
-      } catch(e) {}
+      var noteIdx = n.midi % 12;
+      var octave  = Math.floor(n.midi / 12) - 1;
+      var noteName = PR_NOTES_ALL[noteIdx];
+      if (!noteName) return;
+      var startMs = (n.startCol / prTotalCols) * loopDurMs;
+      var durMs   = (n.durCols / prTotalCols) * loopDurMs;
+      melodyArr.push({ note: noteName, octave: octave, startMs: startMs, durMs: Math.max(30, durMs) });
     });
-    return nodes.length ? nodes : null;
+    if (!melodyArr.length) return null;
+    // Delegate to the real melody scheduler which handles piano/guitar/synth instruments
+    if (typeof seqScheduleMelody === 'function') {
+      seqScheduleMelody(audioCtx, loopStartTime, loopDurMs, melodyArr);
+    }
+    // Return null — seqScheduleMelody pushes nodes into melodyScheduledNodes internally
+    return null;
   };
 
   // ── Playhead: tracks sequencer playback position ──
@@ -57557,13 +57553,59 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     }
   }
 
+  // ── Timeline click-to-seek ──
+  // Click on the time ruler to jump playback to that position.
+  function prRulerSeek(e) {
+    const ruler = document.getElementById('prTimeRuler');
+    if (!ruler) return;
+    const rect = ruler.getBoundingClientRect();
+    const scrollEl = document.getElementById('prGridScroll');
+    const scrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
+    const clickX = e.clientX - rect.left + scrollLeft - PR_KEY_W;
+    if (clickX < 0) return;
+    const col = Math.max(0, Math.min(prTotalCols - 1, Math.floor(clickX / PR_COL_W)));
+
+    // Map column to sequencer step index
+    const chordSlots = document.querySelectorAll('#seqChordGrid .seq-slot');
+    const totalSlots = chordSlots.length || prTotalCols;
+    const targetStep = Math.floor(col * totalSlots / prTotalCols);
+
+    // Move the playhead visually immediately
+    const xPos = col * PR_COL_W;
+    const playhead = document.getElementById('prPlayhead');
+    const rulerPH = document.getElementById('prRulerPlayhead');
+    if (playhead) { playhead.classList.add('active'); playhead.style.left = (PR_KEY_W + xPos) + 'px'; }
+    if (rulerPH)  { rulerPH.classList.add('active');  rulerPH.style.left = (PR_KEY_W + xPos) + 'px'; }
+
+    // Seek: stop, then restart from the target position
+    if (typeof seqStop === 'function' && (typeof seqIsPlaying !== 'undefined') && seqIsPlaying) seqStop();
+
+    // Start playback from the clicked position
+    // seqPlay() is synchronous — it sets _seqStepIndex=0 then kicks off
+    // the scheduler interval. We override the step index immediately after,
+    // before the first interval tick fires (25ms away).
+    if (typeof seqPlay === 'function') seqPlay();
+    _seqStepIndex = targetStep;
+  }
+
+  // Attach click handler once DOM is ready
+  function _prAttachRulerClick() {
+    const ruler = document.getElementById('prTimeRuler');
+    if (ruler) {
+      ruler.style.cursor = 'pointer';
+      ruler.addEventListener('click', prRulerSeek);
+    }
+  }
+
   // Start the playhead loop once DOM is ready
   document.addEventListener('DOMContentLoaded', () => {
     prPlayheadLoop();
+    _prAttachRulerClick();
   });
   // Also start immediately in case DOMContentLoaded already fired
   if (document.readyState !== 'loading') {
     prPlayheadLoop();
+    _prAttachRulerClick();
   }
 
 })();
