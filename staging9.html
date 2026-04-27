@@ -16352,6 +16352,30 @@ body.split-4track-active .ft-overlay { display: none !important; }
   color: var(--muted, #aaa); cursor: pointer; padding: 2px 8px; line-height: 1;
 }
 .pr-close-btn:hover { color: var(--text, #eee); }
+/* ── view mode toggle (Piano Roll / Drum Roll / Both) ── */
+.pr-view-toggle {
+  display: flex; gap: 0; border: 1px solid var(--border, #28283a); border-radius: 5px; overflow: hidden;
+}
+.pr-view-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 3px 10px;
+  background: transparent; border: none; border-right: 1px solid var(--border, #28283a);
+  color: var(--text, #ccc); cursor: pointer; transition: background 0.15s; white-space: nowrap;
+}
+.pr-view-btn:last-child { border-right: none; }
+.pr-view-btn:hover { background: rgba(245,166,35,0.1); }
+.pr-view-btn.active { background: rgba(245,166,35,0.2); color: var(--gold, #f5a623); font-weight: 700; }
+/* drum note colors */
+.pr-note.drum-kick  { background: rgba(239,68,68,0.7); border-color: rgba(239,68,68,0.8); }
+.pr-note.drum-snare { background: rgba(249,115,22,0.7); border-color: rgba(249,115,22,0.8); }
+.pr-note.drum-hat   { background: rgba(234,179,8,0.7); border-color: rgba(234,179,8,0.8); }
+.pr-note.drum-hitom { background: rgba(34,197,94,0.7); border-color: rgba(34,197,94,0.8); }
+.pr-note.drum-lotom { background: rgba(6,182,212,0.7); border-color: rgba(6,182,212,0.8); }
+.pr-note.drum-crash { background: rgba(168,85,247,0.7); border-color: rgba(168,85,247,0.8); }
+.pr-note.drum-clap  { background: rgba(236,72,153,0.7); border-color: rgba(236,72,153,0.8); }
+.pr-key-row.drum-voice {
+  background: #1e1e30; color: #fff; font-weight: 700; font-size: 10px;
+  border-bottom: 1px solid rgba(245,166,35,0.15);
+}
 
 /* ── body: chord palette + grid area ── */
 .pr-body { display: flex; flex: 1; overflow: hidden; min-height: 0; }
@@ -27647,10 +27671,12 @@ function seqPlay() {
   // Start unified metronome (no-op if already running from 4-track)
   globalMetroStartIfEnabled();
 
-  // Sync unified timeline transport (mirrors play state, no double-audio yet)
-  console.log('[TL] seqPlay hook reached, TL exists:', typeof TL !== 'undefined', 'play fn:', typeof TL?.play);
+  // Sync unified timeline transport
   if (typeof TL !== 'undefined' && typeof TL.play === 'function') {
-    try { TL.play(); console.log('[TL] play() called, isPlaying:', TL.isPlaying()); } catch(e) { console.warn('[TL] play sync error:', e); }
+    try {
+      TL.setSongMode(false); // loop mode = single section
+      TL.play();
+    } catch(e) { console.warn('[TL] play sync error:', e); }
   }
 
   // Loop + 4-track triggers are ONLY for full-song mode (seqPlaySong).
@@ -27735,6 +27761,14 @@ async function seqPlaySong() {
       _seqIdx: seqs.indexOf(seq),
     };
   });
+
+  // ── TL multi-section takeover: load all sections into unified timeline ──
+  if (typeof TL !== 'undefined' && typeof TL.loadSections === 'function') {
+    try {
+      TL.loadSections(_seqSongSections, key, mode);
+      TL.setBpm(_songWideBpm);
+    } catch(e) { console.warn('[TL] loadSections error:', e); }
+  }
 
   // ── Background-fetch loop track & 4-track buffers (non-blocking) ──
   // Playback starts IMMEDIATELY — the sequencer (drums/chords/melody) doesn't
@@ -27852,9 +27886,9 @@ async function seqPlaySong() {
   // Trigger looper + 4-track tracks for the first section
   _seqTriggerLoopsForPart(_seqSongSections[0]?.partId || null);
   _seqTriggerMtTracksForPart(_seqSongSections[0]?.partId || null);
-  // Sync unified timeline transport
+  // Sync unified timeline transport — song mode starts from beat 0
   if (typeof TL !== 'undefined' && typeof TL.play === 'function') {
-    try { TL.play(); } catch(e) { console.warn('[TL] play sync error:', e); }
+    try { TL.seek(0); TL.play(0); } catch(e) { console.warn('[TL] play sync error:', e); }
   }
   console.log('[PLAY-SEQ-PERF] total startup:', (performance.now()-_t0).toFixed(1)+'ms');
 }
@@ -31646,6 +31680,20 @@ document.addEventListener('keydown',function(e){
     const mso = document.getElementById('rtMetroSettingsOverlay');
     if (mso && mso.classList.contains('open')) { e.preventDefault(); mso.classList.remove('open'); return; }
     if (window._ilPerfMode) { e.preventDefault(); ilSetPerfMode(false); return; }
+  }
+  // Enter = return playhead to beginning (stop + reset)
+  if (e.key === 'Enter') {
+    const _ae2 = document.activeElement;
+    if (_ae2 && (_ae2.tagName === 'INPUT' || _ae2.tagName === 'TEXTAREA' || _ae2.isContentEditable || _ae2.tagName === 'SELECT')) return;
+    e.preventDefault();
+    if (seqIsPlaying) seqStop();
+    // Reset TL beat position to 0
+    if (typeof TL !== 'undefined' && typeof TL.seek === 'function') TL.seek(0);
+    // Reset old scheduler step index
+    _seqStepIndex = 0;
+    _seqSongSectionIdx = 0;
+    _seqSongSectionStep = 0;
+    return;
   }
   // Space = play/stop active drawer; Shift+Space = play full song sequence
   // Use document.activeElement (already blurred by capture handler) rather than e.target
@@ -56416,7 +56464,12 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   <div class="pr-panel" id="prPanel">
     <div class="pr-resize-bar" id="prResizeBar"></div>
     <div class="pr-header">
-      <span class="pr-title">Piano Roll</span>
+      <span class="pr-title" id="prTitleLabel">Piano Roll</span>
+      <div class="pr-view-toggle">
+        <button class="pr-view-btn active" id="prViewPiano" onclick="prSetView('piano')">Piano</button>
+        <button class="pr-view-btn" id="prViewDrum" onclick="prSetView('drum')">Drums</button>
+        <button class="pr-view-btn" id="prViewBoth" onclick="prSetView('both')">Both</button>
+      </div>
       <button class="pr-tool-btn active" id="prToolPointer" onclick="prSetTool('pointer')" title="Select / Move">▸ Pointer</button>
       <button class="pr-tool-btn" id="prToolPencil" onclick="prSetTool('pencil')" title="Draw Notes">✎ Pencil</button>
       <button class="pr-tool-btn" id="prToolEraser" onclick="prSetTool('eraser')" title="Erase Notes">✕ Eraser</button>
@@ -56483,6 +56536,20 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   let prChordSteps = 1;
   let prDragging = null; // {noteId, mode:'move'|'resize', startX, startY, origCol, origMidi, origDur}
   let prSelected = null; // noteId
+  let prViewMode = 'piano'; // 'piano' | 'drum' | 'both'
+  let prDrumNotes = []; // [{id, voice, startCol, durCols}]
+
+  // Drum voices and their MIDI-row mapping (in drum view, these replace the pitch rows)
+  const PR_DRUM_VOICES = [
+    { voice: 'crash', label: 'Crash',  color: '#a855f7' },
+    { voice: 'hat',   label: 'Hi-Hat', color: '#eab308' },
+    { voice: 'hitom', label: 'Hi Tom', color: '#22c55e' },
+    { voice: 'lotom', label: 'Lo Tom', color: '#06b6d4' },
+    { voice: 'snare', label: 'Snare',  color: '#f97316' },
+    { voice: 'clap',  label: 'Clap',   color: '#ec4899' },
+    { voice: 'kick',  label: 'Kick',   color: '#ef4444' },
+  ];
+  const PR_DRUM_ROW_H = 32; // taller rows for drum view
 
   // ── Helpers ──
   function midiToName(midi) { return PR_NOTES_ALL[midi % 12] + Math.floor(midi / 12 - 1); }
@@ -56560,6 +56627,87 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const names = {1:'1/4',2:'1/8',4:'1/16',8:'1/32'};
     if (label) label.textContent = 'Snap: ' + (names[prSnap] || '1/16');
   };
+
+  // ── View mode toggle (Piano / Drum / Both) ──
+  window.prSetView = function(mode) {
+    prViewMode = mode;
+    ['prViewPiano','prViewDrum','prViewBoth'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('active', id === 'prView' + mode.charAt(0).toUpperCase() + mode.slice(1));
+    });
+    // Update title
+    const titles = { piano: 'Piano Roll', drum: 'Drum Roll', both: 'Piano + Drums' };
+    const label = document.getElementById('prTitleLabel');
+    if (label) label.textContent = titles[mode] || 'Piano Roll';
+    // Toggle chord palette visibility (hide in drum-only mode)
+    const palette = document.getElementById('prChordPalette');
+    if (palette) palette.style.display = (mode === 'drum') ? 'none' : '';
+    // Load drum data if needed
+    if (mode === 'drum' || mode === 'both') prLoadDrumData();
+    // Re-render everything
+    prRenderKeys();
+    prRenderGrid();
+    prRenderRuler();
+    prRenderNotes();
+    // Scroll to sensible position
+    const scroll = document.getElementById('prGridScroll');
+    if (scroll) {
+      if (mode === 'drum') {
+        scroll.scrollTop = 0; // drums are only 7 rows, no need to scroll
+      } else if (mode === 'piano') {
+        const c4row = midiToRow(60);
+        scroll.scrollTop = Math.max(0, c4row * PR_ROW_H - scroll.clientHeight / 2);
+      }
+    }
+  };
+
+  // ── Load drum data from song sequencer ──
+  function prLoadDrumData() {
+    prDrumNotes = [];
+    const song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    const sd = song?.sequencer || {};
+    const drumSteps = parseInt(sd.drumSteps || sd.grid || 4);
+    const timeSig = parseInt(sd.time || 4);
+    const bars = parseInt(sd.bars || 2);
+    const totalDrumSlots = timeSig * bars * drumSteps;
+    // Map drum slot index → column in piano roll grid
+    // Piano roll grid uses prSnap subdivisions per beat, drum grid uses drumSteps per beat
+    const colsPerDrumSlot = prSnap / drumSteps;
+
+    PR_DRUM_VOICES.forEach(function(dv, voiceIdx) {
+      // Read from DOM first (live state)
+      const rowIds = { kick:'seqKick', snare:'seqSnare', hat:'seqHat', hitom:'seqHiTom', lotom:'seqLoTom', crash:'seqCrash', clap:'seqClap' };
+      const rowId = rowIds[dv.voice];
+      const slots = rowId ? document.querySelectorAll('#' + rowId + ' .seq-slot') : [];
+      if (slots.length) {
+        slots.forEach(function(slot, si) {
+          if (slot.classList.contains('drum-on')) {
+            const col = Math.round(si * colsPerDrumSlot);
+            const vel = parseFloat(slot.dataset.vel || 1);
+            prDrumNotes.push({ id: prNextId++, voice: dv.voice, startCol: col, durCols: Math.max(1, Math.round(colsPerDrumSlot)), velocity: vel });
+          }
+        });
+      } else if (Array.isArray(sd[dv.voice])) {
+        sd[dv.voice].forEach(function(on, si) {
+          if (!on) return;
+          const col = Math.round(si * colsPerDrumSlot);
+          const vel = (sd[dv.voice + 'Vel'] && sd[dv.voice + 'Vel'][si]) || 1;
+          prDrumNotes.push({ id: prNextId++, voice: dv.voice, startCol: col, durCols: Math.max(1, Math.round(colsPerDrumSlot)), velocity: vel });
+        });
+      }
+    });
+    console.log('[PR] Loaded', prDrumNotes.length, 'drum notes');
+  }
+
+  // ── Get effective row count and row height for current view ──
+  function prGetViewParams() {
+    if (prViewMode === 'drum') {
+      return { totalRows: PR_DRUM_VOICES.length, rowH: PR_DRUM_ROW_H };
+    } else if (prViewMode === 'both') {
+      return { totalRows: PR_TOTAL_ROWS + PR_DRUM_VOICES.length + 1, rowH: PR_ROW_H }; // +1 for separator
+    }
+    return { totalRows: PR_TOTAL_ROWS, rowH: PR_ROW_H };
+  }
 
   // ── Load chord data from sequencer grid ──
   function prLoadFromGrid() {
@@ -56657,6 +56805,11 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         });
       });
     }
+
+    // Also load drum data for drum/both views
+    if (prViewMode === 'drum' || prViewMode === 'both') {
+      prLoadDrumData();
+    }
   }
 
   function _melNoteToMidi(note, octave) {
@@ -56745,13 +56898,38 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const keys = document.getElementById('prKeys');
     if (!keys) return;
     let html = '';
-    for (let row = 0; row < PR_TOTAL_ROWS; row++) {
-      const midi = rowToMidi(row);
-      const name = midiToName(midi);
-      const note = PR_NOTES_ALL[midi % 12];
-      const cls = isBlack(midi) ? 'black' : 'white';
-      const cCls = note === 'C' ? ' c-note' : '';
-      html += `<div class="pr-key-row ${cls}${cCls}" style="height:${PR_ROW_H}px" data-midi="${midi}">${name}</div>`;
+
+    if (prViewMode === 'drum') {
+      // Drum-only: show voice labels
+      PR_DRUM_VOICES.forEach(dv => {
+        html += `<div class="pr-key-row drum-voice" style="height:${PR_DRUM_ROW_H}px;color:${dv.color}">${dv.label}</div>`;
+      });
+    } else if (prViewMode === 'both') {
+      // Piano rows first
+      for (let row = 0; row < PR_TOTAL_ROWS; row++) {
+        const midi = rowToMidi(row);
+        const name = midiToName(midi);
+        const note = PR_NOTES_ALL[midi % 12];
+        const cls = isBlack(midi) ? 'black' : 'white';
+        const cCls = note === 'C' ? ' c-note' : '';
+        html += `<div class="pr-key-row ${cls}${cCls}" style="height:${PR_ROW_H}px" data-midi="${midi}">${name}</div>`;
+      }
+      // Separator
+      html += `<div class="pr-key-row" style="height:6px;background:#f5a623;font-size:0"></div>`;
+      // Drum rows below
+      PR_DRUM_VOICES.forEach(dv => {
+        html += `<div class="pr-key-row drum-voice" style="height:${PR_ROW_H}px;color:${dv.color};font-size:9px">${dv.label}</div>`;
+      });
+    } else {
+      // Piano-only (default)
+      for (let row = 0; row < PR_TOTAL_ROWS; row++) {
+        const midi = rowToMidi(row);
+        const name = midiToName(midi);
+        const note = PR_NOTES_ALL[midi % 12];
+        const cls = isBlack(midi) ? 'black' : 'white';
+        const cCls = note === 'C' ? ' c-note' : '';
+        html += `<div class="pr-key-row ${cls}${cCls}" style="height:${PR_ROW_H}px" data-midi="${midi}">${name}</div>`;
+      }
     }
     keys.innerHTML = html;
   }
@@ -56776,15 +56954,23 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const scrollEl = document.getElementById('prGridScroll');
     if (!canvas || !container) return;
 
+    const vp = prGetViewParams();
+    const rowH = vp.rowH;
+    const totalRows = vp.totalRows;
+
     const gridW = prTotalCols * PR_COL_W;
-    const gridH = PR_TOTAL_ROWS * PR_ROW_H;
+    const gridH = (prViewMode === 'drum')
+      ? PR_DRUM_VOICES.length * PR_DRUM_ROW_H
+      : (prViewMode === 'both')
+        ? PR_TOTAL_ROWS * PR_ROW_H + 6 + PR_DRUM_VOICES.length * PR_ROW_H // piano + separator + drums
+        : PR_TOTAL_ROWS * PR_ROW_H;
     container.style.width = (PR_KEY_W + gridW) + 'px';
     container.style.height = gridH + 'px';
 
     // Viewport-based canvas: only render the visible region + buffer
     const vpW = scrollEl ? scrollEl.clientWidth : gridW;
     const scrollX = scrollEl ? scrollEl.scrollLeft : 0;
-    const buffer = 200; // px buffer on each side
+    const buffer = 200;
     const renderLeft = Math.max(0, scrollX - buffer);
     const renderRight = Math.min(gridW, scrollX + vpW + buffer);
     const renderW = renderRight - renderLeft;
@@ -56799,24 +56985,57 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, renderW, gridH);
 
-    // Row backgrounds
-    for (let row = 0; row < PR_TOTAL_ROWS; row++) {
-      const midi = rowToMidi(row);
-      const y = row * PR_ROW_H;
-      ctx.fillStyle = isBlack(midi) ? '#1a1a28' : '#222240';
-      ctx.fillRect(0, y, renderW, PR_ROW_H);
-      // C-note highlight
-      if (PR_NOTES_ALL[midi % 12] === 'C') {
-        ctx.strokeStyle = 'rgba(245,166,35,0.35)';
-        ctx.lineWidth = 1.5;
+    // ── Draw row backgrounds ──
+    if (prViewMode === 'drum') {
+      // Drum rows only
+      PR_DRUM_VOICES.forEach((dv, i) => {
+        const y = i * PR_DRUM_ROW_H;
+        ctx.fillStyle = (i % 2 === 0) ? '#1e1e30' : '#1a1a28';
+        ctx.fillRect(0, y, renderW, PR_DRUM_ROW_H);
+        // Voice color accent line
+        ctx.strokeStyle = dv.color + '33';
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(0, y + PR_ROW_H - 0.5);
-        ctx.lineTo(renderW, y + PR_ROW_H - 0.5);
+        ctx.moveTo(0, y + PR_DRUM_ROW_H - 0.5);
+        ctx.lineTo(renderW, y + PR_DRUM_ROW_H - 0.5);
         ctx.stroke();
+      });
+    } else {
+      // Piano rows
+      for (let row = 0; row < PR_TOTAL_ROWS; row++) {
+        const midi = rowToMidi(row);
+        const y = row * PR_ROW_H;
+        ctx.fillStyle = isBlack(midi) ? '#1a1a28' : '#222240';
+        ctx.fillRect(0, y, renderW, PR_ROW_H);
+        if (PR_NOTES_ALL[midi % 12] === 'C') {
+          ctx.strokeStyle = 'rgba(245,166,35,0.35)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(0, y + PR_ROW_H - 0.5);
+          ctx.lineTo(renderW, y + PR_ROW_H - 0.5);
+          ctx.stroke();
+        }
+      }
+      // Both mode: separator + drum rows below piano
+      if (prViewMode === 'both') {
+        const sepY = PR_TOTAL_ROWS * PR_ROW_H;
+        ctx.fillStyle = '#f5a623';
+        ctx.fillRect(0, sepY, renderW, 6);
+        PR_DRUM_VOICES.forEach((dv, i) => {
+          const y = sepY + 6 + i * PR_ROW_H;
+          ctx.fillStyle = (i % 2 === 0) ? '#1e1e30' : '#1a1a28';
+          ctx.fillRect(0, y, renderW, PR_ROW_H);
+          ctx.strokeStyle = dv.color + '33';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(0, y + PR_ROW_H - 0.5);
+          ctx.lineTo(renderW, y + PR_ROW_H - 0.5);
+          ctx.stroke();
+        });
       }
     }
 
-    // Vertical grid lines (only draw visible columns)
+    // ── Vertical grid lines ──
     const firstCol = Math.max(0, Math.floor(renderLeft / PR_COL_W) - 1);
     const lastCol = Math.min(prTotalCols, Math.ceil(renderRight / PR_COL_W) + 1);
     for (let col = firstCol; col <= lastCol; col++) {
@@ -56840,14 +57059,36 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       ctx.stroke();
     }
 
-    // Horizontal row lines
-    for (let row = 0; row <= PR_TOTAL_ROWS; row++) {
-      ctx.strokeStyle = 'rgba(90,90,120,0.3)';
-      ctx.lineWidth = 0.5;
-      ctx.beginPath();
-      ctx.moveTo(0, row * PR_ROW_H + 0.5);
-      ctx.lineTo(renderW, row * PR_ROW_H + 0.5);
-      ctx.stroke();
+    // ── Horizontal row lines ──
+    if (prViewMode === 'drum') {
+      for (let row = 0; row <= PR_DRUM_VOICES.length; row++) {
+        ctx.strokeStyle = 'rgba(90,90,120,0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(0, row * PR_DRUM_ROW_H + 0.5);
+        ctx.lineTo(renderW, row * PR_DRUM_ROW_H + 0.5);
+        ctx.stroke();
+      }
+    } else {
+      for (let row = 0; row <= PR_TOTAL_ROWS; row++) {
+        ctx.strokeStyle = 'rgba(90,90,120,0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(0, row * PR_ROW_H + 0.5);
+        ctx.lineTo(renderW, row * PR_ROW_H + 0.5);
+        ctx.stroke();
+      }
+      if (prViewMode === 'both') {
+        const sepY = PR_TOTAL_ROWS * PR_ROW_H + 6;
+        for (let row = 0; row <= PR_DRUM_VOICES.length; row++) {
+          ctx.strokeStyle = 'rgba(90,90,120,0.3)';
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(0, sepY + row * PR_ROW_H + 0.5);
+          ctx.lineTo(renderW, sepY + row * PR_ROW_H + 0.5);
+          ctx.stroke();
+        }
+      }
     }
   }
 
@@ -56944,33 +57185,61 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     // Schedule auto-sync whenever notes re-render (i.e. after any edit)
     prAutoSync();
 
-    prNotes.forEach(n => {
-      const row = midiToRow(n.midi);
-      if (row < 0 || row >= PR_TOTAL_ROWS) return;
+    // ── Piano notes (piano & both modes) ──
+    if (prViewMode !== 'drum') {
+      prNotes.forEach(n => {
+        const row = midiToRow(n.midi);
+        if (row < 0 || row >= PR_TOTAL_ROWS) return;
 
-      const el = document.createElement('div');
-      el.className = 'pr-note' + (n.isPencil ? ' pencil-note' : '') + (n.id === prSelected ? ' selected' : '');
-      el.dataset.noteId = n.id;
-      if (n.degree >= 0) el.dataset.degree = n.degree;
-      el.style.left = colToX(n.startCol) + 'px';
-      el.style.top = (row * PR_ROW_H + 1) + 'px';
-      el.style.width = Math.max(8, n.durCols * PR_COL_W - 2) + 'px';
-      el.style.height = (PR_ROW_H - 2) + 'px';
-      el.textContent = n.chordName ? n.chordName.replace('_viii','⁸') : midiToName(n.midi);
+        const el = document.createElement('div');
+        el.className = 'pr-note' + (n.isPencil ? ' pencil-note' : '') + (n.id === prSelected ? ' selected' : '');
+        el.dataset.noteId = n.id;
+        if (n.degree >= 0) el.dataset.degree = n.degree;
+        el.style.left = colToX(n.startCol) + 'px';
+        el.style.top = (row * PR_ROW_H + 1) + 'px';
+        el.style.width = Math.max(8, n.durCols * PR_COL_W - 2) + 'px';
+        el.style.height = (PR_ROW_H - 2) + 'px';
+        el.textContent = n.chordName ? n.chordName.replace('_viii','⁸') : midiToName(n.midi);
 
-      // Resize handle
-      const rh = document.createElement('div');
-      rh.className = 'pr-note-resize';
-      el.appendChild(rh);
+        // Resize handle
+        const rh = document.createElement('div');
+        rh.className = 'pr-note-resize';
+        el.appendChild(rh);
 
-      // Events
-      el.addEventListener('mousedown', e => prNoteMouseDown(e, n.id));
-      el.addEventListener('touchstart', e => prNoteMouseDown(e, n.id), {passive: false});
-      rh.addEventListener('mousedown', e => { e.stopPropagation(); prResizeMouseDown(e, n.id); });
-      rh.addEventListener('touchstart', e => { e.stopPropagation(); prResizeMouseDown(e, n.id); }, {passive: false});
+        // Events
+        el.addEventListener('mousedown', e => prNoteMouseDown(e, n.id));
+        el.addEventListener('touchstart', e => prNoteMouseDown(e, n.id), {passive: false});
+        rh.addEventListener('mousedown', e => { e.stopPropagation(); prResizeMouseDown(e, n.id); });
+        rh.addEventListener('touchstart', e => { e.stopPropagation(); prResizeMouseDown(e, n.id); }, {passive: false});
 
-      layer.appendChild(el);
-    });
+        layer.appendChild(el);
+      });
+    }
+
+    // ── Drum notes (drum & both modes) ──
+    if (prViewMode === 'drum' || prViewMode === 'both') {
+      const drumRowH = (prViewMode === 'drum') ? PR_DRUM_ROW_H : PR_ROW_H;
+      const drumYOffset = (prViewMode === 'both') ? (PR_TOTAL_ROWS * PR_ROW_H + 6) : 0;
+
+      prDrumNotes.forEach(dn => {
+        const voiceIdx = PR_DRUM_VOICES.findIndex(v => v.voice === dn.voice);
+        if (voiceIdx < 0) return;
+        const dv = PR_DRUM_VOICES[voiceIdx];
+
+        const el = document.createElement('div');
+        el.className = 'pr-note drum-' + dn.voice;
+        el.style.left = colToX(dn.startCol) + 'px';
+        el.style.top = (drumYOffset + voiceIdx * drumRowH + 1) + 'px';
+        el.style.width = Math.max(8, dn.durCols * PR_COL_W - 2) + 'px';
+        el.style.height = (drumRowH - 2) + 'px';
+        el.style.borderRadius = '3px';
+        el.style.fontSize = (prViewMode === 'drum') ? '10px' : '8px';
+        el.style.lineHeight = (drumRowH - 2) + 'px';
+        el.textContent = dv.label;
+
+        layer.appendChild(el);
+      });
+    }
   }
 
   // ── Note interaction: select, move, resize ──
@@ -57925,7 +58194,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   var _tlTimer       = null;
   var _tlScheduledTo = 0;     // highest beat already scheduled
   var _tlPlayListeners = [];  // playback state listeners
-  var _tlAudioEnabled  = false; // false = TL syncs transport only, old scheduler handles audio; true = TL handles audio
+  var _tlAudioEnabled  = true; // true = TL handles audio; false = old scheduler handles audio (fallback)
 
   function tlSetBpm(bpm)     { _tlBpm = bpm || 120; }
   function tlSetTimeSig(ts)  { _tlTimeSig = ts || 4; }
@@ -57987,6 +58256,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   function tlStop() {
     if (!_tlPlaying) return;
     _tlPlaying = false;
+    _tlSongMode = false;
+    _tlCurrentSectionIdx = -1;
     clearInterval(_tlTimer);
     _tlTimer = null;
 
@@ -58104,6 +58375,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
     _tlScheduledTo = scheduleUpTo;
 
+    // Check section boundaries for part triggers (song mode)
+    _tlCheckSectionBoundary(_tlCurrentBeat);
+
     // Schedule visual updates
     var visualBeat = _tlCurrentBeat;
     _tlUpdateVisuals(visualBeat);
@@ -58180,11 +58454,22 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   // ═══════════════════════════════════════════════════════════
 
   function _tlUpdateVisuals(beat) {
+    // In song mode, find which section we're in and compute local beat
+    var localStart = _tlLoopStart;
+    var localEnd   = _tlLoopEnd;
+    if (_tlSongMode && _tlSections.length && _tlCurrentSectionIdx >= 0) {
+      var curSec = _tlSections[_tlCurrentSectionIdx];
+      localStart = curSec.beatStart;
+      localEnd   = curSec.beatEnd;
+    }
+    var sectionBeats = localEnd - localStart;
+    var localBeat = beat - localStart;
+    if (localBeat < 0) localBeat = 0;
+
     // Update chord grid slot highlights
     var allSlots = document.querySelectorAll('#seqChordGrid .seq-slot');
     if (allSlots.length) {
-      var beatsPerSlot = (_tlLoopEnd - _tlLoopStart) / allSlots.length;
-      var localBeat = beat - _tlLoopStart;
+      var beatsPerSlot = sectionBeats / allSlots.length;
       var activeIdx = Math.floor(localBeat / beatsPerSlot);
       allSlots.forEach(function(s, i) {
         s.classList.toggle('playing', i === activeIdx);
@@ -58196,13 +58481,19 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     drumRows.forEach(function(rowId) {
       var slots = document.querySelectorAll('#' + rowId + ' .seq-slot');
       if (!slots.length) return;
-      var beatsPerSlot = (_tlLoopEnd - _tlLoopStart) / slots.length;
-      var localBeat = beat - _tlLoopStart;
+      var beatsPerSlot = sectionBeats / slots.length;
       var activeIdx = Math.floor(localBeat / beatsPerSlot);
       slots.forEach(function(s, i) {
         s.classList.toggle('playing', i === activeIdx);
       });
     });
+
+    // Update mixer transport
+    if (_tlSongMode && typeof _mixUpdateTransport === 'function') {
+      var totalSteps = allSlots.length || 8;
+      var stepIdx = Math.floor(localBeat / (sectionBeats / totalSteps));
+      _mixUpdateTransport(stepIdx, totalSteps);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -58364,7 +58655,157 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   }
 
   // ═══════════════════════════════════════════════════════════
-  // 7. EXPOSE ON WINDOW
+  // 7. MULTI-SECTION SONG PLAYBACK
+  // ═══════════════════════════════════════════════════════════
+
+  // Section boundaries: [{ beatStart, beatEnd, partId, sectionIdx }]
+  var _tlSections = [];
+  var _tlCurrentSectionIdx = -1;
+  var _tlSongMode = false; // true when playing full song sequence
+
+  /**
+   * Load an array of pre-built sections (same shape as _seqSongSections)
+   * into the timeline, laid end-to-end on the beat axis.
+   */
+  function tlLoadSections(sections, key, mode) {
+    var tl = [];
+    var beatOffset = 0;
+    _tlSections = [];
+
+    // Resolve chord MIDI map once
+    var chordMidiMap = null;
+    if (typeof seqGenChordMidi === 'function') {
+      chordMidiMap = seqGenChordMidi(key, mode);
+    }
+
+    sections.forEach(function(sec, secIdx) {
+      var timeSig    = sec.time || 4;
+      var bars       = sec.bars || 2;
+      var sectionBeats = timeSig * bars;
+      var drumSteps  = sec.drumSteps || sec.grid || 4;
+      var chordSteps = sec.chordSteps || 1;
+      var totalDrumSlots  = timeSig * bars * drumSteps;
+      var totalChordSlots = timeSig * bars * chordSteps;
+      var beatsPerDrumSlot  = sectionBeats / totalDrumSlots;
+      var beatsPerChordSlot = sectionBeats / totalChordSlots;
+
+      // Store section boundary
+      _tlSections.push({
+        beatStart: beatOffset,
+        beatEnd: beatOffset + sectionBeats,
+        partId: sec.partId || null,
+        sectionIdx: secIdx,
+        _seqIdx: sec._seqIdx != null ? sec._seqIdx : secIdx
+      });
+
+      // ── Chords
+      var chordSlots = sec.chordSlots || [];
+      var chordDegrees = sec.chordDegrees || [];
+      var chordContinued = sec.chordContinued || [];
+      for (var ci = 0; ci < chordSlots.length; ci++) {
+        var cName = chordSlots[ci];
+        if (!cName || chordContinued[ci]) continue;
+        var hold = 1;
+        for (var cj = ci + 1; cj < chordSlots.length; cj++) {
+          if (chordContinued[cj] && chordSlots[cj]) hold++;
+          else break;
+        }
+        var cBeat = beatOffset + ci * beatsPerChordSlot;
+        var cDur  = hold * beatsPerChordSlot;
+        var degree = (chordDegrees[ci] != null) ? chordDegrees[ci] : -1;
+        var midiNotes = [];
+        if (chordMidiMap && chordMidiMap[cName]) midiNotes = chordMidiMap[cName];
+        else if (typeof _chordVariantToMidi === 'function') midiNotes = _chordVariantToMidi(cName) || [];
+        tl.push({ id: tlGenId(), type: 'chord', beatPos: cBeat, durBeats: cDur, name: cName, degree: degree, midiNotes: midiNotes });
+      }
+
+      // ── Drums
+      var drumVoices = ['kick','snare','hat','hitom','lotom','crash','clap'];
+      drumVoices.forEach(function(voice) {
+        var arr = sec[voice];
+        if (!Array.isArray(arr)) return;
+        arr.forEach(function(on, si) {
+          if (!on) return;
+          var vel = (sec[voice + 'Vel'] && sec[voice + 'Vel'][si]) || 1;
+          tl.push({ id: tlGenId(), type: 'drum', beatPos: beatOffset + si * beatsPerDrumSlot, durBeats: 0, voice: voice, velocity: vel });
+        });
+      });
+
+      // ── Melody / Piano Roll
+      var prData = sec.pianoRoll;
+      if (Array.isArray(prData) && prData.length) {
+        var prSnap = 4;
+        var sectionCols = sectionBeats * prSnap;
+        prData.forEach(function(n) {
+          var bp = beatOffset + (n.startCol / sectionCols) * sectionBeats;
+          var dur = (n.durCols / sectionCols) * sectionBeats;
+          tl.push({ id: tlGenId(), type: 'note', beatPos: bp, durBeats: Math.max(0.05, dur), midi: n.midi, velocity: 0.8 });
+        });
+      } else if (Array.isArray(sec.melody) && sec.melody.length) {
+        var PR_N = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+        var loopMs = (sectionBeats / (sec.bpm || 120)) * 60000;
+        sec.melody.forEach(function(mn) {
+          var noteIdx = PR_N.indexOf(mn.note);
+          if (noteIdx < 0) return;
+          var midi = ((mn.octave || 4) + 1) * 12 + noteIdx;
+          var bp = beatOffset + ((mn.startMs || 0) / loopMs) * sectionBeats;
+          var dur = ((mn.durMs || 100) / loopMs) * sectionBeats;
+          tl.push({ id: tlGenId(), type: 'note', beatPos: bp, durBeats: Math.max(0.05, dur), midi: midi, velocity: 0.8 });
+        });
+      }
+
+      beatOffset += sectionBeats;
+    });
+
+    // Set timeline and transport
+    tlSet(tl);
+    _tlLoopStart = 0;
+    _tlLoopEnd = beatOffset;
+    _tlLoopEnabled = true;
+    _tlSongMode = true;
+    _tlCurrentSectionIdx = -1;
+    console.log('[TL] Loaded', sections.length, 'sections →', tl.length, 'events,', beatOffset, 'total beats');
+  }
+
+  /**
+   * Check if we've crossed a section boundary and fire part triggers.
+   * Called from _tlScheduleTick.
+   */
+  function _tlCheckSectionBoundary(beat) {
+    if (!_tlSongMode || !_tlSections.length) return;
+    // Find which section the current beat is in
+    var newIdx = -1;
+    for (var i = 0; i < _tlSections.length; i++) {
+      if (beat >= _tlSections[i].beatStart && beat < _tlSections[i].beatEnd) {
+        newIdx = i;
+        break;
+      }
+    }
+    if (newIdx < 0) newIdx = 0; // loop wrapped — back to first section
+
+    if (newIdx !== _tlCurrentSectionIdx) {
+      _tlCurrentSectionIdx = newIdx;
+      var sec = _tlSections[newIdx];
+      var partId = sec.partId;
+      console.log('[TL] Section change → idx:', newIdx, 'part:', partId, 'beats:', sec.beatStart, '-', sec.beatEnd);
+
+      // Trigger loop and 4-track for new section's part
+      setTimeout(function() {
+        if (!_tlPlaying) return;
+        if (typeof _seqTriggerLoopsForPart === 'function') _seqTriggerLoopsForPart(partId);
+        if (typeof _seqTriggerMtTracksForPart === 'function') _seqTriggerMtTracksForPart(partId);
+        if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
+        if (typeof kbdRenderMelodyTabs === 'function') {
+          var _s = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+          if (_s) kbdRenderMelodyTabs(_s);
+        }
+        if (typeof loopRenderPartsStrip === 'function') loopRenderPartsStrip();
+      }, 0);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 8. EXPOSE ON WINDOW
   // ═══════════════════════════════════════════════════════════
 
   window.TL = {
@@ -58402,6 +58843,12 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     load: tlLoad,
     save: tlSave,
     fromLegacy: tlFromLegacy,
+
+    // Multi-section song playback
+    loadSections: tlLoadSections,
+    getSections: function() { return _tlSections; },
+    isSongMode: function() { return _tlSongMode; },
+    setSongMode: function(on) { _tlSongMode = !!on; },
 
     // Audio control — set true to let TL handle audio (disables old scheduler)
     enableAudio: function(on) { _tlAudioEnabled = (on !== false); console.log('[TL] Audio routing:', _tlAudioEnabled ? 'ENABLED' : 'DISABLED (transport-only)'); },
