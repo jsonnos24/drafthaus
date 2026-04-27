@@ -24931,10 +24931,12 @@ function seqRebuild() {
 
   seqSaveSettings();
 
-  const newDrumSteps  = parseInt(sd.drumSteps  || sd.grid || 4);
-  const newChordSteps = parseInt(sd.chordSteps || '1');
-  const newBars = parseInt(sd.bars || 2);
-  const time = parseInt(sd.time || '4');
+  // Re-read from song.sequencer (seqSaveSettings may have re-linked the reference)
+  const sd2 = song.sequencer || {};
+  const newDrumSteps  = parseInt(sd2.drumSteps  || sd2.grid || 4);
+  const newChordSteps = parseInt(sd2.chordSteps || '1');
+  const newBars = parseInt(sd2.bars || 2);
+  const time = parseInt(sd2.time || '4');
 
   // Tile when bars expand (no step change)
   if (newBars > oldBars) {
@@ -24943,18 +24945,18 @@ function seqRebuild() {
       const oldDTotal = time * oldBars * oldDrumSteps;
       const newDTotal = time * newBars * oldDrumSteps;
       ['kick','snare','hat','crash','clap','hitom','lotom'].forEach(lane => {
-        if (sd[lane] && sd[lane].length)             sd[lane]         = _seqTileArray(sd[lane], oldDTotal, newDTotal, 0);
-        if (sd[lane+'Vel'] && sd[lane+'Vel'].length) sd[lane+'Vel'] = _seqTileArray(sd[lane+'Vel'], oldDTotal, newDTotal, 0);
+        if (sd2[lane] && sd2[lane].length)             sd2[lane]         = _seqTileArray(sd2[lane], oldDTotal, newDTotal, 0);
+        if (sd2[lane+'Vel'] && sd2[lane+'Vel'].length) sd2[lane+'Vel'] = _seqTileArray(sd2[lane+'Vel'], oldDTotal, newDTotal, 0);
       });
     }
     // Tile chords
     if (oldChordSteps === newChordSteps) {
       const oldCTotal = time * oldBars * oldChordSteps;
       const newCTotal = time * newBars * oldChordSteps;
-      if (sd.chordSlots && sd.chordSlots.length) {
-        sd.chordSlots     = _seqTileArray(sd.chordSlots, oldCTotal, newCTotal, '');
-        sd.chordDegrees   = _seqTileArray(sd.chordDegrees || [], oldCTotal, newCTotal, '');
-        sd.chordContinued = _seqTileArray(sd.chordContinued || [], oldCTotal, newCTotal, false);
+      if (sd2.chordSlots && sd2.chordSlots.length) {
+        sd2.chordSlots     = _seqTileArray(sd2.chordSlots, oldCTotal, newCTotal, '');
+        sd2.chordDegrees   = _seqTileArray(sd2.chordDegrees || [], oldCTotal, newCTotal, '');
+        sd2.chordContinued = _seqTileArray(sd2.chordContinued || [], oldCTotal, newCTotal, false);
       }
     }
     save();
@@ -29776,6 +29778,11 @@ async function fetchFullSongFromSheet(id) {
     if (!doc.exists) return null;
     const full = normalizeLoadedSong({ ...doc.data(), _fromSheet: false });
     const idx = songs.findIndex(x => x.id === id);
+    // Re-link sequencer → sequences so they share the same object reference
+    if (full.sequences && full.sequences.length) {
+      const _linkIdx = Math.min(typeof seqActiveIdx !== 'undefined' ? seqActiveIdx : 0, full.sequences.length - 1);
+      full.sequencer = full.sequences[_linkIdx];
+    }
     if (idx >= 0) songs[idx] = full;
     else songs.unshift(full);
     save();
@@ -32105,6 +32112,12 @@ function startSyncPolling() {
         const idx = songs.findIndex(x => x.id === s.id);
         if (idx >= 0) {
           if (remoteTs > (songs[idx].updatedAt || 0) + 2000) {
+            // Re-link song.sequencer → song.sequences[activeIdx] so they share
+            // the same object reference (Firestore deserialization breaks this)
+            if (s.sequences && s.sequences.length) {
+              const _linkIdx = Math.min(typeof seqActiveIdx !== 'undefined' ? seqActiveIdx : 0, s.sequences.length - 1);
+              s.sequencer = s.sequences[_linkIdx];
+            }
             songs[idx] = s;
             if (currentId === s.id) {
               populateSongFields(s);
@@ -32139,6 +32152,10 @@ function startSyncPolling() {
         const idx = songs.findIndex(x => x.id === s.id);
         if (idx >= 0) {
           if (remoteTs > (songs[idx].updatedAt || 0) + 2000) {
+            if (s.sequences && s.sequences.length) {
+              const _linkIdx = Math.min(typeof seqActiveIdx !== 'undefined' ? seqActiveIdx : 0, s.sequences.length - 1);
+              s.sequencer = s.sequences[_linkIdx];
+            }
             songs[idx] = s;
             if (currentId === s.id) {
               populateSongFields(s);
