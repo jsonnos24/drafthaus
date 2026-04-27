@@ -2236,9 +2236,9 @@ button, select, input, textarea { touch-action: manipulation; }
   .seq-settings-btn:hover { border-color: var(--gold); color: var(--gold); }
   .seq-settings-btn.open { border-color: var(--gold); color: var(--gold); background: rgba(245,166,35,0.08); }
   /* MIDI active key highlight */
-  .seq-key.midi-active { background: #a855f7 !important; }
+  .seq-key.midi-active { background: #ff6b6b !important; border-color: #ff9a9a !important; transition: background 0s !important; }
   /* Chord pill → keyboard highlight */
-  .seq-key.chord-highlight { background: #f5a623 !important; border-color: #ffd080 !important; transition: background 0s !important; }
+  .seq-key.chord-highlight { background: #4ade80 !important; border-color: #86efac !important; transition: background 0s !important; }
   /* Sweep mode cursor */
   .seq-chord-pill[onmouseenter] { cursor: pointer; }
   /* MIDI status indicator in controls bar */
@@ -16375,6 +16375,12 @@ body.split-4track-active .ft-overlay { display: none !important; }
 .pr-chord-pill:hover { background: rgba(192,132,252,0.22); }
 .pr-chord-pill:active { cursor: grabbing; }
 .pr-chord-pill.dragging { opacity: 0.5; }
+.pr-chord-pill-var {
+  font-size: 9px; padding: 3px 6px; margin-left: 8px;
+  background: rgba(245,240,224,0.08); border-color: rgba(212,200,154,0.25);
+  color: #d8c888; opacity: 0.85;
+}
+.pr-chord-pill-var:hover { background: rgba(245,240,224,0.18); opacity: 1; }
 .pr-chord-pill[data-degree="0"] { color: #c084fc; border-color: rgba(192,132,252,0.35); }
 .pr-chord-pill[data-degree="1"] { color: #c48dff; }
 .pr-chord-pill[data-degree="2"] { color: #cd97ff; }
@@ -16446,6 +16452,26 @@ body.split-4track-active .ft-overlay { display: none !important; }
 .pr-note[data-degree="7"] { background: rgba(150,65,220,0.7); border-color: #e088ff; }
 /* pencil notes (user-drawn, not from chord grid) */
 .pr-note.pencil-note { background: rgba(100,220,180,0.45); border-color: rgba(100,220,180,0.8); }
+
+/* ── playhead ── */
+.pr-playhead {
+  position: absolute; top: 0; bottom: 0; width: 2px; z-index: 20;
+  background: var(--gold, #f5a623); pointer-events: none;
+  box-shadow: 0 0 8px rgba(245,166,35,0.5);
+  display: none;
+}
+.pr-playhead.active { display: block; }
+.pr-playhead::before {
+  content: ''; position: absolute; top: -2px; left: -4px;
+  width: 10px; height: 6px; background: var(--gold, #f5a623);
+  border-radius: 2px 2px 0 0;
+}
+/* ruler playhead (sits in the time ruler) */
+.pr-ruler-playhead {
+  position: absolute; top: 0; bottom: 0; width: 2px; z-index: 5;
+  background: var(--gold, #f5a623); pointer-events: none; display: none;
+}
+.pr-ruler-playhead.active { display: block; }
 
 /* ── drop indicator ── */
 .pr-drop-indicator {
@@ -22116,6 +22142,7 @@ function _midiNoteOn(midiNote, velocity) {
     const noteName = SEQ_NOTES[midiNote % 12];
     const oct = Math.floor(midiNote / 12) - 1;
     melodyRecordNote(noteName, oct, true);
+    if (typeof prRecordNoteOn === 'function') prRecordNoteOn(midiNote, '', -1);
   }
 }
 
@@ -22126,6 +22153,7 @@ function _midiNoteOff(midiNote) {
     const noteName = SEQ_NOTES[midiNote % 12];
     const oct = Math.floor(midiNote / 12) - 1;
     melodyRecordNote(noteName, oct, false);
+    if (typeof prRecordNoteOff === 'function') prRecordNoteOff(midiNote);
   }
 }
 
@@ -26183,6 +26211,8 @@ var _seqPillActiveNotes = []; // [{note, octave}]
 function seqPillPress(name, degree) {
   seqClickFillChord(name, degree);
   seqShowChordOnKeyboard(name);
+  // Record chord into piano roll
+  if (typeof prRecordChord === 'function') prRecordChord(name, degree);
   // If melody recording is live, record each note in this chord
   if (melodyIsRecording) {
     const key  = seqCurrentKey();
@@ -26206,6 +26236,13 @@ function seqPillPress(name, degree) {
 
 function seqPillRelease() {
   seqHideChordOnKeyboard();
+  // Release chord notes in piano roll recording
+  if (typeof prRecordNoteOff === 'function' && _seqPillActiveNotes.length) {
+    _seqPillActiveNotes.forEach(({ note, octave }) => {
+      const midi = (octave + 1) * 12 + SEQ_NOTES.indexOf(note);
+      prRecordNoteOff(midi);
+    });
+  }
   // If melody recording is live, fire note-off for all chord notes
   if (melodyIsRecording && _seqPillActiveNotes.length) {
     _seqPillActiveNotes.forEach(({ note, octave }) => melodyRecordNote(note, octave, false));
@@ -27884,6 +27921,11 @@ function seqScheduleNotes() {
         melodyScheduledNodes = [];
         const secLoopDurMs = sec.totalSteps * sec.stepDur * 1000;
         seqScheduleMelody(ctx, baseTime, secLoopDurMs, sec.melody, sec.melodyInstrument);
+        // Schedule piano roll recorded notes
+        if (typeof prSchedulePlayback === 'function') {
+          var _prN2 = prSchedulePlayback(ctx, baseTime, secLoopDurMs / 1000);
+          if (_prN2) melodyScheduledNodes.push(..._prN2);
+        }
       }
 
       // Visual delay for step indicator
@@ -28050,6 +28092,11 @@ function seqScheduleNotes() {
         // Pass melodyNotes directly so we play the keyboard drawer's current notes
         // (not song.sequencer.melody which might be a different sequence)
         if (melodyNotes.length) seqScheduleMelody(ctx, baseTime, _kLoopMs, melodyNotes, _kbdMelodyInstrument);
+        // Schedule piano roll recorded notes
+        if (typeof prSchedulePlayback === 'function') {
+          var _prNodes = prSchedulePlayback(ctx, baseTime, _kLoopMs / 1000);
+          if (_prNodes) melodyScheduledNodes.push(..._prNodes);
+        }
       }
       // Visual highlight for chord slots
       if (chordSlots.length) {
@@ -28324,11 +28371,12 @@ function seqRenderKeyboard() {
         key.innerHTML = `<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:${labelColor};font-weight:${isRoot?'700':'400'};">${label}</span>`;
       }
       const flash = () => {
-        key.style.background = '#f5a623';
-        setTimeout(() => { key.style.background = defaultBg; }, 300);
+        key.style.background = '#ff6b6b';
+        clearTimeout(key._flashT);
+        key._flashT = setTimeout(() => { key.style.background = defaultBg; }, 300);
       };
       const wKeyDown = () => { flash(); kbdPlayNote(note, oct, true); melodyRecordNote(note, oct, true); };
-      const wKeyUp   = () => { kbdNoteOff(note, oct); melodyRecordNote(note, oct, false); };
+      const wKeyUp   = () => { clearTimeout(key._flashT); key.style.background = defaultBg; kbdNoteOff(note, oct); melodyRecordNote(note, oct, false); };
       key.addEventListener('mousedown',  wKeyDown);
       key.addEventListener('mouseup',    wKeyUp);
       key.addEventListener('mouseleave', () => { if (_kbdDragging) wKeyUp(); else wKeyUp(); });
@@ -28352,11 +28400,12 @@ function seqRenderKeyboard() {
       bkey.classList.add('seq-key');
       bkey._origBg = defaultBg;
       const flash = () => {
-        bkey.style.background = '#f5a623';
-        setTimeout(() => { bkey.style.background = defaultBg; }, 300);
+        bkey.style.background = '#ff6b6b';
+        clearTimeout(bkey._flashT);
+        bkey._flashT = setTimeout(() => { bkey.style.background = defaultBg; }, 300);
       };
       const bKeyDown = () => { flash(); kbdPlayNote(note, oct, true); melodyRecordNote(note, oct, true); };
-      const bKeyUp   = () => { kbdNoteOff(note, oct); melodyRecordNote(note, oct, false); };
+      const bKeyUp   = () => { clearTimeout(bkey._flashT); bkey.style.background = defaultBg; kbdNoteOff(note, oct); melodyRecordNote(note, oct, false); };
       bkey.addEventListener('mousedown',  e => { e.stopPropagation(); bKeyDown(); });
       bkey.addEventListener('mouseup',    bKeyUp);
       bkey.addEventListener('mouseleave', () => { if (_kbdDragging) bKeyUp(); else bKeyUp(); });
@@ -28399,9 +28448,10 @@ function seqRenderKeyboard() {
     _kbdTouchActiveKey = elem;
     const newNote = elem.dataset.note;
     const newOct  = parseInt(elem.dataset.oct);
-    elem.style.background = '#f5a623';
-    setTimeout(() => {
-      if (elem.style.background === 'rgb(245, 166, 35)') elem.style.background = elem._origBg;
+    elem.style.background = '#ff6b6b';
+    clearTimeout(elem._flashT);
+    elem._flashT = setTimeout(() => {
+      if (elem.style.background === 'rgb(255, 107, 107)') elem.style.background = elem._origBg;
     }, 300);
     kbdPlayNote(newNote, newOct, true);
     melodyRecordNote(newNote, newOct, true);
@@ -28666,6 +28716,7 @@ async function melodyStartRecord() {
   melodyRecStart = Date.now();
   melodyNotes = [];
   melodyActiveNotes.clear();
+  if (typeof prStartRecording === 'function') prStartRecording();
   melodyActiveNote = null;
   { const rb = document.getElementById('sharedRecBtn'); if (rb) { rb.classList.add('recording'); rb.textContent = '⏹ Stop Rec'; } }
   { const sb = document.getElementById('splitRecBtn'); if (sb) sb.classList.add('recording'); }
@@ -28717,6 +28768,7 @@ function melodyStopRecord() {
   melodyActiveNotes.clear();
   melodyActiveNote = null;
   melodyIsRecording = false;
+  if (typeof prStopRecording === 'function') prStopRecording();
 
   // Quantize if enabled
   const song = getCurrentSong();
@@ -46776,6 +46828,9 @@ document.addEventListener('keydown', function(e) {
   const name = seqKeySlots[n - 1];
   if (!name) return;
   seqClickFillChord(name, ''); // preview: play only; compose: also fills next grid slot
+  // Record finger chord into piano roll
+  if (typeof prRecordChord === 'function') prRecordChord(name, -1);
+  setTimeout(function() { if (typeof prRecordChordRelease === 'function') prRecordChordRelease(name); }, 300);
   // Visual flash on the key slot
   const slot = document.querySelector(`#seqKeyTriggerRow .seq-key-slot[data-key-idx="${n - 1}"]`);
   if (slot) {
@@ -56336,7 +56391,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <div class="pr-chord-palette-title">Chords</div>
       </div>
       <div class="pr-grid-wrap">
-        <div class="pr-time-ruler" id="prTimeRuler"><canvas id="prRulerCanvas"></canvas></div>
+        <div class="pr-time-ruler" id="prTimeRuler"><canvas id="prRulerCanvas"></canvas><div class="pr-ruler-playhead" id="prRulerPlayhead"></div></div>
         <div class="pr-grid-scroll" id="prGridScroll">
           <div class="pr-grid-container" id="prGridContainer">
             <div class="pr-keys" id="prKeys"></div>
@@ -56344,6 +56399,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
               <canvas id="prGridCanvas"></canvas>
             </div>
             <div id="prNotesLayer" style="position:absolute;top:0;left:44px;right:0;bottom:0;z-index:3;"></div>
+            <div class="pr-playhead" id="prPlayhead"></div>
             <div class="pr-drop-indicator" id="prDropIndicator"></div>
           </div>
         </div>
@@ -56365,9 +56421,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   const PR_MIN_MIDI = 36; // C2
   const PR_MAX_MIDI = 84; // C6
   const PR_TOTAL_ROWS = PR_MAX_MIDI - PR_MIN_MIDI + 1; // 49 rows
-  const PR_ROW_H = 18;
+  let PR_ROW_H = 18;
   const PR_KEY_W = 44;
-  const PR_COL_W = 28; // pixels per grid subdivision
+  let PR_COL_W = 28; // pixels per grid subdivision
 
   // ── State ──
   let prOpen = false;
@@ -56469,6 +56525,13 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     prTimeSig = parseInt(sd.time || document.getElementById('seqTime')?.value || 4);
     prChordSteps = parseInt(song?.chordSteps || sd.chordSteps || document.getElementById('seqChordSteps')?.value || 1);
 
+    // Try loading saved piano roll data first (includes recorded notes)
+    if (typeof prLoadPianoRoll === 'function' && prLoadPianoRoll(song)) {
+      return; // use saved data as-is
+    }
+    // Try migrating old melody[] data
+    if (typeof prMigrateMelody === 'function') prMigrateMelody(song);
+
     const totalBeats = prBars * prTimeSig;
     const totalChordSlots = totalBeats * prChordSteps;
     prTotalCols = totalBeats * prSnap; // at current snap resolution
@@ -56550,26 +56613,55 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const { key, mode } = prParseKey(song);
     const scaleChords = (typeof seqGetScaleChords === 'function') ? seqGetScaleChords(key, mode) : [];
 
-    let html = '<div class="pr-chord-palette-title">Chords</div>';
-    scaleChords.forEach((name, i) => {
-      const display = name.replace('_viii', '⁸').replace('m','m').replace('dim','°');
-      html += `<div class="pr-chord-pill" data-degree="${i}" data-chord="${name}" draggable="true"
-        onmousedown="prPalDragStart(event,'${name}',${i})"
-        ontouchstart="prPalDragStart(event,'${name}',${i})">${display}</div>`;
-    });
+    // Extension map: base quality → variant suffixes
+    const EXT = (typeof _CHORD_EXTENSIONS !== 'undefined') ? _CHORD_EXTENSIONS
+      : { '': ['maj7','7','sus2','sus4','add9'], 'm': ['m7','m9','madd9','msus4'], 'dim': ['dim7','m7b5'] };
 
-    // Also show any variant/custom chords currently in the grid
-    const sd = song?.sequencer || {};
-    const existing = new Set(scaleChords);
-    (sd.chordSlots || []).forEach((name, i) => {
-      if (name && !existing.has(name)) {
-        existing.add(name);
-        const display = name.replace('_viii', '⁸');
-        html += `<div class="pr-chord-pill" data-degree="-1" data-chord="${name}" draggable="true"
-          onmousedown="prPalDragStart(event,'${name}',-1)"
-          ontouchstart="prPalDragStart(event,'${name}',-1)">${display}</div>`;
+    const _pill = (name, deg, cls) => {
+      const display = name.replace('_viii', '⁸');
+      return `<div class="pr-chord-pill${cls ? ' ' + cls : ''}" data-degree="${deg}" data-chord="${name}" draggable="true"
+        onmousedown="prPalDragStart(event,'${name}',${deg})"
+        ontouchstart="prPalDragStart(event,'${name}',${deg})">${display}</div>`;
+    };
+
+    let html = '<div class="pr-chord-palette-title">Diatonic</div>';
+    const allAdded = new Set();
+
+    scaleChords.forEach((name, i) => {
+      // Diatonic chord pill
+      html += _pill(name, i, '');
+      allAdded.add(name);
+
+      // Parse root and quality from the chord name
+      const stripped = name.replace('_viii', '');
+      let root, qual;
+      if (stripped.length >= 2 && stripped[1] === '#') { root = stripped.slice(0, 2); qual = stripped.slice(2); }
+      else { root = stripped[0]; qual = stripped.slice(1); }
+
+      // Add variations for this root
+      const variants = EXT[qual] || [];
+      if (variants.length) {
+        variants.forEach(ext => {
+          const varName = root + ext;
+          if (!allAdded.has(varName)) {
+            allAdded.add(varName);
+            html += _pill(varName, i, 'pr-chord-pill-var');
+          }
+        });
       }
     });
+
+    // Also show any custom chords currently in the grid
+    const sd = song?.sequencer || {};
+    const gridExtras = (sd.chordSlots || []).filter(name => name && !allAdded.has(name));
+    if (gridExtras.length) {
+      html += '<div class="pr-chord-palette-title" style="margin-top:8px;">In Grid</div>';
+      gridExtras.forEach(name => {
+        if (allAdded.has(name)) return;
+        allAdded.add(name);
+        html += _pill(name, -1, 'pr-chord-pill-var');
+      });
+    }
 
     pal.innerHTML = html;
   }
@@ -56721,8 +56813,11 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   function _prSyncRulerScroll() {
     const scroll = document.getElementById('prGridScroll');
     const rulerCanvas = document.getElementById('prRulerCanvas');
-    if (scroll && rulerCanvas) {
-      rulerCanvas.style.transform = `translateX(${-scroll.scrollLeft}px)`;
+    const rulerPH = document.getElementById('prRulerPlayhead');
+    if (scroll) {
+      const tx = `translateX(${-scroll.scrollLeft}px)`;
+      if (rulerCanvas) rulerCanvas.style.transform = tx;
+      if (rulerPH) rulerPH.style.transform = tx;
     }
   }
 
@@ -56787,6 +56882,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
     const note = prNotes.find(n => n.id === noteId);
     if (!note) return;
+
+    // Preview the note/chord on tap
+    prPreviewNote(note);
 
     const rect = document.getElementById('prNotesLayer').getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -56878,6 +56976,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       };
       prNotes.push(newNote);
       prSelected = newNote.id;
+      prPreviewNote(newNote);
       prRenderNotes();
 
       // Allow drag to extend the note
@@ -57024,6 +57123,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     sd.chordDegrees = newDegrees;
     sd.chordContinued = newContinued;
 
+    // Also persist the full piano roll (recorded notes + edits)
+    prSavePianoRoll();
+
     // Re-render the sequencer chord grid
     if (typeof seqLoadSequenceIntoDOM === 'function') {
       const _prSong = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
@@ -57072,14 +57174,397 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
   // ── Delete selected note with Backspace/Delete ──
   document.addEventListener('keydown', e => {
-    if (!prOpen || !prSelected) return;
-    if (e.key === 'Backspace' || e.key === 'Delete') {
+    if (!prOpen) return;
+    if (prSelected && (e.key === 'Backspace' || e.key === 'Delete')) {
       e.preventDefault();
       prNotes = prNotes.filter(n => n.id !== prSelected);
       prSelected = null;
       prRenderNotes();
+      return;
+    }
+
+    // ── Zoom: +/- = horizontal, Shift +/- = vertical ──
+    const isPlus  = e.key === '+' || e.key === '=' || e.key === 'NumpadAdd';
+    const isMinus = e.key === '-' || e.key === '_' || e.key === 'NumpadSubtract';
+    if (!isPlus && !isMinus) return;
+    e.preventDefault();
+
+    const scroll = document.getElementById('prGridScroll');
+    // Remember scroll position as fraction so we can restore center
+    const scrollFracX = scroll ? scroll.scrollLeft / (scroll.scrollWidth || 1) : 0;
+    const scrollFracY = scroll ? scroll.scrollTop / (scroll.scrollHeight || 1) : 0;
+
+    if (e.shiftKey) {
+      // Vertical zoom (row height)
+      const oldH = PR_ROW_H;
+      if (isPlus)  PR_ROW_H = Math.min(40, PR_ROW_H + 2);
+      if (isMinus) PR_ROW_H = Math.max(8, PR_ROW_H - 2);
+      if (PR_ROW_H !== oldH) {
+        prRenderKeys();
+        prRenderGrid();
+        prRenderNotes();
+        if (scroll) scroll.scrollTop = scrollFracY * scroll.scrollHeight;
+      }
+    } else {
+      // Horizontal zoom (column width)
+      const oldW = PR_COL_W;
+      if (isPlus)  PR_COL_W = Math.min(80, PR_COL_W + 4);
+      if (isMinus) PR_COL_W = Math.max(8, PR_COL_W - 4);
+      if (PR_COL_W !== oldW) {
+        prRenderGrid();
+        prRenderRuler();
+        prRenderNotes();
+        if (scroll) scroll.scrollLeft = scrollFracX * scroll.scrollWidth;
+      }
     }
   });
+
+  // ── Tap-to-preview: play MIDI note(s) when clicking a note block ──
+  function prPreviewNote(noteData) {
+    try {
+      const ctx = (typeof getSeqAudioCtx === 'function') ? getSeqAudioCtx() : null;
+      if (!ctx) return;
+      if (ctx.state === 'suspended') ctx.resume();
+      if (typeof _seqEnsureMasterGain === 'function') _seqEnsureMasterGain();
+      const t = ctx.currentTime;
+      const vel = 0.75;
+
+      // If it's a chord note, try to play the whole chord via the sampler
+      if (noteData.chordName) {
+        if (typeof seqPlayChordByName === 'function') {
+          seqPlayChordByName(noteData.chordName);
+          return;
+        }
+      }
+
+      // Single note preview
+      const midi = noteData.midi;
+      let played = false;
+
+      if (typeof _instrHas === 'function' && typeof _pianoLoaded !== 'undefined') {
+        if (_instrHas('piano') && _pianoLoaded && typeof seqPlayChordPiano === 'function') {
+          seqPlayChordPiano([midi], t, vel);
+          played = true;
+        }
+        if (_instrHas('piano2') && typeof _piano2Loaded !== 'undefined' && _piano2Loaded && typeof seqPlayChordPiano2 === 'function') {
+          seqPlayChordPiano2([midi], t, vel);
+          played = true;
+        }
+        if (_instrHas('guitar') && typeof _guitarLoaded !== 'undefined' && _guitarLoaded && typeof seqPlayChordGuitar === 'function') {
+          seqPlayChordGuitar([midi], t, vel);
+          played = true;
+        }
+      }
+
+      // Synth fallback
+      if (!played) {
+        const freq = 440 * Math.pow(2, (midi - 69) / 12);
+        if (typeof seqPlayChord === 'function') {
+          seqPlayChord([freq], t, vel);
+        } else {
+          // Ultra-minimal fallback: raw oscillator
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'triangle';
+          o.frequency.value = freq;
+          o.connect(g);
+          g.connect(ctx.destination);
+          g.gain.setValueAtTime(vel * 0.3, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+          o.start(t);
+          o.stop(t + 0.6);
+        }
+      }
+    } catch(e) { console.warn('[PR preview]', e); }
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // ── PIANO ROLL RECORDING ENGINE ──
+  // prNotes[] is the single source of truth for all note data.
+  // Recording captures from: MIDI keyboard, virtual keys, chord pills, finger chords (1-9).
+  // ══════════════════════════════════════════════════════════
+
+  let prIsRecording = false;
+  let prRecStartTime = null;   // Date.now() when recording armed
+  let prRecLoopMs = 0;         // total loop duration in ms
+  let prRecActiveNotes = new Map(); // midi → {midi, startMs, chordName, degree}
+
+  // Expose functions on window so hooks outside the IIFE can call them
+  window.prStartRecording = function() {
+    prIsRecording = true;
+    prRecStartTime = Date.now();
+    prRecActiveNotes.clear();
+    // Calculate loop duration from sequencer config
+    const song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    if (song && song.sequencer) {
+      const sd = song.sequencer;
+      const bpm = parseFloat(sd.bpm) || 120;
+      const timeSig = parseInt(sd.timeSig) || 4;
+      const bars = parseInt(sd.bars) || 2;
+      const totalBeats = timeSig * bars;
+      prRecLoopMs = (totalBeats / bpm) * 60000;
+    } else {
+      prRecLoopMs = 4000; // fallback 4 seconds
+    }
+    console.log('[PR REC] Armed — loopMs:', prRecLoopMs);
+  };
+
+  window.prStopRecording = function() {
+    if (!prIsRecording) return;
+    const stopMs = Date.now();
+    // Finalize any still-held notes
+    prRecActiveNotes.forEach((info, midi) => {
+      const elapsed = stopMs - info.startMs;
+      const posMs = (info.startMs - prRecStartTime) % prRecLoopMs;
+      const startCol = Math.round((posMs / prRecLoopMs) * prTotalCols);
+      const durMs = Math.max(50, elapsed);
+      const durCols = Math.max(1, Math.round((durMs / prRecLoopMs) * prTotalCols));
+      prNotes.push({
+        id: 'rec_' + Date.now() + '_' + midi,
+        midi: midi,
+        startCol: Math.min(startCol, prTotalCols - 1),
+        durCols: Math.min(durCols, prTotalCols - startCol),
+        chordName: info.chordName || '',
+        degree: info.degree != null ? info.degree : -1,
+        isPencil: false
+      });
+    });
+    prRecActiveNotes.clear();
+    prIsRecording = false;
+    prRecStartTime = null;
+    // Sync & save
+    if (typeof prAutoSync === 'function') prAutoSync();
+    if (prOpen) prRenderNotes();
+    console.log('[PR REC] Stopped — total notes:', prNotes.length);
+  };
+
+  window.prRecordNoteOn = function(midi, chordName, degree) {
+    if (!prIsRecording || !prRecStartTime) return;
+    // Store start info; we'll calculate grid position on note-off
+    prRecActiveNotes.set(midi, {
+      midi: midi,
+      startMs: Date.now(),
+      chordName: chordName || '',
+      degree: degree != null ? degree : -1
+    });
+  };
+
+  window.prRecordNoteOff = function(midi) {
+    if (!prIsRecording || !prRecStartTime) return;
+    const info = prRecActiveNotes.get(midi);
+    if (!info) return;
+    prRecActiveNotes.delete(midi);
+    const elapsed = Date.now() - info.startMs;
+    const posMs = (info.startMs - prRecStartTime) % prRecLoopMs;
+    const startCol = Math.round((posMs / prRecLoopMs) * prTotalCols);
+    const durMs = Math.max(50, elapsed);
+    const durCols = Math.max(1, Math.round((durMs / prRecLoopMs) * prTotalCols));
+    // Check for out-of-range MIDI
+    if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
+    prNotes.push({
+      id: 'rec_' + Date.now() + '_' + midi,
+      midi: midi,
+      startCol: Math.min(startCol, prTotalCols - 1),
+      durCols: Math.min(durCols, prTotalCols - startCol),
+      chordName: info.chordName || '',
+      degree: info.degree != null ? info.degree : -1,
+      isPencil: false
+    });
+    if (prOpen) prRenderNotes();
+  };
+
+  window.prRecordChord = function(chordName, degree) {
+    if (!prIsRecording || !prRecStartTime) return;
+    // Resolve chord to MIDI notes and record each
+    const midis = (typeof _chordToMidi === 'function') ? _chordToMidi(chordName) : null;
+    if (!midis || !midis.length) return;
+    midis.forEach(function(m) {
+      window.prRecordNoteOn(m, chordName, degree);
+    });
+  };
+
+  window.prRecordChordRelease = function(chordName) {
+    if (!prIsRecording || !prRecStartTime) return;
+    const midis = (typeof _chordToMidi === 'function') ? _chordToMidi(chordName) : null;
+    if (!midis || !midis.length) return;
+    midis.forEach(function(m) {
+      window.prRecordNoteOff(m);
+    });
+  };
+
+  // ── Persistence: save/load pianoRoll data to Firestore ──
+
+  window.prSavePianoRoll = function() {
+    const song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    if (!song || !song.sequencer) return;
+    // Save prNotes as a lightweight array
+    song.sequencer.pianoRoll = prNotes.map(function(n) {
+      return {
+        id: n.id, midi: n.midi, startCol: n.startCol, durCols: n.durCols,
+        chordName: n.chordName || '', degree: n.degree != null ? n.degree : -1,
+        isPencil: !!n.isPencil
+      };
+    });
+    // Persist
+    if (typeof saveSongDebounced === 'function') saveSongDebounced();
+    else if (typeof saveSong === 'function') saveSong();
+  };
+
+  window.prLoadPianoRoll = function(song) {
+    if (!song || !song.sequencer || !song.sequencer.pianoRoll) return false;
+    const saved = song.sequencer.pianoRoll;
+    if (!Array.isArray(saved) || saved.length === 0) return false;
+    prNotes.length = 0;
+    saved.forEach(function(n) {
+      prNotes.push({
+        id: n.id || ('load_' + Math.random().toString(36).substr(2, 8)),
+        midi: n.midi, startCol: n.startCol, durCols: n.durCols,
+        chordName: n.chordName || '', degree: n.degree != null ? n.degree : -1,
+        isPencil: !!n.isPencil
+      });
+    });
+    console.log('[PR] Loaded', prNotes.length, 'notes from pianoRoll');
+    return true;
+  };
+
+  window.prMigrateMelody = function(song) {
+    if (!song || !song.sequencer) return;
+    const mel = song.sequencer.melody || song.melody;
+    if (!Array.isArray(mel) || mel.length === 0) return;
+    // Calculate loop duration
+    const sd = song.sequencer;
+    const bpm = parseFloat(sd.bpm) || 120;
+    const timeSig = parseInt(sd.timeSig) || 4;
+    const bars = parseInt(sd.bars) || 2;
+    const totalBeats = timeSig * bars;
+    const loopMs = (totalBeats / bpm) * 60000;
+    mel.forEach(function(mn) {
+      const noteName = mn.note || '';
+      const octave = parseInt(mn.octave) || 4;
+      const noteIdx = PR_NOTES_ALL.indexOf(noteName);
+      if (noteIdx < 0) return;
+      const midi = (octave + 1) * 12 + noteIdx; // C4 = 60
+      if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
+      const startCol = Math.round(((mn.startMs || 0) / loopMs) * prTotalCols);
+      const durCols = Math.max(1, Math.round(((mn.durMs || 100) / loopMs) * prTotalCols));
+      prNotes.push({
+        id: 'mig_' + Math.random().toString(36).substr(2, 8),
+        midi: midi,
+        startCol: Math.min(startCol, prTotalCols - 1),
+        durCols: Math.min(durCols, prTotalCols - startCol),
+        chordName: '', degree: -1, isPencil: false
+      });
+    });
+    console.log('[PR] Migrated', prNotes.length, 'notes from melody[]');
+  };
+
+  // ── Schedule recorded notes for playback ──
+
+  window.prSchedulePlayback = function(audioCtx, loopStartTime, loopDurSec) {
+    if (!prNotes.length) return null;
+    const nodes = [];
+    const song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    // Determine instrument
+    const inst = song?.sequencer?.melodyInstrument || 'piano';
+    prNotes.forEach(function(n) {
+      const startFrac = n.startCol / prTotalCols;
+      const durFrac = n.durCols / prTotalCols;
+      const noteStart = loopStartTime + startFrac * loopDurSec;
+      const noteDur = durFrac * loopDurSec;
+      if (noteStart < audioCtx.currentTime - 0.1) return; // skip past notes
+      try {
+        // Use the existing melody scheduling approach
+        const freq = 440 * Math.pow(2, (n.midi - 69) / 12);
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        // Choose waveform based on instrument
+        if (inst === 'synth') osc.type = 'sawtooth';
+        else if (inst === 'guitar') osc.type = 'triangle';
+        else osc.type = 'sine'; // piano default
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.25, noteStart);
+        gain.gain.exponentialRampToValueAtTime(0.001, noteStart + noteDur);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(noteStart);
+        osc.stop(noteStart + noteDur + 0.05);
+        nodes.push(osc);
+      } catch(e) {}
+    });
+    return nodes.length ? nodes : null;
+  };
+
+  // ── Playhead: tracks sequencer playback position ──
+  let _prPlayheadRAF = null;
+  let _prLastPlayState = false;
+
+  function prPlayheadLoop() {
+    _prPlayheadRAF = requestAnimationFrame(prPlayheadLoop);
+
+    if (!prOpen) return;
+
+    const playing = (typeof seqIsPlaying !== 'undefined') && seqIsPlaying;
+    const playhead = document.getElementById('prPlayhead');
+    const rulerPH = document.getElementById('prRulerPlayhead');
+
+    if (!playing) {
+      if (_prLastPlayState) {
+        // Just stopped — hide playhead
+        if (playhead) playhead.classList.remove('active');
+        if (rulerPH) rulerPH.classList.remove('active');
+        _prLastPlayState = false;
+      }
+      return;
+    }
+    _prLastPlayState = true;
+
+    // Find currently playing chord slot index from the DOM highlight
+    const allSlots = document.querySelectorAll('#seqChordGrid .seq-slot');
+    let playIdx = -1;
+    allSlots.forEach((s, i) => { if (s.classList.contains('playing')) playIdx = i; });
+
+    if (playIdx < 0 || allSlots.length === 0) return;
+
+    // Map chord slot index → piano roll X position
+    const colsPerSlot = prTotalCols / allSlots.length;
+    const playCol = playIdx * colsPerSlot;
+    const xPos = playCol * PR_COL_W;
+
+    // Position both playheads
+    if (playhead) {
+      playhead.classList.add('active');
+      playhead.style.left = (PR_KEY_W + xPos) + 'px';
+    }
+    if (rulerPH) {
+      rulerPH.classList.add('active');
+      rulerPH.style.left = (PR_KEY_W + xPos) + 'px';
+    }
+
+    // Auto-scroll horizontally to keep playhead in view
+    const scroll = document.getElementById('prGridScroll');
+    if (scroll) {
+      const viewLeft = scroll.scrollLeft;
+      const viewRight = viewLeft + scroll.clientWidth;
+      const margin = 80; // keep some breathing room ahead
+      // If playhead is near the right edge or past it, scroll forward
+      if (xPos > viewRight - margin) {
+        scroll.scrollLeft = xPos - margin;
+      }
+      // If playhead wrapped back to start, snap scroll back
+      if (xPos < viewLeft && playIdx === 0) {
+        scroll.scrollLeft = 0;
+      }
+    }
+  }
+
+  // Start the playhead loop once DOM is ready
+  document.addEventListener('DOMContentLoaded', () => {
+    prPlayheadLoop();
+  });
+  // Also start immediately in case DOMContentLoaded already fired
+  if (document.readyState !== 'loading') {
+    prPlayheadLoop();
+  }
 
 })();
 
