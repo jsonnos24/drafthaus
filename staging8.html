@@ -28176,7 +28176,14 @@ function seqScheduleNotes() {
       melodyScheduledNodes = [];
       clearMelodyKeyHighlights();
       const loopDurMs = totalSteps * stepDur * 1000;
-      seqScheduleMelody(ctx, noteTime, loopDurMs);
+      // Piano roll is the source of truth — if it has notes, play from there;
+      // otherwise fall back to the standard melody array.
+      var _hasPrNotes3 = (typeof prSchedulePlayback === 'function' && window._prNotesCount && window._prNotesCount() > 0);
+      if (_hasPrNotes3) {
+        prSchedulePlayback(ctx, noteTime, loopDurMs / 1000);
+      } else {
+        seqScheduleMelody(ctx, noteTime, loopDurMs);
+      }
       const song2 = getCurrentSong();
       if (song2?.sequencer?.melody?.length) seqHighlightMelodyKeys(song2.sequencer.melody, noteTime, ctx);
     }
@@ -35965,7 +35972,7 @@ function renderKeyboardDrawerHtml(song) {
               <option value="4">1/16</option>
             </select>
             <span style="flex:1"></span>
-            <button class="seq-btn" style="font-size:9px;padding:2px 8px;background:var(--card2);border:1px solid var(--border2);color:var(--purple,#c8a0ff);border-radius:4px;cursor:pointer;" onclick="prOpen_()" title="Open Piano Roll">🎹 Piano Roll</button>
+            <button class="seq-btn" style="font-size:9px;padding:2px 8px;background:var(--card2);border:1px solid var(--border2);color:var(--purple,#c8a0ff);border-radius:4px;cursor:pointer;" onclick="prOpen_()" title="Open Piano Roll">Piano Roll</button>
             <button class="seq-btn" style="font-size:9px;padding:2px 8px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="seqClearAllChordSlots()" title="Clear all">Clear ×</button>
           </div>
           <div class="kbd-chord-seq-wrapper" style="margin:0;flex:1;min-height:0;display:flex;flex-direction:column;">
@@ -36065,7 +36072,7 @@ function renderKeyboardDrawerHtml(song) {
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
               <span class="kbd-stage-section-title" style="margin-bottom:0;">Chord Sequence</span>
               <span style="flex:1"></span>
-              <button class="seq-btn" style="font-size:9px;padding:3px 8px;background:var(--card2);border:1px solid var(--border2);color:var(--purple,#c8a0ff);border-radius:4px;cursor:pointer;" onclick="prOpen_()" title="Open Piano Roll">🎹 Roll</button>
+              <button class="seq-btn" style="font-size:9px;padding:3px 8px;background:var(--card2);border:1px solid var(--border2);color:var(--purple,#c8a0ff);border-radius:4px;cursor:pointer;" onclick="prOpen_()" title="Open Piano Roll">Piano Roll</button>
               <button class="seq-btn" style="font-size:9px;padding:3px 8px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="seqClearAllChordSlots()" title="Clear all">Clear</button>
             </div>
             <div class="kbd-chord-seq-wrapper" style="margin-bottom:0;">
@@ -36217,7 +36224,7 @@ function renderKeyboardDrawerHtml(song) {
           <div style="display:flex;align-items:center;gap:6px;">
             <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint);">Sequence · 4×8</span>
             <span style="flex:1"></span>
-            <button class="seq-btn" style="font-size:9px;padding:2px 8px;background:var(--card2);border:1px solid var(--border2);color:var(--purple,#c8a0ff);border-radius:4px;cursor:pointer;" onclick="prOpen_()" title="Open Piano Roll">🎹</button>
+            <button class="seq-btn" style="font-size:9px;padding:2px 8px;background:var(--card2);border:1px solid var(--border2);color:var(--purple,#c8a0ff);border-radius:4px;cursor:pointer;" onclick="prOpen_()" title="Open Piano Roll">Piano Roll</button>
             <button class="seq-btn" style="font-size:9px;padding:2px 8px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="seqClearAllChordSlots();kbdPortUpdatePeek();kbdPortUpdateBadge();" title="Clear all">Clear ×</button>
           </div>
 
@@ -56526,13 +56533,23 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     prNextId = 1;
     const song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
     const sd = song?.sequencer || {};
-    prBars = parseInt(sd.bars || document.getElementById('seqBars')?.value || 2);
+    const _sectionBars = parseInt(sd.bars || document.getElementById('seqBars')?.value || 2);
     prTimeSig = parseInt(sd.time || document.getElementById('seqTime')?.value || 4);
     prChordSteps = parseInt(song?.chordSteps || sd.chordSteps || document.getElementById('seqChordSteps')?.value || 1);
 
+    // Calculate bars for 5 minutes based on BPM and time signature
+    const _prBpm = parseFloat(sd.bpm || document.getElementById('seqBpm')?.value || 120);
+    const _secPerBar = (prTimeSig / _prBpm) * 60; // seconds per bar
+    prBars = Math.ceil(300 / _secPerBar); // 300 seconds = 5 minutes
+    // Store section bar count for sync reference
+    var _prSectionBars = _sectionBars;
+
     // Try loading saved piano roll data first (includes recorded notes)
     if (typeof prLoadPianoRoll === 'function' && prLoadPianoRoll(song)) {
-      return; // use saved data as-is
+      // Still need to set prTotalCols for the extended grid
+      const totalBeats = prBars * prTimeSig;
+      prTotalCols = totalBeats * prSnap;
+      return;
     }
     // Try migrating old melody[] data
     if (typeof prMigrateMelody === 'function') prMigrateMelody(song);
@@ -56677,6 +56694,12 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     prRenderGrid();
     prRenderRuler();
     prRenderNotes();
+    // Attach scroll-based redraw for viewport canvas rendering
+    const scrollEl = document.getElementById('prGridScroll');
+    if (scrollEl) {
+      scrollEl.removeEventListener('scroll', _prOnGridScroll);
+      scrollEl.addEventListener('scroll', _prOnGridScroll);
+    }
   }
 
   function prRenderKeys() {
@@ -56694,9 +56717,21 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     keys.innerHTML = html;
   }
 
+  // Track scroll-based redraw
+  let _prGridScrollRAF = null;
+  function _prOnGridScroll() {
+    if (_prGridScrollRAF) return;
+    _prGridScrollRAF = requestAnimationFrame(() => {
+      _prGridScrollRAF = null;
+      prRenderGrid();
+      prRenderRuler();
+    });
+  }
+
   function prRenderGrid() {
     const canvas = document.getElementById('prGridCanvas');
     const container = document.getElementById('prGridContainer');
+    const scrollEl = document.getElementById('prGridScroll');
     if (!canvas || !container) return;
 
     const gridW = prTotalCols * PR_COL_W;
@@ -56704,35 +56739,46 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     container.style.width = (PR_KEY_W + gridW) + 'px';
     container.style.height = gridH + 'px';
 
-    canvas.width = gridW;
+    // Viewport-based canvas: only render the visible region + buffer
+    const vpW = scrollEl ? scrollEl.clientWidth : gridW;
+    const scrollX = scrollEl ? scrollEl.scrollLeft : 0;
+    const buffer = 200; // px buffer on each side
+    const renderLeft = Math.max(0, scrollX - buffer);
+    const renderRight = Math.min(gridW, scrollX + vpW + buffer);
+    const renderW = renderRight - renderLeft;
+
+    canvas.width = renderW;
     canvas.height = gridH;
-    canvas.style.width = gridW + 'px';
+    canvas.style.width = renderW + 'px';
     canvas.style.height = gridH + 'px';
+    canvas.style.left = renderLeft + 'px';
+    canvas.style.position = 'absolute';
 
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, gridW, gridH);
+    ctx.clearRect(0, 0, renderW, gridH);
 
     // Row backgrounds
     for (let row = 0; row < PR_TOTAL_ROWS; row++) {
       const midi = rowToMidi(row);
       const y = row * PR_ROW_H;
       ctx.fillStyle = isBlack(midi) ? '#1a1a28' : '#222240';
-      ctx.fillRect(0, y, gridW, PR_ROW_H);
+      ctx.fillRect(0, y, renderW, PR_ROW_H);
       // C-note highlight
       if (PR_NOTES_ALL[midi % 12] === 'C') {
         ctx.strokeStyle = 'rgba(245,166,35,0.35)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(0, y + PR_ROW_H - 0.5);
-        ctx.lineTo(gridW, y + PR_ROW_H - 0.5);
+        ctx.lineTo(renderW, y + PR_ROW_H - 0.5);
         ctx.stroke();
       }
     }
 
-    // Vertical grid lines
-    const beatsTotal = prBars * prTimeSig;
-    for (let col = 0; col <= prTotalCols; col++) {
-      const x = col * PR_COL_W;
+    // Vertical grid lines (only draw visible columns)
+    const firstCol = Math.max(0, Math.floor(renderLeft / PR_COL_W) - 1);
+    const lastCol = Math.min(prTotalCols, Math.ceil(renderRight / PR_COL_W) + 1);
+    for (let col = firstCol; col <= lastCol; col++) {
+      const x = col * PR_COL_W - renderLeft;
       const beat = col / prSnap;
       const isBeat = Number.isInteger(beat);
       const isBar = isBeat && (beat % prTimeSig === 0);
@@ -56758,29 +56804,44 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       ctx.lineWidth = 0.5;
       ctx.beginPath();
       ctx.moveTo(0, row * PR_ROW_H + 0.5);
-      ctx.lineTo(gridW, row * PR_ROW_H + 0.5);
+      ctx.lineTo(renderW, row * PR_ROW_H + 0.5);
       ctx.stroke();
     }
   }
 
   function prRenderRuler() {
     const canvas = document.getElementById('prRulerCanvas');
+    const scrollEl = document.getElementById('prGridScroll');
     if (!canvas) return;
-    const gridW = prTotalCols * PR_COL_W + PR_KEY_W;
-    canvas.width = gridW;
+
+    const fullGridW = prTotalCols * PR_COL_W + PR_KEY_W;
+    // Viewport-based ruler: only render visible region
+    const vpW = scrollEl ? scrollEl.clientWidth : fullGridW;
+    const scrollX = scrollEl ? scrollEl.scrollLeft : 0;
+    const buffer = 200;
+    const renderLeft = Math.max(0, scrollX - buffer);
+    const renderRight = Math.min(fullGridW, scrollX + vpW + buffer);
+    const renderW = renderRight - renderLeft;
+
+    canvas.width = renderW;
     canvas.height = 24;
-    canvas.style.width = gridW + 'px';
+    canvas.style.width = renderW + 'px';
+    // Position canvas within the ruler using transform instead of scroll sync
+    canvas.style.transform = `translateX(${renderLeft - scrollX}px)`;
 
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, gridW, 24);
+    ctx.clearRect(0, 0, renderW, 24);
     ctx.fillStyle = '#1a1a2e';
-    ctx.fillRect(0, 0, gridW, 24);
+    ctx.fillRect(0, 0, renderW, 24);
 
     ctx.font = '9px "IBM Plex Mono", monospace';
-    const beatsTotal = prBars * prTimeSig;
 
-    for (let col = 0; col <= prTotalCols; col++) {
-      const x = PR_KEY_W + col * PR_COL_W;
+    // Only draw visible columns
+    const firstCol = Math.max(0, Math.floor((renderLeft - PR_KEY_W) / PR_COL_W) - 1);
+    const lastCol = Math.min(prTotalCols, Math.ceil((renderRight - PR_KEY_W) / PR_COL_W) + 1);
+
+    for (let col = firstCol; col <= lastCol; col++) {
+      const x = PR_KEY_W + col * PR_COL_W - renderLeft;
       const beat = col / prSnap;
       const isBeat = Number.isInteger(beat);
       const bar = Math.floor(beat / prTimeSig) + 1;
@@ -56806,7 +56867,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       ctx.stroke();
     }
 
-    // Sync ruler scroll with grid scroll
+    // Sync ruler playhead scroll with grid scroll
     const scroll = document.getElementById('prGridScroll');
     const ruler = document.getElementById('prTimeRuler');
     if (scroll && ruler) {
@@ -56816,13 +56877,12 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   }
 
   function _prSyncRulerScroll() {
+    // Ruler canvas is now re-rendered on scroll via _prOnGridScroll,
+    // but we still need to position the playhead indicator
     const scroll = document.getElementById('prGridScroll');
-    const rulerCanvas = document.getElementById('prRulerCanvas');
     const rulerPH = document.getElementById('prRulerPlayhead');
-    if (scroll) {
-      const tx = `translateX(${-scroll.scrollLeft}px)`;
-      if (rulerCanvas) rulerCanvas.style.transform = tx;
-      if (rulerPH) rulerPH.style.transform = tx;
+    if (scroll && rulerPH) {
+      rulerPH.style.transform = `translateX(${-scroll.scrollLeft}px)`;
     }
   }
 
