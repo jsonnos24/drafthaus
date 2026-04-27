@@ -27599,13 +27599,8 @@ async function seqPlaySong() {
   globalMetroStartIfEnabled();
   console.log('[PLAY-SEQ-PERF] scheduler started:', (performance.now()-_t0).toFixed(1)+'ms — PLAYING');
 
-  // Load section 0 into the DOM immediately so the grid shows the first section's
-  // pattern from the start (not whatever the user was last editing).
-  const _sec0 = _seqSongSections[0];
-  if (_sec0 && _sec0._seqIdx >= 0 && _sec0._seqIdx < seqs.length) {
-    seqActiveIdx = _sec0._seqIdx;
-    seqLoadSequenceIntoDOM(seqs[_sec0._seqIdx], song);
-  }
+  // Keep the user's current editing selection — don't jump to section 0.
+  // The now-playing badge on the tab strip shows which part the playhead is in.
 
   seqRenderSequenceTabs();
   if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
@@ -27758,15 +27753,10 @@ function seqScheduleNotes() {
           if (!seqIsPlaying || _seqPlayMode !== 'song') return;
           // Find which sequence tab corresponds to this section so we can highlight + load it
           const song = getCurrentSong();
-          if (song && _nextSectionIdx < _seqSongSections.length) {
-            const nextSeq = _seqSongSections[_nextSectionIdx];
-            const seqs = getSongSequences(song);
-            const tabIdx = (nextSeq._seqIdx !== undefined && nextSeq._seqIdx >= 0) ? nextSeq._seqIdx : -1;
-            if (tabIdx >= 0 && tabIdx < seqs.length) {
-              seqActiveIdx = tabIdx;
-              seqLoadSequenceIntoDOM(seqs[tabIdx], song);
-            }
-          }
+          // Don't switch seqActiveIdx during playback — the user may be
+          // editing a different part. The now-playing badge on the tab strip
+          // already shows which section the playhead is in.
+          // seqActiveIdx and the grid stay locked to whatever the user selected.
           seqRenderSequenceTabs();
           if (typeof kbdRenderMelodyTabs === 'function') { const _s = getCurrentSong(); if (_s) kbdRenderMelodyTabs(_s); }
           if (typeof loopRenderPartsStrip === 'function') loopRenderPartsStrip();
