@@ -1022,6 +1022,17 @@ button, select, input, textarea { touch-action: manipulation; }
     background: none; border: none; border-radius: 0;
     padding: 0; gap: 6px;
   }
+  /* Mobile control bar: hide desktop-only elements, show editable BPM */
+  .ht-desktop-only { display: none !important; }
+  #headerTransport .ht-bpm { cursor: pointer; }
+  #headerTransport .ht-bpm-input {
+    display: none; width: 48px; font-family: 'IBM Plex Mono', monospace;
+    font-size: 16px; font-weight: 700; color: #fff; text-align: center;
+    background: rgba(255,255,255,0.1); border: 1px solid var(--gold);
+    border-radius: 5px; outline: none; -moz-appearance: textfield;
+  }
+  #headerTransport .ht-bpm-input::-webkit-inner-spin-button,
+  #headerTransport .ht-bpm-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   /* Transport sizes for mobile header — larger and more tappable */
   .header-center .ht-bar .ht-time { font-size: 15px; }
   .header-center .ht-bar .ht-pos  { font-size: 9px; }
@@ -7166,8 +7177,8 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ── Global sequence strip — fixed bottom above control bar on mobile ── */
   .global-seq-strip {
     position: fixed;
-    /* Sit above transport: nav(54) + transport(~48) = ~102 */
-    bottom: calc(102px + env(safe-area-inset-bottom, 0px));
+    /* Sit flush above control bar: nav-area(48) + control-bar(40) = 88 */
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
     top: auto !important;
     left: 0; right: 0;
     z-index: 99999 !important;
@@ -7326,6 +7337,14 @@ button, select, input, textarea { touch-action: manipulation; }
     transition: top 0.28s cubic-bezier(0.4,0,0.2,1), height 0.28s cubic-bezier(0.4,0,0.2,1);
     border-radius: 0;
   }
+  /* Keyboard drawer: slide to top on scroll for max vertical space */
+  body.kbd-expanded .keyboard-drawer.open {
+    top: env(safe-area-inset-top, 0px) !important;
+    border-radius: 0 !important;
+  }
+  body.kbd-expanded #siteHeader { transform: translateY(calc(-100% - 4px)); }
+  body.kbd-expanded .bottom-nav { display: none !important; }
+  body.kbd-expanded .global-seq-strip { display: none !important; }
   .practice-drawer-header,
   .inspo-drawer-header {
     border-radius: 18px 18px 0 0;
@@ -10589,6 +10608,20 @@ body.songlist-active.split-active #viewList {
   body.split-active #headerTransport {
     bottom: calc(48px + 50px + env(safe-area-inset-bottom, 0px));
     transform: translateX(-50%);
+  }
+
+  /* Mobile-simplified control bar: hide timecode, key, ± buttons on narrow screens */
+  @media (max-width: 900px) {
+    #headerTransport .ht-desktop-only { display: none !important; }
+    #headerTransport .ht-bpm { cursor: pointer; }
+    #headerTransport .ht-bpm-input {
+      display: none; width: 48px; font-family: 'IBM Plex Mono', monospace;
+      font-size: 14px; font-weight: 700; color: #fff; text-align: center;
+      background: rgba(255,255,255,0.1); border: 1px solid var(--gold);
+      border-radius: 5px; outline: none; -moz-appearance: textfield;
+    }
+    #headerTransport .ht-bpm-input::-webkit-inner-spin-button,
+    #headerTransport .ht-bpm-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   }
 
   /* Header center — transport is out of flow (position:fixed) */
@@ -17111,22 +17144,23 @@ setTimeout(function() {
       <span id="mobileDockBars">4 bars</span>
     </div>
     <div id="headerTransport" class="ht-bar">
-      <!-- Timecode -->
-      <div class="ht-clock">
+      <!-- Timecode (desktop only) -->
+      <div class="ht-clock ht-desktop-only">
         <div class="ht-time" id="htTime">0:00</div>
         <div class="ht-pos" id="htPos">1.1</div>
       </div>
       <!-- Bars -->
-      <div class="ht-sep"></div>
+      <div class="ht-sep ht-desktop-only"></div>
       <span class="ht-lbl">Bars</span>
       <select class="ht-sel" id="seqBars" onchange="seqRebuild()" title="Bars per loop">
         <option value="1">1</option>
-        <option value="2" selected>2</option>
-        <option value="4">4</option>
+        <option value="2">2</option>
+        <option value="4" selected>4</option>
+        <option value="8">8</option>
       </select>
-      <!-- Key -->
-      <div class="ht-sep"></div>
-      <select class="ht-sel" id="htKeySelect" onchange="seqKeySelectChanged(this)" title="Key" style="min-width:60px;">
+      <!-- Key (desktop only) -->
+      <div class="ht-sep ht-desktop-only"></div>
+      <select class="ht-sel ht-desktop-only" id="htKeySelect" onchange="seqKeySelectChanged(this)" title="Key" style="min-width:60px;">
         <option value="">Key</option>
         <option>C major</option><option>C minor</option>
         <option>C# / Db major</option><option>C# / Db minor</option>
@@ -17143,12 +17177,16 @@ setTimeout(function() {
       </select>
       <!-- BPM -->
       <div class="ht-sep"></div>
-      <button class="ht-mbtn" onclick="rtMetroDelta(-1)" title="BPM −1">−</button>
+      <button class="ht-mbtn ht-desktop-only" onclick="rtMetroDelta(-1)" title="BPM −1">−</button>
+      <input type="number" class="ht-bpm-input" id="htBpmInput" value="120" min="40" max="240"
+        onfocus="this.select()" onchange="rtMetroSetBpm(parseInt(this.value)||120)" onblur="rtMetroSetBpm(parseInt(this.value)||120)"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
+        style="display:none;">
       <span class="ht-bpm" id="htBpmDisplay">120</span>
-      <button class="ht-mbtn" onclick="rtMetroDelta(1)" title="BPM +1">+</button>
-      <span class="ht-lbl">BPM</span>
+      <button class="ht-mbtn ht-desktop-only" onclick="rtMetroDelta(1)" title="BPM +1">+</button>
+      <span class="ht-lbl ht-desktop-only">BPM</span>
       <!-- TAP -->
-      <div class="ht-sep"></div>
+      <div class="ht-sep ht-desktop-only"></div>
       <button class="ht-mbtn ht-tap" id="htTapBtn" onclick="rtTapTempo()" ondblclick="event.stopPropagation()" title="Tap Tempo (Tab)">TAP</button>
       <!-- Hidden canonical elements for JS compat -->
       <select id="seqGrid" onchange="seqRebuild()" style="display:none;" title="Steps per beat">
@@ -25946,7 +25984,7 @@ function seqBuildGrids(song) {
           return;
         }
 
-        // ── Pill → Grid drag (original fill behavior) ────────────────
+        // ── Pill → Grid drag (fill with duration-aware tails) ────────────────
         // If dropping on a tail slot, clear this slot and all following tails first
         if (slot.classList.contains('chord-tail')) {
           for (let j = thisIdx; j < allSlots.length; j++) {
@@ -25957,6 +25995,7 @@ function seqBuildGrids(song) {
             } else break;
           }
         }
+        // Head slot
         _seqSlotSetText(slot, chord);
         slot.classList.add('filled');
         slot.classList.remove('chord-tail');
@@ -25965,6 +26004,16 @@ function seqBuildGrids(song) {
         slot.draggable = true;
         slot.classList.add('just-dropped');
         slot.addEventListener('animationend', () => slot.classList.remove('just-dropped'), { once: true });
+        // Tail slots based on note duration
+        const _dropDurSlots = (typeof _seqDurToSlots === 'function') ? _seqDurToSlots() : 1;
+        for (let t = 1; t < _dropDurSlots; t++) {
+          const tailIdx = thisIdx + t;
+          if (tailIdx >= allSlots.length) break;
+          if (allSlots[tailIdx].classList.contains('filled') && !allSlots[tailIdx].classList.contains('chord-tail')) break;
+          _seqSlotSetText(allSlots[tailIdx], chord);
+          allSlots[tailIdx].classList.add('filled', 'chord-tail');
+          if (degree !== '') allSlots[tailIdx].dataset.chordDegree = degree;
+        }
         seqSaveChordSlots();
       });
       slot.addEventListener('click', e => {
@@ -27030,21 +27079,42 @@ function seqWheelSelectDeg(idx) {
   });
 })();
 
+// Calculate how many chord grid slots the current note duration spans
+function _seqDurToSlots() {
+  const chordSteps = parseInt(document.getElementById('seqChordSteps')?.value || '1');
+  // _kbdNoteDuration: 1=whole(4 beats), 0.5=half(2), 0.25=quarter(1), 0.125=eighth, 0.0625=16th, 0.03125=32nd
+  const beats = (_kbdNoteDuration || 0.25) * 4; // convert to quarter-note beats
+  return Math.max(1, Math.round(beats * chordSteps));
+}
+
 function seqClickFillChord(name, degree) {
   seqPlayChordByName(name);
   if (seqChordMode === 'preview') return; // preview only — don't fill the grid
   // Find next empty slot in the chord grid
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
-  const emptySlot = slots.find(s => !s.classList.contains('filled'));
-  if (emptySlot) {
-    _seqSlotSetText(emptySlot, name);
-    emptySlot.classList.add('filled');
-    if (degree !== '') emptySlot.dataset.chordDegree = String(degree);
-    else delete emptySlot.dataset.chordDegree;
-    emptySlot.classList.add('just-dropped');
-    emptySlot.addEventListener('animationend', () => emptySlot.classList.remove('just-dropped'), { once: true });
-    seqSaveChordSlots();
+  const emptyIdx = slots.findIndex(s => !s.classList.contains('filled'));
+  if (emptyIdx < 0) return;
+  const durSlots = _seqDurToSlots();
+  // Fill head slot
+  const headSlot = slots[emptyIdx];
+  _seqSlotSetText(headSlot, name);
+  headSlot.classList.add('filled');
+  headSlot.classList.remove('chord-tail');
+  headSlot.draggable = true;
+  if (degree !== '') headSlot.dataset.chordDegree = String(degree);
+  else delete headSlot.dataset.chordDegree;
+  headSlot.classList.add('just-dropped');
+  headSlot.addEventListener('animationend', () => headSlot.classList.remove('just-dropped'), { once: true });
+  // Fill tail slots (sustain) for remaining duration
+  for (let t = 1; t < durSlots; t++) {
+    const tailIdx = emptyIdx + t;
+    if (tailIdx >= slots.length) break;
+    if (slots[tailIdx].classList.contains('filled')) break; // don't overwrite existing chords
+    _seqSlotSetText(slots[tailIdx], name);
+    slots[tailIdx].classList.add('filled', 'chord-tail');
+    if (degree !== '') slots[tailIdx].dataset.chordDegree = String(degree);
   }
+  seqSaveChordSlots();
 }
 
 function seqSaveDrumLane(lane, elId) {
@@ -32905,12 +32975,35 @@ function rtUpdateDots(beat) {
   });
 }
 
+// Set BPM to an absolute value (used by mobile editable BPM input)
+function rtMetroSetBpm(val) {
+  rtMetroBpm = Math.max(40, Math.min(240, val || 120));
+  ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay','htBpmDisplay','kbdTapBpmNum','mt4tTapBpmNum'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { if (el.tagName === 'INPUT') el.value = rtMetroBpm; else el.textContent = rtMetroBpm; }
+  });
+  // Also sync the mobile editable input
+  const htInput = document.getElementById('htBpmInput');
+  if (htInput) htInput.value = rtMetroBpm;
+  syncSeqBpmUI(rtMetroBpm);
+  const song = getCurrentSong();
+  if (song) {
+    seqGetData(song);
+    song.sequencer.bpm = String(rtMetroBpm);
+    song.bpm = String(rtMetroBpm);
+    song.updatedAt = Date.now();
+    save();
+    scheduleSyncToSheet(song);
+  }
+}
 function rtMetroDelta(d) {
   rtMetroBpm = Math.max(40, Math.min(240, rtMetroBpm + d));
   ['rtMetroBpmDisplay','rtMetroBpmDisplay2','rehBpmDisplay','htBpmDisplay','kbdTapBpmNum','mt4tTapBpmNum'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { if (el.tagName === 'INPUT') el.value = rtMetroBpm; else el.textContent = rtMetroBpm; }
   });
+  const htInput = document.getElementById('htBpmInput');
+  if (htInput) htInput.value = rtMetroBpm;
   // Persist to active sequence AND song.bpm
   syncSeqBpmUI(rtMetroBpm);
   const song = getCurrentSong();
@@ -32965,6 +33058,8 @@ function rtTapTempo() {
       const el = document.getElementById(id);
       if (el) el.textContent = rtMetroBpm;
     });
+    const _htInput = document.getElementById('htBpmInput');
+    if (_htInput) _htInput.value = rtMetroBpm;
     // Sync sequencer/transport UI + persist song.bpm
     syncSeqBpmUI(rtMetroBpm);
     const song = getCurrentSong();
@@ -32986,6 +33081,29 @@ function rtTapTempo() {
   clearTimeout(_rtTapResetTimer);
   _rtTapResetTimer = setTimeout(() => { _rtTapTimes = []; }, 2500);
 }
+
+// ── Mobile: tap BPM display to edit inline ──
+(function() {
+  function _initBpmTapToEdit() {
+    const display = document.getElementById('htBpmDisplay');
+    const input = document.getElementById('htBpmInput');
+    if (!display || !input) return;
+    display.addEventListener('click', function() {
+      if (window.innerWidth > 900) return; // desktop uses ± buttons
+      input.value = display.textContent;
+      display.style.display = 'none';
+      input.style.display = 'inline-block';
+      input.focus();
+      input.select();
+    });
+    input.addEventListener('blur', function() {
+      input.style.display = 'none';
+      display.style.display = '';
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _initBpmTapToEdit);
+  else _initBpmTapToEdit();
+})();
 
 function rtMetroChangeTime(v) {
   rtMetroTime = parseInt(v) || 4;
@@ -36806,6 +36924,7 @@ function renderKeyboardDrawerHtml(song) {
           <option value="0.25" selected>♩ Quarter</option>
           <option value="0.125">♪ Eighth</option>
           <option value="0.0625">𝅘𝅥𝅯 16th</option>
+          <option value="0.03125">𝅘𝅥𝅰 32nd</option>
         </select>
         <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="font-size:10px;max-width:200px;">
           ${_progressionOptions}
@@ -36911,6 +37030,7 @@ function renderKeyboardDrawerHtml(song) {
             <option value="0.25" selected>♩ Quarter</option>
             <option value="0.125">♪ Eighth</option>
             <option value="0.0625">𝅘𝅥𝅯 16th</option>
+            <option value="0.03125">𝅘𝅥𝅰 32nd</option>
           </select>
         </div>
       </div>
@@ -36937,17 +37057,7 @@ function renderKeyboardDrawerHtml(song) {
                 </div>
               </div>
             </div>
-            <div style="display:flex;gap:6px;margin-top:4px;">
-              <button class="kbd-port-action-btn teal${seqHumanizeChords?' active':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" style="flex:1;">〜 Humanize</button>
-              <button class="seq-btn" style="font-size:9px;padding:4px 8px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="seqClearAllChordSlots();kbdPortUpdatePeek();kbdPortUpdateBadge();">Clear ×</button>
-            </div>
-            <!-- Transport -->
-            <div class="kbd-port-transport" style="margin-top:4px;">
-              <button class="t-rec" onclick="kbdToggleChordRec()">● Rec</button>
-              <button class="t-play" onclick="seqIsPlaying?seqStop():seqPlay()">▸ Play</button>
-              <button class="t-seq" onclick="seqPlaySong()">» Seq</button>
-              <button class="t-stop" onclick="seqStop()">■</button>
-            </div>
+            <!-- Humanize + transport removed for mobile space -->
           </div>
 
           <!-- Palette heading -->
@@ -37698,6 +37808,23 @@ function openKeyboardDrawer() {
       kbdPortUpdateBadge();
     }
   });
+
+  // ── Mobile: scroll inside drawer slides it to top for max vertical space ──
+  if (window.innerWidth < 900) {
+    const _kbdBody = document.getElementById('keyboardDrawerBody');
+    if (_kbdBody) {
+      let _kbdScrollExpanded = false;
+      _kbdBody.addEventListener('scroll', function() {
+        if (_kbdBody.scrollTop > 20 && !_kbdScrollExpanded) {
+          _kbdScrollExpanded = true;
+          document.body.classList.add('kbd-expanded');
+        } else if (_kbdBody.scrollTop <= 5 && _kbdScrollExpanded) {
+          _kbdScrollExpanded = false;
+          document.body.classList.remove('kbd-expanded');
+        }
+      }, { passive: true });
+    }
+  }
 }
 
 function closeKeyboardDrawer() {
@@ -37729,6 +37856,7 @@ function closeKeyboardDrawer() {
   document.getElementById('keyboardDrawerOverlay').classList.remove('open');
   if (window.innerWidth < 768) document.body.classList.remove('ft-drawer-open');
   document.body.classList.remove('keyboard-drawer-open');
+  document.body.classList.remove('kbd-expanded');
   _seqStripHideIfNoDrawer();
   if (window.innerWidth < 900) document.getElementById('keyboardDrawerTab').style.display = '';
   document.getElementById('keyboardDrawerTab').classList.remove('tab-active');
@@ -41880,11 +42008,11 @@ function navToolTap(toolKey) {
   }
 
   // ── Mobile routing ──
-  // No-op if already open
-  if (toolKey === '4track' && typeof ftIsOpen === 'function' && ftIsOpen()) return;
-  if (toolKey === 'keyboard' && document.getElementById('keyboardDrawer')?.classList.contains('open')) return;
-  if (toolKey === 'sequencer' && document.getElementById('seqDrawer')?.classList.contains('open')) return;
-  if (toolKey === 'looper' && document.getElementById('looperDrawer')?.classList.contains('open')) return;
+  // If already open, close (toggle behavior)
+  if (toolKey === '4track' && typeof ftIsOpen === 'function' && ftIsOpen()) { ftClose(); return; }
+  if (toolKey === 'keyboard' && document.getElementById('keyboardDrawer')?.classList.contains('open')) { closeKeyboardDrawer(); return; }
+  if (toolKey === 'sequencer' && document.getElementById('seqDrawer')?.classList.contains('open')) { closeSeqDrawer(); return; }
+  if (toolKey === 'looper' && document.getElementById('looperDrawer')?.classList.contains('open')) { closeLooperDrawer(); return; }
 
   // Open on mobile
   if (toolKey === '4track') {
@@ -56177,8 +56305,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     <div class="ucb-left">
       <select class="seq-select ucb-select" id="mt4tBars" onchange="kbdBarsChanged(this.value)" title="Bars">
         <option value="1">1</option>
-        <option value="2" selected>2</option>
-        <option value="4">4</option>
+        <option value="2">2</option>
+        <option value="4" selected>4</option>
+        <option value="8">8</option>
       </select>
       <!-- Hidden: kept for JS sync -->
       <select id="mt4tGrid" onchange="kbdGridChanged(this.value)" style="display:none;">
@@ -57027,8 +57156,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     <div class="ucb-left">
       <select class="seq-select ucb-select" id="kbdBars" onchange="kbdBarsChanged(this.value)" title="Bars">
         <option value="1">1</option>
-        <option value="2" selected>2</option>
-        <option value="4">4</option>
+        <option value="2">2</option>
+        <option value="4" selected>4</option>
+        <option value="8">8</option>
       </select>
       <!-- Hidden: kept for JS sync -->
       <select id="kbdGrid" onchange="kbdGridChanged(this.value)" style="display:none;">
@@ -58813,6 +58943,54 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     prPlayheadLoop();
     _prAttachRulerClick();
   }
+
+  // ── Pinch-to-zoom (mobile): vertical pinch = row height, horizontal = col width ──
+  (function() {
+    let _pinchActive = false;
+    let _pinchStartDistX = 0, _pinchStartDistY = 0;
+    let _pinchStartColW = 0, _pinchStartRowH = 0;
+    const PR_COL_W_MIN = 10, PR_COL_W_MAX = 80;
+    const PR_ROW_H_MIN = 8,  PR_ROW_H_MAX = 40;
+
+    function _attachPinch() {
+      const scrollEl = document.getElementById('prGridScroll');
+      if (!scrollEl) return;
+
+      scrollEl.addEventListener('touchstart', function(e) {
+        if (e.touches.length !== 2) return;
+        _pinchActive = true;
+        const t0 = e.touches[0], t1 = e.touches[1];
+        _pinchStartDistX = Math.abs(t0.clientX - t1.clientX) || 1;
+        _pinchStartDistY = Math.abs(t0.clientY - t1.clientY) || 1;
+        _pinchStartColW = PR_COL_W;
+        _pinchStartRowH = PR_ROW_H;
+      }, { passive: true });
+
+      scrollEl.addEventListener('touchmove', function(e) {
+        if (!_pinchActive || e.touches.length !== 2) return;
+        e.preventDefault();
+        const t0 = e.touches[0], t1 = e.touches[1];
+        const curDistX = Math.abs(t0.clientX - t1.clientX) || 1;
+        const curDistY = Math.abs(t0.clientY - t1.clientY) || 1;
+        const scaleX = curDistX / _pinchStartDistX;
+        const scaleY = curDistY / _pinchStartDistY;
+        const newColW = Math.round(Math.max(PR_COL_W_MIN, Math.min(PR_COL_W_MAX, _pinchStartColW * scaleX)));
+        const newRowH = Math.round(Math.max(PR_ROW_H_MIN, Math.min(PR_ROW_H_MAX, _pinchStartRowH * scaleY)));
+        if (newColW !== PR_COL_W || newRowH !== PR_ROW_H) {
+          PR_COL_W = newColW;
+          PR_ROW_H = newRowH;
+          prRender();
+        }
+      }, { passive: false });
+
+      scrollEl.addEventListener('touchend', function(e) {
+        if (e.touches.length < 2) _pinchActive = false;
+      }, { passive: true });
+    }
+
+    document.addEventListener('DOMContentLoaded', _attachPinch);
+    if (document.readyState !== 'loading') _attachPinch();
+  })();
 
 })();
 
