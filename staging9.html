@@ -6,6 +6,15 @@
 <link rel="icon" type="image/x-icon" href="favicon.ico">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <script>
+// ── Global error handler: ensure loading screen is dismissed even on JS errors ──
+window.addEventListener('error', function() {
+  if (document.body && document.body.classList.contains('app-loading')) {
+    console.warn('[BOOT] JS error during init — forcing loading screen dismiss');
+    document.body.classList.remove('app-loading');
+    var ls = document.getElementById('appLoadingScreen');
+    if (ls) { ls.style.opacity = '0'; ls.style.transition = 'opacity 0.3s'; setTimeout(function() { ls.remove(); }, 350); }
+  }
+});
 // Viewport management.
 // Landscape auto-opens drum machine view.
 (function() {
@@ -23397,6 +23406,40 @@ function seqRenderSequenceTabs() {
   _seqSyncUndoBtn();
   _ucbSyncDropdownBorderColor();
 
+  // Populate TL sections from the sequence strip so piano roll scroll-to-section works immediately
+  if (typeof TL !== 'undefined' && typeof TL.loadSections === 'function' && seqs.length && !seqIsPlaying) {
+    try {
+      const _songWideBpm = parseFloat(song?.bpm || 100);
+      const _key = seqCurrentKey();
+      const _mode = seqCurrentMode();
+      const _builtSections = seqs.map((seq, si) => {
+        const drumSteps  = parseInt(song?.drumSteps || seq.drumSteps || song?.grid || seq.grid || 4);
+        const chordSteps = parseInt(song?.chordSteps || seq.chordSteps || '1');
+        const time = parseInt(seq.time || 4);
+        const bars = parseInt(seq.bars || 2);
+        return {
+          partId: seq.partId || seq.part || null,
+          chordSlots: seq.chordSlots || [],
+          chordDegrees: seq.chordDegrees || [],
+          chordContinued: seq.chordContinued || [],
+          kick: seq.kick || [], snare: seq.snare || [], hat: seq.hat || [],
+          crash: seq.crash || [], clap: seq.clap || [],
+          hitom: seq.hitom || [], lotom: seq.lotom || [],
+          kickVel: seq.kickVel, snareVel: seq.snareVel, hatVel: seq.hatVel,
+          crashVel: seq.crashVel, clapVel: seq.clapVel, hitomVel: seq.hitomVel, lotomVel: seq.lotomVel,
+          melody: seq.melody || [],
+          melodyInstrument: seq.melodyInstrument || 'piano',
+          pianoRoll: seq.pianoRoll,
+          bpm: _songWideBpm, drumSteps, chordSteps, time, bars,
+          grid: drumSteps,
+          _seqIdx: si,
+        };
+      });
+      TL.loadSections(_builtSections, _key, _mode);
+      TL.setBpm(_songWideBpm);
+    } catch(e) { console.warn('[TL] strip section build error:', e); }
+  }
+
   // Auto-scroll the strip to keep the playing tab visible during ensemble playback
   if (nowPlayingIdx >= 0) {
     const playingBtn = document.getElementById('seq-tab-btn-' + nowPlayingIdx);
@@ -24183,6 +24226,9 @@ function seqSwitchToSequence(idx) {
 
   // Cross-instrument triggers only apply in song mode — loop mode is isolated
   // (loops/4-track are only coordinated during full-sequence playback).
+
+  // Scroll piano roll to show this section's region on the timeline
+  if (typeof prScrollToSection === 'function') prScrollToSection(idx);
 }
 
 function seqSaveAllToCurrent(song) {
@@ -30298,6 +30344,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
 let _userTierUnsub = null; // holds the onSnapshot unsubscribe for the current user doc
 let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestore
+
+// ── Safety timeout: dismiss loading screen if auth hasn't resolved ──
+// Mobile networks can be slow/flaky — don't strand users on the loading screen forever
+setTimeout(function() {
+  if (!document.body.classList.contains('app-loading')) return; // already dismissed
+  console.warn('[BOOT] Auth did not resolve within 8s — forcing loading screen dismiss');
+  document.body.classList.remove('app-loading');
+  var _ls = document.getElementById('appLoadingScreen');
+  if (_ls) { _ls.style.opacity = '0'; _ls.style.transition = 'opacity 0.3s'; setTimeout(function() { _ls.remove(); }, 350); }
+}, 8000);
 
 // (signInWithRedirect removed — Safari ITP blocks cross-origin sessionStorage during OAuth redirect)
 
@@ -57895,6 +57951,32 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       seqScheduleMelody(audioCtx, loopStartTime, loopDurMs, melodyArr);
     }
     return null;
+  };
+
+  // ── Scroll piano roll to a specific section ──
+  window.prScrollToSection = function(seqIdx) {
+    if (!prOpen) return;
+    // Use TL sections if available (multi-section song layout)
+    if (typeof TL !== 'undefined' && typeof TL.getSections === 'function') {
+      var sections = TL.getSections();
+      if (sections.length) {
+        // Find the section matching this seqIdx
+        var sec = sections.find(function(s) { return s._seqIdx === seqIdx || s.sectionIdx === seqIdx; });
+        if (sec) {
+          // Convert beat position → pixel position
+          var col = sec.beatStart * prSnap;
+          var xPos = col * PR_COL_W;
+          var scroll = document.getElementById('prGridScroll');
+          if (scroll) {
+            scroll.scrollTo({ left: Math.max(0, xPos - 20), behavior: 'smooth' });
+          }
+          return;
+        }
+      }
+    }
+    // Fallback: if no TL sections, scroll to start (single-section view)
+    var scroll = document.getElementById('prGridScroll');
+    if (scroll) scroll.scrollTo({ left: 0, behavior: 'smooth' });
   };
 
   // ── Playhead: tracks sequencer playback position ──
