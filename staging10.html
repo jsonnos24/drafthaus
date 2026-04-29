@@ -5372,6 +5372,21 @@ button, select, input, textarea { touch-action: manipulation; }
   .kbd-stage-col #seqChordGrid .seq-slot.filled[data-chord-degree="7"] { background: #4d3084; border-color: #aa52f0; color: #f3c8ff; }
   .kbd-stage-col #seqChordGrid .seq-slot.filled.chord-variant { background: #f5f0e0 !important; border-color: #d4c89a !important; color: #1a1a1a !important; }
   .kbd-stage-col #seqChordGrid .seq-slot.filled.chord-variant.chord-tail { background: #ede8d6 !important; border-color: #c4b88a !important; color: #333 !important; }
+  /* Chord tail (held/sustained) slots — desktop stage scoped (no data-row="chord" parent) */
+  .kbd-stage-col #seqChordGrid .seq-slot.chord-tail {
+    opacity: 0.55;
+    font-size: 9px !important;
+    letter-spacing: -0.5px;
+  }
+  .kbd-stage-col #seqChordGrid .seq-slot.chord-tail::before {
+    content: '—';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 14px;
+    opacity: 0.7;
+    pointer-events: none;
+  }
   .kbd-stage-col #seqChordGrid .seq-slot .seq-resize-handle {
     position: absolute; right: 0; top: 0; bottom: 0; width: 8px;
     cursor: ew-resize; opacity: 0; z-index: 6;
@@ -19977,7 +19992,22 @@ function populateSongFields(song) {
   var _sgChordEl = document.getElementById('seqChordSteps'); if (_sgChordEl) _sgChordEl.value = _sgChordSteps;
   // Default to Eb minor if no key is set
   if (!song.key) song.key = 'D# / Eb minor';
-  const _songKeyVal = song.key;
+  // Normalize key to match dropdown option format (e.g. "Eb minor" → "D# / Eb minor")
+  var _songKeyVal = song.key;
+  if (_songKeyVal && !_songKeyVal.includes('/')) {
+    var _nkMap = {
+      'C#':'C# / Db','Db':'C# / Db','D#':'D# / Eb','Eb':'D# / Eb',
+      'F#':'F# / Gb','Gb':'F# / Gb','G#':'G# / Ab','Ab':'G# / Ab',
+      'A#':'A# / Bb','Bb':'A# / Bb'
+    };
+    var _nkParts = _songKeyVal.split(' ');
+    var _nkRoot = _nkParts[0];
+    var _nkMode = _nkParts.slice(1).join(' ');
+    if (_nkMap[_nkRoot]) {
+      _songKeyVal = _nkMap[_nkRoot] + ' ' + _nkMode;
+      song.key = _songKeyVal;
+    }
+  }
   document.getElementById('fKey').value          = _songKeyVal;
   // Sync ALL key dropdowns (handles duplicate IDs from multiple layouts)
   document.querySelectorAll('[id="seqKeySelect"]').forEach(el => { el.value = _songKeyVal; });
@@ -31672,10 +31702,10 @@ const INSPO_WORDS_C = [
 const INSPO_KEYS = [
   'C major','D major','E major','F major','G major','A major','B major',
   'C minor','D minor','E minor','F minor','G minor','A minor','B minor',
-  'C# major','F# major','Bb major','Eb major',
-  'Ab major','Db major','Gb major','D# minor','G# minor','C# minor',
-  'F# minor','B minor','E major','A major','Bb minor','Eb minor',
-  'G# major','D# major','A# minor','D# major','G major','A minor',
+  'C# / Db major','F# / Gb major','A# / Bb major','D# / Eb major',
+  'G# / Ab major','C# / Db minor','F# / Gb minor','D# / Eb minor',
+  'G# / Ab minor','A# / Bb minor',
+  'B minor','E major','A major','G major','A minor',
 ];
 const INSPO_BPMS = [
   83,85,88,90,92,95,98,100,102,104,106,108,
