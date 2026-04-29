@@ -5309,10 +5309,13 @@ button, select, input, textarea { touch-action: manipulation; }
     min-width: 0; max-width: none; flex: none;
   }
   .kbd-stage-palette .seq-chord-pill {
-    font-size: 11px; padding: 6px 4px; text-align: center;
+    font-size: 14px; padding: 10px 8px; text-align: center;
   }
   .kbd-stage-palette .seq-chord-var-pill {
-    font-size: 9px; padding: 3px 2px; text-align: center;
+    font-size: 12px; padding: 7px 6px; text-align: center;
+  }
+  .kbd-stage-palette .seq-borrowed-pill {
+    font-size: 12px; padding: 7px 6px; text-align: center;
   }
   /* ── Right column: chord sequence ── */
   .kbd-stage-seq-grid {
@@ -5342,13 +5345,13 @@ button, select, input, textarea { touch-action: manipulation; }
   .kbd-stage-col .kbd-chord-seq-wrapper .seq-grid,
   .kbd-stage-col #seqChordGrid {
     display: grid !important;
-    grid-template-columns: repeat(var(--chord-cols, 4), 28px) !important;
-    gap: 4px !important;
+    grid-template-columns: repeat(var(--chord-cols, 4), 56px) !important;
+    gap: 6px !important;
     width: fit-content !important;
   }
   .kbd-stage-col #seqChordGrid .seq-slot {
-    width: 28px !important; height: 28px !important;
-    font-size: 8px !important; border-radius: 6px !important;
+    width: 56px !important; height: 56px !important;
+    font-size: 11px !important; border-radius: 8px !important;
   }
   .kbd-stage-col #seqChordGrid .seq-slot.bar-start {
     margin-left: 0 !important;
@@ -28671,11 +28674,15 @@ function seqPlay() {
   // Start unified metronome (no-op if already running from 4-track)
   globalMetroStartIfEnabled();
 
-  // Sync unified timeline transport
-  if (typeof TL !== 'undefined' && typeof TL.play === 'function') {
+  // Sync unified timeline transport — feed the single-section data so TL has
+  // correct events + loop boundaries for both audio and visual highlighting
+  if (typeof TL !== 'undefined' && typeof TL.loadSections === 'function') {
     try {
-      TL.setSongMode(false); // loop mode = single section
-      TL.play();
+      const _playKey  = typeof seqCurrentKey  === 'function' ? seqCurrentKey()  : 'C';
+      const _playMode = typeof seqCurrentMode === 'function' ? seqCurrentMode() : 'major';
+      TL.loadSections(_seqSongSections, _playKey, _playMode);
+      TL.setBpm(bpm);
+      TL.play(0);
     } catch(e) { console.warn('[TL] play sync error:', e); }
   }
 
@@ -59654,7 +59661,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     });
 
     // Update mixer transport
-    if (_tlSongMode && typeof _mixUpdateTransport === 'function') {
+    if (typeof _mixUpdateTransport === 'function') {
       var totalSteps = allSlots.length || 8;
       var stepIdx = Math.floor(localBeat / (sectionBeats / totalSteps));
       _mixUpdateTransport(stepIdx, totalSteps);
