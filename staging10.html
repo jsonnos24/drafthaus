@@ -5307,12 +5307,17 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .kbd-stage-palette .seq-chord-pill-col {
     min-width: 0; max-width: none; flex: none;
+    overflow: hidden;
   }
   .kbd-stage-palette .seq-chord-pill {
-    font-size: 14px; padding: 10px 8px; text-align: center;
+    font-size: 14px; padding: 10px 4px; text-align: center;
+    overflow: hidden; text-overflow: ellipsis;
+    display: block; width: 100%; box-sizing: border-box;
   }
   .kbd-stage-palette .seq-chord-var-pill {
-    font-size: 12px; padding: 7px 14px; text-align: center;
+    font-size: 12px; padding: 7px 4px; text-align: center;
+    overflow: hidden; text-overflow: ellipsis;
+    display: block; width: 100%; box-sizing: border-box;
   }
   .kbd-stage-palette .seq-borrowed-pill,
   .kbd-stage-col .seq-borrowed-pill {
@@ -19970,23 +19975,23 @@ function populateSongFields(song) {
   var _sgChordSteps = song.chordSteps || '1';
   var _sgDrumEl = document.getElementById('seqDrumSteps'); if (_sgDrumEl) _sgDrumEl.value = _sgDrumSteps;
   var _sgChordEl = document.getElementById('seqChordSteps'); if (_sgChordEl) _sgChordEl.value = _sgChordSteps;
-  document.getElementById('fKey').value          = song.key || '';
-  const seqKeySel = document.getElementById('seqKeySelect');
-  if (seqKeySel) seqKeySel.value = song.key || '';
-  // Sync all Key dropdowns in control bars
+  // Default to Eb minor if no key is set
+  if (!song.key) song.key = 'D# / Eb minor';
+  const _songKeyVal = song.key;
+  document.getElementById('fKey').value          = _songKeyVal;
+  // Sync ALL key dropdowns (handles duplicate IDs from multiple layouts)
+  document.querySelectorAll('[id="seqKeySelect"]').forEach(el => { el.value = _songKeyVal; });
   const _htKeySel = document.getElementById('htKeySelect');
-  if (_htKeySel) _htKeySel.value = song.key || '';
+  if (_htKeySel) _htKeySel.value = _songKeyVal;
   const _mt4tKeySel = document.getElementById('mt4tKeySelect');
-  if (_mt4tKeySel) _mt4tKeySel.value = song.key || '';
+  if (_mt4tKeySel) _mt4tKeySel.value = _songKeyVal;
   // Ensure song.sequencer.key/mode are always in sync with song.key so
   // that key-change transposition can reliably capture the "old" key.
-  if (song.key) {
-    if (!song.sequencer) song.sequencer = {};
-    const _kr = song.key.split(' ')[0].split('/')[0].trim() || 'C';
-    const _enh = {'Db':'C#','Eb':'D#','Fb':'E','Gb':'F#','Ab':'G#','Bb':'A#','Cb':'B'};
-    song.sequencer.key  = _enh[_kr] || _kr;
-    song.sequencer.mode = song.key.toLowerCase().includes('minor') ? 'minor' : 'major';
-  }
+  if (!song.sequencer) song.sequencer = {};
+  const _kr = _songKeyVal.split(' ')[0].split('/')[0].trim() || 'D#';
+  const _enh = {'Db':'C#','Eb':'D#','Fb':'E','Gb':'F#','Ab':'G#','Bb':'A#','Cb':'B'};
+  song.sequencer.key  = _enh[_kr] || _kr;
+  song.sequencer.mode = _songKeyVal.toLowerCase().includes('minor') ? 'minor' : 'major';
   document.getElementById('fTuning').value       = song.tuning || '';
   updateMoodTrigger(song.moods || []);
   document.getElementById('fNotes').value        = song.notes || '';
@@ -20910,7 +20915,7 @@ function renderInstSections(song) {
 
     // Chord picker + pills under lyrics (pills rendered via JS after insert)
     const song2 = getCurrentSong();
-    const songKey = song2?.key || 'C major';
+    const songKey = song2?.key || 'D# / Eb minor';
     const quickChords = getQuickPickChords(songKey);
     const chordPillsHtml = inst.hasChords ? `
       <div style="margin-top:12px;">
@@ -23319,9 +23324,9 @@ function seqOnSongKeyChange(rawOldKey) {
 
 function seqCurrentKey() {
   const song = getCurrentSong();
-  const raw = song?.key || 'C major';
+  const raw = song?.key || 'D# / Eb minor';
   // Get just the root note (first word), strip slashes for e.g. "C# / Db"
-  const root = raw.split(' ')[0].split('/')[0].trim() || 'C';
+  const root = raw.split(' ')[0].split('/')[0].trim() || 'D#';
   // Normalize flats to sharps
   const enharmonic = {'Db':'C#','Eb':'D#','Fb':'E','Gb':'F#','Ab':'G#','Bb':'A#','Cb':'B'};
   return enharmonic[root] || root;
@@ -23329,7 +23334,7 @@ function seqCurrentKey() {
 
 function seqCurrentMode() {
   const song = getCurrentSong();
-  const raw = song?.key || '';
+  const raw = song?.key || 'D# / Eb minor';
   return raw.toLowerCase().includes('minor') ? 'minor' : 'major';
 }
 
@@ -32285,19 +32290,21 @@ function launchInspoSong() {
 
   // Fill chord slots with mixed durations: whole notes, half notes, quarter notes.
   // Chords hold for varying lengths to create natural phrasing, not a rigid grid.
+  // Returns { slots: [...], continued: [...] } where continued[i]=true for held tails.
   function _fillSectionChords(chords, bars, timeSig, grid) {
     var g = parseInt(grid) || 1;
     var ts = parseInt(timeSig) || 4;
     var numSlots = ts * parseInt(bars) * g;
     var slots = new Array(numSlots).fill('');
-    if (!chords.length) return slots;
+    var continued = new Array(numSlots).fill(false);
+    if (!chords.length) return { slots: slots, continued: continued };
 
     // Duration options in beats (at grid=1): whole=4, half=2, quarter=1
     // Weighted toward longer holds for less busy feel
     var durations = [
-      { beats: 4, weight: 0.35 },  // whole note
+      { beats: 4, weight: 0.30 },  // whole note
       { beats: 2, weight: 0.40 },  // half note
-      { beats: 1, weight: 0.25 },  // quarter note
+      { beats: 1, weight: 0.30 },  // quarter note
     ];
     function _pickDuration() {
       var r = Math.random(), cum = 0;
@@ -32320,14 +32327,15 @@ function launchInspoSong() {
       if (pos % beatsPerBar === 0 && dur < 2 * g) {
         dur = Math.min(2 * g, numSlots - pos); // at least a half note on downbeats
       }
-      // Fill slots for this chord's duration
+      // Fill slots: first slot is the attack, rest are continued (held) tails
       for (var s = 0; s < dur && pos + s < numSlots; s++) {
         slots[pos + s] = chord;
+        if (s > 0) continued[pos + s] = true;
       }
       pos += dur;
       chordIdx++;
     }
-    return slots;
+    return { slots: slots, continued: continued };
   }
 
   // Build drums tiled to fill the section's full step count, with fills at transitions
@@ -32413,13 +32421,15 @@ function launchInspoSong() {
     if (!sectionChords || !sectionChords.length || !sectionChords[0]) {
       sectionChords = d.chordSlots ? d.chordSlots.filter(Boolean) : ['C'];
     }
-    var chordSlots = _fillSectionChords(sectionChords, cfg.bars, d.timeSig, _songGrid);
+    var chordResult = _fillSectionChords(sectionChords, cfg.bars, d.timeSig, _songGrid);
     var drums = _buildSectionDrums(cfg.energy, cfg.bars, d.timeSig, _songGrid, sid);
     return {
       partId: sid, part: sid,
       bpm: String(d.bpm), time: d.timeSig, bars: String(cfg.bars), grid: _songGrid,
+      chordSteps: _songGrid,
       key: d.root || d.key.split(' ')[0],
-      chordSlots: chordSlots,
+      chordSlots: chordResult.slots,
+      chordContinued: chordResult.continued,
       kick: drums.kick, snare: drums.snare, hat: drums.hat,
       crash: drums.crash, clap: drums.clap,
     };
@@ -37091,7 +37101,7 @@ function renderKeyboardDrawerHtml(song) {
   const timeSig = sd.time || song?.time || '4';
   const songGrid = song?.grid || sd.grid || '4';
   const songBars = String(sd.bars || '4');
-  const songKey = song?.key || sd.key || '';
+  const songKey = song?.key || sd.key || 'D# / Eb minor';
   const chordInstrument = sd.instrument || 'piano';
 
   const isDesktop = window.innerWidth >= 768;
