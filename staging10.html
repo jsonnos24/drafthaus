@@ -5341,13 +5341,18 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Stage layout overrides for chord sequence grid */
   .kbd-stage-col .kbd-chord-seq-wrapper .seq-grid,
   .kbd-stage-col #seqChordGrid {
-    grid-template-columns: repeat(8, 1fr) !important;
-    gap: 5px !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 4px !important;
     width: 100% !important;
   }
   .kbd-stage-col #seqChordGrid .seq-slot {
-    width: 100% !important; height: 42px !important;
-    font-size: 10px !important; border-radius: 8px !important;
+    width: 28px !important; height: 28px !important;
+    font-size: 8px !important; border-radius: 6px !important;
+    flex-shrink: 0 !important;
+  }
+  .kbd-stage-col #seqChordGrid .seq-slot.bar-start {
+    margin-left: 6px !important;
   }
   .kbd-stage-col .kbd-chord-seq-wrapper { margin-left: 0 !important; margin-right: 0 !important; padding: 0 !important; }
   .kbd-stage-col .kbd-chord-seq-wrapper .seq-row-label { display: none !important; }
@@ -7492,16 +7497,19 @@ button, select, input, textarea { touch-action: manipulation; }
     padding-bottom: 4px;
   }
   .kbd-chord-seq-wrapper .seq-grid-row { gap: 0; }
-  /* ── 8-column chord grid (no horizontal scroll) ── */
-  .kbd-chord-seq-wrapper .seq-grid,
-  #seqChordGrid {
+  /* ── 8-column chord grid (no horizontal scroll) — skip stage layout ── */
+  .kbd-land-col .kbd-chord-seq-wrapper .seq-grid,
+  .kbd-land-col #seqChordGrid,
+  .kbd-port-panel .kbd-chord-seq-wrapper .seq-grid,
+  .kbd-port-panel #seqChordGrid {
     display: grid !important;
     grid-template-columns: repeat(8, clamp(20px, 3.5vw, 36px));
     gap: 2px;
     width: fit-content;
   }
   /* bar-start margin breaks grid alignment — use border only */
-  #seqChordGrid .seq-slot.bar-start {
+  .kbd-land-col #seqChordGrid .seq-slot.bar-start,
+  .kbd-port-panel #seqChordGrid .seq-slot.bar-start {
     margin-left: 6px;
     border-left: 2px solid rgba(255, 209, 102, 0.6);
   }
@@ -17300,7 +17308,7 @@ setTimeout(function() {
       <!-- Bars -->
       <div class="ht-sep ht-desktop-only"></div>
       <span class="ht-lbl">Bars</span>
-      <select class="ht-sel" id="seqBars" onchange="seqRebuild()" title="Bars per loop">
+      <select class="ht-sel" id="seqBars" onchange="kbdBarsChanged(this.value)" title="Bars per loop">
         <option value="1">1</option>
         <option value="2">2</option>
         <option value="4" selected>4</option>
@@ -23445,6 +23453,15 @@ function renderSequencerHtml(song) {
             <option value="3"${grid==='3'?' selected':''}>Triplets</option>
           </select>
         </div>
+        <div class="seq-ctrl-group" style="flex-direction:row;align-items:center;gap:4px;">
+          <span class="seq-label">Bars</span>
+          <select class="seq-select" id="seqBars" onchange="kbdBarsChanged(this.value)" title="Bars per loop">
+            <option value="1"${bars==='1'?' selected':''}>1</option>
+            <option value="2"${bars==='2'?' selected':''}>2</option>
+            <option value="4"${bars==='4'?' selected':''}>4</option>
+            <option value="8"${bars==='8'?' selected':''}>8</option>
+          </select>
+        </div>
       </div>
       <span style="flex:1"></span>
       <!-- Undo/Redo now handled globally by UCB -->
@@ -24263,6 +24280,7 @@ function seqMgrBarsChanged(idx, val) {
   if (idx === seqActiveIdx) {
     seqBuildGrids(song);
     document.querySelectorAll('[id="kbdBars"]').forEach(function(el) { el.value = val; });
+    document.querySelectorAll('[id="seqBars"]').forEach(function(el) { el.value = val; });
   }
   showToast('Bars set to ' + val, 'info', 1200);
 }
@@ -24725,7 +24743,7 @@ function seqLoadSequenceIntoDOM(seq, song) {
   const bpmEl = document.getElementById('seqBpm');   if (bpmEl) bpmEl.value = _songBpm;
   syncSeqBpmUI(_songBpm);
   const timeEl = document.getElementById('seqTime');  if (timeEl) timeEl.value = seq.time || '4';
-  const barsEl = document.getElementById('seqBars');  if (barsEl) barsEl.value = seq.bars || '4';
+  document.querySelectorAll('[id="seqBars"]').forEach(function(el) { el.value = seq.bars || '4'; });
   // Grid is song-wide — use song.grid (like song.bpm)
   const _songGrid = song?.grid || song?.sequences?.[0]?.grid || seq.grid || '4';
   const gridEl = document.getElementById('seqGrid');  if (gridEl) gridEl.value = _songGrid;
@@ -36991,6 +37009,7 @@ function renderKeyboardDrawerHtml(song) {
   const bpm     = sd.bpm  || song?.bpm  || '100';
   const timeSig = sd.time || song?.time || '4';
   const songGrid = song?.grid || sd.grid || '4';
+  const songBars = String(sd.bars || '4');
   const songKey = song?.key || sd.key || '';
   const chordInstrument = sd.instrument || 'piano';
 
@@ -37064,6 +37083,12 @@ function renderKeyboardDrawerHtml(song) {
         <button class="seq-chord-mode-btn${seqChordMode==='preview'?' active':''}" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Preview — clicking a chord just plays it">▶ Preview</button>
         <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)">
           ${_keyOptions}
+        </select>
+        <select class="seq-select" id="kbdBars" onchange="kbdBarsChanged(this.value)" style="font-size:10px;width:auto;" title="Bars">
+          <option value="1"${songBars==='1'?' selected':''}>1</option>
+          <option value="2"${songBars==='2'?' selected':''}>2</option>
+          <option value="4"${songBars==='4'?' selected':''}>4</option>
+          <option value="8"${songBars==='8'?' selected':''}>8</option>
         </select>
         <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)">
           ${_progressionOptions}
@@ -37157,6 +37182,12 @@ function renderKeyboardDrawerHtml(song) {
           <option value="2"${timeSig==='2'?' selected':''}>2/4</option>
           <option value="6"${timeSig==='6'?' selected':''}>6/8</option>
           <option value="5"${timeSig==='5'?' selected':''}>5/4</option>
+        </select>
+        <select class="seq-select" id="kbdBars" onchange="kbdBarsChanged(this.value)" style="font-size:10px;width:52px;" title="Bars per loop">
+          <option value="1"${songBars==='1'?' selected':''}>1 Bar</option>
+          <option value="2"${songBars==='2'?' selected':''}>2 Bars</option>
+          <option value="4"${songBars==='4'?' selected':''}>4 Bars</option>
+          <option value="8"${songBars==='8'?' selected':''}>8 Bars</option>
         </select>
         <select class="seq-select" id="kbdKeysSteps" onchange="chordStepsChanged(this.value)" style="font-size:10px;width:52px;" title="Chord steps per beat">
           <option value="1"${songGrid==='1'?' selected':''}>1/4</option>
@@ -37285,6 +37316,12 @@ function renderKeyboardDrawerHtml(song) {
             title="Re-shuffle rhythm" style="${_activeProgressionId ? '' : 'display:none;'}font-size:10px;padding:3px 8px;font-weight:700;">
             ↺
           </button>
+          <select class="seq-select" id="kbdBars" onchange="kbdBarsChanged(this.value)" style="font-size:10px;width:auto;" title="Bars">
+            <option value="1"${songBars==='1'?' selected':''}>1</option>
+            <option value="2"${songBars==='2'?' selected':''}>2</option>
+            <option value="4"${songBars==='4'?' selected':''}>4</option>
+            <option value="8"${songBars==='8'?' selected':''}>8</option>
+          </select>
         </div>
       </div>
 
@@ -37922,11 +37959,10 @@ function kbdTimeSigChanged(callerVal) {
 function kbdBarsChanged(callerVal) {
   const val = callerVal || document.getElementById('kbdBars')?.value;
   if (!val) return;
+  // Sync ALL bars dropdowns across the entire UI
   document.querySelectorAll('[id="kbdBars"]').forEach(el => { if (el.value !== val) el.value = val; });
+  document.querySelectorAll('[id="seqBars"]').forEach(el => { if (el.value !== val) el.value = val; });
   const mt4tBr = document.getElementById('mt4tBars'); if (mt4tBr && mt4tBr.value !== val) mt4tBr.value = val;
-  // Sync seqBars BEFORE seqRebuild so it reads the new value from DOM correctly
-  const seqBarsEl = document.getElementById('seqBars');
-  if (seqBarsEl) seqBarsEl.value = val;
   // Don't pre-save bars — let seqRebuild() detect old→new change and tile patterns
   seqRebuild();
 }
@@ -38026,10 +38062,10 @@ function openKeyboardDrawer() {
     if (keyEl) keyEl.value = song.key || '';
     syncSeqBpmUI(sd.bpm || song.bpm || 100);
     syncTimeSigUI();
-    const barsEl = document.getElementById('kbdBars');
-    if (barsEl && sd.bars) barsEl.value = String(sd.bars);
-    const seqBarsEl = document.getElementById('seqBars');
-    if (seqBarsEl && sd.bars) seqBarsEl.value = String(sd.bars);
+    if (sd.bars) {
+      document.querySelectorAll('[id="kbdBars"]').forEach(function(el) { el.value = String(sd.bars); });
+      document.querySelectorAll('[id="seqBars"]').forEach(function(el) { el.value = String(sd.bars); });
+    }
     const gridEl = document.getElementById('seqGrid');
     const _kbdSongGrid = song.grid || sd.grid;
     if (gridEl && _kbdSongGrid) gridEl.value = String(_kbdSongGrid);
