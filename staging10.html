@@ -21542,6 +21542,7 @@ function seqSlotPickerSelect(chordName) {
     _seqSlotSetText(_slotPickerTarget, chordName);
     _slotPickerTarget.dataset.seqChordRaw = chordName;
     _slotPickerTarget.classList.add('filled');
+    if (typeof _seqClassifySlot === 'function') _seqClassifySlot(_slotPickerTarget, chordName, '');
     // Play preview
     if (typeof seqPlayChordByName === 'function') seqPlayChordByName(chordName);
     // Save
@@ -25879,6 +25880,40 @@ function seqGetChordStepCount(sd) {
   return time * bars * chordSteps;
 }
 
+// Classify a chord slot: compute degree from scale, add borrowed/variant classes
+function _seqClassifySlot(slot, chordName, savedDegree) {
+  const song = getCurrentSong();
+  const _ckRaw = (song?.sequencer?.key || song?.key?.split(' ')[0]?.split('/')[0]?.trim() || 'C');
+  const _ckEnh = {'Db':'C#','Eb':'D#','Fb':'E','Gb':'F#','Ab':'G#','Bb':'A#','Cb':'B'};
+  const _ckRoot = _ckEnh[_ckRaw] || _ckRaw;
+  const _ckMode = (song?.key || '').toLowerCase().includes('minor') ? 'minor' : 'major';
+  const scaleChords = (typeof seqGetScaleChords === 'function') ? seqGetScaleChords(_ckRoot, _ckMode) : [];
+  // Extract chord root
+  const cr = (chordName.length >= 2 && chordName[1] === '#') ? chordName.slice(0, 2) : chordName[0];
+  // Find degree by matching root
+  let deg = (savedDegree !== undefined && savedDegree !== '' && savedDegree !== null) ? savedDegree : undefined;
+  if (deg === undefined) {
+    for (let di = 0; di < scaleChords.length; di++) {
+      const sr = (scaleChords[di].length >= 2 && scaleChords[di][1] === '#') ? scaleChords[di].slice(0, 2) : scaleChords[di][0];
+      if (sr === cr) { deg = String(di); break; }
+    }
+  }
+  // Remove stale classes
+  slot.classList.remove('chord-borrowed', 'chord-variant');
+  delete slot.dataset.chordDegree;
+  // Apply degree or borrowed
+  if (deg !== undefined && deg !== '' && deg !== null) {
+    slot.dataset.chordDegree = deg;
+  } else {
+    slot.classList.add('chord-borrowed');
+  }
+  // Variant detection (extensions beyond basic triad)
+  const qual = chordName.slice(cr.length).replace('_viii', '');
+  if (qual && /\d|sus|add|maj7|dim7|m7b5/.test(qual) && qual !== 'm') {
+    slot.classList.add('chord-variant');
+  }
+}
+
 function seqBuildGrids(song) {
   const sd = seqGetData(song);
   const time = parseInt(document.getElementById('seqTime')?.value || sd.time || '4');
@@ -25903,19 +25938,6 @@ function seqBuildGrids(song) {
     const savedDegrees   = sd.chordDegrees   || [];
     const savedContinued = sd.chordContinued || [];
 
-    // Compute scale chords for degree-based coloring (purple=diatonic, teal=borrowed)
-    const _bgKeyRaw = (song?.sequencer?.key || song?.key?.split(' ')[0]?.split('/')[0]?.trim() || 'C');
-    const _bgEnh = {'Db':'C#','Eb':'D#','Fb':'E','Gb':'F#','Ab':'G#','Bb':'A#','Cb':'B'};
-    const _bgRoot = _bgEnh[_bgKeyRaw] || _bgKeyRaw;
-    const _bgMode = (song?.key || '').toLowerCase().includes('minor') ? 'minor' : 'major';
-    const _bgScaleChords = (typeof seqGetScaleChords === 'function') ? seqGetScaleChords(_bgRoot, _bgMode) : [];
-    // Build a root→degree lookup from scale chords
-    const _bgRootToDeg = {};
-    _bgScaleChords.forEach(function(sc, idx) {
-      const r = (sc.length >= 2 && sc[1] === '#') ? sc.slice(0, 2) : sc[0];
-      _bgRootToDeg[r] = idx;
-    });
-
     chordGrid.innerHTML = '';
     for (let i = 0; i < totalChordSteps; i++) {
       const slot = document.createElement('div');
@@ -25932,26 +25954,7 @@ function seqBuildGrids(song) {
         slot.textContent = val.replace('_viii', '⁸');
         slot.classList.add('filled');
         if (savedContinued[i]) slot.classList.add('chord-tail');
-        let deg = savedDegrees[i];
-        // If no degree saved, compute from scale chords by matching root note
-        if (deg === undefined || deg === '' || deg === null) {
-          const _cr = (val.length >= 2 && val[1] === '#') ? val.slice(0, 2) : val[0];
-          if (_bgRootToDeg.hasOwnProperty(_cr)) {
-            deg = String(_bgRootToDeg[_cr]);
-          }
-        }
-        if (deg !== undefined && deg !== '' && deg !== null) {
-          slot.dataset.chordDegree = deg;
-        } else {
-          // Not in scale → borrowed / chromatic
-          slot.classList.add('chord-borrowed');
-        }
-        // Detect chord variants (extensions beyond basic triad: sus2, m7, add9, etc.)
-        const _root = (val.length >= 2 && val[1] === '#') ? val.slice(0, 2) : val[0];
-        const _qual = val.slice(_root.length).replace('_viii', '');
-        if (_qual && /\d|sus|add|maj7|dim7|m7b5/.test(_qual) && _qual !== 'm') {
-          slot.classList.add('chord-variant');
-        }
+        _seqClassifySlot(slot, val, savedDegrees[i]);
       }
       // Resize handle — always appended last so textContent overwrites don't kill it
       const rHandle = document.createElement('div');
@@ -26021,8 +26024,7 @@ function seqBuildGrids(song) {
             }
             _seqSlotSetText(srcSlot, tgtChord);
             srcSlot.classList.add('filled');
-            if (tgtDeg !== '') srcSlot.dataset.chordDegree = tgtDeg;
-            else delete srcSlot.dataset.chordDegree;
+            _seqClassifySlot(srcSlot, tgtChord, tgtDeg);
             srcSlot.draggable = true;
           } else if (slot.classList.contains('chord-tail')) {
             // Dropping on a tail: clear it and following tails
@@ -26037,8 +26039,7 @@ function seqBuildGrids(song) {
           _seqSlotSetText(slot, chord);
           slot.classList.add('filled');
           slot.classList.remove('chord-tail');
-          if (degree !== '') slot.dataset.chordDegree = degree;
-          else delete slot.dataset.chordDegree;
+          _seqClassifySlot(slot, chord, degree);
           slot.draggable = true;
           slot.classList.add('just-dropped');
           slot.addEventListener('animationend', () => slot.classList.remove('just-dropped'), { once: true });
@@ -26061,8 +26062,7 @@ function seqBuildGrids(song) {
         _seqSlotSetText(slot, chord);
         slot.classList.add('filled');
         slot.classList.remove('chord-tail');
-        if (degree !== '') slot.dataset.chordDegree = degree;
-        else delete slot.dataset.chordDegree;
+        _seqClassifySlot(slot, chord, degree);
         slot.draggable = true;
         slot.classList.add('just-dropped');
         slot.addEventListener('animationend', () => slot.classList.remove('just-dropped'), { once: true });
@@ -26074,7 +26074,7 @@ function seqBuildGrids(song) {
           if (allSlots[tailIdx].classList.contains('filled') && !allSlots[tailIdx].classList.contains('chord-tail')) break;
           _seqSlotSetText(allSlots[tailIdx], chord);
           allSlots[tailIdx].classList.add('filled', 'chord-tail');
-          if (degree !== '') allSlots[tailIdx].dataset.chordDegree = degree;
+          _seqClassifySlot(allSlots[tailIdx], chord, degree);
         }
         seqSaveChordSlots();
       });
@@ -28983,6 +28983,7 @@ async function seqPlaySong() {
   _seqSongSectionIdx  = 0;
   _seqSongSectionStep = 0;
   _seqPlayMode = 'song';
+  _seqPlayGen = _seqStopGen; // snapshot: visual timeouts bail if seqStop() bumps _seqStopGen
   // Restore master gain (seqStop mutes it for instant silence)
   if (seqMasterGain) { try { seqMasterGain.gain.cancelScheduledValues(0); _mixApplyMain(); } catch(e) {} }
   _mixLog('GAIN', 'song playback start → restored via _mixApplyMain');
@@ -28993,6 +28994,7 @@ async function seqPlaySong() {
   const ctx = getSeqAudioCtx();
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
   _seqSchedulerCtx = ctx;
+  _seqStepIndex = 0; // reset scheduler to beat 0
   _seqNextNoteTime = ctx.currentTime + 0.05;
   _seqTimer = setInterval(seqScheduleNotes, 25);
   // Start unified metronome (no-op if already running)
@@ -47633,6 +47635,27 @@ document.addEventListener('keyup', function(e) {
   e.preventDefault();
   e.stopImmediatePropagation();
 }, true); // ← capture = true
+
+// ── Left/Right arrow: navigate sequence parts ────────────────────────────
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  var tag = e.target?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  // Only act when a music drawer is open (keys, drum, or looper)
+  var seqOpen = document.getElementById('seqDrawer')?.classList.contains('open');
+  var kbdOpen = document.getElementById('keyboardDrawer')?.classList.contains('open');
+  var loopOpen = document.getElementById('looperDrawer')?.classList.contains('open');
+  if (!seqOpen && !kbdOpen && !loopOpen) return;
+  var song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
+  if (!song) return;
+  var seqs = typeof getSongSequences === 'function' ? getSongSequences(song) : [];
+  if (seqs.length < 2) return; // nothing to navigate
+  e.preventDefault();
+  var newIdx = seqActiveIdx + (e.key === 'ArrowRight' ? 1 : -1);
+  if (newIdx < 0 || newIdx >= seqs.length) return;
+  if (typeof seqSwitchToSequence === 'function') seqSwitchToSequence(newIdx);
+});
 
 // ── Auto-return focus to body after clicks ───────────────────────────────
 // Prevents buttons/selects from holding focus and blocking spacebar.
