@@ -2487,9 +2487,9 @@ button, select, input, textarea { touch-action: manipulation; }
   [data-row="chord"] .seq-slot.filled[data-chord-degree="5"] { background: #3d246c; border-color: #8a38d8; color: #e6b4ff; }
   [data-row="chord"] .seq-slot.filled[data-chord-degree="6"] { background: #452a78; border-color: #9a44e8; color: #edbeff; }
   [data-row="chord"] .seq-slot.filled[data-chord-degree="7"] { background: #4d3084; border-color: #aa52f0; color: #f3c8ff; }
-  /* Chord variants (sus2, m7, add9, etc.) — cream/black to stand out */
-  [data-row="chord"] .seq-slot.filled.chord-variant { background: #f5f0e0 !important; border-color: #d4c89a !important; color: #1a1a1a !important; }
-  [data-row="chord"] .seq-slot.filled.chord-variant.chord-tail { background: #ede8d6 !important; border-color: #c4b88a !important; color: #333 !important; }
+  /* Chord variants (sus2, m7, add9, etc.) — inherit degree/borrowed color, no cream override */
+  /* Borrowed / chromatic chords — teal to match palette pills */
+  [data-row="chord"] .seq-slot.filled.chord-borrowed { background: rgba(45,212,191,0.12) !important; border-color: rgba(45,212,191,0.50) !important; color: #2dd4bf !important; }
   [data-row="kick"]  .seq-slot.drum-on { background: rgba(195,20,50,0.80);  border-color: #ff4466; }
   [data-row="snare"] .seq-slot.drum-on { background: rgba(100,190,230,0.80); border-color: #aaddff; }
   [data-row="hat"]   .seq-slot.drum-on { background: rgba(245,166,35,0.85); border-color: #ffd080; }
@@ -2599,18 +2599,10 @@ button, select, input, textarea { touch-action: manipulation; }
   [data-row="chord"] .seq-slot.filled.dragging { opacity: 1; cursor: grabbing; }
   /* Chord continuation (tail) slots — same chord, not re-triggered */
   [data-row="chord"] .seq-slot.chord-tail {
-    opacity: 1;
-    font-size: 7px;
-    letter-spacing: -0.5px;
+    opacity: 0.38;
   }
   [data-row="chord"] .seq-slot.chord-tail::before {
-    content: '—';
-    position: absolute;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 10px;
-    opacity: 1;
-    pointer-events: none;
+    content: none;
   }
   /* Resize handle — right edge of a filled chord slot */
   [data-row="chord"] .seq-slot .seq-resize-handle {
@@ -5370,22 +5362,19 @@ button, select, input, textarea { touch-action: manipulation; }
   .kbd-stage-col #seqChordGrid .seq-slot.filled[data-chord-degree="5"] { background: #3d246c; border-color: #8a38d8; color: #e6b4ff; }
   .kbd-stage-col #seqChordGrid .seq-slot.filled[data-chord-degree="6"] { background: #452a78; border-color: #9a44e8; color: #edbeff; }
   .kbd-stage-col #seqChordGrid .seq-slot.filled[data-chord-degree="7"] { background: #4d3084; border-color: #aa52f0; color: #f3c8ff; }
-  .kbd-stage-col #seqChordGrid .seq-slot.filled.chord-variant { background: #f5f0e0 !important; border-color: #d4c89a !important; color: #1a1a1a !important; }
-  .kbd-stage-col #seqChordGrid .seq-slot.filled.chord-variant.chord-tail { background: #ede8d6 !important; border-color: #c4b88a !important; color: #333 !important; }
+  /* Chord variants inherit degree/borrowed color — no cream override */
   /* Chord tail (held/sustained) slots — desktop stage scoped (no data-row="chord" parent) */
   .kbd-stage-col #seqChordGrid .seq-slot.chord-tail {
-    opacity: 0.55;
-    font-size: 9px !important;
-    letter-spacing: -0.5px;
+    opacity: 0.38;
   }
   .kbd-stage-col #seqChordGrid .seq-slot.chord-tail::before {
-    content: '—';
-    position: absolute;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 14px;
-    opacity: 0.7;
-    pointer-events: none;
+    content: none;
+  }
+  /* Borrowed / chromatic chords — teal to match palette pills */
+  .kbd-stage-col #seqChordGrid .seq-slot.filled.chord-borrowed {
+    background: rgba(45,212,191,0.12) !important;
+    border-color: rgba(45,212,191,0.50) !important;
+    color: #2dd4bf !important;
   }
   .kbd-stage-col #seqChordGrid .seq-slot .seq-resize-handle {
     position: absolute; right: 0; top: 0; bottom: 0; width: 8px;
@@ -25913,6 +25902,20 @@ function seqBuildGrids(song) {
     const savedSlots     = sd.chordSlots     || [];
     const savedDegrees   = sd.chordDegrees   || [];
     const savedContinued = sd.chordContinued || [];
+
+    // Compute scale chords for degree-based coloring (purple=diatonic, teal=borrowed)
+    const _bgKeyRaw = (song?.sequencer?.key || song?.key?.split(' ')[0]?.split('/')[0]?.trim() || 'C');
+    const _bgEnh = {'Db':'C#','Eb':'D#','Fb':'E','Gb':'F#','Ab':'G#','Bb':'A#','Cb':'B'};
+    const _bgRoot = _bgEnh[_bgKeyRaw] || _bgKeyRaw;
+    const _bgMode = (song?.key || '').toLowerCase().includes('minor') ? 'minor' : 'major';
+    const _bgScaleChords = (typeof seqGetScaleChords === 'function') ? seqGetScaleChords(_bgRoot, _bgMode) : [];
+    // Build a root→degree lookup from scale chords
+    const _bgRootToDeg = {};
+    _bgScaleChords.forEach(function(sc, idx) {
+      const r = (sc.length >= 2 && sc[1] === '#') ? sc.slice(0, 2) : sc[0];
+      _bgRootToDeg[r] = idx;
+    });
+
     chordGrid.innerHTML = '';
     for (let i = 0; i < totalChordSteps; i++) {
       const slot = document.createElement('div');
@@ -25929,8 +25932,20 @@ function seqBuildGrids(song) {
         slot.textContent = val.replace('_viii', '⁸');
         slot.classList.add('filled');
         if (savedContinued[i]) slot.classList.add('chord-tail');
-        const deg = savedDegrees[i];
-        if (deg !== undefined && deg !== '') slot.dataset.chordDegree = deg;
+        let deg = savedDegrees[i];
+        // If no degree saved, compute from scale chords by matching root note
+        if (deg === undefined || deg === '' || deg === null) {
+          const _cr = (val.length >= 2 && val[1] === '#') ? val.slice(0, 2) : val[0];
+          if (_bgRootToDeg.hasOwnProperty(_cr)) {
+            deg = String(_bgRootToDeg[_cr]);
+          }
+        }
+        if (deg !== undefined && deg !== '' && deg !== null) {
+          slot.dataset.chordDegree = deg;
+        } else {
+          // Not in scale → borrowed / chromatic
+          slot.classList.add('chord-borrowed');
+        }
         // Detect chord variants (extensions beyond basic triad: sus2, m7, add9, etc.)
         const _root = (val.length >= 2 && val[1] === '#') ? val.slice(0, 2) : val[0];
         const _qual = val.slice(_root.length).replace('_viii', '');
