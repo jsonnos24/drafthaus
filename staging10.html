@@ -8842,17 +8842,29 @@ body.split-4track-active .split-transport { display: none !important; }
 .mt-cancel-rec-btn { border-color: rgba(220,20,60,0.6); color: crimson; background: rgba(220,20,60,0.12); font-size: 11px; letter-spacing: 0.02em; }
 .vr-mini-cancel { display: none; border: none; background: rgba(220,20,60,0.25); color: #fff; font-size: 14px; font-weight: bold; width: 26px; height: 26px; border-radius: 50%; cursor: pointer; margin-left: 6px; padding: 0; line-height: 26px; text-align: center; flex-shrink: 0; }
 .split-met-btn.on { color: var(--gold); border-color: var(--gold); }
-/* I/O pill toggle on shared transport */
-.shared-io-toggle {
-  border: 1px solid rgba(139,92,246,0.4) !important;
-  color: rgba(139,92,246,0.85) !important;
-  background: var(--card2) !important;
-  font-weight: 700 !important; font-size: 10px !important;
-  padding: 3px 8px !important; border-radius: 5px !important;
-  letter-spacing: 0.06em;
+/* I/O transport button */
+.split-io-transport-btn { border-color: rgba(139,92,246,0.4); color: rgba(139,92,246,0.85); font-weight: 700; letter-spacing: 0.04em; }
+.split-io-transport-btn:hover { background: rgba(139,92,246,0.12); }
+.split-io-transport-btn.on { color: #a78bfa; border-color: #a78bfa; background: rgba(139,92,246,0.15); }
+/* Slide-up I/O panel — anchored above the transport dock */
+.split-io-slide-panel {
+  display: none; align-items: center; justify-content: center; gap: 14px;
+  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+  padding: 8px 18px; margin-bottom: 6px;
+  background: rgba(10,10,12,0.95);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+  white-space: nowrap;
+  animation: ioSlideUp 0.15s ease-out;
 }
-.shared-io-toggle:hover { background: rgba(139,92,246,0.12) !important; }
-.shared-io-toggle.on { color: #a78bfa !important; border-color: #a78bfa !important; background: rgba(139,92,246,0.18) !important; }
+#splitTransportDock { overflow: visible !important; }
+.split-io-slide-panel.open { display: flex; }
+@keyframes ioSlideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
 /* Audio I/O panel (mobile transport) */
 .shared-io-panel {
   display: none; padding: 6px 10px; gap: 8px;
@@ -8861,15 +8873,10 @@ body.split-4track-active .split-transport { display: none !important; }
 }
 .shared-io-panel[style*="display:flex"], .shared-io-panel.open { display: flex !important; }
 .shared-drawer-header:has(.shared-io-panel[style*="display:flex"]) { height: auto !important; }
-/* Desktop I/O popover — floats above the transport dock */
-.split-io-popover {
-  position: fixed; z-index: 99992;
-  background: rgba(10,10,12,0.95); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255,255,255,0.15); border-radius: 10px;
-  padding: 10px 14px; display: none; flex-direction: column; gap: 8px;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.5);
-  min-width: 200px;
-}
+/* Mobile I/O transport button */
+.shared-io-toggle { border-color: rgba(139,92,246,0.4) !important; color: rgba(139,92,246,0.85) !important; font-weight: 700; }
+.shared-io-toggle:hover { background: rgba(139,92,246,0.12) !important; }
+.shared-io-toggle.on { color: #a78bfa !important; border-color: #a78bfa !important; background: rgba(139,92,246,0.15) !important; }
 .shared-io-row {
   display: flex; align-items: center; gap: 5px; flex-shrink: 0;
 }
@@ -22739,7 +22746,7 @@ function _headerUpdateAudioSelects(audioIns, audioOuts) {
   });
 }
 
-/* ── Shared transport I/O panel toggle ── */
+/* ── Shared transport I/O panel toggle (mobile) ── */
 var _sharedIoPanelOpen = false;
 function sharedToggleIoPanel() {
   _sharedIoPanelOpen = !_sharedIoPanelOpen;
@@ -22750,34 +22757,17 @@ function sharedToggleIoPanel() {
   if (_sharedIoPanelOpen) _headerEnumerateAudio();
 }
 
-/* Desktop I/O popover toggle — positions above the clicked button */
-var _splitIoPopoverOpen = false;
-function splitToggleIoPopover(btn) {
-  _splitIoPopoverOpen = !_splitIoPopoverOpen;
-  var pop = document.getElementById('splitIoPopover');
-  if (!pop) return;
-  var ioBtn = document.getElementById('splitIoPillBtn');
-  if (ioBtn) ioBtn.classList.toggle('on', _splitIoPopoverOpen);
-  if (!_splitIoPopoverOpen) { pop.style.display = 'none'; return; }
-  _headerEnumerateAudio();
-  pop.style.display = 'flex';
-  // Position above the button
-  var rect = btn.getBoundingClientRect();
-  pop.style.left = Math.max(8, rect.left + rect.width / 2 - pop.offsetWidth / 2) + 'px';
-  pop.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
-  pop.style.top = 'auto';
-  // Close on outside click
-  setTimeout(function() {
-    function _closeIoPop(e) {
-      if (pop.contains(e.target) || e.target === btn || btn.contains(e.target)) return;
-      _splitIoPopoverOpen = false;
-      pop.style.display = 'none';
-      var ioBtn2 = document.getElementById('splitIoPillBtn');
-      if (ioBtn2) ioBtn2.classList.remove('on');
-      document.removeEventListener('pointerdown', _closeIoPop, true);
-    }
-    document.addEventListener('pointerdown', _closeIoPop, true);
-  }, 0);
+/* ── Desktop transport I/O slide panel toggle ── */
+var _splitIoPanelOpen = false;
+function splitToggleIoPanel() {
+  _splitIoPanelOpen = !_splitIoPanelOpen;
+  var panel = document.getElementById('splitIoSlidePanel');
+  if (panel) panel.classList.toggle('open', _splitIoPanelOpen);
+  // Highlight all I/O buttons in both transport rows
+  document.querySelectorAll('.split-io-transport-btn').forEach(function(b) {
+    b.classList.toggle('on', _splitIoPanelOpen);
+  });
+  if (_splitIoPanelOpen) _headerEnumerateAudio();
 }
 
 function headerSelectAudioIn(deviceId) {
@@ -56825,6 +56815,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <button class="split-transport-btn split-play-btn" onclick="seqPlaySong()" title="Play full song">▶▶ Seq</button>
         <button class="split-transport-btn split-stop-btn" onclick="sharedStop()" title="Stop">■ Stop</button>
         <button class="split-transport-btn split-met-btn" id="splitMetBtn" onclick="seqToggleMet()" title="Toggle metronome">Metro</button>
+        <button class="split-transport-btn split-io-transport-btn" onclick="splitToggleIoPanel()" title="Audio Input / Output">I/O</button>
       </div>
       <!-- 4-track transport — only visible when 4-track occupies split right -->
       <div class="split-4t-transport" id="split4tTransport">
@@ -56834,6 +56825,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="sharedStop()" disabled title="Stop (Space)">■ Stop</button>
         <button class="split-transport-btn split-met-btn" id="mtMetBtn" onclick="seqToggleMet()" title="Toggle metronome (M)">Metro</button>
         <button class="split-transport-btn split-tap-btn split-tap-desktop" id="mtTapBtn" onclick="rtTapTempo()" title="Tap Tempo (Tab)">TAP</button>
+        <button class="split-transport-btn split-io-transport-btn" onclick="splitToggleIoPanel()" title="Audio Input / Output">I/O</button>
       </div>
       <!-- Floating cancel — visible during recording, positioned above transport on mobile -->
       <div class="mt4t-cancel-float" id="mt4tCancelFloatDesktop" style="display:none">
@@ -56855,15 +56847,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       </div>
     </div>
   </div>
-  <!-- Right-aligned: I/O + EC + BT in one pill -->
+  <!-- Right-aligned: EC + BT in one pill -->
   <div class="split-dock-right">
     <div class="split-dock-io-pill" id="splitDockIoPill">
-      <!-- I/O buttons — shown only when 4-track is in split right -->
-      <div class="split-io-pill" id="vrIoHeaderPill">
-        <button class="split-io-btn shared-io-toggle" id="splitIoPillBtn" onclick="splitToggleIoPopover(this)" title="Audio Input / Output devices">I/O</button>
-      </div>
-      <!-- EC separator (only shown with I/O) -->
-      <span class="split-dock-io-sep" aria-hidden="true"></span>
       <!-- Echo cancellation -->
       <button class="split-dock-icon-btn" id="vrEcBtnH" onclick="vrToggleEC()" title="Echo cancellation / noise suppression">EC</button>
       <!-- Bluetooth latency calibrator -->
@@ -56872,17 +56858,16 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       </button>
     </div>
   </div>
-</div>
-
-<!-- ── I/O popover (desktop transport) ── -->
-<div id="splitIoPopover" class="split-io-popover" style="display:none;">
-  <div class="shared-io-row">
-    <label class="shared-io-label">IN</label>
-    <select id="splitAudioInSelect" class="shared-io-select" onchange="headerSelectAudioIn(this.value)"></select>
-  </div>
-  <div class="shared-io-row">
-    <label class="shared-io-label">OUT</label>
-    <select id="splitAudioOutSelect" class="shared-io-select" onchange="headerSelectAudioOut(this.value)"></select>
+  <!-- Slide-up I/O device panel -->
+  <div id="splitIoSlidePanel" class="split-io-slide-panel">
+    <div class="shared-io-row">
+      <label class="shared-io-label">INPUT</label>
+      <select id="splitAudioInSelect" class="shared-io-select" onchange="headerSelectAudioIn(this.value)"></select>
+    </div>
+    <div class="shared-io-row">
+      <label class="shared-io-label">OUTPUT</label>
+      <select id="splitAudioOutSelect" class="shared-io-select" onchange="headerSelectAudioOut(this.value)"></select>
+    </div>
   </div>
 </div>
 
