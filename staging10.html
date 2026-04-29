@@ -20344,7 +20344,7 @@ function addSectionToSong(partId) {
   if (!song.structure) song.structure = {};
   if (!song.sectionOrder) song.sectionOrder = [];
   if (song.structure[partId]?.checked) return; // already active
-  _pushStructUndo(song);
+  ucPushUndo(_ucCaptureState());
   song.structure[partId] = { ...(song.structure[partId] || {}), checked: true, count: song.structure[partId]?.count || 1 };
   if (!song.sectionOrder.includes(partId)) song.sectionOrder.push(partId);
   song.updatedAt = Date.now();
@@ -20382,7 +20382,7 @@ function sspPillClick(e, partId) {
 function sspCycleRepeat(partId) {
   const song = getCurrentSong();
   if (!song?.structure?.[partId]) return;
-  _pushStructUndo(song);
+  ucPushUndo(_ucCaptureState());
   const cur = song.structure[partId].count || 1;
   song.structure[partId].count = (cur % 4) + 1;
   song.updatedAt = Date.now();
@@ -20522,7 +20522,7 @@ function sosTouchEnd(e, srcIdx) {
 function moveSectionInOrder(fromIdx, toIdx) {
   const song = getCurrentSong();
   if (!song) return;
-  _pushStructUndo(song);
+  ucPushUndo(_ucCaptureState());
   ensureSectionOrder(song);
   const order = song.sectionOrder;
   const item = order.splice(fromIdx, 1)[0];
@@ -20570,74 +20570,25 @@ function toggleSosMobilePanel() {
 }
 
 // ── Song-level Part Chord helpers ──────────────────────────────────
-let _structUndoStack = [];
-
-function _pushStructUndo(song) {
-  _structUndoStack.push({
-    structure:    JSON.parse(JSON.stringify(song.structure    || {})),
-    chords:       JSON.parse(JSON.stringify(song.chords      || {})),
-    sectionOrder: JSON.parse(JSON.stringify(song.sectionOrder || [])),
-  });
-  if (_structUndoStack.length > 30) _structUndoStack.shift();
-}
-
-function undoPartAction() {
-  const song = getCurrentSong();
-  if (!song || !_structUndoStack.length) return;
-  const prev = _structUndoStack.pop();
-  song.structure    = prev.structure;
-  song.chords       = prev.chords;
-  song.sectionOrder = prev.sectionOrder;
-  song.updatedAt = Date.now();
-  save();
-  renderStructure(song);
-  renderSectionOrderSidebar(song);
-  scheduleSyncToSheet(song);
-}
+// Struct undo removed — now handled by global UCB undo
 
 function duplicateSongPartChord(partId, idx) {
   const song = getCurrentSong(); if (!song) return;
   if (!song.chords) song.chords = {};
   if (!song.chords[partId]) return;
-  _pushStructUndo(song);
+  ucPushUndo(_ucCaptureState());
   const copy = JSON.parse(JSON.stringify(song.chords[partId][idx]));
   song.chords[partId].splice(idx + 1, 0, copy);
   song.updatedAt = Date.now(); save();
   renderStructure(song); scheduleSyncToSheet(song);
 }
 
-// ── Instrument chord undo stack ────────────────────────────────────
-const _instChordUndoStack = {};
-
-function _pushInstChordUndo(instId, partId) {
-  const song = getCurrentSong(); if (!song) return;
-  const key = instId + ':' + partId;
-  if (!_instChordUndoStack[key]) _instChordUndoStack[key] = [];
-  const part = song?.instruments?.[instId]?.[partId];
-  _instChordUndoStack[key].push(part ? JSON.parse(JSON.stringify(part)) : null);
-  if (_instChordUndoStack[key].length > 20) _instChordUndoStack[key].shift();
-}
-
-window.undoInstChordAction = function(instId, partId) {
-  const song = getCurrentSong(); if (!song) return;
-  const key = instId + ':' + partId;
-  const stack = _instChordUndoStack[key];
-  if (!stack || !stack.length) { showToast('Nothing to undo', 'warn'); return; }
-  const prev = stack.pop();
-  if (!song.instruments) song.instruments = {};
-  if (!song.instruments[instId]) song.instruments[instId] = {};
-  song.instruments[instId][partId] = prev || { chords: [], beats: [] };
-  song.updatedAt = Date.now(); save();
-  const openIds = [...document.querySelectorAll('#instSections .inst-section-block:not(.collapsed)')].map(el => el.id);
-  renderInstSections(song);
-  openIds.forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('collapsed'); });
-  scheduleSyncToSheet(song);
-};
+// ── Instrument chord undo — removed, now handled by global UCB undo ──
 
 window.duplicateInstChord = function(instId, partId, idx) {
   const song = getCurrentSong(); if (!song) return;
   if (!song?.instruments?.[instId]?.[partId]) return;
-  _pushInstChordUndo(instId, partId);
+  ucPushUndo(_ucCaptureState());
   const part = song.instruments[instId][partId];
   // Duplicate the chord entry
   const chord = JSON.parse(JSON.stringify(part.chords[idx]));
@@ -20677,7 +20628,7 @@ function addSongPartChord(partId) {
   if (!song.chords[partId]) song.chords[partId] = [];
   const root    = document.getElementById('sppr-' + partId)?.value || 'A';
   const quality = document.getElementById('sppq-' + partId)?.value || 'maj';
-  _pushStructUndo(song);
+  ucPushUndo(_ucCaptureState());
   song.chords[partId].push({ root, quality });
   song.updatedAt = Date.now();
   save();
@@ -20688,7 +20639,7 @@ function addSongPartChord(partId) {
 function removeSongPartChord(partId, idx) {
   const song = getCurrentSong();
   if (!song?.chords?.[partId]) return;
-  _pushStructUndo(song);
+  ucPushUndo(_ucCaptureState());
   song.chords[partId].splice(idx, 1);
   song.updatedAt = Date.now();
   save();
@@ -20700,7 +20651,7 @@ function repeatSongPart(partId) {
   const song = getCurrentSong();
   if (!song) return;
   if (!song.structure?.[partId]) return;
-  _pushStructUndo(song);
+  ucPushUndo(_ucCaptureState());
   const cur = song.structure[partId].count || 1;
   song.structure[partId].count = (cur % 4) + 1; // cycle 1→2→3→4→1
   song.updatedAt = Date.now();
@@ -20712,7 +20663,7 @@ function repeatSongPart(partId) {
 function _doDeleteSongPart(partId) {
   const song = getCurrentSong();
   if (!song) return;
-  _pushStructUndo(song);
+  ucPushUndo(_ucCaptureState());
   if (song.structure?.[partId]) song.structure[partId].checked = false;
   if (song.sectionOrder) song.sectionOrder = song.sectionOrder.filter(id => id !== partId);
 
@@ -20920,7 +20871,7 @@ function renderInstSections(song) {
         <div class="chord-quickpick">
           ${quickChords.map((c,i) => `<button class="chord-qbtn${i===0?' is-i':''}" onclick="instAddChordQuick('${inst.id}','${part.id}','${c.root}','${c.quality}')">${c.label}</button>`).join('')}
           <button class="chord-qbtn other-btn" onclick="toggleChordPicker('${inst.id}','${part.id}')">+ Other</button>
-          <button class="sp-undo-btn" onclick="undoInstChordAction('${inst.id}','${part.id}')" title="Undo last chord" style="padding:2px 7px;font-size:9px;min-height:0;">↩</button>
+          <!-- Undo now handled globally by UCB -->
         </div>
         <div id="cpicker-${inst.id}-${part.id}" style="display:none;flex-direction:row;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
           <select class="chord-select" id="icr-${inst.id}-${part.id}" style="font-size:11px;padding:3px 6px;">${rootOpts}</select>
@@ -21594,7 +21545,7 @@ function instAddChord(instId, partId) {
   if (!song.instruments) song.instruments = {};
   if (!song.instruments[instId]) song.instruments[instId] = {};
   if (!song.instruments[instId][partId]) song.instruments[instId][partId] = { chords: [], beats: [] };
-  _pushInstChordUndo(instId, partId);
+  ucPushUndo(_ucCaptureState());
   const root = document.getElementById('icr-'+instId+'-'+partId).value;
   const qv   = document.getElementById('icq-'+instId+'-'+partId).value;
   const ql   = QUALITIES.find(q=>q.v===qv)?.l || qv;
@@ -21646,7 +21597,7 @@ function instAddChord(instId, partId) {
 function instRemoveChord(instId, partId, idx) {
   const song = getCurrentSong();
   if (!song?.instruments?.[instId]?.[partId]) return;
-  _pushInstChordUndo(instId, partId);
+  ucPushUndo(_ucCaptureState());
   song.instruments[instId][partId].chords.splice(idx, 1);
   // Find and remove the beat that was tagged with this chordIdx
   const meta = song.instruments[instId][partId].beatMeta || [];
@@ -23495,8 +23446,7 @@ function renderSequencerHtml(song) {
         </div>
       </div>
       <span style="flex:1"></span>
-      <button class="seq-gen-btn seq-undo-btn" id="seqUndoBtn" onclick="seqDrumUndo()" title="Undo" disabled>↩ Undo</button>
-      <button class="seq-gen-btn seq-undo-btn" id="seqRedoBtn" onclick="seqDrumRedo()" title="Redo" disabled>↪ Redo</button>
+      <!-- Undo/Redo now handled globally by UCB -->
     </div>
 
     <!-- Probability popover -->
@@ -23795,161 +23745,14 @@ function seqTabDragEnd() {
   document.querySelectorAll('.seq-tab').forEach(t => t.classList.remove('seq-tab-dragging', 'seq-tab-drag-over'));
 }
 
-// ── Sequencer Undo Stack ──────────────────────────────────────────
-// Each entry is a full snapshot of { sequences: [...], activeIdx } so that
-// structural actions (duplicate, delete) are also undoable.
-var _seqUndoStack = [];
-const _SEQ_UNDO_MAX = 20;
-
-function seqPushUndo(song) {
-  if (!song) song = getCurrentSong();
-  if (!song) return;
-  const seqs = getSongSequences(song);
-  const activeSeq = seqs[seqActiveIdx];
-  if (!activeSeq) return;
-  // Snapshot the ACTIVE sequence's data only — never the full list.
-  // This means undo can only ever revert chord/drum/melody edits within a
-  // sequence; it will never remove or add sequence tabs.
-  _seqUndoStack.push({
-    sequenceId: activeSeq.id,
-    activeIdx:  seqActiveIdx,
-    data:       JSON.parse(JSON.stringify(activeSeq)),
-  });
-  if (_seqUndoStack.length > _SEQ_UNDO_MAX) _seqUndoStack.shift();
-  _seqSyncUndoBtn();
-}
-
-function _seqSyncUndoBtn() {
-  // All undo buttons now live in the single global strip
-  ['seqUndoBtn','kbdUndoBtn','loopUndoBtn'].forEach(function(id) {
-    const btn = document.getElementById(id);
-    if (btn) btn.style.opacity = _seqUndoStack.length ? '0.8' : '0.3';
-  });
-}
-function _kbdSyncUndoBtn() {
-  _seqSyncUndoBtn(); // delegate to shared implementation
-}
-
-window.seqUndoActive = function() {
-  if (!_seqUndoStack.length) { showToast('Nothing to undo', 'info', 1500); return; }
-  const snap = _seqUndoStack.pop();
-  const song = getCurrentSong();
-  if (!song) return;
-  const seqs = getSongSequences(song);
-  // Find the snapshotted sequence by id (handles reordering), fall back to index
-  let idx = seqs.findIndex(s => s.id === snap.sequenceId);
-  if (idx < 0) idx = Math.min(snap.activeIdx, seqs.length - 1);
-  if (idx < 0 || !seqs[idx]) { _seqSyncUndoBtn(); _kbdSyncUndoBtn(); return; }
-  // Restore chord/drum/melody data within the sequence — never touch the sequence list
-  Object.assign(seqs[idx], snap.data);
-  seqActiveIdx    = idx;
-  kbdMelodySeqIdx = Math.min(kbdMelodySeqIdx, seqs.length - 1);
-  song.sequencer  = seqs[idx];
-  seqLoadSequenceIntoDOM(song.sequencer, song);
-  seqRenderSequenceTabs();
-  seqRenderChordPills(song);
-  if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
-  // Resync in-memory melody notes for the keyboard drawer
-  const melSeq = song.sequences[kbdMelodySeqIdx];
-  if (melSeq && typeof melodyNotes !== 'undefined') {
-    melodyNotes = (melSeq.melody || []).slice();
-    if (typeof seqRenderMelodyRoll === 'function') seqRenderMelodyRoll();
-  }
-  save();
-  showToast('Undone', 'success', 1500);
-  _seqSyncUndoBtn();
-  _kbdSyncUndoBtn();
-};
-
-// ── Keys drawer undo/redo — 3-step history ─────────────────────
-const _keysUndoStack = [];
-const _keysRedoStack = [];
-const _KEYS_UNDO_MAX = 3;
-
-function _keysSnapshot() {
-  const song = getCurrentSong();
-  if (!song) return null;
-  const seqs = getSongSequences(song);
-  const activeSeq = seqs[seqActiveIdx];
-  if (!activeSeq) return null;
-  return {
-    sequenceId: activeSeq.id,
-    activeIdx:  seqActiveIdx,
-    data:       JSON.parse(JSON.stringify(activeSeq)),
-  };
-}
-
-function keysPushUndo() {
-  const snap = _keysSnapshot();
-  if (!snap) return;
-  _keysUndoStack.push(snap);
-  if (_keysUndoStack.length > _KEYS_UNDO_MAX) _keysUndoStack.shift();
-  _keysRedoStack.length = 0;
-  _keysUpdateButtons();
-}
-
-function _keysRestore(snap) {
-  const song = getCurrentSong();
-  if (!song) return;
-  const seqs = getSongSequences(song);
-  let idx = seqs.findIndex(s => s.id === snap.sequenceId);
-  if (idx < 0) idx = Math.min(snap.activeIdx, seqs.length - 1);
-  if (idx < 0 || !seqs[idx]) return;
-  Object.assign(seqs[idx], snap.data);
-  seqActiveIdx   = idx;
-  kbdMelodySeqIdx = Math.min(kbdMelodySeqIdx, seqs.length - 1);
-  song.sequencer = seqs[idx];
-  seqLoadSequenceIntoDOM(song.sequencer, song);
-  seqRenderSequenceTabs();
-  seqRenderChordPills(song);
-  if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
-  const melSeq = song.sequences[kbdMelodySeqIdx];
-  if (melSeq && typeof melodyNotes !== 'undefined') {
-    melodyNotes = (melSeq.melody || []).slice();
-    if (typeof seqRenderMelodyRoll === 'function') seqRenderMelodyRoll();
-  }
-  save();
-}
-
-function keysUndoApply() {
-  if (!_keysUndoStack.length) return;
-  const current = _keysSnapshot();
-  if (current) {
-    _keysRedoStack.push(current);
-    if (_keysRedoStack.length > _KEYS_UNDO_MAX) _keysRedoStack.shift();
-  }
-  const snap = _keysUndoStack.pop();
-  _keysRestore(snap);
-  _keysUpdateButtons();
-  showToast('Undo', 'info', 1000);
-}
-
-function keysRedoApply() {
-  if (!_keysRedoStack.length) return;
-  const current = _keysSnapshot();
-  if (current) {
-    _keysUndoStack.push(current);
-    if (_keysUndoStack.length > _KEYS_UNDO_MAX) _keysUndoStack.shift();
-  }
-  const snap = _keysRedoStack.pop();
-  _keysRestore(snap);
-  _keysUpdateButtons();
-  showToast('Redo', 'info', 1000);
-}
-
-function _keysUpdateButtons() {
-  const undoBtn = document.getElementById('kbdKeysUndoBtn');
-  const redoBtn = document.getElementById('kbdKeysRedoBtn');
-  if (undoBtn) undoBtn.disabled = _keysUndoStack.length === 0;
-  if (redoBtn) redoBtn.disabled = _keysRedoStack.length === 0;
-}
+// ── Sequencer & Keys undo stacks removed — now handled by global UCB undo ──
 
 window.seqDuplicateActive = function() {
   const song = getCurrentSong();
   if (!song) return;
   const seqs = getSongSequences(song);
   seqSaveAllToCurrent(song);
-  seqPushUndo(song); // snapshot BEFORE mutating so duplicate is undoable
+  ucPushUndo(_ucCaptureState()); // snapshot BEFORE mutating so duplicate is undoable
   const src = seqs[seqActiveIdx];
   if (!src) return;
   const clone = JSON.parse(JSON.stringify(src));
@@ -24015,7 +23818,6 @@ function seqRenderSequenceTabs() {
     ? `<span class="seq-now-playing-badge visible">▶ ${seqGetPartLabel(_seqSongSections[_seqSongSectionIdx]?.partId)}</span>`
     : '';
 
-  const _seqUndoOp = _seqUndoStack.length ? '0.8' : '0.3';
   const _stripHint = seqs.length < 3 ? '<span class="seq-strip-hint">Tap part · double-tap to manage</span>' : '';
   strip.innerHTML = `
     ${tabsHtml}
@@ -24025,7 +23827,7 @@ function seqRenderSequenceTabs() {
     ${_stripHint}
     <span class="seq-tab-spacer"></span>
     ${nowPlayingHtml}`;
-  _seqSyncUndoBtn();
+  _ucSyncArrows(); // sync global UCB undo/redo state
   _ucbSyncDropdownBorderColor();
 
   // Populate TL sections from the sequence strip so piano roll scroll-to-section works immediately
@@ -26615,7 +26417,7 @@ function seqSaveChordSlots() {
   const song = getCurrentSong();
   if (!song) return;
   seqGetData(song); // ensure song.sequencer → active sequence
-  seqPushUndo(); // snapshot BEFORE overwriting
+  ucPushUndo(_ucCaptureState()); // snapshot BEFORE overwriting
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
   song.sequencer.chordSlots     = slots.map(s => s.dataset.seqChordRaw || s.textContent.trim().replace('⁸','_viii') || '');
   song.sequencer.chordDegrees   = slots.map(s => s.dataset.chordDegree ?? '');
@@ -26673,14 +26475,14 @@ function seqClearActiveSequence() {
 
   modal.querySelector('#_seqClearPatternsOnly').onclick = () => {
     modal.remove();
-    seqPushUndo();
+    ucPushUndo(_ucCaptureState());
     _clearAllPatterns();
     showToast('All patterns cleared — lyrics kept', 'info', 2200);
   };
 
   modal.querySelector('#_seqClearAll').onclick = () => {
     modal.remove();
-    seqPushUndo();
+    ucPushUndo(_ucCaptureState());
     _clearAllPatterns();
     if (song) {
       // Clear lyrics for all parts
@@ -26833,7 +26635,7 @@ function _seqProgressionFill(progressionId) {
   if (!prog) return;
   const song = getCurrentSong();
   if (!song) return;
-  if (typeof keysPushUndo === 'function') keysPushUndo();
+  ucPushUndo(_ucCaptureState());
 
   const sd         = seqGetData(song);
   const timeSig    = parseInt(sd.time || '4');
@@ -26927,7 +26729,7 @@ function _seqProgressionFill(progressionId) {
   }
 
   // Apply to DOM
-  seqPushUndo();
+  ucPushUndo(_ucCaptureState());
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
   slots.forEach((slot, i) => {
     const val = newSlots[i] || '';
@@ -27273,7 +27075,7 @@ function seqSaveDrumLane(lane, elId) {
   const el = document.getElementById(elId);
   if (!el) return;
   seqGetData(song); // ensure song.sequencer → active sequence
-  seqPushUndo(); // snapshot BEFORE overwriting so undo restores previous state
+  ucPushUndo(_ucCaptureState()); // snapshot BEFORE overwriting so undo restores previous state
   const slots = [...el.querySelectorAll('.seq-slot')];
   song.sequencer[lane]          = slots.map(s => s.classList.contains('drum-on') ? 1 : 0);
   song.sequencer[lane + 'Vel']  = slots.map(s => s.classList.contains('drum-on') ? parseFloat(s.dataset.vel || 0.8) : 0);
@@ -28271,10 +28073,10 @@ function sharedRevertSize() {
 }
 
 // ══ Unified Control Bar (UCB) — JS ══════════════════════════════════
-// Undo/redo history (up to 3 steps)
+// Global undo/redo history (up to 10 steps)
 var _ucUndoStack = [];
 var _ucRedoStack = [];
-var _ucMaxHistory = 3;
+var _ucMaxHistory = 10;
 
 function ucPushUndo(stateSnapshot) {
   _ucUndoStack.push(stateSnapshot);
@@ -28297,27 +28099,41 @@ function ucRedo() {
   _ucSyncArrows();
 }
 function _ucCaptureState() {
-  // Capture current song state for undo
+  // Capture full song state for global undo — deep clone everything mutable
   var song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
   if (!song) return null;
-  return JSON.parse(JSON.stringify({
-    bpm: song.bpm,
-    sequencer: song.sequencer,
-    lyrics: song.lyrics,
-    sections: song.sections
-  }));
+  var snap = {};
+  // Clone all mutable song properties
+  var keys = ['bpm','grid','drumSteps','chordSteps','sequencer','sequences','lyrics','sections',
+              'structure','chords','sectionOrder','instruments','loopTracks'];
+  keys.forEach(function(k) {
+    if (song[k] !== undefined) snap[k] = JSON.parse(JSON.stringify(song[k]));
+  });
+  // Also capture sequencer active index
+  if (typeof seqActiveIdx !== 'undefined') snap._seqActiveIdx = seqActiveIdx;
+  if (typeof kbdMelodySeqIdx !== 'undefined') snap._kbdMelodySeqIdx = kbdMelodySeqIdx;
+  return snap;
 }
 function _ucRestoreState(state) {
   if (!state) return;
   var song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
   if (!song) return;
-  if (state.bpm !== undefined) song.bpm = state.bpm;
-  if (state.sequencer) song.sequencer = JSON.parse(JSON.stringify(state.sequencer));
-  if (state.lyrics !== undefined) song.lyrics = state.lyrics;
-  if (state.sections) song.sections = JSON.parse(JSON.stringify(state.sections));
+  // Restore all captured properties
+  var keys = ['bpm','grid','drumSteps','chordSteps','sequencer','sequences','lyrics','sections',
+              'structure','chords','sectionOrder','instruments','loopTracks'];
+  keys.forEach(function(k) {
+    if (state[k] !== undefined) song[k] = JSON.parse(JSON.stringify(state[k]));
+  });
+  // Restore sequencer index
+  if (state._seqActiveIdx !== undefined && typeof seqActiveIdx !== 'undefined') seqActiveIdx = state._seqActiveIdx;
+  if (state._kbdMelodySeqIdx !== undefined && typeof kbdMelodySeqIdx !== 'undefined') kbdMelodySeqIdx = state._kbdMelodySeqIdx;
+  // Resync melody notes
+  if (typeof melodyNotes !== 'undefined' && song.sequences && song.sequences[kbdMelodySeqIdx]) {
+    melodyNotes = (song.sequences[kbdMelodySeqIdx].melody || []).slice();
+  }
   song.updatedAt = Date.now();
   if (typeof save === 'function') save();
-  // Refresh UI
+  // Full UI refresh
   if (typeof openSong === 'function' && song.id) {
     try { openSong(song.id, true); } catch(e) {}
   }
@@ -30089,14 +29905,14 @@ function melodyClear() {
 function saveMelody() {
   const song = getCurrentSong();
   if (!song) return;
-  seqPushUndo(); // snapshot BEFORE overwriting melody
+  ucPushUndo(_ucCaptureState()); // snapshot BEFORE overwriting melody
   const seqs = getSongSequences(song);
   const targetSeq = seqs[kbdMelodySeqIdx] || song.sequencer || {};
   targetSeq.melody = melodyNotes.slice();
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
-  _kbdSyncUndoBtn();
+  _ucSyncArrows(); // sync global UCB undo/redo state
 }
 
 function kbdRenderMelodyTabs(song) {
@@ -30111,7 +29927,7 @@ window.kbdDuplicateMelodySeq = function() {
   // Save current in-memory melody back to the sequence before cloning
   if (seqs[kbdMelodySeqIdx]) seqs[kbdMelodySeqIdx].melody = melodyNotes.slice();
   seqSaveAllToCurrent(song);
-  seqPushUndo(); // snapshot BEFORE mutating
+  ucPushUndo(_ucCaptureState()); // snapshot BEFORE mutating
   const src = seqs[kbdMelodySeqIdx];
   if (!src) return;
   const clone = JSON.parse(JSON.stringify(src));
@@ -37193,8 +37009,7 @@ function renderKeyboardDrawerHtml(song) {
         </button>
         <span class="spacer"></span>
         <div class="right-cluster">
-          <button class="seq-gen-btn seq-undo-btn" id="kbdKeysUndoBtn" onclick="keysUndoApply()" title="Undo" disabled>↩</button>
-          <button class="seq-gen-btn seq-undo-btn" id="kbdKeysRedoBtn" onclick="keysRedoApply()" title="Redo" disabled>↪</button>
+          <!-- Undo/Redo now handled globally by UCB -->
           <button class="seq-humanize-btn${seqHumanizeChords?' active':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords" style="border-color:var(--teal,#2dd4bf);color:var(--teal,#2dd4bf);">〜 Humanize</button>
         </div>
       </div>
@@ -37302,8 +37117,7 @@ function renderKeyboardDrawerHtml(song) {
         </button>
         <span class="spacer"></span>
         <div class="right-cluster">
-          <button class="seq-gen-btn seq-undo-btn" id="kbdKeysUndoBtn" onclick="keysUndoApply()" title="Undo" disabled>↩</button>
-          <button class="seq-gen-btn seq-undo-btn" id="kbdKeysRedoBtn" onclick="keysRedoApply()" title="Redo" disabled>↪</button>
+          <!-- Undo/Redo now handled globally by UCB -->
           <button class="seq-humanize-btn${seqHumanizeChords?' active':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords" style="border-color:var(--teal,#2dd4bf);color:var(--teal,#2dd4bf);">〜 Humanize</button>
         </div>
       </div>
@@ -38696,7 +38510,7 @@ function seqKeySelectChanged(triggerEl) {
 
   const song = getCurrentSong();
   if (!song) return;
-  if (typeof keysPushUndo === 'function') keysPushUndo();
+  ucPushUndo(_ucCaptureState());
 
   // Capture old key BEFORE updating song
   const oldKey  = song.sequencer?.key  || seqCurrentKey();
@@ -39128,82 +38942,8 @@ const DRUM_PATTERNS = {
 };
 
 // ══════════════════════════════════════════════════════════════════
-// DRUM GRID UNDO / REDO — 3-step history
+// DRUM GRID UNDO / REDO — removed, now handled by global UCB undo
 // ══════════════════════════════════════════════════════════════════
-
-const _seqDrumUndoStack = []; // max 3
-const _seqDrumRedoStack = []; // max 3
-const _SEQ_DRUM_VOICES = ['kick','snare','hat','hitom','lotom','crash','clap'];
-
-function _seqDrumSnapshot() {
-  const song = getCurrentSong();
-  if (!song) return null;
-  const sd = seqGetData(song);
-  const snap = {};
-  _SEQ_DRUM_VOICES.forEach(v => {
-    snap[v] = sd[v] ? sd[v].slice() : [];
-    snap[v + 'Vel'] = sd[v + 'Vel'] ? sd[v + 'Vel'].slice() : [];
-  });
-  return snap;
-}
-
-function seqDrumPushUndo() {
-  const snap = _seqDrumSnapshot();
-  if (!snap) return;
-  _seqDrumUndoStack.push(snap);
-  if (_seqDrumUndoStack.length > 3) _seqDrumUndoStack.shift();
-  // Clear redo on new action
-  _seqDrumRedoStack.length = 0;
-  _seqDrumUpdateButtons();
-}
-
-function _seqDrumRestore(snap) {
-  const song = getCurrentSong();
-  if (!song) return;
-  const sd = seqGetData(song);
-  _SEQ_DRUM_VOICES.forEach(v => {
-    sd[v] = snap[v] ? snap[v].slice() : [];
-    sd[v + 'Vel'] = snap[v + 'Vel'] ? snap[v + 'Vel'].slice() : [];
-  });
-  save();
-  scheduleSyncToSheet(song);
-  seqBuildGrids({ sequencer: sd });
-}
-
-function seqDrumUndo() {
-  if (!_seqDrumUndoStack.length) return;
-  // Save current state to redo
-  const current = _seqDrumSnapshot();
-  if (current) {
-    _seqDrumRedoStack.push(current);
-    if (_seqDrumRedoStack.length > 3) _seqDrumRedoStack.shift();
-  }
-  const snap = _seqDrumUndoStack.pop();
-  _seqDrumRestore(snap);
-  _seqDrumUpdateButtons();
-  showToast('Undo', 'info', 1000);
-}
-
-function seqDrumRedo() {
-  if (!_seqDrumRedoStack.length) return;
-  // Save current state to undo
-  const current = _seqDrumSnapshot();
-  if (current) {
-    _seqDrumUndoStack.push(current);
-    if (_seqDrumUndoStack.length > 3) _seqDrumUndoStack.shift();
-  }
-  const snap = _seqDrumRedoStack.pop();
-  _seqDrumRestore(snap);
-  _seqDrumUpdateButtons();
-  showToast('Redo', 'info', 1000);
-}
-
-function _seqDrumUpdateButtons() {
-  const undoBtn = document.getElementById('seqUndoBtn');
-  const redoBtn = document.getElementById('seqRedoBtn');
-  if (undoBtn) undoBtn.disabled = _seqDrumUndoStack.length === 0;
-  if (redoBtn) redoBtn.disabled = _seqDrumRedoStack.length === 0;
-}
 
 // ══════════════════════════════════════════════════════════════════
 // PROBABILITY — random hit generator
@@ -39256,7 +38996,7 @@ function seqProbBuildLanes() {
 function seqProbApply() {
   const song = getCurrentSong();
   if (!song) return;
-  seqDrumPushUndo();
+  ucPushUndo(_ucCaptureState());
   const sd = seqGetData(song);
   const totalSteps = seqGetDrumStepCount(sd);
   const wrap = document.getElementById('seqProbLanes');
@@ -39450,7 +39190,7 @@ const FILL_PATTERNS = {
 function seqFillApply() {
   const song = getCurrentSong();
   if (!song) return;
-  seqDrumPushUndo();
+  ucPushUndo(_ucCaptureState());
   const sd = seqGetData(song);
   const totalSteps = seqGetDrumStepCount(sd);
   const time = parseInt(document.getElementById('seqTime')?.value || sd.time || '4');
@@ -39516,7 +39256,7 @@ function applyDrumPattern(patternKey) {
   if (typeof _trialNudge === 'function') _trialNudge('drum', 1);
   const song = getCurrentSong();
   if (!song) return;
-  seqDrumPushUndo();
+  ucPushUndo(_ucCaptureState());
   if (!song.sequencer) song.sequencer = {};
 
   const pattern = DRUM_PATTERNS[patternKey];
@@ -43339,7 +43079,7 @@ function ilApplyArrangement(sel) {
   const song = getCurrentSong();
   if (!song) return;
 
-  _pushStructUndo(song);
+  ucPushUndo(_ucCaptureState());
 
   // 1. Unassign all existing sequences (move to unassigned)
   const seqs = getSongSequences(song);
@@ -48083,6 +47823,7 @@ function seqTapTempo() {
 }
 
 // ── Global Cmd/Ctrl+Z undo & Shift+Cmd/Ctrl+Z redo ────────────────
+// All undo/redo now routes to the single UCB global system
 document.addEventListener('keydown', function(e) {
   if (!(e.key === 'z' && (e.metaKey || e.ctrlKey))) return;
   // Don't intercept when typing in a text field — let the browser handle it
@@ -48090,38 +47831,11 @@ document.addEventListener('keydown', function(e) {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
   e.preventDefault();
 
-  const isRedo = e.shiftKey;
-  // If the drum sequencer drawer is open, route to drum undo/redo
-  const seqDrawerOpen = document.getElementById('seqDrawer')?.classList.contains('open');
-  if (seqDrawerOpen) {
-    if (isRedo) {
-      if (typeof seqDrumRedo === 'function') seqDrumRedo();
-    } else {
-      // Try drum undo first; fall back to general sequencer undo
-      if (typeof seqDrumUndo === 'function' && _seqDrumUndoStack && _seqDrumUndoStack.length) {
-        seqDrumUndo();
-      } else if (typeof seqUndoActive === 'function') {
-        seqUndoActive();
-      }
-    }
-    return;
+  if (e.shiftKey) {
+    if (typeof ucRedo === 'function') ucRedo();
+  } else {
+    if (typeof ucUndo === 'function') ucUndo();
   }
-  // If the keyboard drawer is open, route to keys undo/redo
-  const kbdDrawerOpen = document.getElementById('keyboardDrawer')?.classList.contains('open');
-  if (kbdDrawerOpen) {
-    if (isRedo) {
-      if (typeof keysRedoApply === 'function') keysRedoApply();
-    } else {
-      if (typeof keysUndoApply === 'function' && typeof _keysUndoStack !== 'undefined' && _keysUndoStack.length) {
-        keysUndoApply();
-      } else if (typeof seqUndoActive === 'function') {
-        seqUndoActive();
-      }
-    }
-    return;
-  }
-  // Outside drawers — general undo only
-  if (!isRedo && typeof seqUndoActive === 'function') seqUndoActive();
 });
 
 // ── Sequencer: keyboard 1-8 plays/inserts from key trigger bank ─────
