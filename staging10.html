@@ -8672,6 +8672,36 @@ body.split-active #splitTransportDock { display: flex; }
 }
 .uc-tap:hover { background: #e0e0e0; }
 .uc-tap.tapping { background: rgba(245,166,35,0.25); color: #f5a623; }
+/* I/O button */
+.uc-io { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.4); letter-spacing: 0.05em; padding: 5px 12px; }
+.uc-io:hover { background: rgba(139,92,246,0.25); }
+.uc-io.on { background: rgba(139,92,246,0.3); color: #c4b5fd; border-color: #a78bfa; }
+/* I/O slide-up panel */
+#ucBar { overflow: visible; }
+.uc-io-panel {
+  display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+  margin-bottom: 8px; padding: 10px 18px;
+  background: rgba(10,10,12,0.95); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+  gap: 12px; white-space: nowrap;
+  animation: ucIoSlideUp 0.15s ease-out;
+}
+.uc-io-panel.open { display: flex; }
+@keyframes ucIoSlideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.uc-io-row { display: flex; align-items: center; gap: 6px; }
+.uc-io-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); min-width: 46px;
+}
+.uc-io-select {
+  background: var(--surface); color: var(--text); border: 1px solid var(--border2);
+  border-radius: 5px; padding: 4px 8px; font-size: 11px; font-family: 'IBM Plex Mono', monospace;
+  min-width: 120px; max-width: 220px; height: 28px;
+}
 
 /* ── UCB Mobile ── */
 @media (max-width: 768px) {
@@ -22735,12 +22765,12 @@ function _headerUpdateAudioSelects(audioIns, audioOuts) {
   if (inSel) { inSel.innerHTML = inHtml; if (curIn) inSel.value = curIn; }
   var outSel = document.getElementById('headerAudioOutSelect');
   if (outSel) { outSel.innerHTML = outHtml; if (curOut) outSel.value = curOut; }
-  // Populate shared transport I/O selects (mobile + desktop)
-  ['sharedAudioInSelect', 'splitAudioInSelect'].forEach(function(id) {
+  // Populate all transport I/O selects (mobile, desktop split, UC bar)
+  ['sharedAudioInSelect', 'splitAudioInSelect', 'ucAudioInSelect'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) { el.innerHTML = inHtml; if (curIn) el.value = curIn; }
   });
-  ['sharedAudioOutSelect', 'splitAudioOutSelect'].forEach(function(id) {
+  ['sharedAudioOutSelect', 'splitAudioOutSelect', 'ucAudioOutSelect'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) { el.innerHTML = outHtml; if (curOut) el.value = curOut; }
   });
@@ -28504,6 +28534,30 @@ function ucStop() {
 }
 // UCB Everything — plays all tracks + sequencer together
 function ucEverything() { if (typeof sharedPlaySong === 'function') sharedPlaySong(); }
+
+// UCB I/O panel toggle
+var _ucIoPanelOpen = false;
+function ucToggleIoPanel() {
+  _ucIoPanelOpen = !_ucIoPanelOpen;
+  var panel = document.getElementById('ucIoPanel');
+  var btn = document.getElementById('ucIoBtn');
+  if (panel) panel.classList.toggle('open', _ucIoPanelOpen);
+  if (btn) btn.classList.toggle('on', _ucIoPanelOpen);
+  if (_ucIoPanelOpen) {
+    if (typeof _headerEnumerateAudio === 'function') _headerEnumerateAudio();
+    // Close on outside click
+    setTimeout(function() {
+      function _closeUcIo(e) {
+        if ((panel && panel.contains(e.target)) || (btn && (e.target === btn || btn.contains(e.target)))) return;
+        _ucIoPanelOpen = false;
+        if (panel) panel.classList.remove('open');
+        if (btn) btn.classList.remove('on');
+        document.removeEventListener('pointerdown', _closeUcIo, true);
+      }
+      document.addEventListener('pointerdown', _closeUcIo, true);
+    }, 0);
+  }
+}
 // UCB Click — toggle metronome (starts immediately even if nothing is playing)
 function ucToggleClick() {
   if (typeof seqToggleMet === 'function') seqToggleMet();
@@ -57580,6 +57634,19 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         onchange="ucBpmChanged(this.value)" onblur="ucBpmChanged(this.value)"
         onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
       <button class="uc-btn uc-tap" id="ucTapBtn" onclick="rtTapTempo()" title="Tap Tempo (Tab)">TAP</button>
+    </div>
+    <div class="uc-sep"></div>
+    <button class="uc-btn uc-io" id="ucIoBtn" onclick="ucToggleIoPanel()" title="Audio Input / Output">I/O</button>
+  </div>
+  <!-- I/O slide-up panel -->
+  <div id="ucIoPanel" class="uc-io-panel">
+    <div class="uc-io-row">
+      <label class="uc-io-label">INPUT</label>
+      <select id="ucAudioInSelect" class="uc-io-select" onchange="headerSelectAudioIn(this.value)"></select>
+    </div>
+    <div class="uc-io-row">
+      <label class="uc-io-label">OUTPUT</label>
+      <select id="ucAudioOutSelect" class="uc-io-select" onchange="headerSelectAudioOut(this.value)"></select>
     </div>
   </div>
   <!-- MOBILE layout (two rows) -->
