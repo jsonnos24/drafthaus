@@ -21855,6 +21855,7 @@ var _seqNextNoteTime = 0;
 var _seqStepIndex = 0;
 var _seqSchedulerCtx = null;
 var _seqStopGen = 0;  // bumped on every seqStop(); async callbacks bail out when stale
+var _seqPlayGen = 0;  // snapshot of _seqStopGen at play time — visual timeouts check this
 var seqCurrentStep = -1;
 // _mt4tMetroActive removed — unified metro engine uses _globalMetroActive instead
 var seqSongId = null; // track which song the sequencer belongs to
@@ -28647,6 +28648,7 @@ function seqPlay() {
   _seqSongSectionStep = 0;
 
   seqIsPlaying = true;
+  _seqPlayGen = _seqStopGen; // snapshot: visual timeouts bail if seqStop() bumps _seqStopGen
   // Restore master gain (seqStop mutes it for instant silence)
   if (seqMasterGain) { try { seqMasterGain.gain.cancelScheduledValues(0); _mixApplyMain(); } catch(e) {} }
   _mixLog('GAIN', 'playback start → restored via _mixApplyMain');
@@ -28997,9 +28999,9 @@ function seqScheduleNotes() {
       const _songVizChordIdx = (sec.chordSteps !== sec.drumSteps)
         ? Math.floor(i * sec.chordSteps / sec.drumSteps)
         : i;
-      (function(si, ci) {
+      (function(si, ci, gen) {
         setTimeout(() => {
-          if (!seqIsPlaying || _seqPlayMode !== 'song') return;
+          if (!seqIsPlaying || _seqPlayMode !== 'song' || _seqPlayGen !== gen) return;
           document.querySelectorAll('.seq-slot.playing').forEach(s => s.classList.remove('playing'));
           // Chord grid highlights at chord step index
           const chordSlot = document.querySelectorAll('#seqChordGrid .seq-slot')[ci];
@@ -29018,7 +29020,7 @@ function seqScheduleNotes() {
           _hl('#seqClap');
           _mixUpdateTransport(si, beatsPerBar);
         }, visualDelay);
-      })(i, _songVizChordIdx);
+      })(i, _songVizChordIdx, _seqPlayGen);
       } // end _tlTakeover visual guard (song mode)
 
       _seqNextNoteTime += stepDur;
@@ -29037,9 +29039,10 @@ function seqScheduleNotes() {
         const _nextSectionIdx = _seqSongSectionIdx;
         const _nextPartId = _seqSongSections[_nextSectionIdx]?.partId || null;
         const _sectionAdvanceDelay = Math.max(0, (_seqNextNoteTime - ctx.currentTime) * 1000) + 50;
+        const _advGen = _seqPlayGen;
         setTimeout(() => {
-          // Bail out if playback was stopped before this timeout fired
-          if (!seqIsPlaying || _seqPlayMode !== 'song') return;
+          // Bail out if playback was stopped/restarted before this timeout fired
+          if (!seqIsPlaying || _seqPlayMode !== 'song' || _seqPlayGen !== _advGen) return;
           // Find which sequence tab corresponds to this section so we can highlight + load it
           const song = getCurrentSong();
           // Don't switch seqActiveIdx during playback — the user may be
@@ -29168,15 +29171,15 @@ function seqScheduleNotes() {
       // Visual highlight for chord slots (skip if TL handles visuals)
       if (!_tlTakeover && chordSlots.length) {
         const visualDelay = Math.max(0, (_seqNextNoteTime - ctx.currentTime) * 1000);
-        (function(si) {
+        (function(si, gen) {
           setTimeout(() => {
-            if (!seqIsPlaying) return;
+            if (!seqIsPlaying || _seqPlayGen !== gen) return;
             document.querySelectorAll('#seqChordGrid .seq-slot.playing').forEach(s => s.classList.remove('playing'));
             const s = document.querySelectorAll('#seqChordGrid .seq-slot')[si];
             if (s) s.classList.add('playing');
             _mixUpdateTransport(si, _kBeatsPerBar);
           }, visualDelay);
-        })(i);
+        })(i, _seqPlayGen);
       }
       _seqStepIndex++;
       _seqNextNoteTime += _kStep;
@@ -29260,9 +29263,9 @@ function seqScheduleNotes() {
     const _vizChordIdx = (_loopChordSteps !== _loopDrumSteps)
       ? Math.floor(i * _loopChordSteps / _loopDrumSteps)
       : i;
-    (function(stepI, chordI) {
+    (function(stepI, chordI, gen) {
       setTimeout(() => {
-        if (!seqIsPlaying) return;
+        if (!seqIsPlaying || _seqPlayGen !== gen) return;
         // Clear drum playing highlights
         document.querySelectorAll('#seqKick .seq-slot.playing, #seqSnare .seq-slot.playing, #seqHat .seq-slot.playing, #seqHiTom .seq-slot.playing, #seqLoTom .seq-slot.playing, #seqCrash .seq-slot.playing, #seqClap .seq-slot.playing').forEach(s => s.classList.remove('playing'));
         // Clear chord playing highlights separately (different grid)
@@ -29297,7 +29300,7 @@ function seqScheduleNotes() {
         if (liveClap[stepI])   liveClap[stepI].classList.add('playing');
         _mixUpdateTransport(stepI, beatsPerBar);
       }, visualDelay);
-    })(i, _vizChordIdx);
+    })(i, _vizChordIdx, _seqPlayGen);
     } // end _tlTakeover visual guard (loop mode)
 
     _seqStepIndex++;
