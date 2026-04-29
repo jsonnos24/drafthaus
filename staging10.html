@@ -8673,14 +8673,7 @@ body.split-active #splitTransportDock { display: flex; }
 /* Hide UCB when songlist is active (no song open) */
 body.songlist-active .uc-bar { display: none; }
 
-/* ── Hide old transport components replaced by UCB ── */
-#sharedDrawerHeader { display: none !important; }
-#mt4tMobileBar { display: none !important; }
-/* Hide split transport dock visuals but keep hidden selects alive */
-#splitTransportDock { display: none !important; }
-/* Hide header transport bar visuals (keep hidden selects for JS compat) */
-.ht-bar { display: none !important; }
-#mobileDockSummary { display: none !important; }
+/* Old transport hide rules moved to end of stylesheet for override priority */
 
 /* Hide 4-track control bar on desktop — mobile only */
 .mt4t-settings-row { display: none !important; }
@@ -16902,6 +16895,20 @@ body.split-4track-active .ft-overlay { display: none !important; }
   .pr-note { height: 12px; font-size: 6px; }
 }
 
+/* ══ FINAL OVERRIDES — Hide old transports replaced by UCB ══
+   Placed last in stylesheet so these win over ALL earlier rules */
+#sharedDrawerHeader,
+#mt4tMobileBar,
+#splitTransportDock,
+.ht-bar,
+#mobileDockSummary {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}
+
 </style>
 </head>
 <body class="app-loading songlist-active">
@@ -20375,7 +20382,7 @@ function addSectionToSong(partId) {
       id: 'seq_' + Date.now(),
       partId: partId, part: partId,
       bpm: cur.bpm || '120', time: cur.time || '4',
-      bars: cur.bars || '2', grid: song.grid || cur.grid || '4',
+      bars: cur.bars || '4', grid: song.grid || cur.grid || '4',
       swing: cur.swing || '0', vel: cur.vel || '0.8',
       wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
       chordSlots: [], chordDegrees: [],
@@ -23439,7 +23446,7 @@ function renderSequencerHtml(song) {
   const songObj = getCurrentSong();
   const key = (songObj?.key || 'C major').split(' ')[0];
   const time = seqData.time || '4';
-  const bars = seqData.bars || '2';
+  const bars = seqData.bars || '4';
   const grid = song.grid || seqData.grid || '4';
   const bpm  = song.bpm || seqData.bpm || '100';
 
@@ -24055,7 +24062,7 @@ function seqRenderSequenceTabs() {
         const drumSteps  = parseInt(song?.drumSteps || seq.drumSteps || song?.grid || seq.grid || 4);
         const chordSteps = parseInt(song?.chordSteps || seq.chordSteps || '1');
         const time = parseInt(seq.time || 4);
-        const bars = parseInt(seq.bars || 2);
+        const bars = parseInt(seq.bars || 4);
         return {
           partId: seq.partId || seq.part || null,
           chordSlots: seq.chordSlots || [],
@@ -24273,9 +24280,9 @@ function seqOpenManagerModal() {
         + '<span class="seq-mgr-actions">'
         + '<button class="seq-mgr-action-btn" onclick="seqMgrDuplicate(' + i + ')" title="Duplicate">Dup</button>'
         + '<select class="seq-mgr-bars-select" onchange="seqMgrBarsChanged(' + i + ',this.value)" title="Bars">'
-        + '<option value="1"' + ((seq.bars||2)==1?' selected':'') + '>1 bar</option>'
-        + '<option value="2"' + ((seq.bars||2)==2?' selected':'') + '>2 bars</option>'
-        + '<option value="4"' + ((seq.bars||2)==4?' selected':'') + '>4 bars</option>'
+        + '<option value="1"' + ((seq.bars||4)==1?' selected':'') + '>1 bar</option>'
+        + '<option value="2"' + ((seq.bars||4)==2?' selected':'') + '>2 bars</option>'
+        + '<option value="4"' + ((seq.bars||4)==4?' selected':'') + '>4 bars</option>'
         + '</select>'
         + (seqs.length > 1 ? '<button class="seq-mgr-action-btn danger" onclick="seqMgrRemove(' + i + ')" title="Remove">✕</button>' : '')
         + '</span>'
@@ -24335,9 +24342,9 @@ function _seqMgrRefresh() {
       + '<span class="seq-mgr-actions">'
       + '<button class="seq-mgr-action-btn" onclick="seqMgrDuplicate(' + i + ')" title="Duplicate">Dup</button>'
       + '<select class="seq-mgr-bars-select" onchange="seqMgrBarsChanged(' + i + ',this.value)" title="Bars">'
-      + '<option value="1"' + ((seq.bars||2)==1?' selected':'') + '>1 bar</option>'
-      + '<option value="2"' + ((seq.bars||2)==2?' selected':'') + '>2 bars</option>'
-      + '<option value="4"' + ((seq.bars||2)==4?' selected':'') + '>4 bars</option>'
+      + '<option value="1"' + ((seq.bars||4)==1?' selected':'') + '>1 bar</option>'
+      + '<option value="2"' + ((seq.bars||4)==2?' selected':'') + '>2 bars</option>'
+      + '<option value="4"' + ((seq.bars||4)==4?' selected':'') + '>4 bars</option>'
       + '</select>'
       + (seqs.length > 1 ? '<button class="seq-mgr-action-btn danger" onclick="seqMgrRemove(' + i + ')" title="Remove">✕</button>' : '')
       + '</span>'
@@ -24898,7 +24905,7 @@ function seqSaveAllToCurrent(song) {
   const sd = song.sequencer;
   sd.bpm   = song.bpm || document.getElementById('seqBpm')?.value  || sd.bpm   || '120';
   sd.time  = document.getElementById('seqTime')?.value || sd.time  || '4';
-  sd.bars  = document.getElementById('seqBars')?.value || sd.bars  || '2';
+  sd.bars  = document.getElementById('seqBars')?.value || sd.bars  || '4';
   // Grid is song-wide: prefer song.grid to avoid DOM default overwriting saved value
   sd.grid  = song.grid || document.getElementById('seqGrid')?.value || sd.grid  || '4';
   // Per-instrument steps
@@ -24939,7 +24946,7 @@ function seqLoadSequenceIntoDOM(seq, song) {
   const bpmEl = document.getElementById('seqBpm');   if (bpmEl) bpmEl.value = _songBpm;
   syncSeqBpmUI(_songBpm);
   const timeEl = document.getElementById('seqTime');  if (timeEl) timeEl.value = seq.time || '4';
-  const barsEl = document.getElementById('seqBars');  if (barsEl) barsEl.value = seq.bars || '2';
+  const barsEl = document.getElementById('seqBars');  if (barsEl) barsEl.value = seq.bars || '4';
   // Grid is song-wide — use song.grid (like song.bpm)
   const _songGrid = song?.grid || song?.sequences?.[0]?.grid || seq.grid || '4';
   const gridEl = document.getElementById('seqGrid');  if (gridEl) gridEl.value = _songGrid;
@@ -24954,10 +24961,10 @@ function seqLoadSequenceIntoDOM(seq, song) {
   // Sync grid, time sig, bars to UCB
   var _mt4tGr = document.getElementById('mt4tGrid'); if (_mt4tGr) _mt4tGr.value = _songGrid;
   var _mt4tTs = document.getElementById('mt4tTimeSig'); if (_mt4tTs) _mt4tTs.value = seq.time || '4';
-  var _mt4tBr = document.getElementById('mt4tBars'); if (_mt4tBr) _mt4tBr.value = seq.bars || '2';
+  var _mt4tBr = document.getElementById('mt4tBars'); if (_mt4tBr) _mt4tBr.value = seq.bars || '4';
   document.querySelectorAll('[id="kbdGrid"]').forEach(function(el) { el.value = _songGrid; });
   document.querySelectorAll('[id="kbdTimeSig"]').forEach(function(el) { el.value = seq.time || '4'; });
-  document.querySelectorAll('[id="kbdBars"]').forEach(function(el) { el.value = seq.bars || '2'; });
+  document.querySelectorAll('[id="kbdBars"]').forEach(function(el) { el.value = seq.bars || '4'; });
   // Sync key select to all control bars
   var _mt4tKey = document.getElementById('mt4tKeySelect');
   if (_mt4tKey && song?.key) _mt4tKey.value = song.key;
@@ -25790,12 +25797,12 @@ function seqRebuildDrums() {
   if (!song) return;
   const sd = song.sequencer || {};
   const oldDrumSteps = parseInt(sd.drumSteps || sd.grid || 4);
-  const oldBars = parseInt(sd.bars || 2);
+  const oldBars = parseInt(sd.bars || 4);
 
   seqSaveSettings();
 
   const newDrumSteps = parseInt(sd.drumSteps || sd.grid || 4);
-  const newBars = parseInt(sd.bars || 2);
+  const newBars = parseInt(sd.bars || 4);
 
   // Tile drum lanes when bars expand
   if (newBars > oldBars && oldDrumSteps === newDrumSteps) {
@@ -25834,12 +25841,12 @@ function seqRebuildChords() {
   if (!song) return;
   const sd = song.sequencer || {};
   const oldChordSteps = parseInt(sd.chordSteps || '1');
-  const oldBars = parseInt(sd.bars || 2);
+  const oldBars = parseInt(sd.bars || 4);
 
   seqSaveSettings();
 
   const newChordSteps = parseInt(sd.chordSteps || '1');
-  const newBars = parseInt(sd.bars || 2);
+  const newBars = parseInt(sd.bars || 4);
 
   // Tile chord slots when bars expand
   if (newBars > oldBars && oldChordSteps === newChordSteps) {
@@ -25881,7 +25888,7 @@ function seqRebuild() {
   const sd = song.sequencer || {};
   const oldDrumSteps  = parseInt(sd.drumSteps  || sd.grid || 4);
   const oldChordSteps = parseInt(sd.chordSteps || '1');
-  const oldBars = parseInt(sd.bars || 2);
+  const oldBars = parseInt(sd.bars || 4);
 
   seqSaveSettings();
 
@@ -25889,7 +25896,7 @@ function seqRebuild() {
   const sd2 = song.sequencer || {};
   const newDrumSteps  = parseInt(sd2.drumSteps  || sd2.grid || 4);
   const newChordSteps = parseInt(sd2.chordSteps || '1');
-  const newBars = parseInt(sd2.bars || 2);
+  const newBars = parseInt(sd2.bars || 4);
   const time = parseInt(sd2.time || '4');
 
   // Tile when bars expand (no step change)
@@ -25994,20 +26001,20 @@ function _seqSlotSetText(slot, text) {
 
 function seqGetStepCount(sd) {
   const time = parseInt(document.getElementById('seqTime')?.value || sd?.time || '4');
-  const bars = parseInt(document.getElementById('seqBars')?.value || sd?.bars || '2');
+  const bars = parseInt(document.getElementById('seqBars')?.value || sd?.bars || '4');
   const grid = parseInt(document.getElementById('seqGrid')?.value || sd?.grid || '4');
   return time * bars * grid;
 }
 // Per-instrument step counts
 function seqGetDrumStepCount(sd) {
   const time = parseInt(document.getElementById('seqTime')?.value || sd?.time || '4');
-  const bars = parseInt(document.getElementById('seqBars')?.value || sd?.bars || '2');
+  const bars = parseInt(document.getElementById('seqBars')?.value || sd?.bars || '4');
   const drumSteps = parseInt(document.getElementById('seqDrumSteps')?.value || sd?.drumSteps || sd?.grid || '4');
   return time * bars * drumSteps;
 }
 function seqGetChordStepCount(sd) {
   const time = parseInt(document.getElementById('seqTime')?.value || sd?.time || '4');
-  const bars = parseInt(document.getElementById('seqBars')?.value || sd?.bars || '2');
+  const bars = parseInt(document.getElementById('seqBars')?.value || sd?.bars || '4');
   const chordSteps = parseInt(document.getElementById('seqChordSteps')?.value || sd?.chordSteps || '1');
   return time * bars * chordSteps;
 }
@@ -26018,7 +26025,7 @@ function seqBuildGrids(song) {
   // Per-instrument step resolution
   const drumSteps  = parseInt(document.getElementById('seqDrumSteps')?.value  || sd.drumSteps  || sd.grid || '4');
   const chordSteps = parseInt(document.getElementById('seqChordSteps')?.value || sd.chordSteps || '1');
-  const bars = parseInt(document.getElementById('seqBars')?.value || sd.bars || '2');
+  const bars = parseInt(document.getElementById('seqBars')?.value || sd.bars || '4');
   const totalDrumSteps  = time * bars * drumSteps;
   const totalChordSteps = time * bars * chordSteps;
   // Legacy compat: totalSteps used by drum grid
@@ -26496,7 +26503,7 @@ function seqBarPaginate(page) {
   const sd = seqGetData(song);
   const time = parseInt(document.getElementById('seqTime')?.value || sd.time || '4');
   const grid = parseInt(document.getElementById('seqGrid')?.value || sd.grid || '4');
-  const bars = parseInt(document.getElementById('seqBars')?.value || sd.bars || '2');
+  const bars = parseInt(document.getElementById('seqBars')?.value || sd.bars || '4');
   const stepsPerBar = time * grid;
   if (page !== undefined) _seqBarPage = page;
   if (_seqBarPage < 0) _seqBarPage = 0;
@@ -26855,7 +26862,7 @@ function _seqProgressionFill(progressionId) {
   const sd         = seqGetData(song);
   const timeSig    = parseInt(sd.time || '4');
   const chordSteps = parseInt(sd.chordSteps || '1');
-  const bars       = parseInt(sd.bars || '2');
+  const bars       = parseInt(sd.bars || '4');
   const totalSteps = timeSig * bars * chordSteps; // chord grid size
   const gridSub    = chordSteps; // chord resolution
   const stepsPerBar = timeSig * gridSub;
@@ -28403,15 +28410,37 @@ function _ucSetRecState(recording) {
     }
   });
 }
-// UCB Play — delegates to sharedPlay
-function ucPlay() { if (typeof sharedPlay === 'function') sharedPlay(); }
+// UCB Play — delegates to sharedPlay, ensures metro starts if armed
+function ucPlay() {
+  if (typeof sharedPlay === 'function') sharedPlay();
+  // Belt-and-suspenders: kick metro if CLICK is on (play functions should do this,
+  // but some paths like looper don't)
+  setTimeout(function() {
+    if (typeof seqMetOn !== 'undefined' && seqMetOn && typeof globalMetroStartIfEnabled === 'function') {
+      globalMetroStartIfEnabled();
+    }
+  }, 100);
+}
 // UCB Stop — delegates to sharedStop
-function ucStop() { if (typeof sharedStop === 'function') sharedStop(); }
+// UCB Stop — universal: stops recording AND/OR playback
+function ucStop() {
+  // If recording, stop/cancel recording first
+  if (typeof _vrRecording !== 'undefined' && _vrRecording) {
+    if (typeof _mtStopRecording === 'function') _mtStopRecording();
+    _ucSetRecState(false);
+  }
+  // Always stop playback too
+  if (typeof sharedStop === 'function') sharedStop();
+}
 // UCB Everything — plays all tracks + sequencer together
 function ucEverything() { if (typeof sharedPlaySong === 'function') sharedPlaySong(); }
-// UCB Click — toggle metronome
+// UCB Click — toggle metronome (starts immediately even if nothing is playing)
 function ucToggleClick() {
   if (typeof seqToggleMet === 'function') seqToggleMet();
+  // If click was just turned ON and nothing is playing, start standalone metro
+  if (typeof seqMetOn !== 'undefined' && seqMetOn && typeof _globalMetroActive !== 'undefined' && !_globalMetroActive) {
+    if (typeof globalMetroStart === 'function') globalMetroStart({ standalone: true });
+  }
   _ucSyncClickBtn();
 }
 function _ucSyncClickBtn() {
@@ -28813,7 +28842,7 @@ async function seqPlaySong() {
     const drumSteps  = parseInt(song?.drumSteps  || seq.drumSteps  || song?.grid || seq.grid || 4);
     const chordSteps = parseInt(song?.chordSteps || seq.chordSteps || '1');
     const time = parseInt(seq.time || 4);
-    const bars = parseInt(seq.bars || 2);
+    const bars = parseInt(seq.bars || 4);
     // Scheduler ticks at drum resolution (finer grid)
     const totalSteps = time * bars * drumSteps;
     const stepDur    = (60 / bpm) / drumSteps;
@@ -34791,7 +34820,7 @@ function fmtBytes(b) {
 
 function calcSongDuration(song) {
   const bpm = parseFloat(song.bpm) || 120;
-  const bars = parseInt(song.sequencer?.bars || 2);
+  const bars = parseInt(song.sequencer?.bars || 4);
   let totalCounts = 0;
   if (typeof STRUCTURE_PARTS !== 'undefined' && song.structure) {
     STRUCTURE_PARTS.forEach(p => {
@@ -35377,7 +35406,7 @@ async function exportBounce() {
     const drumSteps = parseInt(song.drumSteps || seq.drumSteps || seq.grid || 4);
     const chordSteps= parseInt(song.chordSteps || seq.chordSteps || 1);
     const timeSig   = parseInt(seq.time || 4);
-    const bars      = parseInt(seq.bars || 2);
+    const bars      = parseInt(seq.bars || 4);
     const totalDrumSlots  = timeSig * bars * drumSteps;
     const stepDur         = (60 / bpm) / drumSteps;
     const sectionDur      = totalDrumSlots * stepDur;
@@ -37515,7 +37544,7 @@ function kbdPortUpdatePeek() {
   const song = getCurrentSong();
   const seqs = song ? getSongSequences(song) : [];
   const seq = seqs[Math.min(seqActiveIdx, seqs.length - 1)];
-  const bars = parseInt(seq?.bars || song?.sequencer?.bars || 2);
+  const bars = parseInt(seq?.bars || song?.sequencer?.bars || 4);
   const chordSteps = parseInt(song?.chordSteps || seq?.chordSteps || '1');
   const time = parseInt(seq?.time || song?.sequencer?.time || 4);
   const totalSlots = bars * time * chordSteps;
@@ -39436,7 +39465,7 @@ function seqFillApply() {
   const totalSteps = seqGetDrumStepCount(sd);
   const time = parseInt(document.getElementById('seqTime')?.value || sd.time || '4');
   const drumSteps = parseInt(document.getElementById('seqDrumSteps')?.value || sd.drumSteps || sd.grid || '4');
-  const bars = parseInt(document.getElementById('seqBars')?.value || sd.bars || '2');
+  const bars = parseInt(document.getElementById('seqBars')?.value || sd.bars || '4');
   const stepsPerBar = time * drumSteps;
 
   const fillBars = parseInt(document.getElementById('seqFillWhere')?.value || '1');
@@ -39703,7 +39732,7 @@ function renderDrumNotation() {
   const sd   = song?.sequencer || {};
   const timeSig = parseInt(document.getElementById('seqTime')?.value || sd.time || 4);
   const grid    = parseInt(document.getElementById('seqGrid')?.value || sd.grid || 4);
-  const bars    = parseInt(document.getElementById('seqBars')?.value || sd.bars || 2);
+  const bars    = parseInt(document.getElementById('seqBars')?.value || sd.bars || 4);
   const totalSteps  = timeSig * bars * grid;
   const stepsPerBar = timeSig * grid;
 
@@ -43352,7 +43381,7 @@ function ilApplyArrangement(sel) {
         id: 'seq_' + Date.now() + '_' + _aj,
         partId: partId, part: partId,
         bpm: song.bpm || cur.bpm || '120', time: cur.time || '4',
-        bars: cur.bars || '2', grid: song.grid || cur.grid || '4',
+        bars: cur.bars || '4', grid: song.grid || cur.grid || '4',
         swing: cur.swing || '0', vel: cur.vel || '0.8',
         wave: cur.wave || 'triangle', instrument: cur.instrument || 'piano',
         chordSlots: [], chordDegrees: [],
@@ -45549,7 +45578,7 @@ async function mixBounceShareRun() {
       const drumSteps = parseInt(song.drumSteps || seq.drumSteps || seq.grid || 4);
       const chordSteps= parseInt(song.chordSteps || seq.chordSteps || 1);
       const timeSig   = parseInt(seq.time || 4);
-      const bars      = parseInt(seq.bars || 2);
+      const bars      = parseInt(seq.bars || 4);
       const totalDrumSlots  = timeSig * bars * drumSteps;
       const stepDur         = (60 / bpm) / drumSteps;
       const sectionDur      = totalDrumSlots * stepDur;
@@ -57931,7 +57960,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const sd = song?.sequencer || {};
     const drumSteps = parseInt(sd.drumSteps || sd.grid || 4);
     const timeSig = parseInt(sd.time || 4);
-    const bars = parseInt(sd.bars || 2);
+    const bars = parseInt(sd.bars || 4);
     const totalDrumSlots = timeSig * bars * drumSteps;
     // Map drum slot index → column in piano roll grid
     // Piano roll grid uses prSnap subdivisions per beat, drum grid uses drumSteps per beat
@@ -58751,7 +58780,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const sd = song.sequencer;
 
     // Use SECTION bar count (not 5-min prBars) for the chord grid sync
-    const sectionBars = parseInt(sd.bars || 2);
+    const sectionBars = parseInt(sd.bars || 4);
     const sectionBeats = sectionBars * prTimeSig;
     const totalChordSlots = sectionBeats * prChordSteps;
     const sectionCols = sectionBeats * prSnap; // columns that span the section
@@ -59145,7 +59174,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     var sd = song ? (song.sequencer || {}) : {};
     var _bpm = parseFloat(sd.bpm || 120);
     var _time = parseInt(sd.time || sd.timeSig || 4);
-    var _bars = parseInt(sd.bars || 2);
+    var _bars = parseInt(sd.bars || 4);
     var sectionBeats = _time * _bars;
     var sectionCols = sectionBeats * prSnap;
     // Full grid duration in ms (5 minutes)
@@ -59309,7 +59338,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const totalSlots = chordSlots.length || 8;
     const song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
     const _sd = song ? (song.sequencer || {}) : {};
-    const _sBars = parseInt(_sd.bars || 2);
+    const _sBars = parseInt(_sd.bars || 4);
     const _sBeats = _sBars * prTimeSig;
     const _sCols = _sBeats * prSnap;
     // Wrap the column into the section range, then map to step
@@ -59876,7 +59905,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     var sd = song.sequencer;
     var bpm     = parseFloat(sd.bpm || 120);
     var timeSig = parseInt(sd.time || sd.timeSig || 4);
-    var bars    = parseInt(sd.bars || 2);
+    var bars    = parseInt(sd.bars || 4);
     var chordSteps = parseInt(sd.chordSteps || 1);
     var drumSteps  = parseInt(sd.drumSteps || chordSteps);
     var totalChordSlots = timeSig * bars * chordSteps;
@@ -60002,7 +60031,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     // Set transport params
     _tlBpm = parseFloat(sd.bpm || 120);
     _tlTimeSig = parseInt(sd.time || sd.timeSig || 4);
-    var bars = parseInt(sd.bars || 2);
+    var bars = parseInt(sd.bars || 4);
     _tlLoopStart = 0;
     _tlLoopEnd = _tlTimeSig * bars;
 
