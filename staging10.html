@@ -5312,10 +5312,11 @@ button, select, input, textarea { touch-action: manipulation; }
     font-size: 14px; padding: 10px 8px; text-align: center;
   }
   .kbd-stage-palette .seq-chord-var-pill {
-    font-size: 12px; padding: 7px 6px; text-align: center;
+    font-size: 12px; padding: 7px 14px; text-align: center;
   }
-  .kbd-stage-palette .seq-borrowed-pill {
-    font-size: 12px; padding: 7px 6px; text-align: center;
+  .kbd-stage-palette .seq-borrowed-pill,
+  .kbd-stage-col .seq-borrowed-pill {
+    font-size: 12px; padding: 7px 14px; text-align: center;
   }
   /* ── Right column: chord sequence ── */
   .kbd-stage-seq-grid {
@@ -5351,14 +5352,49 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .kbd-stage-col #seqChordGrid .seq-slot {
     width: 56px !important; height: 56px !important;
-    font-size: 11px !important; border-radius: 8px !important;
+    font-size: 14px !important; border-radius: 8px !important;
+    overflow: visible !important;
   }
+  /* Chord slot colors for stage layout (no data-row="chord" parent) */
+  .kbd-stage-col #seqChordGrid .seq-slot.filled { background: rgba(210,185,120,0.14); border-color: rgba(210,185,120,0.40); color: rgba(235,215,155,0.92); }
+  .kbd-stage-col #seqChordGrid .seq-slot.filled[data-chord-degree="0"] { background: #1a0833; border-color: #3a1060; color: #c084fc; }
+  .kbd-stage-col #seqChordGrid .seq-slot.filled[data-chord-degree="1"] { background: #200d3e; border-color: #4a1878; color: #c48dff; }
+  .kbd-stage-col #seqChordGrid .seq-slot.filled[data-chord-degree="2"] { background: #271249; border-color: #5a2090; color: #cd97ff; }
+  .kbd-stage-col #seqChordGrid .seq-slot.filled[data-chord-degree="3"] { background: #2e1854; border-color: #6a28a8; color: #d6a0ff; }
+  .kbd-stage-col #seqChordGrid .seq-slot.filled[data-chord-degree="4"] { background: #361e60; border-color: #7a30c0; color: #deaaff; }
+  .kbd-stage-col #seqChordGrid .seq-slot.filled[data-chord-degree="5"] { background: #3d246c; border-color: #8a38d8; color: #e6b4ff; }
+  .kbd-stage-col #seqChordGrid .seq-slot.filled[data-chord-degree="6"] { background: #452a78; border-color: #9a44e8; color: #edbeff; }
+  .kbd-stage-col #seqChordGrid .seq-slot.filled[data-chord-degree="7"] { background: #4d3084; border-color: #aa52f0; color: #f3c8ff; }
+  .kbd-stage-col #seqChordGrid .seq-slot.filled.chord-variant { background: #f5f0e0 !important; border-color: #d4c89a !important; color: #1a1a1a !important; }
+  .kbd-stage-col #seqChordGrid .seq-slot.filled.chord-variant.chord-tail { background: #ede8d6 !important; border-color: #c4b88a !important; color: #333 !important; }
+  .kbd-stage-col #seqChordGrid .seq-slot .seq-resize-handle {
+    position: absolute; right: 0; top: 0; bottom: 0; width: 8px;
+    cursor: ew-resize; opacity: 0; z-index: 6;
+    display: flex; align-items: center; justify-content: flex-end;
+    pointer-events: none;
+  }
+  .kbd-stage-col #seqChordGrid .seq-slot.filled .seq-resize-handle { pointer-events: auto; }
+  .kbd-stage-col #seqChordGrid .seq-slot.filled:hover .seq-resize-handle { opacity: 1; }
   .kbd-stage-col #seqChordGrid .seq-slot.bar-start {
     margin-left: 0 !important;
   }
   .kbd-stage-col .kbd-chord-seq-wrapper { margin-left: 0 !important; margin-right: 0 !important; padding: 0 !important; }
   .kbd-stage-col .kbd-chord-seq-wrapper .seq-row-label { display: none !important; }
   .kbd-stage-col .kbd-chord-seq-wrapper .seq-grid-row { gap: 0 !important; }
+  /* Bar labels alongside chord grid */
+  .seq-grid-with-labels {
+    display: flex; align-items: flex-start; gap: 0;
+  }
+  .seq-bar-labels {
+    display: flex; flex-direction: column; gap: 6px;
+    padding-right: 8px;
+  }
+  .seq-bar-label {
+    height: 56px; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #fff; font-weight: 600;
+    font-family: 'IBM Plex Mono', monospace;
+    min-width: 20px;
+  }
   .kbd-open-seq-hint {
     display: flex; align-items: center; gap: 8px;
     padding: 10px 14px; margin-bottom: 16px;
@@ -26030,6 +26066,34 @@ function seqBuildGrids(song) {
       });
       chordGrid.appendChild(slot);
     }
+    // ── Bar labels on desktop stage layout ──
+    const _isStageGrid = chordGrid.closest('.kbd-stage-col');
+    if (_isStageGrid && bars > 0) {
+      // Build labels column
+      const labelsDiv = document.createElement('div');
+      labelsDiv.className = 'seq-bar-labels';
+      for (let b = 0; b < bars; b++) {
+        const lbl = document.createElement('div');
+        lbl.className = 'seq-bar-label';
+        lbl.textContent = (b + 1);
+        labelsDiv.appendChild(lbl);
+      }
+      // If wrapper already exists (rebuild), just replace the labels
+      const existingWrapper = chordGrid.parentElement?.classList.contains('seq-grid-with-labels')
+        ? chordGrid.parentElement : null;
+      if (existingWrapper) {
+        const oldLabels = existingWrapper.querySelector('.seq-bar-labels');
+        if (oldLabels) oldLabels.replaceWith(labelsDiv);
+        else existingWrapper.insertBefore(labelsDiv, chordGrid);
+      } else {
+        // First time: wrap grid + labels in a flex container
+        const wrapper = document.createElement('div');
+        wrapper.className = 'seq-grid-with-labels';
+        chordGrid.parentElement.insertBefore(wrapper, chordGrid);
+        wrapper.appendChild(labelsDiv);
+        wrapper.appendChild(chordGrid);
+      }
+    }
   }
 
   // ── Tape Stack: build drum strips with velocity bars ──
@@ -27184,7 +27248,7 @@ function seqRenderChordPills(song) {
   }
 
   // ── Borrowed chords row HTML ──
-  function _borrowedRowHtml(isPortrait) {
+  function _borrowedRowHtml(isPortrait, alwaysVisible) {
     const borrowed = getBorrowedChords(key, mode);
     if (!borrowed.length) return '';
     const cls = isPortrait ? 'kbd-port-borrowed-row' : 'seq-borrowed-row';
@@ -27199,6 +27263,12 @@ function seqRenderChordPills(song) {
         <span style="font-size:8px;opacity:0.7;margin-right:2px;">${b.label}</span> ${b.name}
       </span>`
     ).join('');
+    if (alwaysVisible) {
+      return `<div style="margin-top:6px;text-align:center;">
+        <div style="font-size:10px;color:var(--teal,#2dd4bf);opacity:0.7;margin-bottom:4px;letter-spacing:0.08em;text-transform:uppercase;">Borrowed / Chromatic</div>
+        <div class="${cls}" style="display:flex;justify-content:center;">${pills}</div>
+      </div>`;
+    }
     return `<div style="margin-top:4px;">
       <button class="seq-borrowed-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'flex':'none';this.querySelector('.seq-borrowed-arrow').textContent=this.nextElementSibling.style.display==='none'?'▸':'▾'">
         <span class="seq-borrowed-arrow">▸</span> Borrowed / Chromatic
@@ -27221,12 +27291,12 @@ function seqRenderChordPills(song) {
   const isLandscapePalette = g1 && g1.classList.contains('kbd-land-palette');
 
   // ── Borrowed row container (injected after palette in all layouts) ──
-  function _injectBorrowedRow(parentEl, isPortrait) {
+  function _injectBorrowedRow(parentEl, isPortrait, alwaysVisible) {
     if (!parentEl) return;
     // Remove old borrowed row if present
     const old = parentEl.parentElement?.querySelector('.seq-borrowed-wrapper');
     if (old) old.remove();
-    const html = _borrowedRowHtml(isPortrait);
+    const html = _borrowedRowHtml(isPortrait, alwaysVisible);
     if (!html) return;
     const wrapper = document.createElement('div');
     wrapper.className = 'seq-borrowed-wrapper';
@@ -27243,7 +27313,7 @@ function seqRenderChordPills(song) {
     // Update palette key label
     const palKeyEl = document.getElementById('kbdStagePaletteKey');
     if (palKeyEl) palKeyEl.textContent = key ? `Key of ${key}` : 'Select key';
-    _injectBorrowedRow(g1, false);
+    _injectBorrowedRow(g1, false, isDesktopStage);
   } else if (isPortraitPalette) {
     // Portrait mobile: all 8 in a 4×2 grid. Inline variations hidden by CSS.
     // Add click handler to select chip and show its variations in separate row.
@@ -37211,9 +37281,6 @@ function renderKeyboardDrawerHtml(song) {
           <option value="1">𝅝 Whole</option>
           <option value="0.5">𝅗𝅥 Half</option>
           <option value="0.25" selected>♩ Quarter</option>
-          <option value="0.125">♪ Eighth</option>
-          <option value="0.0625">𝅘𝅥𝅯 16th</option>
-          <option value="0.03125">𝅘𝅥𝅰 32nd</option>
         </select>
         <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="font-size:10px;max-width:200px;">
           ${_progressionOptions}
@@ -37316,9 +37383,6 @@ function renderKeyboardDrawerHtml(song) {
             <option value="1">𝅝 Whole</option>
             <option value="0.5">𝅗𝅥 Half</option>
             <option value="0.25" selected>♩ Quarter</option>
-            <option value="0.125">♪ Eighth</option>
-            <option value="0.0625">𝅘𝅥𝅯 16th</option>
-            <option value="0.03125">𝅘𝅥𝅰 32nd</option>
           </select>
           <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="font-size:10px;max-width:140px;">
             ${_progressionOptions}
@@ -37429,12 +37493,16 @@ function kbdPortToggleComposeMode() {
 /* ═══ NOTE DURATION FOR COMPOSE MODE ═══ */
 var _kbdNoteDuration = 0.25; // default quarter note (1 slot at 1/4 grid)
 function kbdNoteDurationChanged(val) {
-  _kbdNoteDuration = parseFloat(val);
+  var v = parseFloat(val);
+  // Clamp to valid values (whole, half, quarter)
+  if (v < 0.25) v = 0.25;
+  _kbdNoteDuration = v;
+  var sv = String(v);
   // Sync desktop dropdown if it exists
   const deskDur = document.getElementById('kbdDesktopNoteDur');
-  if (deskDur) deskDur.value = val;
+  if (deskDur) deskDur.value = sv;
   const mobDur = document.getElementById('kbdPortNoteDur');
-  if (mobDur) mobDur.value = val;
+  if (mobDur) mobDur.value = sv;
 }
 
 /* ═══ INLINE SEQUENCE TOGGLE ═══ */
