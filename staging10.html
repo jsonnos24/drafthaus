@@ -20344,7 +20344,7 @@ function addSectionToSong(partId) {
   if (!song.structure) song.structure = {};
   if (!song.sectionOrder) song.sectionOrder = [];
   if (song.structure[partId]?.checked) return; // already active
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'add section');
   song.structure[partId] = { ...(song.structure[partId] || {}), checked: true, count: song.structure[partId]?.count || 1 };
   if (!song.sectionOrder.includes(partId)) song.sectionOrder.push(partId);
   song.updatedAt = Date.now();
@@ -20382,7 +20382,7 @@ function sspPillClick(e, partId) {
 function sspCycleRepeat(partId) {
   const song = getCurrentSong();
   if (!song?.structure?.[partId]) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'repeat count');
   const cur = song.structure[partId].count || 1;
   song.structure[partId].count = (cur % 4) + 1;
   song.updatedAt = Date.now();
@@ -20522,7 +20522,7 @@ function sosTouchEnd(e, srcIdx) {
 function moveSectionInOrder(fromIdx, toIdx) {
   const song = getCurrentSong();
   if (!song) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'reorder sections');
   ensureSectionOrder(song);
   const order = song.sectionOrder;
   const item = order.splice(fromIdx, 1)[0];
@@ -20576,7 +20576,7 @@ function duplicateSongPartChord(partId, idx) {
   const song = getCurrentSong(); if (!song) return;
   if (!song.chords) song.chords = {};
   if (!song.chords[partId]) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'duplicate chord');
   const copy = JSON.parse(JSON.stringify(song.chords[partId][idx]));
   song.chords[partId].splice(idx + 1, 0, copy);
   song.updatedAt = Date.now(); save();
@@ -20588,7 +20588,7 @@ function duplicateSongPartChord(partId, idx) {
 window.duplicateInstChord = function(instId, partId, idx) {
   const song = getCurrentSong(); if (!song) return;
   if (!song?.instruments?.[instId]?.[partId]) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'duplicate chord');
   const part = song.instruments[instId][partId];
   // Duplicate the chord entry
   const chord = JSON.parse(JSON.stringify(part.chords[idx]));
@@ -20628,7 +20628,7 @@ function addSongPartChord(partId) {
   if (!song.chords[partId]) song.chords[partId] = [];
   const root    = document.getElementById('sppr-' + partId)?.value || 'A';
   const quality = document.getElementById('sppq-' + partId)?.value || 'maj';
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'add chord');
   song.chords[partId].push({ root, quality });
   song.updatedAt = Date.now();
   save();
@@ -20639,7 +20639,7 @@ function addSongPartChord(partId) {
 function removeSongPartChord(partId, idx) {
   const song = getCurrentSong();
   if (!song?.chords?.[partId]) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'remove chord');
   song.chords[partId].splice(idx, 1);
   song.updatedAt = Date.now();
   save();
@@ -20651,7 +20651,7 @@ function repeatSongPart(partId) {
   const song = getCurrentSong();
   if (!song) return;
   if (!song.structure?.[partId]) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'repeat count');
   const cur = song.structure[partId].count || 1;
   song.structure[partId].count = (cur % 4) + 1; // cycle 1→2→3→4→1
   song.updatedAt = Date.now();
@@ -20663,7 +20663,7 @@ function repeatSongPart(partId) {
 function _doDeleteSongPart(partId) {
   const song = getCurrentSong();
   if (!song) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'delete section');
   if (song.structure?.[partId]) song.structure[partId].checked = false;
   if (song.sectionOrder) song.sectionOrder = song.sectionOrder.filter(id => id !== partId);
 
@@ -21545,7 +21545,7 @@ function instAddChord(instId, partId) {
   if (!song.instruments) song.instruments = {};
   if (!song.instruments[instId]) song.instruments[instId] = {};
   if (!song.instruments[instId][partId]) song.instruments[instId][partId] = { chords: [], beats: [] };
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'add instrument chord');
   const root = document.getElementById('icr-'+instId+'-'+partId).value;
   const qv   = document.getElementById('icq-'+instId+'-'+partId).value;
   const ql   = QUALITIES.find(q=>q.v===qv)?.l || qv;
@@ -21597,7 +21597,7 @@ function instAddChord(instId, partId) {
 function instRemoveChord(instId, partId, idx) {
   const song = getCurrentSong();
   if (!song?.instruments?.[instId]?.[partId]) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'remove instrument chord');
   song.instruments[instId][partId].chords.splice(idx, 1);
   // Find and remove the beat that was tagged with this chordIdx
   const meta = song.instruments[instId][partId].beatMeta || [];
@@ -23752,7 +23752,7 @@ window.seqDuplicateActive = function() {
   if (!song) return;
   const seqs = getSongSequences(song);
   seqSaveAllToCurrent(song);
-  ucPushUndo(_ucCaptureState()); // snapshot BEFORE mutating so duplicate is undoable
+  ucPushUndo(_ucCaptureState(), 'duplicate sequence'); // snapshot BEFORE mutating so duplicate is undoable
   const src = seqs[seqActiveIdx];
   if (!src) return;
   const clone = JSON.parse(JSON.stringify(src));
@@ -25802,7 +25802,7 @@ function seqBuildGrids(song) {
   const time = parseInt(document.getElementById('seqTime')?.value || sd.time || '4');
   // Per-instrument step resolution
   const drumSteps  = parseInt(document.getElementById('seqDrumSteps')?.value  || sd.drumSteps  || sd.grid || '4');
-  const chordSteps = parseInt(document.getElementById('seqChordSteps')?.value || sd.chordSteps || '1');
+  const chordSteps = parseInt(document.getElementById('seqChordSteps')?.value || document.getElementById('kbdKeysSteps')?.value || sd.chordSteps || '1');
   const bars = parseInt(document.getElementById('seqBars')?.value || sd.bars || '4');
   const totalDrumSteps  = time * bars * drumSteps;
   const totalChordSteps = time * bars * chordSteps;
@@ -26280,9 +26280,15 @@ function seqBarPaginate(page) {
   if (!song) return;
   const sd = seqGetData(song);
   const time = parseInt(document.getElementById('seqTime')?.value || sd.time || '4');
-  const grid = parseInt(document.getElementById('seqGrid')?.value || sd.grid || '4');
+  const chordSteps = parseInt(
+    document.getElementById('seqChordSteps')?.value
+    || document.getElementById('kbdKeysSteps')?.value
+    || sd.chordSteps
+    || song?.chordSteps
+    || '1'
+  );
   const bars = parseInt(document.getElementById('seqBars')?.value || sd.bars || '4');
-  const stepsPerBar = time * grid;
+  const stepsPerBar = time * chordSteps;
   if (page !== undefined) _seqBarPage = page;
   if (_seqBarPage < 0) _seqBarPage = 0;
   if (_seqBarPage >= bars) _seqBarPage = bars - 1;
@@ -26417,7 +26423,7 @@ function seqSaveChordSlots() {
   const song = getCurrentSong();
   if (!song) return;
   seqGetData(song); // ensure song.sequencer → active sequence
-  ucPushUndo(_ucCaptureState()); // snapshot BEFORE overwriting
+  ucPushUndo(_ucCaptureState(), 'chord slots'); // snapshot BEFORE overwriting
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
   song.sequencer.chordSlots     = slots.map(s => s.dataset.seqChordRaw || s.textContent.trim().replace('⁸','_viii') || '');
   song.sequencer.chordDegrees   = slots.map(s => s.dataset.chordDegree ?? '');
@@ -26475,14 +26481,14 @@ function seqClearActiveSequence() {
 
   modal.querySelector('#_seqClearPatternsOnly').onclick = () => {
     modal.remove();
-    ucPushUndo(_ucCaptureState());
+    ucPushUndo(_ucCaptureState(), 'clear patterns');
     _clearAllPatterns();
     showToast('All patterns cleared — lyrics kept', 'info', 2200);
   };
 
   modal.querySelector('#_seqClearAll').onclick = () => {
     modal.remove();
-    ucPushUndo(_ucCaptureState());
+    ucPushUndo(_ucCaptureState(), 'clear all');
     _clearAllPatterns();
     if (song) {
       // Clear lyrics for all parts
@@ -26635,7 +26641,7 @@ function _seqProgressionFill(progressionId) {
   if (!prog) return;
   const song = getCurrentSong();
   if (!song) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'chord progression');
 
   const sd         = seqGetData(song);
   const timeSig    = parseInt(sd.time || '4');
@@ -26728,8 +26734,7 @@ function _seqProgressionFill(progressionId) {
     }
   }
 
-  // Apply to DOM
-  ucPushUndo(_ucCaptureState());
+  // Apply to DOM (undo already pushed above)
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
   slots.forEach((slot, i) => {
     const val = newSlots[i] || '';
@@ -27033,7 +27038,15 @@ function seqWheelSelectDeg(idx) {
 
 // Calculate how many chord grid slots the current note duration spans
 function _seqDurToSlots() {
-  const chordSteps = parseInt(document.getElementById('seqChordSteps')?.value || '1');
+  // Read chord resolution from DOM (any active dropdown) or fall back to song data
+  const song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
+  const chordSteps = parseInt(
+    document.getElementById('seqChordSteps')?.value
+    || document.getElementById('kbdKeysSteps')?.value
+    || song?.chordSteps
+    || song?.sequencer?.chordSteps
+    || '1'
+  );
   // _kbdNoteDuration: 1=whole(4 beats), 0.5=half(2), 0.25=quarter(1), 0.125=eighth, 0.0625=16th, 0.03125=32nd
   const beats = (_kbdNoteDuration || 0.25) * 4; // convert to quarter-note beats
   return Math.max(1, Math.round(beats * chordSteps));
@@ -27075,7 +27088,7 @@ function seqSaveDrumLane(lane, elId) {
   const el = document.getElementById(elId);
   if (!el) return;
   seqGetData(song); // ensure song.sequencer → active sequence
-  ucPushUndo(_ucCaptureState()); // snapshot BEFORE overwriting so undo restores previous state
+  ucPushUndo(_ucCaptureState(), 'drum pattern'); // snapshot BEFORE overwriting so undo restores previous state
   const slots = [...el.querySelectorAll('.seq-slot')];
   song.sequencer[lane]          = slots.map(s => s.classList.contains('drum-on') ? 1 : 0);
   song.sequencer[lane + 'Vel']  = slots.map(s => s.classList.contains('drum-on') ? parseFloat(s.dataset.vel || 0.8) : 0);
@@ -28078,7 +28091,8 @@ var _ucUndoStack = [];
 var _ucRedoStack = [];
 var _ucMaxHistory = 10;
 
-function ucPushUndo(stateSnapshot) {
+function ucPushUndo(stateSnapshot, label) {
+  if (stateSnapshot) stateSnapshot._ucLabel = label || 'change';
   _ucUndoStack.push(stateSnapshot);
   if (_ucUndoStack.length > _ucMaxHistory) _ucUndoStack.shift();
   _ucRedoStack = []; // clear redo on new action
@@ -28087,16 +28101,24 @@ function ucPushUndo(stateSnapshot) {
 function ucUndo() {
   if (!_ucUndoStack.length) return;
   var state = _ucUndoStack.pop();
-  _ucRedoStack.push(_ucCaptureState());
+  var label = state?._ucLabel || 'change';
+  var current = _ucCaptureState();
+  if (current) current._ucLabel = label;
+  _ucRedoStack.push(current);
   _ucRestoreState(state);
   _ucSyncArrows();
+  showToast('Undo: ' + label, 'info', 1400);
 }
 function ucRedo() {
   if (!_ucRedoStack.length) return;
   var state = _ucRedoStack.pop();
-  _ucUndoStack.push(_ucCaptureState());
+  var label = state?._ucLabel || 'change';
+  var current = _ucCaptureState();
+  if (current) current._ucLabel = label;
+  _ucUndoStack.push(current);
   _ucRestoreState(state);
   _ucSyncArrows();
+  showToast('Redo: ' + label, 'info', 1400);
 }
 function _ucCaptureState() {
   // Capture full song state for global undo — deep clone everything mutable
@@ -28159,7 +28181,7 @@ function ucRec() {
   }
   // Push undo state before recording
   var snap = _ucCaptureState();
-  if (snap) ucPushUndo(snap);
+  if (snap) ucPushUndo(snap, 'recording');
   // Delegate to existing rec logic
   if (typeof sharedRec === 'function') sharedRec();
   _ucSetRecState(true);
@@ -28561,7 +28583,49 @@ document.addEventListener('click', function(e) {
 function seqPlay() {
   if (seqIsPlaying) return;
   if (typeof _trialNudge === 'function') _trialNudge('chord', 3);
-  _seqPlayMode = 'loop';
+
+  // ── Build single-section data from the active sequence (no DOM reads) ──
+  const song = getCurrentSong();
+  if (!song) return;
+  // Flush any DOM state into the song object before reading
+  if (typeof seqSaveAllToCurrent === 'function') seqSaveAllToCurrent(song);
+  const seqs = getSongSequences(song);
+  const seq  = seqs[seqActiveIdx] || song.sequencer || {};
+  const _songWideBpm = parseFloat(song?.bpm || 100);
+  const bpm       = _songWideBpm;
+  const drumSteps  = parseInt(song?.drumSteps  || seq.drumSteps  || song?.grid || seq.grid || 4);
+  const chordSteps = parseInt(song?.chordSteps || seq.chordSteps || '1');
+  const time = parseInt(seq.time || 4);
+  const bars = parseInt(seq.bars || 4);
+  const totalSteps = time * bars * drumSteps;
+  const stepDur    = (60 / bpm) / drumSteps;
+  const totalChordSteps = time * bars * chordSteps;
+
+  // Use the song-mode scheduler with a single-section array → loops automatically
+  _seqPlayMode = 'song';
+  _seqSongSections = [{
+    partId:      seq.partId || seq.part || null,
+    chordSlots:  seq.chordSlots  || [],
+    chordDegrees:seq.chordDegrees|| [],
+    chordContinued: seq.chordContinued || [],
+    kick:  seq.kick   || [], snare: seq.snare  || [], hat:   seq.hat    || [],
+    crash: seq.crash  || [], clap:  seq.clap   || [],
+    hitom: seq.hitom  || [], lotom: seq.lotom  || [],
+    kickVel: seq.kickVel || [], snareVel: seq.snareVel || [], hatVel: seq.hatVel || [],
+    crashVel: seq.crashVel || [], clapVel: seq.clapVel || [],
+    hitomVel: seq.hitomVel || [], lotomVel: seq.lotomVel || [],
+    melody:          seq.melody          || [],
+    melodyInstrument: seq.melodyInstrument || 'piano',
+    totalSteps, stepDur, bpm, drumSteps, chordSteps, time, bars,
+    grid: drumSteps,
+    totalChordSteps,
+    swing: parseFloat(seq.swing || 0),
+    vel:   parseFloat(seq.vel   || 0.8),
+    _seqIdx: seqActiveIdx,
+  }];
+  _seqSongSectionIdx  = 0;
+  _seqSongSectionStep = 0;
+
   seqIsPlaying = true;
   // Restore master gain (seqStop mutes it for instant silence)
   if (seqMasterGain) { try { seqMasterGain.gain.cancelScheduledValues(0); _mixApplyMain(); } catch(e) {} }
@@ -29905,7 +29969,7 @@ function melodyClear() {
 function saveMelody() {
   const song = getCurrentSong();
   if (!song) return;
-  ucPushUndo(_ucCaptureState()); // snapshot BEFORE overwriting melody
+  ucPushUndo(_ucCaptureState(), 'melody'); // snapshot BEFORE overwriting melody
   const seqs = getSongSequences(song);
   const targetSeq = seqs[kbdMelodySeqIdx] || song.sequencer || {};
   targetSeq.melody = melodyNotes.slice();
@@ -29927,7 +29991,7 @@ window.kbdDuplicateMelodySeq = function() {
   // Save current in-memory melody back to the sequence before cloning
   if (seqs[kbdMelodySeqIdx]) seqs[kbdMelodySeqIdx].melody = melodyNotes.slice();
   seqSaveAllToCurrent(song);
-  ucPushUndo(_ucCaptureState()); // snapshot BEFORE mutating
+  ucPushUndo(_ucCaptureState(), 'duplicate melody sequence'); // snapshot BEFORE mutating
   const src = seqs[kbdMelodySeqIdx];
   if (!src) return;
   const clone = JSON.parse(JSON.stringify(src));
@@ -37213,6 +37277,13 @@ function renderKeyboardDrawerHtml(song) {
             <option value="0.0625">𝅘𝅥𝅯 16th</option>
             <option value="0.03125">𝅘𝅥𝅰 32nd</option>
           </select>
+          <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="font-size:10px;max-width:140px;">
+            ${_progressionOptions}
+          </select>
+          <button id="seqProgressionReHumBtn" onclick="seqRehumanizeProgression()" class="seq-btn"
+            title="Re-shuffle rhythm" style="${_activeProgressionId ? '' : 'display:none;'}font-size:10px;padding:3px 8px;font-weight:700;">
+            ↺
+          </button>
         </div>
       </div>
 
@@ -38510,7 +38581,7 @@ function seqKeySelectChanged(triggerEl) {
 
   const song = getCurrentSong();
   if (!song) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'key change');
 
   // Capture old key BEFORE updating song
   const oldKey  = song.sequencer?.key  || seqCurrentKey();
@@ -38996,7 +39067,7 @@ function seqProbBuildLanes() {
 function seqProbApply() {
   const song = getCurrentSong();
   if (!song) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'random drums');
   const sd = seqGetData(song);
   const totalSteps = seqGetDrumStepCount(sd);
   const wrap = document.getElementById('seqProbLanes');
@@ -39190,7 +39261,7 @@ const FILL_PATTERNS = {
 function seqFillApply() {
   const song = getCurrentSong();
   if (!song) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'drum fill');
   const sd = seqGetData(song);
   const totalSteps = seqGetDrumStepCount(sd);
   const time = parseInt(document.getElementById('seqTime')?.value || sd.time || '4');
@@ -39256,7 +39327,7 @@ function applyDrumPattern(patternKey) {
   if (typeof _trialNudge === 'function') _trialNudge('drum', 1);
   const song = getCurrentSong();
   if (!song) return;
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'drum pattern');
   if (!song.sequencer) song.sequencer = {};
 
   const pattern = DRUM_PATTERNS[patternKey];
@@ -43079,7 +43150,7 @@ function ilApplyArrangement(sel) {
   const song = getCurrentSong();
   if (!song) return;
 
-  ucPushUndo(_ucCaptureState());
+  ucPushUndo(_ucCaptureState(), 'apply arrangement');
 
   // 1. Unassign all existing sequences (move to unassigned)
   const seqs = getSongSequences(song);
