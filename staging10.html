@@ -28426,11 +28426,20 @@ function ucPlay() {
 function ucStop() {
   // If recording, stop/cancel recording first
   if (typeof _vrRecording !== 'undefined' && _vrRecording) {
-    if (typeof _mtStopRecording === 'function') _mtStopRecording();
+    if (typeof _mtStopRecording === 'function') { try { _mtStopRecording(); } catch(e) { console.warn('[UCB] _mtStopRecording error', e); } }
     _ucSetRecState(false);
   }
   // Always stop playback too
-  if (typeof sharedStop === 'function') sharedStop();
+  if (typeof sharedStop === 'function') { try { sharedStop(); } catch(e) { console.warn('[UCB] sharedStop error', e); } }
+  // Explicitly stop metronome (standalone or otherwise)
+  if (typeof globalMetroStop === 'function') { try { globalMetroStop(); } catch(e) {} }
+  // Belt-and-suspenders: ensure sequencer, 4-track, and looper are stopped
+  // even if sharedStop hit an error partway through
+  if (typeof seqIsPlaying !== 'undefined' && seqIsPlaying && typeof seqStop === 'function') { try { seqStop(); } catch(e) {} }
+  if (typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying && typeof _mtStopAll === 'function') { try { _mtStopAll(); } catch(e) {} }
+  if (typeof loopMasterStop === 'function') { try { loopMasterStop(); } catch(e) {} }
+  // Stop the timecode clock
+  if (typeof htStopClock === 'function') { try { htStopClock(); } catch(e) {} }
 }
 // UCB Everything — plays all tracks + sequencer together
 function ucEverything() { if (typeof sharedPlaySong === 'function') sharedPlaySong(); }
@@ -28569,7 +28578,7 @@ function sharedStop() {
   }
   // Always stop looper — not just when drawer is open (seq song mode triggers loops without drawer)
   if (typeof loopMasterStop === 'function') { try { loopMasterStop(); } catch(e) {} }
-  seqStop(); // always stop sequencer playback too
+  try { seqStop(); } catch(e) { console.warn('[sharedStop] seqStop error', e); } // always stop sequencer playback too
   // Always stop 4-track — both standalone playback and seq-linked tracks.
   // seqStop already clears _seqPlayMode so _seqIsConducting will be false,
   // meaning _mtStopAll does its full cleanup.
@@ -28580,6 +28589,10 @@ function sharedStop() {
   if (typeof _mtSeqStopAllTracks === 'function') {
     try { _mtSeqStopAllTracks(); } catch(e) {}
   }
+  // Explicitly stop metronome (standalone or transport-started)
+  if (typeof globalMetroStop === 'function') { try { globalMetroStop(); } catch(e) {} }
+  // Stop the timecode clock
+  if (typeof htStopClock === 'function') { try { htStopClock(); } catch(e) {} }
   // Reset 4-track stop buttons to disabled
   ['mtStopBtn','mtStopBtnM'].forEach(function(id) {
     var el = document.getElementById(id);
