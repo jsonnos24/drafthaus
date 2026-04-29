@@ -8841,6 +8841,30 @@ body.split-4track-active .split-transport { display: none !important; }
 .mt-cancel-rec-btn { border-color: rgba(220,20,60,0.6); color: crimson; background: rgba(220,20,60,0.12); font-size: 11px; letter-spacing: 0.02em; }
 .vr-mini-cancel { display: none; border: none; background: rgba(220,20,60,0.25); color: #fff; font-size: 14px; font-weight: bold; width: 26px; height: 26px; border-radius: 50%; cursor: pointer; margin-left: 6px; padding: 0; line-height: 26px; text-align: center; flex-shrink: 0; }
 .split-met-btn.on { color: var(--gold); border-color: var(--gold); }
+/* I/O pill toggle */
+.split-io-btn { border-color: rgba(139,92,246,0.4); color: rgba(139,92,246,0.85); font-weight: 700; font-size: 10px; letter-spacing: 0.04em; }
+.split-io-btn:hover { background: rgba(139,92,246,0.12); }
+.split-io-btn.on { color: #a78bfa; border-color: #a78bfa; background: rgba(139,92,246,0.15); }
+/* Audio I/O panel */
+.shared-io-panel {
+  display: none; padding: 6px 10px; gap: 8px;
+  background: var(--card2); border-top: 1px solid var(--border2);
+  align-items: center; justify-content: center; flex-wrap: wrap;
+}
+.shared-io-panel[style*="display:flex"], .shared-io-panel.open { display: flex !important; }
+.shared-io-row {
+  display: flex; align-items: center; gap: 5px; flex-shrink: 0;
+}
+.shared-io-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint);
+  white-space: nowrap; min-width: 24px;
+}
+.shared-io-select {
+  background: var(--surface); color: var(--text); border: 1px solid var(--border2);
+  border-radius: 5px; padding: 3px 6px; font-size: 11px; font-family: 'IBM Plex Mono', monospace;
+  max-width: 180px; min-width: 80px; height: 28px;
+}
 .split-tap-btn {
   border-color: rgba(245,166,35,0.35); color: rgba(245,166,35,0.7);
   font-weight: 700; font-size: 10px; letter-spacing: 0.08em;
@@ -22670,26 +22694,38 @@ async function _headerEnumerateAudio() {
 }
 
 function _headerUpdateAudioSelects(audioIns, audioOuts) {
-  const inSel  = document.getElementById('headerAudioInSelect');
-  const outSel = document.getElementById('headerAudioOutSelect');
-  if (inSel) {
-    const curIn = (typeof _vrInputDeviceId !== 'undefined' ? _vrInputDeviceId : '') || '';
-    const defaultOpt = `<option value=""${!curIn ? ' selected' : ''}>System Default</option>`;
-    inSel.innerHTML = defaultOpt + audioIns.map(d => {
-      const label = (d.label || 'Microphone').split('(')[0].trim();
-      return `<option value="${d.deviceId}"${d.deviceId === curIn ? ' selected' : ''}>${label}</option>`;
-    }).join('');
-    if (curIn) inSel.value = curIn; // force-set in case selected attr didn't take
-  }
-  if (outSel) {
-    const curOut = (typeof _vrOutputDeviceId !== 'undefined' ? _vrOutputDeviceId : '') || '';
-    const defaultOpt = `<option value=""${!curOut ? ' selected' : ''}>System Default</option>`;
-    outSel.innerHTML = defaultOpt + audioOuts.map(d => {
-      const label = (d.label || 'Speaker').split('(')[0].trim();
-      return `<option value="${d.deviceId}"${d.deviceId === curOut ? ' selected' : ''}>${label}</option>`;
-    }).join('');
-    if (curOut) outSel.value = curOut;
-  }
+  const curIn = (typeof _vrInputDeviceId !== 'undefined' ? _vrInputDeviceId : '') || '';
+  const curOut = (typeof _vrOutputDeviceId !== 'undefined' ? _vrOutputDeviceId : '') || '';
+  // Build option HTML once
+  const inHtml = `<option value=""${!curIn ? ' selected' : ''}>System Default</option>` + audioIns.map(d => {
+    const label = (d.label || 'Microphone').split('(')[0].trim();
+    return `<option value="${d.deviceId}"${d.deviceId === curIn ? ' selected' : ''}>${label}</option>`;
+  }).join('');
+  const outHtml = `<option value=""${!curOut ? ' selected' : ''}>System Default</option>` + audioOuts.map(d => {
+    const label = (d.label || 'Speaker').split('(')[0].trim();
+    return `<option value="${d.deviceId}"${d.deviceId === curOut ? ' selected' : ''}>${label}</option>`;
+  }).join('');
+  // Populate hidden legacy selects
+  var inSel = document.getElementById('headerAudioInSelect');
+  if (inSel) { inSel.innerHTML = inHtml; if (curIn) inSel.value = curIn; }
+  var outSel = document.getElementById('headerAudioOutSelect');
+  if (outSel) { outSel.innerHTML = outHtml; if (curOut) outSel.value = curOut; }
+  // Populate shared transport I/O selects
+  var shIn = document.getElementById('sharedAudioInSelect');
+  if (shIn) { shIn.innerHTML = inHtml; if (curIn) shIn.value = curIn; }
+  var shOut = document.getElementById('sharedAudioOutSelect');
+  if (shOut) { shOut.innerHTML = outHtml; if (curOut) shOut.value = curOut; }
+}
+
+/* ── Shared transport I/O panel toggle ── */
+var _sharedIoPanelOpen = false;
+function sharedToggleIoPanel() {
+  _sharedIoPanelOpen = !_sharedIoPanelOpen;
+  var panel = document.getElementById('sharedIoPanel');
+  var btn = document.getElementById('sharedIoPill');
+  if (panel) panel.style.display = _sharedIoPanelOpen ? 'flex' : 'none';
+  if (btn) btn.classList.toggle('on', _sharedIoPanelOpen);
+  if (_sharedIoPanelOpen) _headerEnumerateAudio();
 }
 
 function headerSelectAudioIn(deviceId) {
@@ -23872,17 +23908,19 @@ function seqRenderSequenceTabs() {
   const song = getCurrentSong();
   if (!song) { strip.innerHTML = ''; return; }
   const seqs = getSongSequences(song);
-  const nowPlayingIdx = (_seqPlayMode === 'song' && seqIsPlaying) ? _seqSongSectionIdx : -1;
+  const _nowPlayingSeqIdx = (_seqPlayMode === 'song' && seqIsPlaying && _seqSongSectionIdx < _seqSongSections.length)
+    ? _seqSongSections[_seqSongSectionIdx]._seqIdx : -1;
 
   const tabsHtml = seqs.map((seq, i) => {
     const label      = seqGetPartLabel(seq.partId || seq.part);
     const shortLabel = seqGetPartLabelShort(seq.partId || seq.part);
     const color      = seqGetPartColor(seq.partId || seq.part);
     const active     = i === seqActiveIdx ? ' active' : '';
-    const playing    = i === nowPlayingIdx ? ' seq-tab-playing' : '';
+    const playing    = i === _nowPlayingSeqIdx ? ' seq-tab-playing' : '';
     const linkPending = (window._seqLinkPending && window._seqLinkPending.seqIdx === i) ? ' seq-link-pending' : '';
     const isUnassigned = (color === 'var(--faint)');
     const tabColor = isUnassigned ? '#fff' : color;
+    const showOrbit = (i === _nowPlayingSeqIdx) || (i === seqActiveIdx && _nowPlayingSeqIdx === -1);
     return `<button class="seq-tab${active}${playing}${linkPending}${isUnassigned ? ' seq-tab-unassigned' : ''}" style="color:${tabColor};" id="seq-tab-btn-${i}"
       onclick="seqTabClick(${i},event)" title="${linkPending ? 'Click to exit link mode' : 'Switch to '+label}"
       draggable="true"
@@ -23890,7 +23928,7 @@ function seqRenderSequenceTabs() {
       ondragover="seqTabDragOver(event,${i})"
       ondrop="seqTabDrop(event,${i})"
       ondragend="seqTabDragEnd()">
-      ${active ? '<span class="seq-tab-orbit-dot"></span>' : ''}
+      ${showOrbit ? '<span class="seq-tab-orbit-dot"></span>' : ''}
       ${shortLabel}
     </button>`;
   }).join('');
@@ -24087,6 +24125,29 @@ function seqTabClick(idx, event) {
 
   // Switch sequence immediately on first click (no delay)
   if (idx !== seqActiveIdx) seqSwitchToSequence(idx);
+
+  // If playing, jump playback to the tapped section
+  if (seqIsPlaying && _seqPlayMode === 'song') {
+    // Song mode (Everything): find the section in _seqSongSections that matches this seq index
+    var _jumpFound = false;
+    for (var _ji = 0; _ji < _seqSongSections.length; _ji++) {
+      if (_seqSongSections[_ji]._seqIdx === idx) {
+        _seqSongSectionIdx = _ji;
+        _seqSongSectionStep = 0;
+        _jumpFound = true;
+        // Trigger loop/4-track for the new section
+        var _jumpPart = _seqSongSections[_ji]?.partId || null;
+        if (typeof _seqTriggerLoopsForPart === 'function') _seqTriggerLoopsForPart(_jumpPart);
+        if (typeof _seqTriggerMtTracksForPart === 'function') _seqTriggerMtTracksForPart(_jumpPart);
+        break;
+      }
+    }
+    if (!_jumpFound) {
+      // Single-section loop (Play button): rebuild with the new section
+      seqStop();
+      requestAnimationFrame(function() { seqPlay(); });
+    }
+  }
 
   // Double-click / double-tap → open sequence manager modal (linking disabled)
   if (_seqTabDblIdx === idx && _seqTabDblTimer) {
@@ -28622,12 +28683,13 @@ function htToggleDock() { /* no-op */ }
 
 // Rec: only active in keyboard mode
 function sharedRec() {
-  // 4-track takes priority if it's visible and a track is armed
+  // 4-track / looper: if ft-drawer or looper or vr-overlay is open, use ftRecClick
+  const ftOpen    = document.getElementById('ftDrawer')?.classList.contains('open');
+  const loopOpen  = document.getElementById('looperDrawer')?.classList.contains('open');
   const vrOpen    = document.getElementById('vrOverlay')?.classList.contains('vr-open');
   const miniBar   = document.getElementById('vrMiniBar');
   const miniVis   = miniBar && miniBar.style.display !== 'none' && miniBar.offsetParent !== null;
-  const trackArmed = document.getElementById('mtRecBtn')?.classList.contains('mt-active');
-  if ((vrOpen || miniVis) && trackArmed) {
+  if (ftOpen || loopOpen || vrOpen || miniVis) {
     if (typeof ftRecClick === 'function') ftRecClick();
     else if (typeof vrToggleRec === 'function') vrToggleRec();
     return;
@@ -28984,6 +29046,17 @@ async function seqPlaySong() {
   _seqSongSectionStep = 0;
   _seqPlayMode = 'song';
   _seqPlayGen = _seqStopGen; // snapshot: visual timeouts bail if seqStop() bumps _seqStopGen
+  // Select the first section's sequence so grid/drums show what's playing
+  var _initSeqIdx = _seqSongSections[0]?._seqIdx;
+  if (_initSeqIdx !== undefined && _initSeqIdx !== seqActiveIdx) {
+    seqSaveAllToCurrent(song);
+    seqActiveIdx = _initSeqIdx;
+    kbdMelodySeqIdx = _initSeqIdx;
+    melodyNotes = (seqs[_initSeqIdx]?.melody || []).slice();
+    melodyActiveNote = null;
+    song.sequencer = seqs[_initSeqIdx];
+    seqLoadSequenceIntoDOM(seqs[_initSeqIdx], song);
+  }
   // Restore master gain (seqStop mutes it for instant silence)
   if (seqMasterGain) { try { seqMasterGain.gain.cancelScheduledValues(0); _mixApplyMain(); } catch(e) {} }
   _mixLog('GAIN', 'song playback start → restored via _mixApplyMain');
@@ -29169,15 +29242,25 @@ function seqScheduleNotes() {
         const _nextPartId = _seqSongSections[_nextSectionIdx]?.partId || null;
         const _sectionAdvanceDelay = Math.max(0, (_seqNextNoteTime - ctx.currentTime) * 1000) + 50;
         const _advGen = _seqPlayGen;
+        const _advSeqIdx = _seqSongSections[_nextSectionIdx]?._seqIdx;
         setTimeout(() => {
           // Bail out if playback was stopped/restarted before this timeout fired
           if (!seqIsPlaying || _seqPlayMode !== 'song' || _seqPlayGen !== _advGen) return;
-          // Find which sequence tab corresponds to this section so we can highlight + load it
+          // Switch the visible grid/drums to the currently playing section
           const song = getCurrentSong();
-          // Don't switch seqActiveIdx during playback — the user may be
-          // editing a different part. The now-playing badge on the tab strip
-          // already shows which section the playhead is in.
-          // seqActiveIdx and the grid stay locked to whatever the user selected.
+          if (song && _advSeqIdx !== undefined && _advSeqIdx !== seqActiveIdx) {
+            const seqs = getSongSequences(song);
+            if (_advSeqIdx >= 0 && _advSeqIdx < seqs.length) {
+              // Save current DOM state before switching
+              seqSaveAllToCurrent(song);
+              seqActiveIdx = _advSeqIdx;
+              kbdMelodySeqIdx = _advSeqIdx;
+              melodyNotes = (seqs[_advSeqIdx].melody || []).slice();
+              melodyActiveNote = null;
+              song.sequencer = seqs[_advSeqIdx];
+              seqLoadSequenceIntoDOM(seqs[_advSeqIdx], song);
+            }
+          }
           seqRenderSequenceTabs();
           if (typeof kbdRenderMelodyTabs === 'function') { const _s = getCurrentSong(); if (_s) kbdRenderMelodyTabs(_s); }
           if (typeof loopRenderPartsStrip === 'function') loopRenderPartsStrip();
@@ -57594,8 +57677,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   <!-- Transport buttons -->
   <div class="drawer-transport-strip">
     <button id="sharedRecBtn" class="split-transport-btn split-rec-btn" onclick="sharedRec()"
-      disabled style="opacity:1;cursor:not-allowed;"
-      title="Record melody (keyboard mode only)">
+      title="Record">
       ⏺ Rec
     </button>
     <button class="split-transport-btn split-play-btn" onclick="sharedPlay()" title="Play (Space)">
@@ -57610,6 +57692,20 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     <button id="sharedMetBtn" class="split-transport-btn split-met-btn" onclick="seqToggleMet()" title="Toggle metronome (M)">
       <span class="t-btn-label">Metro</span>
     </button>
+    <button id="sharedIoPill" class="split-transport-btn split-io-btn" onclick="sharedToggleIoPanel()" title="Audio Input / Output devices">
+      <span class="t-btn-label">I/O</span>
+    </button>
+  </div>
+  <!-- Audio I/O panel — slides up above transport when toggled -->
+  <div id="sharedIoPanel" class="shared-io-panel" style="display:none;">
+    <div class="shared-io-row">
+      <label class="shared-io-label">IN</label>
+      <select id="sharedAudioInSelect" class="shared-io-select" onchange="headerSelectAudioIn(this.value)"></select>
+    </div>
+    <div class="shared-io-row">
+      <label class="shared-io-label">OUT</label>
+      <select id="sharedAudioOutSelect" class="shared-io-select" onchange="headerSelectAudioOut(this.value)"></select>
+    </div>
   </div>
 </div>
 
