@@ -15658,8 +15658,9 @@ body.song-bar-visible #navSubHomeBtn { display: flex; }
   width: 20px; height: 20px;
   flex-shrink: 0;
 }
-/* Show inline VU on armed strip (desktop + mobile) */
-.ft-strip.armed .ft-vu-inline {
+/* Show inline VU on armed strip or during playback (desktop + mobile) */
+.ft-strip.armed .ft-vu-inline,
+.ft-strip.playing .ft-vu-inline {
   display: flex !important;
 }
 .ft-pan-del { display: none; }
@@ -46903,33 +46904,17 @@ function _mixMeterRAF() {
     _mixSetMeterLevel(mainStrip, Math.min(1, mainRms * 3.5));
   }
 
-  // Vox 1–4 — reuse existing 4-track analysers (+ mic input for armed track)
-  var _isArmed = (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack >= 0);
-  var _seqActive = (typeof _mtSeqActiveTracks !== 'undefined') ? _mtSeqActiveTracks : new Set();
+  // Pump ftAnimateVU so _ftVuLevels stays fresh even when ft-drawer is closed
+  if (typeof ftAnimateVU === 'function' && !ftTickActive) ftAnimateVU();
+
+  // Vox 1–4 — read directly from _ftVuLevels (computed by ftAnimateVU)
+  var _hasLevels = (typeof _ftVuLevels !== 'undefined');
   for (var vi = 0; vi < 4; vi++) {
     var vStrip = document.querySelector('.mix-strip[data-id="v' + (vi+1) + '"]');
     if (!vStrip) continue;
-    var vRms = 0;
-    var _trackActive = isPlaying || _seqActive.has(vi);
-    // Armed track: use mic input analyser for live VU
-    if (_isArmed && vi === _mtArmedTrack && typeof _vuAnalyser !== 'undefined' && _vuAnalyser && typeof _vuActive !== 'undefined' && _vuActive) {
-      if (!_mixMicBuf || _mixMicBuf.length < _vuAnalyser.fftSize) {
-        _mixMicBuf = new Float32Array(_vuAnalyser.fftSize);
-      }
-      _vuAnalyser.getFloatTimeDomainData(_mixMicBuf);
-      var _sum = 0;
-      for (var _si = 0; _si < _vuAnalyser.fftSize; _si++) _sum += _mixMicBuf[_si] * _mixMicBuf[_si];
-      vRms = Math.sqrt(_sum / _vuAnalyser.fftSize);
-    } else {
-      // Playing track: use 4-track analyser
-      var vAn = (typeof _ftAnalysers !== 'undefined') ? _ftAnalysers[vi] : null;
-      if (!vAn && typeof _ftEnsureAnalyser === 'function') {
-        var _t = (window._mtTracks || [])[vi];
-        if (_t && _t.gainNode) vAn = _ftEnsureAnalyser(vi);
-      }
-      vRms = (_trackActive && vAn) ? _mixMeterRMS(vAn) : 0;
-    }
-    _mixSetMeterLevel(vStrip, Math.min(1, vRms * 3.5));
+    var vL = _hasLevels ? _ftVuLevels[vi].l : 0;
+    var vR = _hasLevels ? _ftVuLevels[vi].r : 0;
+    _mixSetMeterLevel(vStrip, vL, vR);
   }
 
   // Loop master — use looper analyser if available
@@ -49868,7 +49853,8 @@ function _mtStartPlayback(offsetSec) {
   // Apply mute/solo gain state to all tracks
   if (typeof _mtApplyAllGains === 'function') _mtApplyAllGains();
   // Eagerly splice in mixer analysers so VU meters respond immediately
-  if (_mixDrawerOpen && typeof _ftEnsureAnalyser === 'function') {
+  var _ftDrawerOpen = (typeof ftIsOpen === 'function' && ftIsOpen());
+  if ((_mixDrawerOpen || _ftDrawerOpen) && typeof _ftEnsureAnalyser === 'function') {
     if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(128);
     _mtTracks.forEach(function(t, i) { if (t && t.gainNode) _ftEnsureAnalyser(i); });
   }
@@ -53286,10 +53272,14 @@ function ftTickStop() { ftTickActive = false; }
 
 function ftTick(now) {
   if (!ftTickActive) return;
-  ftUpdateTimecodes();
-  ftUpdatePlayheads();
-  ftAnimateVU();
-  ftUpdateTransport();
+  try {
+    ftUpdateTimecodes();
+    ftUpdatePlayheads();
+    ftAnimateVU();
+    ftUpdateTransport();
+  } catch(e) {
+    console.error('[FT] ftTick error:', e);
+  }
   if (ftTickActive) requestAnimationFrame(ftTick);
 }
 
@@ -53601,6 +53591,7 @@ function ftSetupInlineVU() {
 
 /* ── Inject vertical VU meters into each strip's vol-row ── */
 function ftSetupMiniVU() {
+  var injected = 0;
   document.querySelectorAll('[data-ft-strip]').forEach(function(strip, idx) {
     var volRow = strip.querySelector('.ft-vol-row');
     if (!volRow || volRow.querySelector('.ft-vu-mini')) return; /* already injected */
@@ -53613,7 +53604,9 @@ function ftSetupMiniVU() {
     var boostBtn = volRow.querySelector('[data-ft-boost]');
     if (boostBtn) boostBtn.after(vu);
     else volRow.appendChild(vu);
+    injected++;
   });
+  console.log('[FT-VU] ftSetupMiniVU injected', injected, 'VU meters. Total [data-ft-vu-mini] in DOM:', document.querySelectorAll('[data-ft-vu-mini]').length);
 }
 
 /* ── Animate the mini VU meters — called from the existing VU tick ── */
@@ -53997,6 +53990,8 @@ function _drawTakeWaveformBuffer(canvas, ctx, W, H, mid, buffer, stripIdx) {
 /* ── Per-track AnalyserNode for accurate VU metering ── */
 var _ftAnalysers = [null, null, null, null];
 var _ftAnalyserBuf = null; // shared Float32Array
+/* Shared VU levels — written by ftAnimateVU, read by mixer RAF */
+var _ftVuLevels = [{l:0,r:0},{l:0,r:0},{l:0,r:0},{l:0,r:0}];
 
 function _ftEnsureAnalyser(idx) {
   var t = _mtTracks[idx];
@@ -54013,8 +54008,8 @@ function _ftEnsureAnalyser(idx) {
   t.gainNode.connect(an);
   an.connect(dest);
   _ftAnalysers[idx] = an;
-  if (!_ftAnalyserBuf || _ftAnalyserBuf.length < an.frequencyBinCount) {
-    _ftAnalyserBuf = new Float32Array(an.frequencyBinCount);
+  if (!_ftAnalyserBuf || _ftAnalyserBuf.length < an.fftSize) {
+    _ftAnalyserBuf = new Float32Array(an.fftSize);
   }
   return an;
 }
@@ -54035,51 +54030,79 @@ function _ftDetachAnalysers() {
   _ftAnalysers = [null, null, null, null];
 }
 
+var _ftVuDebugCount = 0; /* one-shot debug counter */
 function ftAnimateVU() {
-  var isArmed = (_mtArmedTrack >= 0);
+  try {
+    var isArmed = (_mtArmedTrack >= 0);
+    var doDebug = (_ftVuDebugCount < 10 && (_mtIsPlaying || _vrRecording || isArmed));
 
-  for (var idx = 0; idx < 4; idx++) {
-    var t = _mtTracks[idx];
-    if (!t) { ftUpdateMiniVU(idx, 0, 0); continue; }
+    for (var idx = 0; idx < 4; idx++) {
+      var t = _mtTracks[idx];
+      if (!t) { ftUpdateMiniVU(idx, 0, 0); continue; }
 
-    /* ── Armed track: use mic input analyser (_vuAnalyser) for live VU ── */
-    if (isArmed && idx === _mtArmedTrack && _vuAnalyser && _vuActive) {
-      if (!_ftInputBuf || _ftInputBuf.length < _vuAnalyser.fftSize) {
-        _ftInputBuf = new Float32Array(_vuAnalyser.fftSize);
+      /* ── Armed track: use mic input analyser (_vuAnalyser) for live VU ── */
+      if (isArmed && idx === _mtArmedTrack && _vuAnalyser && _vuActive) {
+        if (!_ftInputBuf || _ftInputBuf.length < _vuAnalyser.fftSize) {
+          _ftInputBuf = new Float32Array(_vuAnalyser.fftSize);
+        }
+        _vuAnalyser.getFloatTimeDomainData(_ftInputBuf);
+        var sumSqI = 0;
+        for (var si = 0; si < _ftInputBuf.length; si++) {
+          sumSqI += _ftInputBuf[si] * _ftInputBuf[si];
+        }
+        var rmsI = Math.sqrt(sumSqI / _ftInputBuf.length);
+        var lvlI = Math.min(1, rmsI * 3.5);
+        var lvlIL = Math.min(1, lvlI * (0.95 + Math.random() * 0.1));
+        var lvlIR = Math.min(1, lvlI * (0.95 + Math.random() * 0.1));
+        if (doDebug) console.log('[FT-VU] armed idx=' + idx + ' rms=' + rmsI.toFixed(4) + ' lvl=' + lvlI.toFixed(3));
+        _ftVuLevels[idx].l = lvlIL; _ftVuLevels[idx].r = lvlIR;
+        ftUpdateMiniVU(idx, lvlIL, lvlIR);
+        continue;
       }
-      _vuAnalyser.getFloatTimeDomainData(_ftInputBuf);
-      var sumSqI = 0;
-      for (var si = 0; si < _ftInputBuf.length; si++) {
-        sumSqI += _ftInputBuf[si] * _ftInputBuf[si];
+
+      /* ── Playback / recording: use per-track analyser spliced on gainNode ── */
+      var an = _ftEnsureAnalyser(idx);
+      if (an && (_mtIsPlaying || _vrRecording) && _ftAnalyserBuf) {
+        an.getFloatTimeDomainData(_ftAnalyserBuf);
+        var sumSq = 0;
+        for (var s = 0; s < _ftAnalyserBuf.length; s++) {
+          sumSq += _ftAnalyserBuf[s] * _ftAnalyserBuf[s];
+        }
+        var rms = Math.sqrt(sumSq / _ftAnalyserBuf.length);
+        var level = Math.min(1, rms * 3.5);
+        var levelL = Math.min(1, level * (0.95 + Math.random() * 0.1));
+        var levelR = Math.min(1, level * (0.95 + Math.random() * 0.1));
+        if (t.muted) { levelL = 0; levelR = 0; }
+        if (doDebug) console.log('[FT-VU] play idx=' + idx + ' rms=' + rms.toFixed(4) + ' lvl=' + level.toFixed(3) + ' an=' + !!an + ' buf=' + _ftAnalyserBuf.length);
+        _ftVuLevels[idx].l = levelL; _ftVuLevels[idx].r = levelR;
+        ftUpdateMiniVU(idx, levelL, levelR);
+      } else {
+        if (doDebug && (_mtIsPlaying || _vrRecording)) console.log('[FT-VU] SKIP idx=' + idx + ' an=' + !!an + ' playing=' + _mtIsPlaying + ' rec=' + !!_vrRecording + ' buf=' + !!_ftAnalyserBuf + ' gainNode=' + !!(t && t.gainNode));
+        _ftVuLevels[idx].l = 0; _ftVuLevels[idx].r = 0;
+        ftUpdateMiniVU(idx, 0, 0);
       }
-      var rmsI = Math.sqrt(sumSqI / _ftInputBuf.length);
-      var lvlI = Math.min(1, rmsI * 3.5);
-      var lvlIL = Math.min(1, lvlI * (0.95 + Math.random() * 0.1));
-      var lvlIR = Math.min(1, lvlI * (0.95 + Math.random() * 0.1));
-      ftUpdateMiniVU(idx, lvlIL, lvlIR);
-      continue;
     }
-
-    /* ── Playback / recording: use per-track analyser spliced on gainNode ── */
-    var an = _ftEnsureAnalyser(idx);
-    if (an && (_mtIsPlaying || _vrRecording) && _ftAnalyserBuf) {
-      an.getFloatTimeDomainData(_ftAnalyserBuf);
-      var sumSq = 0;
-      for (var s = 0; s < _ftAnalyserBuf.length; s++) {
-        sumSq += _ftAnalyserBuf[s] * _ftAnalyserBuf[s];
-      }
-      var rms = Math.sqrt(sumSq / _ftAnalyserBuf.length);
-      var level = Math.min(1, rms * 3.5);
-      var levelL = Math.min(1, level * (0.95 + Math.random() * 0.1));
-      var levelR = Math.min(1, level * (0.95 + Math.random() * 0.1));
-      if (t.muted) { levelL = 0; levelR = 0; }
-      ftUpdateMiniVU(idx, levelL, levelR);
-    } else {
-      ftUpdateMiniVU(idx, 0, 0);
-    }
+    if (doDebug) _ftVuDebugCount++;
+  } catch(e) {
+    console.error('[FT-VU] ftAnimateVU error:', e);
   }
 }
 var _ftInputBuf = null; /* shared buffer for mic input VU */
+
+/* Debug: call ftTestVU() in console to verify VU DOM elements render */
+window.ftTestVU = function() {
+  for (var i = 0; i < 4; i++) {
+    var vu = document.querySelector('[data-ft-vu-mini="' + i + '"]');
+    var inl = document.querySelector('[data-ft-vu-inline-idx="' + i + '"]');
+    console.log('[FT-VU-TEST] idx=' + i + ' miniVU=' + !!vu + ' inlineVU=' + !!inl);
+    ftUpdateMiniVU(i, 0.7, 0.5);
+  }
+  console.log('[FT-VU-TEST] All VU set to 70%/50% — should be visible now. Call ftTestVU(0) to reset.');
+};
+window.ftTestVU.reset = function() {
+  for (var i = 0; i < 4; i++) ftUpdateMiniVU(i, 0, 0);
+  console.log('[FT-VU-TEST] Reset all VU to 0.');
+};
 
 /* ── Inline takes toggle — opens/closes takes panel below the lane ──────────── */
 function ftToggleInlineTakes(stripIdx) {
