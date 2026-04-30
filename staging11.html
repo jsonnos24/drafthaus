@@ -46664,6 +46664,9 @@ function openMixDrawer() {
   _mixDrawerOpen = true;
   document.getElementById('mixDrawer').classList.add('open');
   document.getElementById('mixDrawerOverlay').classList.add('open');
+  // Ensure 4-track AudioContext exists so mixer analysers can be created
+  // (take decode creates it, but belt-and-suspenders for metering)
+  if (typeof _mtCreateCtxSync === 'function') _mtCreateCtxSync();
   // Restore persisted master volumes via _mixApplyMain (respects Main scalar)
   _mixApplyMain();
   _mixLog('GAIN', 'openMixDrawer → _mixApplyMain');
@@ -46671,6 +46674,14 @@ function openMixDrawer() {
   if (body) {
     body.innerHTML = renderMixDrawerHtml();
     wireMixerInteractions();
+  }
+  // Pre-splice 4-track analysers if tracks already have gain nodes (e.g. from prior play)
+  if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(128);
+  if (typeof _ftEnsureAnalyser === 'function') {
+    var mt = window._mtTracks || [];
+    for (var mi = 0; mi < mt.length; mi++) {
+      if (mt[mi] && mt[mi].gainNode) _ftEnsureAnalyser(mi);
+    }
   }
   _mixStartMeters();
 }
@@ -46727,7 +46738,8 @@ function _mixUpdateTransport(stepInLoop, beatsPerBar) {
 
 // ── Mixer meter RAF loop ─────────────────────────────────────────
 function _mixMeterRMS(analyser) {
-  if (!analyser || !_mixSeqAnalyserBuf) return 0;
+  if (!analyser) return 0;
+  if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(128);
   analyser.getFloatTimeDomainData(_mixSeqAnalyserBuf);
   var sum = 0;
   for (var s = 0; s < _mixSeqAnalyserBuf.length; s++) {
