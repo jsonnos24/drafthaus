@@ -46749,22 +46749,34 @@ function openMixDrawer() {
     wireMixerInteractions();
   }
   // Pre-splice 4-track analysers if tracks already have gain nodes (e.g. from prior play)
-  if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(128);
+  if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(256);
   if (typeof _ftEnsureAnalyser === 'function') {
     var mt = window._mtTracks || [];
     for (var mi = 0; mi < mt.length; mi++) {
       if (mt[mi] && mt[mi].gainNode) _ftEnsureAnalyser(mi);
     }
   }
+  // If a track is armed, ensure mic VU is running so mixer can show armed-track level
+  if (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack >= 0) {
+    if (typeof _vuActive !== 'undefined' && !_vuActive && typeof _vuStart === 'function') {
+      _vuStart();
+      _mixLog('METER', 'Started VU mic meter for armed track ' + _mtArmedTrack);
+    }
+  }
   // Create looper analyser if loopMasterGain exists
   if (!_mixLoopAnalyser && typeof loopMasterGain !== 'undefined' && loopMasterGain && typeof loopAudioCtx !== 'undefined' && loopAudioCtx) {
-    _mixLoopAnalyser = loopAudioCtx.createAnalyser();
-    _mixLoopAnalyser.fftSize = 256;
-    _mixLoopAnalyser.smoothingTimeConstant = 0.8;
-    try { loopMasterGain.disconnect(loopAudioCtx.destination); } catch(e) {}
-    loopMasterGain.connect(_mixLoopAnalyser);
-    _mixLoopAnalyser.connect(loopAudioCtx.destination);
-    _mixLog('METER', 'Looper analyser created: loopMasterGain → analyser → destination');
+    try {
+      _mixLoopAnalyser = loopAudioCtx.createAnalyser();
+      _mixLoopAnalyser.fftSize = 256;
+      _mixLoopAnalyser.smoothingTimeConstant = 0.8;
+      try { loopMasterGain.disconnect(loopAudioCtx.destination); } catch(e) {}
+      loopMasterGain.connect(_mixLoopAnalyser);
+      _mixLoopAnalyser.connect(loopAudioCtx.destination);
+      _mixLog('METER', 'Looper analyser created: loopMasterGain → analyser → destination');
+    } catch(e) {
+      _mixLoopAnalyser = null;
+      _mixLog('METER', 'Looper analyser creation failed: ' + e.message);
+    }
   }
   _mixStartMeters();
 }
@@ -46824,13 +46836,17 @@ function _mixUpdateTransport(stepInLoop, beatsPerBar) {
 // ── Mixer meter RAF loop ─────────────────────────────────────────
 function _mixMeterRMS(analyser) {
   if (!analyser) return 0;
-  if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(128);
+  // Ensure buffer is large enough for this analyser's fftSize (4-track = 256, VU = 1024)
+  var needed = analyser.fftSize || 256;
+  if (!_mixSeqAnalyserBuf || _mixSeqAnalyserBuf.length < needed) {
+    _mixSeqAnalyserBuf = new Float32Array(needed);
+  }
   analyser.getFloatTimeDomainData(_mixSeqAnalyserBuf);
-  var sum = 0;
-  for (var s = 0; s < _mixSeqAnalyserBuf.length; s++) {
+  var sum = 0, len = Math.min(_mixSeqAnalyserBuf.length, needed);
+  for (var s = 0; s < len; s++) {
     sum += _mixSeqAnalyserBuf[s] * _mixSeqAnalyserBuf[s];
   }
-  return Math.sqrt(sum / _mixSeqAnalyserBuf.length);
+  return Math.sqrt(sum / len);
 }
 
 function _mixSetMeterLevel(stripEl, level, levelR) {
@@ -46859,8 +46875,10 @@ function _mixSetMeterLevel(stripEl, level, levelR) {
 
 function _mixMeterRAF() {
   if (!_mixDrawerOpen) { _mixMeterRafId = null; return; }
+  try {
   var isPlaying = (typeof seqIsPlaying !== 'undefined' && seqIsPlaying) ||
-                  (typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying);
+                  (typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying) ||
+                  (typeof _vrRecording !== 'undefined' && _vrRecording);
 
   // Seq bus channels
   var seqChannels = ['drums','chords','melody','kick','snare','hat','perc'];
@@ -46905,7 +46923,10 @@ function _mixMeterRAF() {
     } else {
       // Playing track: use 4-track analyser
       var vAn = (typeof _ftAnalysers !== 'undefined') ? _ftAnalysers[vi] : null;
-      if (!vAn && typeof _ftEnsureAnalyser === 'function') vAn = _ftEnsureAnalyser(vi);
+      if (!vAn && typeof _ftEnsureAnalyser === 'function') {
+        var _t = (window._mtTracks || [])[vi];
+        if (_t && _t.gainNode) vAn = _ftEnsureAnalyser(vi);
+      }
       vRms = (_trackActive && vAn) ? _mixMeterRMS(vAn) : 0;
     }
     _mixSetMeterLevel(vStrip, Math.min(1, vRms * 3.5));
@@ -46916,25 +46937,34 @@ function _mixMeterRAF() {
   if (loopStrip) {
     // Try to create analyser on the fly if looper started after mixer opened
     if (!_mixLoopAnalyser && typeof loopMasterGain !== 'undefined' && loopMasterGain && typeof loopAudioCtx !== 'undefined' && loopAudioCtx) {
-      _mixLoopAnalyser = loopAudioCtx.createAnalyser();
-      _mixLoopAnalyser.fftSize = 256;
-      _mixLoopAnalyser.smoothingTimeConstant = 0.8;
-      try { loopMasterGain.disconnect(loopAudioCtx.destination); } catch(e) {}
-      loopMasterGain.connect(_mixLoopAnalyser);
-      _mixLoopAnalyser.connect(loopAudioCtx.destination);
-      _mixLog('METER', 'Looper analyser created (lazy) in meter RAF');
+      try {
+        _mixLoopAnalyser = loopAudioCtx.createAnalyser();
+        _mixLoopAnalyser.fftSize = 256;
+        _mixLoopAnalyser.smoothingTimeConstant = 0.8;
+        try { loopMasterGain.disconnect(loopAudioCtx.destination); } catch(e) {}
+        loopMasterGain.connect(_mixLoopAnalyser);
+        _mixLoopAnalyser.connect(loopAudioCtx.destination);
+        _mixLog('METER', 'Looper analyser created (lazy) in meter RAF');
+      } catch(loopErr) {
+        _mixLoopAnalyser = null;
+        _mixLog('METER', 'Looper analyser creation failed: ' + loopErr.message);
+      }
     }
     var loopRms = _mixLoopAnalyser ? _mixMeterRMS(_mixLoopAnalyser) : 0;
     _mixSetMeterLevel(loopStrip, Math.min(1, loopRms * 3.5));
   }
 
+  } catch(rafErr) {
+    console.warn('[MIX][METER] RAF error (loop continues):', rafErr.message);
+  }
   _mixMeterRafId = requestAnimationFrame(_mixMeterRAF);
 }
 
 function _mixStartMeters() {
-  if (_mixMeterRafId) return; // already running
-  // Ensure shared analyser buffer exists (may not if sequencer hasn't initialised yet)
-  if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(128);
+  // Cancel any stale RAF (safety: if a prior loop died, _mixMeterRafId holds a dead ID)
+  if (_mixMeterRafId) { try { cancelAnimationFrame(_mixMeterRafId); } catch(e) {} }
+  // Ensure shared analyser buffer exists (256 to match fftSize of 4-track analysers)
+  if (!_mixSeqAnalyserBuf || _mixSeqAnalyserBuf.length < 256) _mixSeqAnalyserBuf = new Float32Array(256);
   _mixLog('METER', 'Starting meter RAF loop');
   _mixMeterRafId = requestAnimationFrame(_mixMeterRAF);
 }
