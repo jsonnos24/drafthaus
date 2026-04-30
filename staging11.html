@@ -46823,6 +46823,8 @@ function _mixMeterRAF() {
 
 function _mixStartMeters() {
   if (_mixMeterRafId) return; // already running
+  // Ensure shared analyser buffer exists (may not if sequencer hasn't initialised yet)
+  if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(128);
   _mixLog('METER', 'Starting meter RAF loop');
   _mixMeterRafId = requestAnimationFrame(_mixMeterRAF);
 }
@@ -49718,6 +49720,11 @@ function _mtStartPlayback(offsetSec) {
   });
   // Apply mute/solo gain state to all tracks
   if (typeof _mtApplyAllGains === 'function') _mtApplyAllGains();
+  // Eagerly splice in mixer analysers so VU meters respond immediately
+  if (_mixDrawerOpen && typeof _ftEnsureAnalyser === 'function') {
+    if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(128);
+    _mtTracks.forEach(function(t, i) { if (t && t.gainNode) _ftEnsureAnalyser(i); });
+  }
   const _sb = _el('mtStopBtn'); if (_sb) _sb.disabled = false;
   const _pb = _el('mtPlayBtn'); if (_pb) _pb.disabled = false;
   const _psb = _el('mtPlaySeqBtn'); if (_psb) _psb.disabled = false;
@@ -49842,6 +49849,11 @@ window._mtSeqPlayTrack = function(trackIdx) {
   t.sourceNode.start(0);
   _mtSeqActiveTracks.add(trackIdx);
   _mtSeqTrackStartCtx[trackIdx] = _mtAudioCtx.currentTime;
+  // Splice in mixer analyser so VU meters work for seq-linked playback
+  if (_mixDrawerOpen && typeof _ftEnsureAnalyser === 'function' && t.gainNode) {
+    if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(128);
+    _ftEnsureAnalyser(trackIdx);
+  }
   // Start the shared seq playhead loop if not already running
   if (!_mtSeqHeadRaf) _mtSeqTickHeads();
 };
