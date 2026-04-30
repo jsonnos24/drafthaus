@@ -53408,6 +53408,15 @@ function ftUpdateTimecodes() {
 function ftUpdatePlayheads() {
   var dur = _mtMaxDuration();
   var elapsed = _ftElapsed();
+  /* Clamp playhead to loop region so it visually stays within the selection */
+  if (_mtLoopEnabled && ftLoopRegion && dur > 0) {
+    var loopStartSec = ftLoopRegion.start * dur;
+    var loopEndSec = ftLoopRegion.end * dur;
+    var loopLen = loopEndSec - loopStartSec;
+    if (loopLen > 0 && elapsed >= loopStartSec) {
+      elapsed = loopStartSec + ((elapsed - loopStartSec) % loopLen);
+    }
+  }
   var pct = dur > 0 ? Math.min(100, (elapsed / dur) * 100) : 0;
 
   document.querySelectorAll('[data-ft-waveform-idx]').forEach(function(wf) {
@@ -53720,6 +53729,8 @@ function ftSetupWaveforms() {
     var dragStart = null;
 
     wf.addEventListener('pointerdown', function(e) {
+      /* Skip drag logic when clicking loop-clear or loop-play buttons */
+      if (e.target.closest('.ft-waveform-loop-clear') || e.target.closest('.ft-waveform-loop-play')) return;
       e.preventDefault();
       wf.setPointerCapture(e.pointerId);
       var rect = wf.getBoundingClientRect();
