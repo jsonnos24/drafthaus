@@ -22307,9 +22307,17 @@ var seqSnareGain   = null;
 var seqHatGain     = null;
 var seqPercGain    = null;
 var seqMetroGain   = null; // dedicated metronome gain → seqMasterGain (bypasses chords bus)
+// ── Pan nodes (StereoPanner) for mixer pan control ────────────────
+var seqChordsPan   = null;
+var seqMelodyPan   = null;
+var seqKickPan     = null;
+var seqSnarePan    = null;
+var seqHatPan      = null;
+var seqPercPan     = null;
 
 // ── Mixer analyser nodes (for metering) ──────────────────────────
 var _mixSeqAnalysers = { drums: null, chords: null, melody: null, kick: null, snare: null, hat: null, perc: null, master: null };
+var _mixLoopAnalyser = null;   // analyser for looper master
 var _mixSeqAnalyserBuf = null; // shared Float32Array for RMS reads
 var _mixMicBuf = null;         // separate buffer for mic input VU (larger fftSize)
 var _mixMeterRafId = null;     // RAF handle for meter animation loop
@@ -23051,15 +23059,26 @@ function getSeqAudioCtx() {
     seqChordsGain = seqAudioCtx.createGain();
     seqDrumsGain  = seqAudioCtx.createGain();
     seqMelodyGain = seqAudioCtx.createGain();
-    seqChordsGain.connect(seqMasterGain);
-    seqDrumsGain.connect(seqMasterGain);
-    seqMelodyGain.connect(seqMasterGain);
-    // Drum sub-channel gains → seqDrumsGain
-    seqKickGain  = seqAudioCtx.createGain(); seqKickGain.connect(seqDrumsGain);
-    seqSnareGain = seqAudioCtx.createGain(); seqSnareGain.connect(seqDrumsGain);
-    seqHatGain   = seqAudioCtx.createGain(); seqHatGain.connect(seqDrumsGain);
-    seqPercGain  = seqAudioCtx.createGain(); seqPercGain.connect(seqDrumsGain);
-    _mixLog('AUDIO', 'Drum sub-gains created: kick/snare/hat/perc → seqDrumsGain');
+    // Pan nodes for bus-level channels: gain → pan → master
+    seqChordsPan = seqAudioCtx.createStereoPanner(); seqChordsPan.pan.value = 0;
+    seqMelodyPan = seqAudioCtx.createStereoPanner(); seqMelodyPan.pan.value = 0;
+    seqChordsGain.connect(seqChordsPan); seqChordsPan.connect(seqMasterGain);
+    seqDrumsGain.connect(seqMasterGain);  // drums bus has no pan (sub-channels have their own)
+    seqMelodyGain.connect(seqMelodyPan); seqMelodyPan.connect(seqMasterGain);
+    // Drum sub-channel gains → pan → seqDrumsGain
+    seqKickGain  = seqAudioCtx.createGain();
+    seqSnareGain = seqAudioCtx.createGain();
+    seqHatGain   = seqAudioCtx.createGain();
+    seqPercGain  = seqAudioCtx.createGain();
+    seqKickPan   = seqAudioCtx.createStereoPanner(); seqKickPan.pan.value = 0;
+    seqSnarePan  = seqAudioCtx.createStereoPanner(); seqSnarePan.pan.value = -0.08;
+    seqHatPan    = seqAudioCtx.createStereoPanner(); seqHatPan.pan.value = 0.35;
+    seqPercPan   = seqAudioCtx.createStereoPanner(); seqPercPan.pan.value = -0.30;
+    seqKickGain.connect(seqKickPan);   seqKickPan.connect(seqDrumsGain);
+    seqSnareGain.connect(seqSnarePan); seqSnarePan.connect(seqDrumsGain);
+    seqHatGain.connect(seqHatPan);     seqHatPan.connect(seqDrumsGain);
+    seqPercGain.connect(seqPercPan);   seqPercPan.connect(seqDrumsGain);
+    _mixLog('AUDIO', 'Drum sub-gains + pan nodes created: kick/snare/hat/perc → pan → seqDrumsGain');
     // Dedicated metronome gain → master (bypasses chords bus)
     seqMetroGain = seqAudioCtx.createGain();
     seqMetroGain.gain.value = 0.8; // default metro volume
@@ -23298,6 +23317,21 @@ function seqApplyMixer() {
     seqMetroGain.gain.setTargetAtTime(metMuted ? 0 : metVol, now, 0.015);
   }
 
+  // ── Pan: apply stored pan values to StereoPannerNodes ──
+  [
+    [seqChordsPan, 'chords', 0],
+    [seqMelodyPan, 'melody', 0],
+    [seqKickPan,   'kick',   0],
+    [seqSnarePan,  'snare',  -0.08],
+    [seqHatPan,    'hat',    0.35],
+    [seqPercPan,   'perc',   -0.30],
+  ].forEach(([panNode, ch, defaultPan]) => {
+    if (!panNode) return;
+    const p = mix[ch + 'Pan'] !== undefined ? parseFloat(mix[ch + 'Pan']) : defaultPan;
+    panNode.pan.cancelScheduledValues(now);
+    panNode.pan.setTargetAtTime(p, now, 0.015);
+  });
+
   _mixLog('SOLO', 'seqApplyMixer → busSolo=' + (busSoloChannel||'none') + ' drumSubSolo=' + (drumSubSolo||'none'));
 }
 
@@ -23318,24 +23352,49 @@ function seqMixerChange(channel, type, value) {
   song.sequencer.mixer[channel + type] = value;
   save();
   seqApplyMixer();
-  // Update button visual states
+  // Update button visual states in the new mixer drawer (data-channel-key selectors)
   ['drums','chords','melody','kick','snare','hat','perc','metro'].forEach(c => {
     const mix = song.sequencer.mixer;
-    const soloBtn = document.getElementById('mix-solo-' + c);
-    const muteBtn = document.getElementById('mix-mute-' + c);
+    const strip = document.querySelector('#mixDesk .mix-strip[data-channel-key="' + c + '"]');
     const solod = !!(mix[c + 'Solo']);
     const muted = !!(mix[c + 'Mute']);
-    if (soloBtn) {
-      soloBtn.classList.toggle('active', solod);
-      soloBtn.style.background = solod ? 'var(--gold)' : '';
-      soloBtn.style.color      = solod ? '#0a0a0c'     : '';
-    }
-    if (muteBtn) {
-      muteBtn.classList.toggle('active', muted);
-      muteBtn.style.background = muted ? 'var(--red)' : '';
-      muteBtn.style.color      = muted ? '#fff'        : '';
+    if (strip) {
+      const soloBtn = strip.querySelector('[data-role="solo"]');
+      const muteBtn = strip.querySelector('[data-role="mute"]');
+      if (soloBtn) soloBtn.classList.toggle('on', solod);
+      if (muteBtn) muteBtn.classList.toggle('on', muted);
+      strip.classList.toggle('mix-muted', muted);
+      strip.classList.toggle('mix-soloed', solod);
+      // Update fader if volume changed
+      if (type === 'Vol') {
+        const faderWrap = strip.querySelector('[data-fader]');
+        if (faderWrap) {
+          const lvl = parseFloat(value);
+          const pos = _mixLevelToPos(lvl);
+          const posPct = (pos * 100) + '%';
+          faderWrap.style.setProperty('--fader-pos', posPct);
+          faderWrap.dataset.level = lvl;
+          const cap = faderWrap.querySelector('.mix-fader-cap');
+          if (cap) cap.style.bottom = 'calc(' + posPct + ' - 11px)';
+          const dbEl = strip.querySelector('.mix-fader-db');
+          if (dbEl) {
+            dbEl.textContent = _mixDbLabel(lvl);
+            if (lvl > 0.891) dbEl.classList.add('hot'); else dbEl.classList.remove('hot');
+          }
+        }
+      }
+      // Update pan if pan changed
+      if (type === 'Pan') {
+        const panKnob = strip.querySelector('.mix-pan-knob');
+        const panVal  = strip.querySelector('.mix-pan-val');
+        const p = parseFloat(value);
+        if (panKnob) panKnob.style.setProperty('--pan', (p * 90) + 'deg');
+        if (panVal)  panVal.textContent = _mixPanLabel(p);
+      }
     }
   });
+  // Refresh solo dimming across all strips
+  if (typeof _mixRefreshAllStripStates === 'function') _mixRefreshAllStripStates();
 }
 
 function seqFreq(n) { return 440 * Math.pow(2, (SEQ_NOTES.indexOf(n) - 9) / 12); }
@@ -46503,9 +46562,13 @@ function wireMixerInteractions() {
         e.preventDefault();
         var startX = (e.touches ? e.touches[0].clientX : e.clientX);
         var startPan = parseFloat(faderWrap?.dataset?.pan || '0');
-        // Read current pan from data or _mtTracks
+        // Read current pan from data or _mtTracks / mixer state
         if (source === 'fourtrack' && mtIdx >= 0 && window._mtTracks && window._mtTracks[mtIdx]) {
           startPan = (window._mtTracks[mtIdx].pan || 0) / 100;
+        } else if (key) {
+          var _song0 = getCurrentSong();
+          var _mix0 = _song0?.sequencer?.mixer || {};
+          if (_mix0[key + 'Pan'] !== undefined) startPan = parseFloat(_mix0[key + 'Pan']);
         }
         var onPanMove = function(ev) {
           var x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
@@ -46536,6 +46599,16 @@ function wireMixerInteractions() {
             if (ftPanSliders[mtIdx]) { ftPanSliders[mtIdx].value = p; }
             if (ftPanLabels[mtIdx] && typeof ftUpdatePanLabel === 'function') ftUpdatePanLabel(ftPanLabels[mtIdx], p);
             _mixLog('PAN', 'vox' + mtIdx + ' pan=' + p);
+          } else if (key) {
+            // Instrument / drum sub-channel pan
+            seqMixerChange(key, 'Pan', newPan);
+            // Apply to audio node in real time
+            var _panNodeMap = { chords: seqChordsPan, melody: seqMelodyPan, kick: seqKickPan, snare: seqSnarePan, hat: seqHatPan, perc: seqPercPan };
+            var _pn = _panNodeMap[key];
+            if (_pn && typeof seqAudioCtx !== 'undefined' && seqAudioCtx) {
+              _pn.pan.setTargetAtTime(newPan, seqAudioCtx.currentTime, 0.01);
+            }
+            _mixLog('PAN', key + ' pan=' + newPan.toFixed(2));
           }
         };
         var onPanUp = function() {
@@ -46683,6 +46756,16 @@ function openMixDrawer() {
       if (mt[mi] && mt[mi].gainNode) _ftEnsureAnalyser(mi);
     }
   }
+  // Create looper analyser if loopMasterGain exists
+  if (!_mixLoopAnalyser && typeof loopMasterGain !== 'undefined' && loopMasterGain && typeof loopAudioCtx !== 'undefined' && loopAudioCtx) {
+    _mixLoopAnalyser = loopAudioCtx.createAnalyser();
+    _mixLoopAnalyser.fftSize = 256;
+    _mixLoopAnalyser.smoothingTimeConstant = 0.8;
+    try { loopMasterGain.disconnect(loopAudioCtx.destination); } catch(e) {}
+    loopMasterGain.connect(_mixLoopAnalyser);
+    _mixLoopAnalyser.connect(loopAudioCtx.destination);
+    _mixLog('METER', 'Looper analyser created: loopMasterGain → analyser → destination');
+  }
   _mixStartMeters();
 }
 
@@ -46697,14 +46780,16 @@ function closeMixDrawer() {
 // ── Mixer analyser creation ────────────────────────────────────────
 function _mixCreateSeqAnalysers() {
   if (!seqAudioCtx) return;
+  // Analysers splice into the chain: disconnect src→dest, reconnect src→analyser→dest
+  // For channels with pan nodes, the chain is gain→pan→parent, so we splice between pan→parent
   var pairs = [
-    ['drums',  seqDrumsGain,  seqMasterGain],
-    ['chords', seqChordsGain, seqMasterGain],
-    ['melody', seqMelodyGain, seqMasterGain],
-    ['kick',   seqKickGain,   seqDrumsGain],
-    ['snare',  seqSnareGain,  seqDrumsGain],
-    ['hat',    seqHatGain,    seqDrumsGain],
-    ['perc',   seqPercGain,   seqDrumsGain],
+    ['drums',  seqDrumsGain,  seqMasterGain],       // drums bus has no pan node
+    ['chords', seqChordsPan,  seqMasterGain],        // tap after pan
+    ['melody', seqMelodyPan,  seqMasterGain],        // tap after pan
+    ['kick',   seqKickPan,    seqDrumsGain],          // tap after pan
+    ['snare',  seqSnarePan,   seqDrumsGain],
+    ['hat',    seqHatPan,     seqDrumsGain],
+    ['perc',   seqPercPan,    seqDrumsGain],
     ['master', seqMasterGain, seqAudioCtx.destination],
   ];
   pairs.forEach(function(p) {
@@ -46826,9 +46911,22 @@ function _mixMeterRAF() {
     _mixSetMeterLevel(vStrip, Math.min(1, vRms * 3.5));
   }
 
-  // Loop master — no separate analyser yet, placeholder
+  // Loop master — use looper analyser if available
   var loopStrip = document.querySelector('.mix-strip[data-id="loopmaster"]');
-  if (loopStrip) _mixSetMeterLevel(loopStrip, 0);
+  if (loopStrip) {
+    // Try to create analyser on the fly if looper started after mixer opened
+    if (!_mixLoopAnalyser && typeof loopMasterGain !== 'undefined' && loopMasterGain && typeof loopAudioCtx !== 'undefined' && loopAudioCtx) {
+      _mixLoopAnalyser = loopAudioCtx.createAnalyser();
+      _mixLoopAnalyser.fftSize = 256;
+      _mixLoopAnalyser.smoothingTimeConstant = 0.8;
+      try { loopMasterGain.disconnect(loopAudioCtx.destination); } catch(e) {}
+      loopMasterGain.connect(_mixLoopAnalyser);
+      _mixLoopAnalyser.connect(loopAudioCtx.destination);
+      _mixLog('METER', 'Looper analyser created (lazy) in meter RAF');
+    }
+    var loopRms = _mixLoopAnalyser ? _mixMeterRMS(_mixLoopAnalyser) : 0;
+    _mixSetMeterLevel(loopStrip, Math.min(1, loopRms * 3.5));
+  }
 
   _mixMeterRafId = requestAnimationFrame(_mixMeterRAF);
 }
