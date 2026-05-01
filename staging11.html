@@ -2805,6 +2805,34 @@ button, select, input, textarea { touch-action: manipulation; }
     box-shadow: 0 0 4px color-mix(in srgb, var(--ucb-link-color, transparent) 40%, transparent);
     transition: border-color 0.25s, box-shadow 0.25s;
   }
+  /* ── Sequence strip Play/Stop button ── */
+  .seq-strip-play-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 52px; height: 32px;
+    padding: 0 10px; border-radius: 6px;
+    border: 1.5px solid #97C459;
+    background: rgba(151,196,89,0.12);
+    color: #97C459;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px; font-weight: 700;
+    cursor: pointer; white-space: nowrap;
+    flex-shrink: 0;
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+    letter-spacing: 0.04em;
+  }
+  .seq-strip-play-btn:hover { background: rgba(151,196,89,0.22); }
+  .seq-strip-play-btn.seq-strip-playing {
+    border-color: #e24b4a;
+    background: rgba(226,75,74,0.15);
+    color: #e24b4a;
+    animation: seqStripPlayPulse var(--beat-dur, 0.5s) ease-in-out infinite;
+  }
+  @keyframes seqStripPlayPulse {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(226,75,74,0.2), 0 0 6px rgba(226,75,74,0.1); }
+    15% { box-shadow: 0 0 0 2px rgba(226,75,74,0.5), 0 0 14px rgba(226,75,74,0.3); }
+    50% { box-shadow: 0 0 0 1px rgba(226,75,74,0.2), 0 0 6px rgba(226,75,74,0.1); }
+  }
+
   /* Seq-link label shown in strip when link mode is active */
   .seq-link-hint { font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--faint); letter-spacing:0.08em; padding:0 6px; flex-shrink:0; animation:seqLinkPulse 1.2s ease-in-out infinite; }
   .seq-tab.seq-tab-dragging { opacity: 1; cursor: grabbing; }
@@ -14829,6 +14857,34 @@ setTimeout(function() {
     </button>
     </div>
     <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start;">
+      <div class="header-status-wrap" id="headerStatusWrap">
+        <button class="header-status-btn" id="headerStatusBtn" onclick="toggleHeaderDropdown()">
+          <div class="sync-dot" id="syncDot"></div>
+          <span id="syncLabel">—</span>
+          <span class="chevron">▾</span>
+        </button>
+        <div class="header-dropdown" id="headerDropdown">
+          <div class="header-dropdown-status">
+            <div class="sync-dot" id="syncDot2" style="width:6px;height:6px;"></div>
+            <span id="syncLabel2" style="font-size:10px;">—</span>
+            <span class="header-dropdown-autosave">Auto-Save On</span>
+          </div>
+          <button class="header-dropdown-item" onclick="resyncAllSongs();closeHeaderDropdown()">↑ Re-sync All</button>
+          <button class="header-dropdown-item danger" onclick="vrEmptyAllTrashesConfirm();closeHeaderDropdown()">🗑 Empty All Trashes</button>
+          <div class="header-dropdown-sep"></div>
+          <!-- Storage: mobile only (hidden on desktop via CSS) -->
+          <button class="header-dropdown-item hla-storage-mobile" onclick="openStorageModal();closeHeaderDropdown()">🗄 Storage</button>
+          <div class="header-dropdown-sep hla-storage-mobile"></div>
+          <div style="padding:6px 12px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:0.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="headerUserEmail"></div>
+          <button class="header-dropdown-item" id="headerUpgradeGuestBtn" style="display:none;color:var(--gold);font-weight:700;" onclick="openGuestUpgradeModal();closeHeaderDropdown()">★ Create Account</button>
+          <button class="header-dropdown-item" onclick="showUpgradeModal('');closeHeaderDropdown()">$ Pricing</button>
+          <button class="header-dropdown-item" onclick="openAbout();closeHeaderDropdown()">ℹ About Drafthaus</button>
+          <button class="header-dropdown-item" onclick="showEulaModal();closeHeaderDropdown()">📄 Terms of Use</button>
+          <button class="header-dropdown-item" onclick="showPrivacyModal();closeHeaderDropdown()">🔒 Privacy Policy</button>
+          <button class="header-dropdown-item danger" onclick="auth.signOut().then(()=>{ window.location.href='index.html'; })" id="headerSignOutBtn">Sign Out</button>
+        </div>
+      </div>
+      <a class="header-report-bug" href="mailto:hellojasoncraig@gmail.com?subject=Drafthaus%20Bug%20Report">Report a Bug</a>
     </div>
   </div>
 
@@ -15915,6 +15971,7 @@ function _updateDraftingHeader() {
 
 function showList() {
   if (typeof _slHoverLeave === 'function') _slHoverLeave();
+  try { localStorage.setItem('drafthaus-last-view', 'list'); } catch(e) {}
   ilSetPerfMode(false); // exit perf mode — metro bar should never show on the song list
   // Close split mode — song list is always full-width
   if (typeof _splitActive !== 'undefined' && _splitActive && typeof closeSplitMode === 'function') closeSplitMode();
@@ -17191,6 +17248,7 @@ function _warmUpAllAudioContexts() {
   try {
     if (typeof loopAudioCtx !== 'undefined' && !loopAudioCtx) {
       loopAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (typeof _vrApplySinkToCtx === 'function') _vrApplySinkToCtx(loopAudioCtx);
     }
     if (typeof loopAudioCtx !== 'undefined' && loopAudioCtx) {
       if (loopAudioCtx.state === 'suspended') loopAudioCtx.resume().catch(function(){});
@@ -17221,6 +17279,7 @@ function openSong(id) {
   if (document.getElementById('noSongModal')?.style.display !== 'none') closeNoSongModal();
   currentId = id;
   localStorage.setItem('drafthaus-last-song', id);
+  try { localStorage.setItem('drafthaus-last-view', 'detail'); } catch(e) {}
   // Persist last opened song to Firestore so it restores across devices/sessions
   const uid = auth.currentUser?.uid;
   if (uid) db.collection('users').doc(uid).update({ lastSongId: id }).catch(() => {});
@@ -19431,6 +19490,7 @@ function _seqTriggerLoopsForPart(partId) {
   if (!loopAudioCtx) {
     try {
       loopAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (typeof _vrApplySinkToCtx === 'function') _vrApplySinkToCtx(loopAudioCtx);
       loopMasterGain = loopAudioCtx.createGain();
       loopMasterGain.gain.value = 1.0;
       loopMasterGain.connect(loopAudioCtx.destination);
@@ -20124,6 +20184,7 @@ function headerSelectAudioIn(deviceId) {
 function headerSelectAudioOut(deviceId) {
   _vrOutputDeviceId = deviceId;
   localStorage.setItem('vr_output_device', deviceId);
+  if (typeof _vrApplyOutputToAllContexts === 'function') _vrApplyOutputToAllContexts();
   if (typeof _vrUpdateDeviceLabels === 'function') _vrUpdateDeviceLabels();
   if (typeof _vrCheckFeedbackWarning === 'function') _vrCheckFeedbackWarning();
 }
@@ -20356,6 +20417,8 @@ function getSeqAudioCtx() {
     // Create analyser nodes for mixer metering — spliced after each gain
     _mixCreateSeqAnalysers();
     setTimeout(seqApplyMixer, 0);
+    // Route to selected output device (audio interface)
+    if (typeof _vrApplySinkToCtx === 'function') _vrApplySinkToCtx(seqAudioCtx);
   }
   // Do NOT call resume() here — this function is called during sample loading
   // at startup (no user gesture), which causes Chrome to log autoplay warnings.
@@ -21330,7 +21393,12 @@ function seqRenderSequenceTabs() {
     : '';
 
   const _stripHint = seqs.length < 3 ? '<span class="seq-strip-hint">Tap part · double-tap to manage</span>' : '';
+  const _stripIsPlaying = (typeof _seqStripPlaying !== 'undefined' && _seqStripPlaying && seqIsPlaying);
+  const _stripPlayClass = _stripIsPlaying ? ' seq-strip-playing' : '';
+  const _stripPlayLabel = _stripIsPlaying ? '■ Stop' : '▶ Play';
+  const _stripPlayTitle = _stripIsPlaying ? 'Stop full sequence playback' : 'Play everything — all sections in order, looping';
   strip.innerHTML = `
+    <button class="seq-strip-play-btn${_stripPlayClass}" id="seqStripPlayBtn" onclick="seqStripPlayToggle()" title="${_stripPlayTitle}">${_stripPlayLabel}</button>
     ${tabsHtml}
     ${linkHint}
     <button class="seq-tab-add seq-tab-dup-btn" onclick="seqDuplicateActive()" title="Duplicate current sequence">⧉<span class="seq-tab-dup-label">Dup</span></button>
@@ -21384,6 +21452,29 @@ function seqRenderSequenceTabs() {
       strip.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
     }
   }
+}
+
+// ── Sequence strip Play/Stop toggle ─────────────────────────────────────────
+// Plays everything (seq + 4-track + loops) for the ENTIRE sequence in order, looping
+var _seqStripPlaying = false;
+function seqStripPlayToggle() {
+  if (seqIsPlaying) {
+    sharedStop();
+    return;
+  }
+  _seqStripPlaying = true;
+  // Use sharedPlaySong which plays all sections in order and loops
+  if (typeof sharedPlaySong === 'function') sharedPlaySong();
+  _seqStripSyncPlayBtn();
+}
+// Sync the strip play button state (called from sharedStop and seqRenderSequenceTabs)
+function _seqStripSyncPlayBtn() {
+  var btn = document.getElementById('seqStripPlayBtn');
+  if (!btn) return;
+  var isPlaying = _seqStripPlaying && seqIsPlaying;
+  btn.classList.toggle('seq-strip-playing', isPlaying);
+  btn.textContent = isPlaying ? '■ Stop' : '▶ Play';
+  btn.title = isPlaying ? 'Stop full sequence playback' : 'Play everything — all sections in order, looping';
 }
 
 // ── Sync UCB dropdown borders to active pill color ─────────────────────────
@@ -25393,8 +25484,34 @@ function ucStop() {
   // Stop the timecode clock
   if (typeof htStopClock === 'function') { try { htStopClock(); } catch(e) {} }
 }
-// UCB Everything — plays all tracks + sequencer together
-function ucEverything() { if (typeof sharedPlaySong === 'function') sharedPlaySong(); }
+// UCB Everything — plays everything together for the SELECTED sequence on loop
+function ucEverything() {
+  if (seqIsPlaying) { sharedStop(); return; }
+  // Play sequencer (selected sequence loop) + 4-track + loops all together
+  seqPlay();
+  // Also trigger 4-track playback
+  const _mt4tHasContent = typeof _mtTracks !== 'undefined' && _mtTracks.some(function(t){ return t && t.buffer; });
+  if (_mt4tHasContent && typeof mtPlay === 'function') {
+    try {
+      const _4tLinks = _seqLinksLoad('4t');
+      const hasLinks = Object.values(_4tLinks).some(function(arr) { return arr && arr.length > 0; });
+      if (!hasLinks) mtPlay();
+    } catch(e) { mtPlay(); }
+  }
+  // Also unmute/start looper tracks
+  if (typeof loopTracks !== 'undefined') {
+    loopTracks.forEach(function(t, i) {
+      if (t && t.state === 'muted' && t.buffer) loopUnmuteTrack(i);
+    });
+    // Trigger loops for the active section's part
+    const song = getCurrentSong();
+    if (song) {
+      const seqs = getSongSequences(song);
+      const seq = seqs[seqActiveIdx];
+      if (seq) _seqTriggerLoopsForPart(seq.partId || seq.part || null);
+    }
+  }
+}
 
 // UCB I/O panel toggle
 var _ucIoPanelOpen = false;
@@ -25503,14 +25620,28 @@ function sharedPlay() {
     if (typeof mtPlay === 'function') mtPlay();
     return;
   }
-  // Keys or Drums drawer (or spacebar with no specific drawer):
-  // Play the sequencer loop (drums + chords + melody) — NO 4-track, NO loops
+
+  // Check if ANY drawer is open
+  const drumsOpen = document.body.classList.contains('seq-drawer-open');
+  const keysOpen  = document.body.classList.contains('keyboard-drawer-open');
+
+  if (!drumsOpen && !keysOpen) {
+    // No drawer open (performance/rehearse mode): play 4-track only
+    const _mt4tHasContent = typeof _mtTracks !== 'undefined' && _mtTracks.some(function(t){ return t && t.buffer; });
+    if (_mt4tHasContent && typeof mtPlay === 'function') mtPlay();
+    return;
+  }
+
+  // Keys or Drums drawer open:
+  // Play the sequencer loop (drums + chords + melody) for selected sequence — NO 4-track, NO loops
   seqPlay();
 }
 
 // Full song play — SEQ full-song mode; also coordinates 4-track if visible
 async function sharedPlaySong() {
   if (seqIsPlaying) { sharedStop(); return; }
+  // Mark strip play button as active (so it shows Stop and can be used to stop)
+  if (typeof _seqStripPlaying !== 'undefined') _seqStripPlaying = true;
   // Enable 4-track stop buttons so user can stop the sequence
   ['mtStopBtn','mtStopBtnM'].forEach(function(id) {
     var el = document.getElementById(id);
@@ -25574,6 +25705,9 @@ function sharedStop() {
     var el = document.getElementById(id);
     if (el) el.disabled = true;
   });
+  // Reset sequence strip play button
+  if (typeof _seqStripPlaying !== 'undefined') _seqStripPlaying = false;
+  if (typeof _seqStripSyncPlayBtn === 'function') _seqStripSyncPlayBtn();
 }
 
 // ── Header Transport Timecode ─────────────────────────────────────
@@ -29992,6 +30126,7 @@ function rtMetroClick(beat, t) {
 function rtForkStart() {
   try {
     rtForkCtx  = new (window.AudioContext || window.webkitAudioContext)();
+    if (typeof _vrApplySinkToCtx === 'function') _vrApplySinkToCtx(rtForkCtx);
     rtForkOsc  = rtForkCtx.createOscillator();
     rtForkGain = rtForkCtx.createGain();
     rtForkOsc.connect(rtForkGain); rtForkGain.connect(rtForkCtx.destination);
@@ -30212,10 +30347,11 @@ async function loadSongsFromSheet() {
     renderGrid();
     setSyncStatus('saved', 'Loaded ✓');
 
-    // v4: Always land on the song list — don't auto-restore last song.
-    // Auto-load the most recent song into memory but stay on the song list view
+    // Restore last session state: if user was viewing a song, reopen it; otherwise stay on song list
+    let _restoredToDetail = false;
     if (!currentId) {
       const lastId = _lastSongIdFromFirestore || localStorage.getItem('drafthaus-last-song');
+      const lastView = localStorage.getItem('drafthaus-last-view') || 'list';
       const uid    = auth.currentUser?.uid;
       let restoreSong = lastId ? songs.find(s => s.id === lastId) : null;
       if (!restoreSong && songs.length > 0) {
@@ -30224,46 +30360,53 @@ async function loadSongsFromSheet() {
         restoreSong = [...pool].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
       }
       if (restoreSong) {
-        // Load song data into memory but do NOT switch to the editor view
-        currentId = restoreSong.id;
-        localStorage.setItem('drafthaus-last-song', restoreSong.id);
-        // Silently populate song fields so lyrics/4-track/drawers are ready
-        populateSongFields(restoreSong);
-        setSongViewMode('runthrough');
-        if (typeof ilInitAndRender === 'function') ilInitAndRender(restoreSong);
-        // Set up split mode silently on desktop so 4-track is ready
-        if (window.innerWidth >= 900) {
-          if (!_splitActive) {
-            _splitActive = true;
-            document.body.classList.add('split-active');
-            var _sb = document.getElementById('splitBtn');
-            if (_sb) _sb.classList.add('active');
-          }
-          if (typeof setSplitRightTool === 'function') setSplitRightTool('4track');
-        }
-        // Preload 4-track takes and loops in background
-        if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
-        setTimeout(function() {
-          if (typeof mtPreloadForSong === 'function') mtPreloadForSong(restoreSong.id);
-          if (typeof loopPreloadForSong === 'function') loopPreloadForSong(restoreSong.id);
-        }, 100);
-        // If stub, fetch full song data
-        if (restoreSong._fromSheet) {
-          fetchFullSongFromSheet(restoreSong.id).then(function(full) {
-            if (full && currentId === restoreSong.id) {
-              populateSongFields(full);
-              if (typeof ilInitAndRender === 'function') ilInitAndRender(full);
+        if (lastView === 'detail' && lastId && songs.find(s => s.id === lastId)) {
+          // Restore directly into the song editor — full openSong flow
+          openSong(restoreSong.id);
+          _restoredToDetail = true;
+        } else {
+          // Load song data into memory but stay on the song list view
+          currentId = restoreSong.id;
+          localStorage.setItem('drafthaus-last-song', restoreSong.id);
+          // Silently populate song fields so lyrics/4-track/drawers are ready
+          populateSongFields(restoreSong);
+          setSongViewMode('runthrough');
+          if (typeof ilInitAndRender === 'function') ilInitAndRender(restoreSong);
+          // Set up split mode silently on desktop so 4-track is ready
+          if (window.innerWidth >= 900) {
+            if (!_splitActive) {
+              _splitActive = true;
+              document.body.classList.add('split-active');
+              var _sb = document.getElementById('splitBtn');
+              if (_sb) _sb.classList.add('active');
             }
-          });
+            if (typeof setSplitRightTool === 'function') setSplitRightTool('4track');
+          }
+          // Preload 4-track takes and loops in background
+          if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+          setTimeout(function() {
+            if (typeof mtPreloadForSong === 'function') mtPreloadForSong(restoreSong.id);
+            if (typeof loopPreloadForSong === 'function') loopPreloadForSong(restoreSong.id);
+          }, 100);
+          // If stub, fetch full song data
+          if (restoreSong._fromSheet) {
+            fetchFullSongFromSheet(restoreSong.id).then(function(full) {
+              if (full && currentId === restoreSong.id) {
+                populateSongFields(full);
+                if (typeof ilInitAndRender === 'function') ilInitAndRender(full);
+              }
+            });
+          }
         }
-        // Stay on song list — don't call showDetail()
       }
     }
 
-    // Show welcome prompt for returning users
-    if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
-    // Mark song list as active to hide seq strip + reclaim vertical space
-    document.body.classList.add('songlist-active');
+    if (!_restoredToDetail) {
+      // Show welcome prompt for returning users on song list
+      if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
+      // Mark song list as active to hide seq strip + reclaim vertical space
+      document.body.classList.add('songlist-active');
+    }
 
   } catch(e) {
     stopFunnyMessages();
@@ -44040,7 +44183,7 @@ document.addEventListener('keydown', function(e) {
 'use strict';
 
 // ── Constants ──────────────────────────────────────────────────
-const VR_MAX_DURATION  = 5 * 60; // 5 minutes per track
+/* VR_MAX_DURATION removed – per-take cap disabled; tier quota is the only limit */
 function getVrQuotaSeconds() { return getTierLimits().recordingMinutes * 60; }
 const VR_TRASH_TTL     = 6 * 24 * 60 * 60 * 1000;
 const MT_COLORS = ['#ff6b9d','#6bc5ff','#a5ff6b','#ffb86b'];
@@ -44055,6 +44198,20 @@ let _vrInputDeviceId   = localStorage.getItem('vr_input_device')  || '';
 let _vrOutputDeviceId  = localStorage.getItem('vr_output_device') || '';
 let _vrEchoCancellation = localStorage.getItem('vr_ec') === null ? true : localStorage.getItem('vr_ec') === 'true';
 let _vrDevices         = { inputs: [], outputs: [] };
+
+// ── Route ALL AudioContexts to the selected output device ──
+// AudioContext.setSinkId() is supported in Chrome 110+, Edge 110+, Opera 96+.
+// Silently no-ops on browsers that don't support it.
+function _vrApplySinkToCtx(ctx) {
+  if (!ctx || !ctx.setSinkId || !_vrOutputDeviceId) return;
+  ctx.setSinkId(_vrOutputDeviceId).catch(function(){});
+}
+function _vrApplyOutputToAllContexts() {
+  if (typeof seqAudioCtx  !== 'undefined' && seqAudioCtx)  _vrApplySinkToCtx(seqAudioCtx);
+  if (typeof loopAudioCtx !== 'undefined' && loopAudioCtx) _vrApplySinkToCtx(loopAudioCtx);
+  if (typeof _mtAudioCtx  !== 'undefined' && _mtAudioCtx)  _vrApplySinkToCtx(_mtAudioCtx);
+  if (typeof rtForkCtx    !== 'undefined' && rtForkCtx)     _vrApplySinkToCtx(rtForkCtx);
+}
 
 // ── Input gain — pre-recording amplifier (fixes weak/quiet mic signals) ──
 // Stored as a linear multiplier (2.5 ≈ +8dB, 4.0 ≈ +12dB, 8.0 ≈ +18dB)
@@ -45245,7 +45402,10 @@ window.vrProgressSeek = window.mtProgressSeek;
 // ── Ensure AudioContext exists (sync, no resume) ───────────────
 // Safe to call anywhere — decodeAudioData works without the ctx running
 function _mtCreateCtxSync() {
-  if (!_mtAudioCtx) _mtAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (!_mtAudioCtx) {
+    _mtAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (typeof _vrApplySinkToCtx === 'function') _vrApplySinkToCtx(_mtAudioCtx);
+  }
   if (!_mtMasterGain) {
     _mtMasterGain = _mtAudioCtx.createGain();
     _mtMasterGain.gain.value = 1.0;
@@ -46789,7 +46949,7 @@ window.vrToggleRec = async function() {
     _mtRecTimer = setInterval(() => {
       const sec = (Date.now() - _mtRecStartMs) / 1000;
       const mt = _el('vrMiniTime'); if (mt) mt.textContent = _fmtDur(sec);
-      if (sec >= VR_MAX_DURATION) _mtStopRecording();
+      /* per-take cap removed – recording limited only by tier quota */
     }, 250);
 
     // Animate progress during recording
@@ -48169,7 +48329,7 @@ window.vrToggleDevicePicker = function(type, btnId) {
 
 window.vrSelectDevice = function(type, deviceId) {
   if (type==='input') { _vrInputDeviceId=deviceId; localStorage.setItem('vr_input_device',deviceId); }
-  else { _vrOutputDeviceId=deviceId; localStorage.setItem('vr_output_device',deviceId); }
+  else { _vrOutputDeviceId=deviceId; localStorage.setItem('vr_output_device',deviceId); _vrApplyOutputToAllContexts(); }
   _el('vrDeviceDrop').style.display='none';
   _vrUpdateDeviceLabels(); _vrCheckFeedbackWarning();
   // Keep header selects in sync
