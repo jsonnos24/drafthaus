@@ -54030,64 +54030,91 @@ function _ftDetachAnalysers() {
   _ftAnalysers = [null, null, null, null];
 }
 
-var _ftVuDebugCount = 0; /* one-shot debug counter */
+/* Smooth VU ballistics — fast attack, slow decay */
+var _ftVuSmooth = [0,0,0,0];
+var _ftInputBuf = null;
+
 function ftAnimateVU() {
   try {
     var isArmed = (_mtArmedTrack >= 0);
-    var doDebug = (_ftVuDebugCount < 10 && (_mtIsPlaying || _vrRecording || isArmed));
+    var playing = _mtIsPlaying || _vrRecording;
 
     for (var idx = 0; idx < 4; idx++) {
       var t = _mtTracks[idx];
-      if (!t) { ftUpdateMiniVU(idx, 0, 0); continue; }
+      if (!t) { _ftSetVU(idx, 0, 0); continue; }
 
-      /* ── Armed track: use mic input analyser (_vuAnalyser) for live VU ── */
+      /* ── Armed track: live mic VU via _vuAnalyser ── */
       if (isArmed && idx === _mtArmedTrack && _vuAnalyser && _vuActive) {
         if (!_ftInputBuf || _ftInputBuf.length < _vuAnalyser.fftSize) {
           _ftInputBuf = new Float32Array(_vuAnalyser.fftSize);
         }
         _vuAnalyser.getFloatTimeDomainData(_ftInputBuf);
-        var sumSqI = 0;
-        for (var si = 0; si < _ftInputBuf.length; si++) {
-          sumSqI += _ftInputBuf[si] * _ftInputBuf[si];
-        }
-        var rmsI = Math.sqrt(sumSqI / _ftInputBuf.length);
-        var lvlI = Math.min(1, rmsI * 3.5);
-        var lvlIL = Math.min(1, lvlI * (0.95 + Math.random() * 0.1));
-        var lvlIR = Math.min(1, lvlI * (0.95 + Math.random() * 0.1));
-        if (doDebug) console.log('[FT-VU] armed idx=' + idx + ' rms=' + rmsI.toFixed(4) + ' lvl=' + lvlI.toFixed(3));
-        _ftVuLevels[idx].l = lvlIL; _ftVuLevels[idx].r = lvlIR;
-        ftUpdateMiniVU(idx, lvlIL, lvlIR);
+        var sumI = 0;
+        for (var si = 0; si < _ftInputBuf.length; si++) sumI += _ftInputBuf[si] * _ftInputBuf[si];
+        var rmsI = Math.sqrt(sumI / _ftInputBuf.length);
+        var lvlI = _ftBallistic(idx, Math.min(1, rmsI * 3.5));
+        _ftSetVU(idx, lvlI * (0.95 + Math.random() * 0.1), lvlI * (0.95 + Math.random() * 0.1));
         continue;
       }
 
-      /* ── Playback / recording: use per-track analyser spliced on gainNode ── */
-      var an = _ftEnsureAnalyser(idx);
-      if (an && (_mtIsPlaying || _vrRecording) && _ftAnalyserBuf) {
-        an.getFloatTimeDomainData(_ftAnalyserBuf);
-        var sumSq = 0;
-        for (var s = 0; s < _ftAnalyserBuf.length; s++) {
-          sumSq += _ftAnalyserBuf[s] * _ftAnalyserBuf[s];
+      /* ── Playback: read RMS directly from decoded AudioBuffer at playhead ── */
+      if (playing && t.buffer && _mtAudioCtx) {
+        var elapsed = _mtAudioCtx.currentTime - _mtPlayStartCtx + (_mtPlayStartOffset || 0);
+        var buf = t.buffer;
+        var sr = buf.sampleRate;
+        var startSample = Math.floor(elapsed * sr);
+        if (startSample < 0 || startSample >= buf.length) { _ftSetVU(idx, 0, 0); continue; }
+
+        /* Read a ~256-sample window from each channel at the playhead */
+        var windowLen = Math.min(256, buf.length - startSample);
+        var ch0 = buf.getChannelData(0);
+        var ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : ch0;
+        var sumL = 0, sumR = 0;
+        for (var s = startSample; s < startSample + windowLen; s++) {
+          sumL += ch0[s] * ch0[s];
+          sumR += ch1[s] * ch1[s];
         }
-        var rms = Math.sqrt(sumSq / _ftAnalyserBuf.length);
-        var level = Math.min(1, rms * 3.5);
-        var levelL = Math.min(1, level * (0.95 + Math.random() * 0.1));
-        var levelR = Math.min(1, level * (0.95 + Math.random() * 0.1));
-        if (t.muted) { levelL = 0; levelR = 0; }
-        if (doDebug) console.log('[FT-VU] play idx=' + idx + ' rms=' + rms.toFixed(4) + ' lvl=' + level.toFixed(3) + ' an=' + !!an + ' buf=' + _ftAnalyserBuf.length);
-        _ftVuLevels[idx].l = levelL; _ftVuLevels[idx].r = levelR;
-        ftUpdateMiniVU(idx, levelL, levelR);
+        var rmsL = Math.sqrt(sumL / windowLen);
+        var rmsR = Math.sqrt(sumR / windowLen);
+
+        /* Apply track volume */
+        var vol = (t.volume !== undefined ? t.volume : 85) / 100;
+        var rawL = Math.min(1, rmsL * vol * 3.5);
+        var rawR = Math.min(1, rmsR * vol * 3.5);
+        if (t.muted) { rawL = 0; rawR = 0; }
+
+        /* Ballistic smoothing (fast attack, slow decay) */
+        var peak = Math.max(rawL, rawR);
+        var smoothed = _ftBallistic(idx, peak);
+        var scaleL = peak > 0.001 ? (rawL / peak) : 1;
+        var scaleR = peak > 0.001 ? (rawR / peak) : 1;
+        _ftSetVU(idx, smoothed * scaleL, smoothed * scaleR);
       } else {
-        if (doDebug && (_mtIsPlaying || _vrRecording)) console.log('[FT-VU] SKIP idx=' + idx + ' an=' + !!an + ' playing=' + _mtIsPlaying + ' rec=' + !!_vrRecording + ' buf=' + !!_ftAnalyserBuf + ' gainNode=' + !!(t && t.gainNode));
-        _ftVuLevels[idx].l = 0; _ftVuLevels[idx].r = 0;
-        ftUpdateMiniVU(idx, 0, 0);
+        _ftBallistic(idx, 0); /* decay to zero */
+        _ftSetVU(idx, _ftVuSmooth[idx], _ftVuSmooth[idx]);
       }
     }
-    if (doDebug) _ftVuDebugCount++;
   } catch(e) {
     console.error('[FT-VU] ftAnimateVU error:', e);
   }
 }
-var _ftInputBuf = null; /* shared buffer for mic input VU */
+
+/* Ballistic: fast attack (instant), slow decay */
+function _ftBallistic(idx, raw) {
+  if (raw > _ftVuSmooth[idx]) { _ftVuSmooth[idx] = raw; }
+  else { _ftVuSmooth[idx] = _ftVuSmooth[idx] * 0.85 + raw * 0.15; }
+  if (_ftVuSmooth[idx] < 0.005) _ftVuSmooth[idx] = 0;
+  return _ftVuSmooth[idx];
+}
+
+/* Write to shared levels + update both mini and inline VU */
+function _ftSetVU(idx, levelL, levelR) {
+  var lL = Math.min(1, Math.max(0, levelL));
+  var lR = Math.min(1, Math.max(0, levelR));
+  _ftVuLevels[idx].l = lL;
+  _ftVuLevels[idx].r = lR;
+  ftUpdateMiniVU(idx, lL, lR);
+}
 
 /* Debug: call ftTestVU() in console to verify VU DOM elements render */
 window.ftTestVU = function() {
