@@ -4098,8 +4098,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .mix-row-label{display:flex;align-items:center;gap:10px;margin-bottom:4px}
   .mix-row-pill{font:700 8px/1 'IBM Plex Mono',monospace;letter-spacing:0.1em;color:var(--row-accent);padding:2px 5px;background:rgba(255,255,255,.04);border-radius:3px}
   .mix-row-name{font:600 9px/1 'IBM Plex Mono',monospace;letter-spacing:0.22em;color:var(--text)}
-  .mix-row-strips{display:flex;flex-wrap:nowrap;gap:8px;justify-content:center;overflow-x:auto}
-  .mix-row-strips > .mix-strip{flex:1 1 0;min-width:90px;max-width:170px}
+  .mix-row-strips{display:grid;grid-template-columns:repeat(4,minmax(0,170px));gap:8px;justify-content:center}
 
   /* Per-row accent colors */
   .mix-row[data-row="1"]{--row-accent:#6BC5FF}
@@ -42147,22 +42146,15 @@ function _mixRenderStripHtml(c) {
   // Inline --ch CSS variable for accent color
   var chStyle = ' style="--ch:' + c.color + '"';
 
-  // Channel number badge
-  var chNumHtml = '';
-  if (c.chNum) {
-    var chNumClass = c.chNum === 'Master' ? 'mix-ch-num mix-ch-master' : 'mix-ch-num';
-    chNumHtml = '<span class="' + chNumClass + '">' + c.chNum + '</span>';
-  }
-
   // Name: contenteditable for Vox strips
   var nameHtml;
   if (c.editableName) {
-    nameHtml = chNumHtml + '<span class="mix-chan-name" contenteditable="true"'
+    nameHtml = '<span class="mix-chan-name" contenteditable="true"'
       + ' onblur="mtSaveLabel(' + c.mtIndex + ', this)"'
       + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}"'
       + '>' + c.name + '</span>';
   } else {
-    nameHtml = chNumHtml + '<span class="mix-chan-name">' + c.name + '</span>';
+    nameHtml = '<span class="mix-chan-name">' + c.name + '</span>';
   }
 
   // dB readout in header
@@ -42242,18 +42234,26 @@ function renderMixDrawerHtml() {
   var mainChannels = built.mainChannels;
   var drumChildren = built.drumChildren;
   var songName = song?.name || song?.title || 'Untitled';
-  var isMobile = window.innerWidth <= 768;
 
-  // Mobile: reversed priority (Master first, then Metro, T4-T1, Looper, Keys, Chords, Drums)
-  var ordered = isMobile ? mainChannels.slice().reverse() : mainChannels;
+  // Split mainChannels into 4 rows matching staging11 grouping
+  // mainChannels order: Drums(0), Chords(1), Keys(2), Looper(3), T1(4), T2(5), T3(6), T4(7), Metro(8), Master(9)
+  var rows = [
+    { num: '01', name: 'INSTRUMENTS', dataRow: '2', channels: mainChannels.slice(0, 4) },   // Drums, Chords, Keys, Looper
+    { num: '02', name: '4-TRACK',     dataRow: '1', channels: mainChannels.slice(4, 8) },   // T1–T4
+    { num: '03', name: 'MASTERS',     dataRow: '3', channels: mainChannels.slice(8, 10) },  // Metro, Master
+  ];
 
-  // Build strips HTML
-  var stripsHtml = '';
-  ordered.forEach(function(c) {
-    stripsHtml += _mixRenderStripHtml(c);
+  var rowsHtml = '';
+  rows.forEach(function(row) {
+    var stripsHtml = '';
+    row.channels.forEach(function(c) { stripsHtml += _mixRenderStripHtml(c); });
+    rowsHtml += '<div class="mix-row" data-row="' + row.dataRow + '">'
+      + '<div class="mix-row-label"><span class="mix-row-pill">' + row.num + '</span><span class="mix-row-name">' + row.name + '</span></div>'
+      + '<div class="mix-row-strips" id="mixRow' + row.dataRow + '">' + stripsHtml + '</div>'
+      + '</div>';
   });
 
-  // Build drum sub-channels overlay (separate from main strip row)
+  // Build drum sub-channels overlay (separate from main strip rows)
   var drumSubHtml = '';
   drumChildren.forEach(function(dc) { drumSubHtml += _mixRenderStripHtml(dc); });
   var overlayOpen = _mixDrumCollapsed ? '' : ' open';
@@ -42262,10 +42262,6 @@ function renderMixDrawerHtml() {
     + '<div class="mix-drum-overlay-title">Drum Sub-Channels</div>'
     + '<button class="mix-drum-overlay-close" onclick="mixToggleDrumAccordion()" title="Close">&times;</button>'
     + '<div class="mix-drum-overlay-strips">' + drumSubHtml + '</div>'
-    + '</div>';
-
-  var rowsHtml = '<div class="mix-row" data-row="all">'
-    + '<div class="mix-row-strips" id="mixRowAll">' + stripsHtml + '</div>'
     + '</div>';
 
   return '<div class="mix-header-rail">'
