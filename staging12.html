@@ -16068,6 +16068,13 @@ function showList() {
   renderGrid();
   // Hide seq strip + split header on song list — reclaim vertical space
   document.body.classList.add('songlist-active');
+  // Persist "on song list" to Firestore
+  var uid = auth.currentUser?.uid;
+  if (uid) {
+    db.collection('users').doc(uid).update({
+      lastState: { lastSongId: currentId || null, lastView: 'list', timestamp: Date.now() }
+    }).catch(function() {});
+  }
 }
 
 function showDetail() {
@@ -17477,16 +17484,18 @@ function openSong(id) {
     if (typeof loadAcoustic2Samples === 'function') loadAcoustic2Samples();
   }, 0);
 
-  // Default view on song open
-  setTimeout(function() {
-    if (window.innerWidth < 768) {
-      // Mobile: open keyboard drawer
-      if (typeof openKeyboardDrawer === 'function') openKeyboardDrawer();
-    } else {
-      // Desktop: open keyboard drawer (which shows split layout with lyrics+keys)
-      if (typeof openKeyboardDrawer === 'function') openKeyboardDrawer();
-    }
-  }, 200);
+  // Default view on song open (skip if restoring saved state)
+  if (!_uiRestoring) {
+    setTimeout(function() {
+      if (window.innerWidth < 768) {
+        if (typeof openKeyboardDrawer === 'function') openKeyboardDrawer();
+      } else {
+        if (typeof openKeyboardDrawer === 'function') openKeyboardDrawer();
+      }
+    }, 200);
+  }
+  // Persist UI state to Firestore (debounced)
+  if (typeof uiStateSave === 'function') uiStateSave();
 }
 
 // ── Song Info Dashboard: status pills ────────────────────────
@@ -28681,6 +28690,7 @@ auth.onAuthStateChanged(user => {
         const newTier = doc.data()?.tier || 'free';
         _dismissedShares = new Set(doc.data()?.dismissedShares || []);
         if (doc.data()?.lastSongId) _lastSongIdFromFirestore = doc.data().lastSongId;
+        if (doc.data()?.lastState) window._lastStateFromFirestore = doc.data().lastState;
         if (!appInited) {
           userTier = newTier;
           document.getElementById('landingOverlay').classList.add('hidden');
@@ -30518,11 +30528,13 @@ async function loadSongsFromSheet() {
     renderGrid();
     setSyncStatus('saved', 'Loaded ✓');
 
-    // Restore last session state: if user was viewing a song, reopen it; otherwise stay on song list
+    // ── Restore last session state from Firestore ──
+    // Loading screen stays up until restore completes (no flashes)
     let _restoredToDetail = false;
     if (!currentId) {
-      const lastId = _lastSongIdFromFirestore || localStorage.getItem('drafthaus-last-song');
-      const lastView = localStorage.getItem('drafthaus-last-view') || 'list';
+      const _globalState = window._lastStateFromFirestore || {};
+      const lastId = _globalState.lastSongId || _lastSongIdFromFirestore || localStorage.getItem('drafthaus-last-song');
+      const lastView = _globalState.lastView || 'detail'; // default to detail for existing users
       const uid    = auth.currentUser?.uid;
       let restoreSong = lastId ? songs.find(s => s.id === lastId) : null;
       if (!restoreSong && songs.length > 0) {
@@ -30530,53 +30542,52 @@ async function loadSongsFromSheet() {
         const pool = ownedSongs.length > 0 ? ownedSongs : songs;
         restoreSong = [...pool].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
       }
-      if (restoreSong) {
-        if (lastView === 'detail' && lastId && songs.find(s => s.id === lastId)) {
-          // Restore directly into the song editor — full openSong flow
-          openSong(restoreSong.id);
-          _restoredToDetail = true;
-        } else {
-          // Load song data into memory but stay on the song list view
-          currentId = restoreSong.id;
-          localStorage.setItem('drafthaus-last-song', restoreSong.id);
-          // Silently populate song fields so lyrics/4-track/drawers are ready
-          populateSongFields(restoreSong);
-          setSongViewMode('runthrough');
-          if (typeof ilInitAndRender === 'function') ilInitAndRender(restoreSong);
-          // Set up split mode silently on desktop so 4-track is ready
-          if (window.innerWidth >= 900) {
-            if (!_splitActive) {
-              _splitActive = true;
-              document.body.classList.add('split-active');
-              var _sb = document.getElementById('splitBtn');
-              if (_sb) _sb.classList.add('active');
-            }
-            if (typeof setSplitRightTool === 'function') setSplitRightTool('4track');
-          }
-          // Preload 4-track takes and loops in background
-          if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
-          setTimeout(function() {
-            if (typeof mtPreloadForSong === 'function') mtPreloadForSong(restoreSong.id);
-            if (typeof loopPreloadForSong === 'function') loopPreloadForSong(restoreSong.id);
-          }, 100);
-          // If stub, fetch full song data
+      if (restoreSong && lastView === 'detail') {
+        // Read per-song uiState from Firestore, then restore atomically behind loading screen
+        currentId = restoreSong.id;
+        _restoredToDetail = true;
+        const _songRef = db.collection('songs').doc(restoreSong.id);
+        _songRef.get().then(function(doc) {
+          var uiState = doc.exists ? doc.data()?.uiState : null;
+          // If stub, fetch full data first
           if (restoreSong._fromSheet) {
             fetchFullSongFromSheet(restoreSong.id).then(function(full) {
-              if (full && currentId === restoreSong.id) {
-                populateSongFields(full);
-                if (typeof ilInitAndRender === 'function') ilInitAndRender(full);
+              var songToRestore = full || restoreSong;
+              if (currentId === restoreSong.id) {
+                _uiRestoreFromState(uiState, songToRestore);
+              } else {
+                _uiDismissLoadingScreen();
               }
+            }).catch(function() {
+              _uiRestoreFromState(uiState, restoreSong);
             });
+          } else {
+            _uiRestoreFromState(uiState, restoreSong);
           }
-        }
+        }).catch(function(e) {
+          console.warn('[UI-STATE] Failed to read uiState, falling back to openSong:', e.message);
+          openSong(restoreSong.id);
+          _uiDismissLoadingScreen();
+        });
+      } else if (restoreSong && lastView === 'list') {
+        // User was on the song list — preload song data silently, stay on list
+        currentId = restoreSong.id;
+        populateSongFields(restoreSong);
+        setSongViewMode('runthrough');
+        if (typeof ilInitAndRender === 'function') ilInitAndRender(restoreSong);
+        if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+        setTimeout(function() {
+          if (typeof mtPreloadForSong === 'function') mtPreloadForSong(restoreSong.id);
+          if (typeof loopPreloadForSong === 'function') loopPreloadForSong(restoreSong.id);
+        }, 100);
       }
     }
 
     if (!_restoredToDetail) {
-      // Show welcome prompt for returning users on song list
+      // Show song list and dismiss loading screen
       if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
-      // Mark song list as active to hide seq strip + reclaim vertical space
       document.body.classList.add('songlist-active');
+      _uiDismissLoadingScreen();
     }
 
   } catch(e) {
@@ -30614,6 +30625,232 @@ function esc(str) {
 }
 
 
+// ═══════════════════════════════════════════════════════════════════
+// ── UI State Persistence (Firestore — single source of truth) ────
+// ═══════════════════════════════════════════════════════════════════
+// State schema:
+//   users/{uid}  → lastState: { lastSongId, lastView, timestamp }
+//   songs/{songId} → uiState: { splitRight, splitLeft, splitActive, splitExpanded,
+//                                 perfMode, drawerOpen (seq|keys|looper|4track|mixer|none),
+//                                 pianoRollOpen, paletteTab,
+//                                 mixerFaders: {channelKey: {vol, pan, mute, solo}},
+//                                 armedTrack, mobileDrawer, timestamp }
+var _uiSaveTimer = null;
+var _uiSaveDelay = 800; // debounce ms
+var _uiRestoring = false; // true while restore is in progress (suppresses save)
+
+function _uiCaptureState() {
+  var song = getCurrentSong();
+  var mix = song?.sequencer?.mixer || {};
+  var isMobile = window.innerWidth < 900;
+
+  // Which drawer/tool is active
+  var activeDrawer = 'none';
+  if (typeof _splitCurrentTool !== 'undefined' && _splitCurrentTool) activeDrawer = _splitCurrentTool;
+  // Mobile: check which bottom drawer is open
+  if (isMobile) {
+    if (document.getElementById('ftDrawer')?.classList.contains('open')) activeDrawer = '4track';
+    else if (document.getElementById('keyboardDrawer')?.classList.contains('open')) activeDrawer = 'keyboard';
+    else if (document.getElementById('seqDrawer')?.classList.contains('open')) activeDrawer = 'sequencer';
+    else if (document.getElementById('looperDrawer')?.classList.contains('open')) activeDrawer = 'looper';
+    else if (document.getElementById('mixDrawer')?.classList.contains('open')) activeDrawer = 'mixer';
+    else activeDrawer = 'none';
+  }
+
+  // Piano roll state
+  var prOpen = document.body.classList.contains('pr-open');
+
+  // Split state
+  var splitRight = (typeof _splitCurrentTool !== 'undefined') ? _splitCurrentTool : 'keyboard';
+  var splitLeft = 'lyrics';
+  var leftSel = document.getElementById('splitLeftSelect');
+  if (leftSel) splitLeft = leftSel.value || 'lyrics';
+  var splitExpanded = (typeof _splitExpandedSide !== 'undefined') ? _splitExpandedSide : null;
+
+  return {
+    splitRight: splitRight,
+    splitLeft: splitLeft,
+    splitActive: !!(typeof _splitActive !== 'undefined' && _splitActive),
+    splitExpanded: splitExpanded,
+    perfMode: !!(typeof _ilPerfMode !== 'undefined' && window._ilPerfMode),
+    drawerOpen: activeDrawer,
+    pianoRollOpen: prOpen,
+    armedTrack: (typeof _mtArmedTrack !== 'undefined') ? window._mtArmedTrack : -1,
+    mobileDrawer: isMobile ? activeDrawer : null,
+    timestamp: Date.now()
+  };
+}
+
+function uiStateSave() {
+  if (_uiRestoring) return; // don't save during restore
+  var uid = auth.currentUser?.uid;
+  if (!uid || !currentId) return;
+  if (_uiSaveTimer) clearTimeout(_uiSaveTimer);
+  _uiSaveTimer = setTimeout(function() {
+    var state = _uiCaptureState();
+    // Save per-song UI state
+    var songRef = db.collection('songs').doc(currentId);
+    songRef.update({ uiState: state }).catch(function(e) {
+      // If doc doesn't exist or permission denied, silently fail
+      console.warn('[UI-STATE] save failed:', e.message);
+    });
+    // Save global last state
+    db.collection('users').doc(uid).update({
+      lastState: { lastSongId: currentId, lastView: 'detail', timestamp: Date.now() }
+    }).catch(function() {});
+  }, _uiSaveDelay);
+}
+
+function _uiDismissLoadingScreen() {
+  document.body.classList.remove('app-loading');
+  var _ls = document.getElementById('appLoadingScreen');
+  if (_ls) {
+    _ls.style.opacity = '0';
+    _ls.style.transition = 'opacity 0.3s';
+    setTimeout(function() { _ls.remove(); }, 350);
+  }
+}
+
+function _uiRestoreFromState(state, song) {
+  if (!song) { _uiDismissLoadingScreen(); return; }
+  // No saved state — fall back to normal openSong flow behind loading screen
+  if (!state) {
+    _uiRestoring = true;
+    openSong(song.id);
+    // Let openSong's synchronous DOM updates settle, then reveal
+    setTimeout(function() {
+      _uiRestoring = false;
+      _uiDismissLoadingScreen();
+    }, 120);
+    return;
+  }
+  _uiRestoring = true;
+  var isMobile = window.innerWidth < 900;
+
+  try {
+    // 1. Populate song fields silently (already loaded)
+    if (typeof loopOnSongChange === 'function') loopOnSongChange(song);
+    populateSongFields(song);
+    if (typeof TL !== 'undefined' && typeof TL.load === 'function') {
+      try { TL.load(song); } catch(e) {}
+    }
+    setSongViewMode('runthrough');
+    if (typeof ilInitAndRender === 'function') ilInitAndRender(song);
+    if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
+
+    if (isMobile) {
+      // ── Mobile restore ──
+      showDetail();
+      var mDrawer = state.mobileDrawer || state.drawerOpen || '4track';
+      setTimeout(function() {
+        if (mDrawer === '4track' && typeof ftOpen === 'function') ftOpen();
+        else if (mDrawer === 'keyboard' && typeof openKeyboardDrawer === 'function') openKeyboardDrawer();
+        else if (mDrawer === 'sequencer' && typeof openSeqDrawer === 'function') openSeqDrawer();
+        else if (mDrawer === 'looper' && typeof openLooperDrawer === 'function') openLooperDrawer();
+        else if (mDrawer === 'mixer' && typeof openMixDrawer === 'function') openMixDrawer();
+        else if (typeof ftOpen === 'function') ftOpen();
+        _uiRestoring = false;
+        _uiDismissLoadingScreen();
+      }, 50);
+    } else {
+      // ── Desktop restore ──
+      // Set up split mode
+      var rightTool = state.splitRight || 'keyboard';
+      if (!_splitActive && state.splitActive !== false) {
+        _splitActive = true;
+        document.body.classList.add('split-active');
+        document.getElementById('splitBtn')?.classList.add('active');
+      }
+
+      // Set left pane
+      var leftSel = document.getElementById('splitLeftSelect');
+      if (leftSel) leftSel.value = state.splitLeft || 'lyrics';
+
+      // Perf mode
+      if (state.perfMode && typeof ilSetPerfMode === 'function') {
+        ilSetPerfMode(true);
+      } else if (typeof ilSetPerfMode === 'function') {
+        ilSetPerfMode(false);
+      }
+
+      // Set right tool directly (this opens the drawer)
+      if (typeof setSplitRightTool === 'function') setSplitRightTool(rightTool);
+      _splitCurrentTool = rightTool;
+      var rightSel = document.getElementById('splitRightSelect');
+      if (rightSel) rightSel.value = rightTool;
+
+      // Split expanded state
+      if (state.splitExpanded) {
+        _splitExpandedSide = state.splitExpanded;
+        document.body.classList.add('split-expanded-' + state.splitExpanded);
+        if (typeof _syncExpandBtns === 'function') _syncExpandBtns();
+      }
+
+      // Show detail view (song editor) — do this AFTER split setup
+      showDetail();
+
+      // Piano roll
+      if (state.pianoRollOpen && typeof prOpen_ === 'function') {
+        setTimeout(function() { prOpen_(); }, 100);
+      }
+
+      // Armed track
+      if (state.armedTrack >= 0 && typeof _mtArmTrack === 'function') {
+        setTimeout(function() { _mtArmTrack(state.armedTrack); }, 200);
+      }
+
+      _uiRestoring = false;
+      // Small delay to let all DOM updates settle before revealing
+      setTimeout(function() { _uiDismissLoadingScreen(); }, 80);
+    }
+
+    // Warm up audio contexts (normally done in openSong from user gesture)
+    if (typeof _warmUpAllAudioContexts === 'function') _warmUpAllAudioContexts();
+
+    // Preload audio in background
+    if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+    setTimeout(function() {
+      if (typeof mtPreloadForSong === 'function') mtPreloadForSong(song.id);
+      if (typeof loopPreloadForSong === 'function') loopPreloadForSong(song.id);
+    }, 200);
+
+    // 4-track sync
+    if (typeof _vr4TrackSyncToSong === 'function') _vr4TrackSyncToSong(song.id);
+
+  } catch(e) {
+    console.error('[UI-STATE] restore error:', e);
+    _uiRestoring = false;
+    _uiDismissLoadingScreen();
+  }
+}
+
+// ── Auto-save on drawer/panel state changes ──
+// Watch for body class changes that indicate drawer open/close, split state, etc.
+// This catches all drawer opens/closes without needing individual hooks.
+(function() {
+  var _uiClassSaveTimer = null;
+  var _uiBodyObserver = new MutationObserver(function(mutations) {
+    if (_uiRestoring) return;
+    for (var i = 0; i < mutations.length; i++) {
+      if (mutations[i].attributeName === 'class') {
+        if (_uiClassSaveTimer) clearTimeout(_uiClassSaveTimer);
+        _uiClassSaveTimer = setTimeout(function() {
+          if (typeof uiStateSave === 'function') uiStateSave();
+        }, 1200); // slightly longer debounce for class changes
+        break;
+      }
+    }
+  });
+  // Start observing once DOM is ready
+  if (document.body) {
+    _uiBodyObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  } else {
+    document.addEventListener('DOMContentLoaded', function() {
+      _uiBodyObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    });
+  }
+})();
+
 function initApp() {
   _loadExpandedProjs(); // restore which project groups were open last session
   loadUserProjects(); // must run before preload so project order is ready when renderGrid fires
@@ -30642,12 +30879,8 @@ function initApp() {
     if (typeof loadAcoustic2Samples === 'function') loadAcoustic2Samples();
   }, 1500);
 
-  // Onboarding / tutorial removed
-
-  // Remove loading screen
-  document.body.classList.remove('app-loading');
-  var _ls = document.getElementById('appLoadingScreen');
-  if (_ls) { _ls.style.opacity = '0'; _ls.style.transition = 'opacity 0.3s'; setTimeout(function() { _ls.remove(); }, 350); }
+  // NOTE: Loading screen is NOT removed here.
+  // It stays up until _uiRestoreFromState() or the song-list fallback dismisses it.
 
   // Welcome popup — show once for first-time users
   if (!localStorage.getItem('dh-welcome-seen')) {
@@ -33312,6 +33545,7 @@ function setSplitRightTool(tool) {
   if (typeof _syncSharedRecBtnState === 'function') _syncSharedRecBtnState();
   // State persistence — remember last-used drawer
   try { localStorage.setItem('dh_split_right', tool); } catch(e) {}
+  if (typeof uiStateSave === 'function') uiStateSave();
 }
 
 // (lyrics panel now uses the live #songViewRunthrough element — no separate render needed)
@@ -54094,6 +54328,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     prOpen = true;
     overlay.classList.add('open');
     document.body.classList.add('pr-open');
+    if (typeof uiStateSave === 'function') uiStateSave();
     // Delay render so overlay is laid out and has dimensions
     _prSyncEnabled = false; // don't sync during load
     requestAnimationFrame(() => {
@@ -54119,6 +54354,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     prOpen = false;
     overlay.classList.remove('open');
     document.body.classList.remove('pr-open');
+    if (typeof uiStateSave === 'function') uiStateSave();
   };
 
   // ── Tool selection ──
