@@ -50495,12 +50495,18 @@ function ftDrawTakeWaveform(div, take, idx) {
 
 function _drawTakeWaveformBuffer(canvas, ctx, W, H, mid, buffer, stripIdx) {
   if (!buffer || !buffer.getChannelData) return;
+  /* Scale waveform proportional to max track duration (same as main track waveforms) */
+  var maxDur = _mtMaxDuration();
+  var bufDur = buffer.duration;
+  var drawW = (maxDur > 0 && bufDur > 0) ? Math.round(W * (bufDur / maxDur)) : W;
+  drawW = Math.max(1, Math.min(W, drawW));
+
   var ch = buffer.getChannelData(0);
-  var step = Math.max(1, Math.floor(ch.length / W));
+  var step = Math.max(1, Math.floor(ch.length / drawW));
   var color = FT_WAVE_COLORS[stripIdx] || '#4a5468';
   ctx.fillStyle = color;
 
-  for (var x = 0; x < W; x++) {
+  for (var x = 0; x < drawW; x++) {
     var max = 0;
     for (var j = 0; j < step; j++) {
       var v = Math.abs(ch[x * step + j] || 0);
@@ -50779,9 +50785,12 @@ function _ftPreviewTick() {
   if (!_ftPreviewPlayhead || !_ftPreviewSource) return;
   var elapsed = _mtAudioCtx.currentTime - _ftPreviewCtxTime;
   var pos = _ftPreviewOffset + elapsed;
-  var pct = Math.min(1, pos / _ftPreviewDuration);
+  /* Scale playhead to proportional width (matches take waveform scaling) */
+  var maxDur = _mtMaxDuration();
+  var scaledDur = (maxDur > 0 && _ftPreviewDuration > 0) ? maxDur : _ftPreviewDuration;
+  var pct = Math.min(1, pos / scaledDur);
   _ftPreviewPlayhead.style.left = (pct * 100) + '%';
-  if (pct < 1) {
+  if (pos < _ftPreviewDuration) {
     _ftPreviewRAF = requestAnimationFrame(_ftPreviewTick);
   }
 }
@@ -51107,10 +51116,15 @@ function ftRenderTakes() {
         if (dx > 6 || dy > 6) return;
         /* Skip if clicking a comp cut handle or grab handle */
         if (e.target.closest('.ft-comp-cut-handle, .ft-comp-grab, .ft-comp-handle')) return;
-        /* Calculate seek position from click X relative to waveform */
+        /* Calculate seek position from click X relative to waveform (proportional) */
         var rect = _waveEl.getBoundingClientRect();
-        var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-        var startAt = pct * (_take.duration || 0);
+        var maxDur = _mtMaxDuration();
+        var takeDur = _take.duration || 0;
+        var waveRatio = (maxDur > 0 && takeDur > 0) ? (takeDur / maxDur) : 1;
+        var clickPct = Math.max(0, (e.clientX - rect.left) / rect.width);
+        /* Ignore clicks past the drawn waveform area */
+        if (clickPct > waveRatio) return;
+        var startAt = (clickPct / waveRatio) * takeDur;
         if (_ftPreviewSource) _ftStopPreview();
         if (_mtIsPlaying) _mtStopAll();
         _ftPreviewTake(_take, startAt, null);
