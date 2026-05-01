@@ -4098,7 +4098,8 @@ button, select, input, textarea { touch-action: manipulation; }
   .mix-row-label{display:flex;align-items:center;gap:10px;margin-bottom:4px}
   .mix-row-pill{font:700 8px/1 'IBM Plex Mono',monospace;letter-spacing:0.1em;color:var(--row-accent);padding:2px 5px;background:rgba(255,255,255,.04);border-radius:3px}
   .mix-row-name{font:600 9px/1 'IBM Plex Mono',monospace;letter-spacing:0.22em;color:var(--text)}
-  .mix-row-strips{display:grid;grid-template-columns:repeat(4,minmax(0,170px));gap:8px;justify-content:center}
+  .mix-row-strips{display:flex;flex-wrap:nowrap;gap:8px;justify-content:center;overflow-x:auto}
+  .mix-row-strips > .mix-strip{flex:1 1 0;min-width:90px;max-width:170px}
 
   /* Per-row accent colors */
   .mix-row[data-row="1"]{--row-accent:#6BC5FF}
@@ -4120,15 +4121,21 @@ button, select, input, textarea { touch-action: manipulation; }
   .mix-ch-num{display:block;font-family:'IBM Plex Mono',monospace;font-size:7px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--ch);opacity:0.7;margin-bottom:1px;white-space:nowrap}
   .mix-ch-num.mix-ch-master{color:var(--gold,#C8A06E);opacity:1;font-weight:700}
 
-  /* Drum accordion (inline expand) */
-  .mix-drum-accordion{max-height:0;overflow:hidden;transition:max-height 0.3s ease-out}
-  .mix-drum-accordion.open{max-height:1200px;transition:max-height 0.4s ease-in}
-  .mix-drum-accordion-inner{display:flex;gap:6px;padding:4px 0 6px}
+  /* Drum sub-channels overlay */
+  .mix-drum-overlay-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9998;animation:mixFadeIn 0.15s ease-out}
+  .mix-drum-overlay-backdrop.open{display:block}
+  .mix-drum-overlay{display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9999;background:linear-gradient(180deg,#1a1a24 0%,#111118 100%);border:1px solid rgba(232,116,154,0.25);border-radius:10px;padding:16px 20px 18px;box-shadow:0 8px 32px rgba(0,0,0,0.6),0 0 1px rgba(232,116,154,0.3);max-width:94vw;overflow-x:auto}
+  .mix-drum-overlay.open{display:block;animation:mixSlideUp 0.2s ease-out}
+  .mix-drum-overlay-title{font:italic 600 12px/1 'Playfair Display',serif;color:#e8749a;margin-bottom:10px;text-align:center;letter-spacing:0.04em}
+  .mix-drum-overlay-close{position:absolute;top:8px;right:10px;background:none;border:none;color:#888;font-size:18px;cursor:pointer;padding:2px 6px;line-height:1}
+  .mix-drum-overlay-close:hover{color:#e8749a}
+  .mix-drum-overlay-strips{display:flex;gap:8px;justify-content:center}
+  .mix-drum-overlay-strips > .mix-strip{flex:0 0 auto;width:110px;min-width:90px;max-width:130px}
+  @keyframes mixSlideUp{from{opacity:0;transform:translate(-50%,-46%)}to{opacity:1;transform:translate(-50%,-50%)}}
+  @keyframes mixFadeIn{from{opacity:0}to{opacity:1}}
   .mix-drum-expand-btn{display:block;width:100%;margin-top:3px;padding:4px 0;border:none;background:rgba(232,116,154,0.08);border-radius:0 0 5px 5px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#e8749a;transition:background 0.15s}
   .mix-drum-expand-btn:hover{background:rgba(232,116,154,0.18)}
   .mix-drum-expand-arrow{display:inline-block;transition:transform 0.2s}
-  .mix-drum-accordion.open ~ .mix-strip .mix-drum-expand-arrow,
-  .mix-strip:has(+ .mix-drum-accordion.open) .mix-drum-expand-arrow{transform:rotate(90deg)}
 
   /* ── Strip head (name + dB screen) ── */
   .mix-strip-top{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 7px 5px 10px;border-bottom:1px solid var(--border,#2a2a33);flex-shrink:0;min-height:0}
@@ -4277,6 +4284,12 @@ button, select, input, textarea { touch-action: manipulation; }
     .mix-meter-col{flex:1;width:100%;min-width:0;background:#0c0c10;border-radius:2px;overflow:hidden}
     .mix-gfill{top:0;bottom:0;left:0;right:auto;width:var(--meter-pos,40%);height:auto;background:linear-gradient(to right,#3DC982 0%,#8CD46E 50%,#C8A06E 80%,#E8496B 100%)}
     .mix-meter-col .mix-peak{top:0;bottom:0;left:auto;right:auto;width:1px;height:auto}
+    /* Drum overlay — bottom sheet on mobile */
+    .mix-drum-overlay{left:0;top:auto;bottom:0;transform:none;width:100%;max-width:100vw;border-radius:12px 12px 0 0;padding:14px 12px 20px}
+    .mix-drum-overlay.open{animation:mixSlideUpMobile 0.25s ease-out}
+    .mix-drum-overlay-strips{overflow-x:auto;justify-content:flex-start}
+    .mix-drum-overlay-strips > .mix-strip{flex:0 0 auto;width:100px;min-width:80px}
+    @keyframes mixSlideUpMobile{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
   }
   /* ═══════════════════ END MIXER MOBILE ═══════════════════ */
 
@@ -30717,10 +30730,12 @@ function _uiRestoreFromState(state, song) {
   if (!state) {
     _uiRestoring = true;
     openSong(song.id);
-    // Let openSong's synchronous DOM updates settle, then reveal
+    // Let openSong's synchronous DOM updates settle, then reveal + save state for next load
     setTimeout(function() {
       _uiRestoring = false;
       _uiDismissLoadingScreen();
+      // Immediately save current state so subsequent reloads restore correctly
+      setTimeout(function() { if (typeof uiStateSave === 'function') uiStateSave(); }, 300);
     }, 120);
     return;
   }
@@ -41856,16 +41871,18 @@ function renderMixDrawerHtml() {
   var stripsHtml = '';
   ordered.forEach(function(c) {
     stripsHtml += _mixRenderStripHtml(c);
-    // After drum bus, inject the accordion container for drum sub-channels
-    if (c.hasDrumAccordion) {
-      var drumSubHtml = '';
-      drumChildren.forEach(function(dc) { drumSubHtml += _mixRenderStripHtml(dc); });
-      var collapsed = _mixDrumCollapsed ? '' : ' open';
-      stripsHtml += '<div class="mix-drum-accordion' + collapsed + '" id="mixDrumAccordion">'
-        + '<div class="mix-drum-accordion-inner">' + drumSubHtml + '</div>'
-        + '</div>';
-    }
   });
+
+  // Build drum sub-channels overlay (separate from main strip row)
+  var drumSubHtml = '';
+  drumChildren.forEach(function(dc) { drumSubHtml += _mixRenderStripHtml(dc); });
+  var overlayOpen = _mixDrumCollapsed ? '' : ' open';
+  var drumOverlayHtml = '<div class="mix-drum-overlay-backdrop' + overlayOpen + '" id="mixDrumBackdrop" onclick="mixToggleDrumAccordion()"></div>'
+    + '<div class="mix-drum-overlay' + overlayOpen + '" id="mixDrumOverlay">'
+    + '<div class="mix-drum-overlay-title">Drum Sub-Channels</div>'
+    + '<button class="mix-drum-overlay-close" onclick="mixToggleDrumAccordion()" title="Close">&times;</button>'
+    + '<div class="mix-drum-overlay-strips">' + drumSubHtml + '</div>'
+    + '</div>';
 
   var rowsHtml = '<div class="mix-row" data-row="all">'
     + '<div class="mix-row-strips" id="mixRowAll">' + stripsHtml + '</div>'
@@ -41883,7 +41900,7 @@ function renderMixDrawerHtml() {
     + '<svg class="mix-ic" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>'
     + 'Bounce &amp; Share</button>'
     + '</div>'
-    + '<div class="mix-desk" id="mixDesk">' + rowsHtml + '</div>'
+    + '<div class="mix-desk" id="mixDesk">' + rowsHtml + drumOverlayHtml + '</div>'
     + '<div class="mix-modal-bg" id="mixBounceModal">'
     + '<div class="mix-modal">'
     + '<h3 id="mixBounceTitle">Bounce mix</h3>'
@@ -41909,21 +41926,22 @@ function renderMixDrawerHtml() {
     + '</div></div></div>';
 }
 
-// ── Drum accordion toggle ───────────────────────────────────────
+// ── Drum sub-channels overlay toggle ────────────────────────────
 function mixToggleDrumAccordion() {
   _mixDrumCollapsed = !_mixDrumCollapsed;
-  var acc = document.getElementById('mixDrumAccordion');
-  if (acc) {
-    if (_mixDrumCollapsed) {
-      acc.classList.remove('open');
-    } else {
-      acc.classList.add('open');
-    }
+  var overlay = document.getElementById('mixDrumOverlay');
+  var backdrop = document.getElementById('mixDrumBackdrop');
+  if (overlay) {
+    if (_mixDrumCollapsed) overlay.classList.remove('open');
+    else overlay.classList.add('open');
   }
-  // Rotate arrow
+  if (backdrop) {
+    if (_mixDrumCollapsed) backdrop.classList.remove('open');
+    else backdrop.classList.add('open');
+  }
   var arrow = document.querySelector('.mix-drum-expand-arrow');
   if (arrow) arrow.style.transform = _mixDrumCollapsed ? '' : 'rotate(90deg)';
-  _mixLog('UI', 'Drum accordion ' + (_mixDrumCollapsed ? 'collapsed' : 'expanded'));
+  _mixLog('UI', 'Drum overlay ' + (_mixDrumCollapsed ? 'closed' : 'opened'));
 }
 
 // Bounce modal helpers
