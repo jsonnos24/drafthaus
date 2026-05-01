@@ -17302,9 +17302,9 @@ function openSong(id) {
   // Render sequence strip tabs so the global strip is populated immediately
   if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
 
-  // ── Default layout: Desktop = lyrics left + keyboard right, Mobile = 4-track ──
+  // ── Default layout: Desktop = lyrics left + last-used drawer right, Mobile = 4-track ──
   if (window.innerWidth >= 900) {
-    // Desktop: auto-enter split mode with keyboard in right pane
+    // Desktop: auto-enter split mode
     if (!_splitActive) {
       _splitActive = true;
       document.body.classList.add('split-active');
@@ -17313,11 +17313,14 @@ function openSong(id) {
     // Ensure left pane shows lyrics (runthrough)
     var _leftSel = document.getElementById('splitLeftSelect');
     if (_leftSel) _leftSel.value = 'lyrics';
-    // Set right pane to keyboard (fresh render with full toolbar)
-    if (typeof setSplitRightTool === 'function') setSplitRightTool('keyboard');
-    _splitCurrentTool = 'keyboard';
+    // Restore last-used right tool (default to keyboard if none saved)
+    var _savedRightTool = null;
+    try { _savedRightTool = localStorage.getItem('dh_split_right'); } catch(e) {}
+    var _rightTool = _savedRightTool || 'keyboard';
+    if (typeof setSplitRightTool === 'function') setSplitRightTool(_rightTool);
+    _splitCurrentTool = _rightTool;
     var _rightSel = document.getElementById('splitRightSelect');
-    if (_rightSel) _rightSel.value = 'keyboard';
+    if (_rightSel) _rightSel.value = _rightTool;
     // Reset any expanded pane so both are visible
     if (_splitExpandedSide) {
       _splitExpandedSide = null;
@@ -33139,10 +33142,8 @@ function setSplitRightTool(tool) {
   }
   // Sync Rec button state (disable for looper/drum-machine tools)
   if (typeof _syncSharedRecBtnState === 'function') _syncSharedRecBtnState();
-  // State persistence for paid users
-  if (typeof userTier !== 'undefined' && userTier !== 'free') {
-    try { localStorage.setItem('dh_split_right', tool); } catch(e) {}
-  }
+  // State persistence — remember last-used drawer
+  try { localStorage.setItem('dh_split_right', tool); } catch(e) {}
 }
 
 // (lyrics panel now uses the live #songViewRunthrough element — no separate render needed)
