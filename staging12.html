@@ -30658,31 +30658,57 @@ var _uiRestoring = false; // true while restore is in progress (suppresses save)
 
 function _uiCaptureState() {
   var song = getCurrentSong();
-  var mix = song?.sequencer?.mixer || {};
   var isMobile = window.innerWidth < 900;
 
-  // Which drawer/tool is active
+  // Detect which drawer is open from DOM (more reliable than JS variables)
   var activeDrawer = 'none';
-  if (typeof _splitCurrentTool !== 'undefined' && _splitCurrentTool) activeDrawer = _splitCurrentTool;
-  // Mobile: check which bottom drawer is open
-  if (isMobile) {
-    if (document.getElementById('ftDrawer')?.classList.contains('open')) activeDrawer = '4track';
-    else if (document.getElementById('keyboardDrawer')?.classList.contains('open')) activeDrawer = 'keyboard';
-    else if (document.getElementById('seqDrawer')?.classList.contains('open')) activeDrawer = 'sequencer';
-    else if (document.getElementById('looperDrawer')?.classList.contains('open')) activeDrawer = 'looper';
-    else if (document.getElementById('mixDrawer')?.classList.contains('open')) activeDrawer = 'mixer';
-    else activeDrawer = 'none';
+  if (document.getElementById('keyboardDrawer')?.classList.contains('open')) activeDrawer = 'keyboard';
+  else if (document.getElementById('ftDrawer')?.classList.contains('open')) activeDrawer = '4track';
+  else if (document.getElementById('seqDrawer')?.classList.contains('open')) activeDrawer = 'sequencer';
+  else if (document.getElementById('looperDrawer')?.classList.contains('open')) activeDrawer = 'looper';
+  else if (document.getElementById('mixDrawer')?.classList.contains('open')) activeDrawer = 'mixer';
+  // Also check body classes as fallback
+  if (activeDrawer === 'none') {
+    if (document.body.classList.contains('keyboard-drawer-open')) activeDrawer = 'keyboard';
+    else if (document.body.classList.contains('split-4track-active')) activeDrawer = '4track';
+  }
+  // JS variable as last resort
+  if (activeDrawer === 'none' && typeof _splitCurrentTool !== 'undefined' && _splitCurrentTool) {
+    activeDrawer = _splitCurrentTool;
   }
 
   // Piano roll state
   var prOpen = document.body.classList.contains('pr-open');
 
-  // Split state
-  var splitRight = (typeof _splitCurrentTool !== 'undefined') ? _splitCurrentTool : 'keyboard';
+  // Split state — detect right pane from DOM + variable
+  var splitRight = null;
+  // Check what's actually inside splitRightContent
+  var rightContent = document.getElementById('splitRightContent');
+  if (rightContent) {
+    if (rightContent.querySelector('#keyboardDrawer')) splitRight = 'keyboard';
+    else if (rightContent.querySelector('#ftDrawer, #vrOverlay')) splitRight = '4track';
+    else if (rightContent.querySelector('#seqDrawer')) splitRight = 'sequencer';
+    else if (rightContent.querySelector('#looperDrawer')) splitRight = 'looper';
+    else if (rightContent.querySelector('#mixDrawer')) splitRight = 'mixer';
+    else if (rightContent.querySelector('#songViewRunthrough')) splitRight = 'lyrics';
+    else if (rightContent.querySelector('#songViewBackend')) splitRight = 'backend';
+  }
+  // Fallback to JS variable
+  if (!splitRight && typeof _splitCurrentTool !== 'undefined' && _splitCurrentTool) {
+    splitRight = _splitCurrentTool;
+  }
+  // Fallback to active drawer
+  if (!splitRight && activeDrawer !== 'none') splitRight = activeDrawer;
+  // Final fallback
+  if (!splitRight) splitRight = 'keyboard';
+
   var splitLeft = 'lyrics';
   var leftSel = document.getElementById('splitLeftSelect');
   if (leftSel) splitLeft = leftSel.value || 'lyrics';
   var splitExpanded = (typeof _splitExpandedSide !== 'undefined') ? _splitExpandedSide : null;
+
+  // Is user on song list?
+  var onSongList = document.body.classList.contains('songlist-active');
 
   return {
     splitRight: splitRight,
@@ -30694,6 +30720,7 @@ function _uiCaptureState() {
     pianoRollOpen: prOpen,
     armedTrack: (typeof _mtArmedTrack !== 'undefined') ? window._mtArmedTrack : -1,
     mobileDrawer: isMobile ? activeDrawer : null,
+    onSongList: onSongList,
     timestamp: Date.now()
   };
 }
@@ -30705,7 +30732,7 @@ function uiStateSave() {
   if (_uiSaveTimer) clearTimeout(_uiSaveTimer);
   _uiSaveTimer = setTimeout(function() {
     var state = _uiCaptureState();
-    console.log('[UI-STATE] SAVING state:', JSON.stringify(state));
+    console.log('[UI-STATE] SAVING state:', JSON.stringify(state), 'onSongList:', state.onSongList);
     // Save per-song UI state
     var songRef = db.collection('songs').doc(currentId);
     songRef.update({ uiState: state }).then(function() {
@@ -30720,7 +30747,8 @@ function uiStateSave() {
       });
     });
     // Save global last state
-    var lastState = { lastSongId: currentId, lastView: 'detail', timestamp: Date.now() };
+    var lastView = state.onSongList ? 'list' : 'detail';
+    var lastState = { lastSongId: currentId, lastView: lastView, timestamp: Date.now() };
     db.collection('users').doc(uid).update({ lastState: lastState }).then(function() {
       console.log('[UI-STATE] ✓ user lastState saved');
     }).catch(function(e) {
@@ -39151,6 +39179,10 @@ function navToolTap(toolKey) {
   }
 
   // ── Mobile routing ──
+  // Close mixer if open (mixer floats over everything, must dismiss first)
+  if (document.getElementById('mixDrawer')?.classList.contains('open')) {
+    closeMixDrawer();
+  }
   // If already open, close (toggle behavior)
   if (toolKey === '4track' && typeof ftIsOpen === 'function' && ftIsOpen()) { ftClose(); return; }
   if (toolKey === 'keyboard' && document.getElementById('keyboardDrawer')?.classList.contains('open')) { closeKeyboardDrawer(); return; }
@@ -44061,7 +44093,7 @@ function closeAllDrawers(exceptId) {
     ['runThroughDrawer',   closeRunThroughDrawer,     null],
     ['keyboardDrawer',     closeKeyboardDrawer,       'keyboardDrawerOverlay'],
     ['backendDrawer',      closeBackendDrawer,        null],
-    // mixDrawer intentionally omitted — it floats over other drawers
+    ['mixDrawer',          closeMixDrawer,            'mixDrawerOverlay'],
   ];
   pairs.forEach(([id, closeFn, overlayId]) => {
     if (id === exceptId) return;
