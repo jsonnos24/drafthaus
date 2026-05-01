@@ -9130,6 +9130,52 @@ body.songlist-active.split-active #viewList {
   font-size: 10px; color: var(--muted); min-width: 32px; text-align: right;
 }
 
+/* ── Saved Beats modal & dropdown ── */
+#savedBeatModal {
+  display:none; position:fixed; inset:0; z-index:99999;
+  background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);
+  align-items:center; justify-content:center;
+}
+#savedBeatModal.open { display:flex; }
+.sb-modal-box {
+  background:var(--card2); border:1px solid var(--border2);
+  border-radius:12px; padding:24px 28px; min-width:300px; max-width:380px;
+  font-family:'IBM Plex Mono',monospace; animation:seqGenFadeIn 0.15s ease;
+}
+.sb-modal-title {
+  font-size:13px; font-weight:700; letter-spacing:0.08em;
+  text-transform:uppercase; color:var(--gold); margin-bottom:14px;
+}
+.sb-modal-input {
+  width:100%; box-sizing:border-box; padding:10px 12px; font-size:13px;
+  font-family:'IBM Plex Mono',monospace; border-radius:6px;
+  background:#12131a; border:1px solid var(--border2); color:var(--text);
+  outline:none; margin-bottom:16px;
+}
+.sb-modal-input:focus { border-color:var(--gold); }
+.sb-modal-btns { display:flex; gap:10px; justify-content:flex-end; }
+.sb-modal-btns button {
+  font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:700;
+  padding:8px 18px; border-radius:6px; cursor:pointer; border:none;
+  transition:all 0.15s;
+}
+.sb-save-btn { background:var(--gold); color:#0a0a0c; }
+.sb-save-btn:hover { filter:brightness(1.1); }
+.sb-cancel-btn { background:transparent; border:1px solid var(--border2) !important; color:var(--muted); }
+.sb-cancel-btn:hover { border-color:var(--muted) !important; color:var(--text); }
+#myBeatsDropdown {
+  font-family:'IBM Plex Mono',monospace; font-size:11px;
+  padding:4px 6px; border-radius:5px; cursor:pointer;
+  background:#1a1c24; border:1px solid var(--border2); color:var(--text);
+  max-width:200px;
+}
+.sb-delete-beat {
+  font-size:9px; color:#ff5f5f; cursor:pointer; margin-left:6px;
+  background:none; border:none; font-family:'IBM Plex Mono',monospace;
+  padding:2px 6px; border-radius:3px;
+}
+.sb-delete-beat:hover { background:rgba(255,95,95,0.15); }
+
 /* ── Tape strip stack ── */
 .ts-stack{display:flex;flex-direction:column;gap:4px;padding:8px 0;}
 .ts-strip{
@@ -21122,6 +21168,12 @@ function renderSequencerHtml(song) {
       </select>
       <button class="seq-humanize-btn" id="seqHumanizeDrumsBtn" onclick="seqToggleHumanize('drums')" title="Humanize drums — each hit gets slight random timing so it feels like a real drummer">〜 Humanize</button>
       <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="applyDrumPattern('clear')">Clear</button>
+      <div style="display:inline-flex;align-items:center;gap:6px;margin-left:2px;border-left:1px solid var(--border2);padding-left:8px;">
+        <select class="seq-select" id="myBeatsDropdown" onchange="if(this.value)loadBeatFromLibrary(this.value)" style="width:auto;max-width:180px;">
+          <option value="">My Beats</option>
+        </select>
+        <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--gold);color:var(--gold);border-radius:4px;cursor:pointer;" onclick="openSaveBeatModal()" title="Save this drum beat to your library">Save Beat</button>
+      </div>
       <button class="seq-gen-btn" id="seqProbBtn" onclick="seqProbToggle()" title="Add random hits based on probability">🎲 Probability</button>
       <button class="seq-gen-btn" id="seqFillBtn" onclick="seqFillToggle()" title="Add a drum fill">🥁 Add Fill</button>
       <div style="display:inline-flex;align-items:center;gap:4px;margin-left:4px;border-left:1px solid var(--border2);padding-left:8px;">
@@ -21222,6 +21274,19 @@ function renderSequencerHtml(song) {
     </div>
     <!-- Shared drum bank popup (one reused for all voices) -->
     <div id="drumBankPopup" class="drum-bank-popup"></div>
+
+    <!-- Save Beat modal -->
+    <div id="savedBeatModal" onclick="if(event.target===this)closeSaveBeatModal()">
+      <div class="sb-modal-box">
+        <div class="sb-modal-title">Save Beat</div>
+        <input class="sb-modal-input" id="saveBeatNameInput" type="text" placeholder="Name your beat…" maxlength="60" autocomplete="off"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();confirmSaveBeat();}if(event.key==='Escape')closeSaveBeatModal();">
+        <div class="sb-modal-btns">
+          <button class="sb-cancel-btn" onclick="closeSaveBeatModal()">Cancel</button>
+          <button class="sb-save-btn" onclick="confirmSaveBeat()">Save</button>
+        </div>
+      </div>
+    </div>
 
 
     </div><!-- end .seq-grid-pane -->
@@ -30705,7 +30770,12 @@ function _uiCaptureState() {
   var splitLeft = 'lyrics';
   var leftSel = document.getElementById('splitLeftSelect');
   if (leftSel) splitLeft = leftSel.value || 'lyrics';
-  var splitExpanded = (typeof _splitExpandedSide !== 'undefined') ? _splitExpandedSide : null;
+  // Read expanded state from both variable AND DOM — must agree
+  var splitExpanded = null;
+  if (document.body.classList.contains('split-expanded-left')) splitExpanded = 'left';
+  else if (document.body.classList.contains('split-expanded-right')) splitExpanded = 'right';
+  // If DOM says no expand class, force variable to match
+  if (!splitExpanded) _splitExpandedSide = null;
 
   // Is user on song list?
   var onSongList = document.body.classList.contains('songlist-active');
@@ -30816,17 +30886,22 @@ function _uiRestoreFromState(state, song) {
       // ── Desktop restore ──
       console.log('[UI-STATE] Desktop restore path — isMobile:', isMobile, 'innerWidth:', window.innerWidth);
 
+      // Clean slate — remove any stale split/expand classes before applying state
+      document.body.classList.remove('split-active', 'split-expanded-left', 'split-expanded-right', 'split-tool-left', 'split-4track-active', 'seq-drawer-open', 'keyboard-drawer-open');
+      _splitExpandedSide = null;
+      _splitActive = false;
+
       // Show detail view FIRST so DOM is ready for split setup
       showDetail();
 
       // Set up split mode
-      var rightTool = state.splitRight || 'keyboard';
+      var rightTool = state.splitRight || state.drawerOpen || 'keyboard';
+      if (rightTool === 'none') rightTool = 'keyboard';
       if (state.splitActive !== false) {
         _splitActive = true;
         document.body.classList.add('split-active');
         var splitBtn = document.getElementById('splitBtn');
         if (splitBtn) splitBtn.classList.add('active');
-        console.log('[UI-STATE] Split mode activated, body has split-active:', document.body.classList.contains('split-active'));
       }
 
       // Set left pane
@@ -30841,18 +30916,21 @@ function _uiRestoreFromState(state, song) {
       }
 
       // Set right tool (this opens the drawer into the right pane)
-      console.log('[UI-STATE] Calling setSplitRightTool:', rightTool, 'splitRightContent exists:', !!document.getElementById('splitRightContent'));
+      console.log('[UI-STATE] Calling setSplitRightTool:', rightTool);
       if (typeof setSplitRightTool === 'function') setSplitRightTool(rightTool);
       _splitCurrentTool = rightTool;
       var rightSel = document.getElementById('splitRightSelect');
       if (rightSel) rightSel.value = rightTool;
 
-      // Split expanded state
-      if (state.splitExpanded) {
+      // Split expanded state — only apply if explicitly set
+      if (state.splitExpanded && state.splitExpanded !== 'null') {
         _splitExpandedSide = state.splitExpanded;
         document.body.classList.add('split-expanded-' + state.splitExpanded);
         if (typeof _syncExpandBtns === 'function') _syncExpandBtns();
-        console.log('[UI-STATE] Split expanded:', state.splitExpanded);
+      } else {
+        _splitExpandedSide = null;
+        // Ensure no stale expand classes (belt + suspenders)
+        document.body.classList.remove('split-expanded-left', 'split-expanded-right');
       }
 
       console.log('[UI-STATE] Desktop restore done. body classes:', document.body.className);
@@ -36487,6 +36565,231 @@ applyDrumPattern._redrawGrids = function(song) {
     _tsUpdateHits(lane, el);
   });
 };
+
+// ── Saved Beats Library ──────────────────────────────────────────────────────
+var _savedBeatsCache = []; // local cache of fetched saved beats
+
+function openSaveBeatModal() {
+  const song = getCurrentSong();
+  if (!song || !song.sequencer) return;
+  // Check if there's any drum data to save
+  const voices = ['kick','snare','hat','crash','clap','hitom','lotom'];
+  const hasData = voices.some(v => (song.sequencer[v] || []).some(n => n > 0));
+  if (!hasData) {
+    if (typeof showToast === 'function') showToast('No drum data to save');
+    return;
+  }
+  const modal = document.getElementById('savedBeatModal');
+  if (!modal) return;
+  modal.classList.add('open');
+  const inp = document.getElementById('saveBeatNameInput');
+  if (inp) { inp.value = ''; inp.focus(); }
+}
+
+function closeSaveBeatModal() {
+  const modal = document.getElementById('savedBeatModal');
+  if (modal) modal.classList.remove('open');
+}
+
+async function confirmSaveBeat() {
+  const inp = document.getElementById('saveBeatNameInput');
+  const name = (inp?.value || '').trim();
+  if (!name) { if (inp) inp.focus(); return; }
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  const song = getCurrentSong();
+  if (!song || !song.sequencer) return;
+  const sd = song.sequencer;
+
+  // Gather pattern data
+  const voices = ['kick','snare','hat','crash','clap','hitom','lotom'];
+  const pattern = {};
+  const velocities = {};
+  voices.forEach(v => {
+    pattern[v] = sd[v] || [];
+    if (sd[v + 'Vel']) velocities[v] = sd[v + 'Vel'];
+  });
+
+  // Get song name and part label for provenance
+  const songName = song.title || song.name || 'Untitled';
+  const partId = sd.partId || sd.part || '';
+  const partLabel = partId && typeof STRUCTURE_PARTS !== 'undefined'
+    ? (STRUCTURE_PARTS.find(p => p.id === partId)?.label || partId)
+    : '';
+
+  const doc = {
+    userId: uid,
+    name: name,
+    pattern: pattern,
+    velocities: velocities,
+    drumSteps: sd.drumSteps || sd.grid || '4',
+    time: sd.time || '4',
+    bars: sd.bars || '4',
+    bpm: song.bpm || sd.bpm || '100',
+    drumBankChoices: sd.drumBankChoices || {},
+    sourceSong: songName,
+    sourcePart: partLabel,
+    sourceSongId: song.id || '',
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  try {
+    await db.collection('saved_beats').add(doc);
+    closeSaveBeatModal();
+    if (typeof showToast === 'function') showToast('Beat saved!');
+    refreshMyBeatsDropdown();
+  } catch(e) {
+    console.error('[SavedBeats] save error:', e);
+    if (typeof showToast === 'function') showToast('Error saving beat');
+  }
+}
+
+async function refreshMyBeatsDropdown() {
+  const uid = auth.currentUser?.uid;
+  const dd = document.getElementById('myBeatsDropdown');
+  if (!dd || !uid) return;
+
+  try {
+    const snap = await db.collection('saved_beats')
+      .where('userId', '==', uid)
+      .orderBy('createdAt', 'desc')
+      .limit(50)
+      .get();
+
+    _savedBeatsCache = [];
+    dd.innerHTML = '<option value="">My Beats</option>';
+
+    if (snap.empty) {
+      dd.innerHTML = '<option value="">My Beats (none saved)</option>';
+      return;
+    }
+
+    snap.forEach(doc => {
+      const d = doc.data();
+      _savedBeatsCache.push({ id: doc.id, ...d });
+      const src = d.sourceSong ? ' — ' + d.sourceSong : '';
+      const part = d.sourcePart ? ' (' + d.sourcePart + ')' : '';
+      const opt = document.createElement('option');
+      opt.value = doc.id;
+      opt.textContent = d.name + src + part;
+      dd.appendChild(opt);
+    });
+
+    // Add a delete section separator + delete option hint
+    const sep = document.createElement('option');
+    sep.disabled = true;
+    sep.textContent = '── Manage ──';
+    dd.appendChild(sep);
+    const delOpt = document.createElement('option');
+    delOpt.value = '__manage__';
+    delOpt.textContent = 'Delete a beat…';
+    dd.appendChild(delOpt);
+  } catch(e) {
+    console.error('[SavedBeats] refresh error:', e);
+  }
+}
+
+async function loadBeatFromLibrary(beatId) {
+  const dd = document.getElementById('myBeatsDropdown');
+
+  // Handle "Delete a beat…" selection
+  if (beatId === '__manage__') {
+    if (dd) dd.value = '';
+    openManageSavedBeats();
+    return;
+  }
+
+  const song = getCurrentSong();
+  if (!song) { if (dd) dd.value = ''; return; }
+  if (!song.sequencer) song.sequencer = {};
+
+  const cached = _savedBeatsCache.find(b => b.id === beatId);
+  if (!cached) { if (dd) dd.value = ''; return; }
+
+  // Push undo state
+  if (typeof ucPushUndo === 'function' && typeof _ucCaptureState === 'function') {
+    ucPushUndo(_ucCaptureState(), 'load saved beat');
+  }
+
+  // Current step count for remapping
+  const currentSteps = seqGetDrumStepCount(song.sequencer);
+
+  // Remap pattern arrays to fit current grid
+  const voices = ['kick','snare','hat','crash','clap','hitom','lotom'];
+  voices.forEach(v => {
+    const src = cached.pattern[v] || [];
+    if (src.length === 0) {
+      song.sequencer[v] = new Array(currentSteps).fill(0);
+    } else {
+      const out = [];
+      for (let i = 0; i < currentSteps; i++) {
+        const idx = Math.floor(i * src.length / currentSteps);
+        out.push(src[idx] || 0);
+      }
+      song.sequencer[v] = out;
+    }
+    // Remap velocities too
+    const srcVel = cached.velocities?.[v] || [];
+    if (srcVel.length > 0) {
+      const outVel = [];
+      for (let i = 0; i < currentSteps; i++) {
+        const idx = Math.floor(i * srcVel.length / currentSteps);
+        outVel.push(srcVel[idx] || 1);
+      }
+      song.sequencer[v + 'Vel'] = outVel;
+    }
+  });
+
+  save();
+  if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
+  applyDrumPattern._redrawGrids(song);
+  if (typeof showToast === 'function') showToast('Loaded: ' + cached.name);
+
+  // Reset dropdown to ghost text after a moment
+  setTimeout(() => { if (dd) dd.value = ''; }, 600);
+}
+
+function openManageSavedBeats() {
+  if (_savedBeatsCache.length === 0) {
+    if (typeof showToast === 'function') showToast('No saved beats to manage');
+    return;
+  }
+  // Build a simple confirmation list
+  const names = _savedBeatsCache.map((b, i) => (i + 1) + '. ' + b.name + (b.sourceSong ? ' — ' + b.sourceSong : '')).join('\n');
+  const choice = prompt('Enter the number of the beat to delete:\n\n' + names);
+  if (!choice) return;
+  const idx = parseInt(choice) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= _savedBeatsCache.length) return;
+  const beat = _savedBeatsCache[idx];
+  if (!confirm('Delete "' + beat.name + '"?')) return;
+  deleteSavedBeat(beat.id);
+}
+
+async function deleteSavedBeat(beatId) {
+  try {
+    await db.collection('saved_beats').doc(beatId).delete();
+    if (typeof showToast === 'function') showToast('Beat deleted');
+    refreshMyBeatsDropdown();
+  } catch(e) {
+    console.error('[SavedBeats] delete error:', e);
+    if (typeof showToast === 'function') showToast('Error deleting beat');
+  }
+}
+
+// Auto-refresh My Beats when drum drawer opens (if user is logged in)
+(function() {
+  var _origOpenSeq = window.openSeqDrawer;
+  if (typeof _origOpenSeq === 'function') {
+    window.openSeqDrawer = function() {
+      _origOpenSeq.apply(this, arguments);
+      if (auth.currentUser) refreshMyBeatsDropdown();
+    };
+  }
+  // Also refresh on auth state change
+  auth.onAuthStateChanged(function(user) {
+    if (user) setTimeout(refreshMyBeatsDropdown, 1500);
+  });
+})();
 
 // ── Unified Control Bar (UCB) — bridge functions ───────────────────────────
 function ucbDrumPatternChanged(val) {
