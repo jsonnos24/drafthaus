@@ -46749,14 +46749,8 @@ function openMixDrawer() {
     body.innerHTML = renderMixDrawerHtml();
     wireMixerInteractions();
   }
-  // Pre-splice 4-track analysers if tracks already have gain nodes (e.g. from prior play)
+  // VU now reads from decoded buffers — no analyser splicing needed
   if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(256);
-  if (typeof _ftEnsureAnalyser === 'function') {
-    var mt = window._mtTracks || [];
-    for (var mi = 0; mi < mt.length; mi++) {
-      if (mt[mi] && mt[mi].gainNode) _ftEnsureAnalyser(mi);
-    }
-  }
   // If a track is armed, ensure mic VU is running so mixer can show armed-track level
   if (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack >= 0) {
     if (typeof _vuActive !== 'undefined' && !_vuActive && typeof _vuStart === 'function') {
@@ -47383,10 +47377,11 @@ function _audioDebugTick() {
   h += 'Seq: ' + anParts.join(' ') + '<br>';
   var ftAnParts = [];
   for (var fi = 0; fi < 4; fi++) {
-    var ftAn = (typeof _ftAnalysers !== 'undefined') ? _ftAnalysers[fi] : null;
-    ftAnParts.push('<span style="color:' + (ftAn ? '#3DC982' : '#555') + '">T' + (fi+1) + (ftAn ? '✓' : '✗') + '</span>');
+    var ftLvl = (typeof _ftVuLevels !== 'undefined') ? _ftVuLevels[fi] : null;
+    var ftActive = ftLvl && (ftLvl.l > 0.001 || ftLvl.r > 0.001);
+    ftAnParts.push('<span style="color:' + (ftActive ? '#3DC982' : '#555') + '">T' + (fi+1) + (ftActive ? '✓' : '✗') + '</span>');
   }
-  h += '4-Tk: ' + ftAnParts.join(' ') + '<br>';
+  h += '4-Tk VU: ' + ftAnParts.join(' ') + '<br>';
 
   // ── 8. Mixer UI Sync ──
   h += '<div style="color:#6BC5FF;font-weight:700;margin:8px 0 2px">MIXER UI ↔ DATA</div>';
@@ -47621,9 +47616,8 @@ function _sigChainTick() {
         html += _sigNodeRow('Track ' + (i+1), null, null, {color: '#444', nameWidth: 70});
         continue;
       }
-      var ftAnalyser = (typeof _ftAnalysers !== 'undefined' && _ftAnalysers) ? _ftAnalysers[i] : null;
       var panVal = t.panNode ? t.panNode.pan.value : (t.pan !== undefined ? t.pan / 100 : 0);
-      html += _sigNodeRow('Track ' + (i+1), t.gainNode, ftAnalyser, {
+      html += _sigNodeRow('Track ' + (i+1), t.gainNode, null, {
         color: ['#ff6b9d','#6bc5ff','#a5ff6b','#ffb86b'][i],
         muted: t.muted,
         soloed: t.soloed,
@@ -47727,12 +47721,11 @@ function _sigChainTick() {
       }).join(' · ')
       + '</div>';
   }
-  if (typeof _ftAnalysers !== 'undefined' && _ftAnalysers) {
-    html += '<div style="padding:2px 0;color:#666">4T analysers: '
-      + _ftAnalysers.map(function(a, i) {
-        if (!a) return '⚫ T' + (i+1);
-        var rms = _sigAnalyserRMS(a);
-        return (rms > 0.001 ? '🟢' : '⚫') + ' T' + (i+1);
+  if (typeof _ftVuLevels !== 'undefined') {
+    html += '<div style="padding:2px 0;color:#666">4T VU (buffer): '
+      + _ftVuLevels.map(function(v, i) {
+        var active = v.l > 0.001 || v.r > 0.001;
+        return (active ? '🟢' : '⚫') + ' T' + (i+1);
       }).join(' · ')
       + '</div>';
   }
@@ -49852,12 +49845,7 @@ function _mtStartPlayback(offsetSec) {
   });
   // Apply mute/solo gain state to all tracks
   if (typeof _mtApplyAllGains === 'function') _mtApplyAllGains();
-  // Eagerly splice in mixer analysers so VU meters respond immediately
-  var _ftDrawerOpen = (typeof ftIsOpen === 'function' && ftIsOpen());
-  if ((_mixDrawerOpen || _ftDrawerOpen) && typeof _ftEnsureAnalyser === 'function') {
-    if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(128);
-    _mtTracks.forEach(function(t, i) { if (t && t.gainNode) _ftEnsureAnalyser(i); });
-  }
+  // VU now reads from decoded buffers — no analyser splicing needed
   const _sb = _el('mtStopBtn'); if (_sb) _sb.disabled = false;
   const _pb = _el('mtPlayBtn'); if (_pb) _pb.disabled = false;
   const _psb = _el('mtPlaySeqBtn'); if (_psb) _psb.disabled = false;
@@ -49896,7 +49884,7 @@ function _mtStopAll() {
 
   _mtIsPlaying = false;
   _mtPlayStartOffset = 0;
-  if (typeof _ftDetachAnalysers === 'function') _ftDetachAnalysers();
+  // _ftDetachAnalysers removed — VU reads from decoded buffers now
   if (!_seqIsConducting && typeof _bgMaybeRelease === 'function') _bgMaybeRelease();
   // Stop unified metronome — but NOT if still recording or if seq is conducting
   var _stillRecording = (typeof _vrRecording !== 'undefined' && _vrRecording);
@@ -49983,11 +49971,7 @@ window._mtSeqPlayTrack = function(trackIdx) {
   t.sourceNode.start(0);
   _mtSeqActiveTracks.add(trackIdx);
   _mtSeqTrackStartCtx[trackIdx] = _mtAudioCtx.currentTime;
-  // Splice in mixer analyser so VU meters work for seq-linked playback
-  if (_mixDrawerOpen && typeof _ftEnsureAnalyser === 'function' && t.gainNode) {
-    if (!_mixSeqAnalyserBuf) _mixSeqAnalyserBuf = new Float32Array(128);
-    _ftEnsureAnalyser(trackIdx);
-  }
+  // VU now reads from decoded buffers — no analyser splicing needed
   // Start the shared seq playhead loop if not already running
   if (!_mtSeqHeadRaf) _mtSeqTickHeads();
 };
@@ -53987,48 +53971,8 @@ function _drawTakeWaveformBuffer(canvas, ctx, W, H, mid, buffer, stripIdx) {
 }
 
 /* ── VU meter animation — reads real track volume ─────────────────────────────── */
-/* ── Per-track AnalyserNode for accurate VU metering ── */
-var _ftAnalysers = [null, null, null, null];
-var _ftAnalyserBuf = null; // shared Float32Array
 /* Shared VU levels — written by ftAnimateVU, read by mixer RAF */
 var _ftVuLevels = [{l:0,r:0},{l:0,r:0},{l:0,r:0},{l:0,r:0}];
-
-function _ftEnsureAnalyser(idx) {
-  var t = _mtTracks[idx];
-  if (!t || !_mtAudioCtx) return null;
-  if (_ftAnalysers[idx]) return _ftAnalysers[idx];
-  /* Only create if there's a gain node to tap into */
-  if (!t.gainNode) return null;
-  var an = _mtAudioCtx.createAnalyser();
-  an.fftSize = 256;
-  an.smoothingTimeConstant = 0.8;
-  /* Splice analyser after gain (before pan/master) */
-  var dest = t.panNode || _mtMasterGain;
-  try { t.gainNode.disconnect(); } catch(e) {}
-  t.gainNode.connect(an);
-  an.connect(dest);
-  _ftAnalysers[idx] = an;
-  if (!_ftAnalyserBuf || _ftAnalyserBuf.length < an.fftSize) {
-    _ftAnalyserBuf = new Float32Array(an.fftSize);
-  }
-  return an;
-}
-
-/* Detach analyser when playback stops — reconnect gainNode directly to pan/master */
-function _ftDetachAnalysers() {
-  for (var di = 0; di < 4; di++) {
-    var an = _ftAnalysers[di];
-    if (!an) continue;
-    var t = _mtTracks[di];
-    if (t && t.gainNode) {
-      var dest = t.panNode || _mtMasterGain;
-      try { t.gainNode.disconnect(); } catch(e) {}
-      try { an.disconnect(); } catch(e) {}
-      if (dest) try { t.gainNode.connect(dest); } catch(e) {}
-    }
-  }
-  _ftAnalysers = [null, null, null, null];
-}
 
 /* Smooth VU ballistics — fast attack, slow decay */
 var _ftVuSmooth = [0,0,0,0];
