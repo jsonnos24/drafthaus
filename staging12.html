@@ -30544,10 +30544,12 @@ async function loadSongsFromSheet() {
     // ── Restore last session state from Firestore ──
     // Loading screen stays up until restore completes (no flashes)
     let _restoredToDetail = false;
+    console.log('[UI-STATE] Restore check — currentId:', currentId, '_lastStateFromFirestore:', JSON.stringify(window._lastStateFromFirestore));
     if (!currentId) {
       const _globalState = window._lastStateFromFirestore || {};
       const lastId = _globalState.lastSongId || _lastSongIdFromFirestore || localStorage.getItem('drafthaus-last-song');
       const lastView = _globalState.lastView || 'detail'; // default to detail for existing users
+      console.log('[UI-STATE] globalState:', JSON.stringify(_globalState), 'lastId:', lastId, 'lastView:', lastView);
       const uid    = auth.currentUser?.uid;
       let restoreSong = lastId ? songs.find(s => s.id === lastId) : null;
       if (!restoreSong && songs.length > 0) {
@@ -30559,9 +30561,11 @@ async function loadSongsFromSheet() {
         // Read per-song uiState from Firestore, then restore atomically behind loading screen
         currentId = restoreSong.id;
         _restoredToDetail = true;
+        console.log('[UI-STATE] Restoring to detail view, songId:', restoreSong.id);
         const _songRef = db.collection('songs').doc(restoreSong.id);
         _songRef.get().then(function(doc) {
           var uiState = doc.exists ? doc.data()?.uiState : null;
+          console.log('[UI-STATE] Firestore uiState read:', uiState ? JSON.stringify(uiState) : 'NULL');
           // If stub, fetch full data first
           if (restoreSong._fromSheet) {
             fetchFullSongFromSheet(restoreSong.id).then(function(full) {
@@ -30695,22 +30699,33 @@ function _uiCaptureState() {
 }
 
 function uiStateSave() {
-  if (_uiRestoring) return; // don't save during restore
+  if (_uiRestoring) { console.log('[UI-STATE] save skipped (restoring)'); return; }
   var uid = auth.currentUser?.uid;
-  if (!uid || !currentId) return;
+  if (!uid || !currentId) { console.log('[UI-STATE] save skipped (no uid/currentId)', uid, currentId); return; }
   if (_uiSaveTimer) clearTimeout(_uiSaveTimer);
   _uiSaveTimer = setTimeout(function() {
     var state = _uiCaptureState();
+    console.log('[UI-STATE] SAVING state:', JSON.stringify(state));
     // Save per-song UI state
     var songRef = db.collection('songs').doc(currentId);
-    songRef.update({ uiState: state }).catch(function(e) {
-      // If doc doesn't exist or permission denied, silently fail
-      console.warn('[UI-STATE] save failed:', e.message);
+    songRef.update({ uiState: state }).then(function() {
+      console.log('[UI-STATE] ✓ song uiState saved to Firestore for', currentId);
+    }).catch(function(e) {
+      console.error('[UI-STATE] ✗ song uiState update FAILED:', e.message, e.code, '— trying set/merge');
+      // Fallback: set with merge if update fails (doc may not exist or rules disallow update)
+      songRef.set({ uiState: state }, { merge: true }).then(function() {
+        console.log('[UI-STATE] ✓ song uiState saved via set/merge for', currentId);
+      }).catch(function(e2) {
+        console.error('[UI-STATE] ✗ song uiState set/merge ALSO FAILED:', e2.message, e2.code);
+      });
     });
     // Save global last state
-    db.collection('users').doc(uid).update({
-      lastState: { lastSongId: currentId, lastView: 'detail', timestamp: Date.now() }
-    }).catch(function() {});
+    var lastState = { lastSongId: currentId, lastView: 'detail', timestamp: Date.now() };
+    db.collection('users').doc(uid).update({ lastState: lastState }).then(function() {
+      console.log('[UI-STATE] ✓ user lastState saved');
+    }).catch(function(e) {
+      console.error('[UI-STATE] ✗ user lastState save FAILED:', e.message, e.code);
+    });
   }, _uiSaveDelay);
 }
 
@@ -30725,9 +30740,11 @@ function _uiDismissLoadingScreen() {
 }
 
 function _uiRestoreFromState(state, song) {
-  if (!song) { _uiDismissLoadingScreen(); return; }
+  console.log('[UI-STATE] _uiRestoreFromState called — state:', state ? JSON.stringify(state) : 'NULL', 'song:', song?.id);
+  if (!song) { console.warn('[UI-STATE] No song, dismissing'); _uiDismissLoadingScreen(); return; }
   // No saved state — fall back to normal openSong flow behind loading screen
   if (!state) {
+    console.log('[UI-STATE] No saved state — falling back to openSong()');
     _uiRestoring = true;
     openSong(song.id);
     // Let openSong's synchronous DOM updates settle, then reveal + save state for next load
