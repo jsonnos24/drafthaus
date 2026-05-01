@@ -25794,13 +25794,33 @@ function ucToggleIoPanel() {
     }, 0);
   }
 }
-// UCB Click — toggle metronome (starts immediately even if nothing is playing)
-function ucToggleClick() {
-  if (typeof seqToggleMet === 'function') seqToggleMet();
-  // If click was just turned ON and nothing is playing, start standalone metro
-  if (typeof seqMetOn !== 'undefined' && seqMetOn && typeof _globalMetroActive !== 'undefined' && !_globalMetroActive) {
+// UCB Click — tap to arm; hold for standalone metronome
+var _ucClickHoldTimer = null;
+var _ucClickDidHold = false;
+function _ucClickDown() {
+  _ucClickDidHold = false;
+  _ucClickHoldTimer = setTimeout(function() {
+    _ucClickDidHold = true;
+    // Turn click ON if not already
+    if (typeof seqMetOn !== 'undefined' && !seqMetOn) {
+      if (typeof seqToggleMet === 'function') seqToggleMet();
+      _ucSyncClickBtn();
+    }
+    // Start standalone metronome
     if (typeof globalMetroStart === 'function') globalMetroStart({ standalone: true });
+  }, 500);
+}
+function _ucClickUp() {
+  if (_ucClickHoldTimer) { clearTimeout(_ucClickHoldTimer); _ucClickHoldTimer = null; }
+  if (!_ucClickDidHold) {
+    // Normal tap — just toggle armed state
+    if (typeof seqToggleMet === 'function') seqToggleMet();
+    _ucSyncClickBtn();
   }
+}
+function ucToggleClick() {
+  // kept for any external callers
+  if (typeof seqToggleMet === 'function') seqToggleMet();
   _ucSyncClickBtn();
 }
 function _ucSyncClickBtn() {
@@ -54354,7 +54374,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     </div>
     <div class="uc-sep"></div>
     <div class="uc-metro-group">
-      <button class="uc-btn uc-click" id="ucClickBtn" onclick="ucToggleClick()" title="Toggle metronome (M)">CLICK</button>
+      <button class="uc-btn uc-click" id="ucClickBtn" onmousedown="_ucClickDown()" onmouseup="_ucClickUp()" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown()" ontouchend="_ucClickUp()" title="Tap to arm · Hold for standalone mode">CLICK</button>
       <span class="uc-bpm-label">BPM:</span>
       <input type="number" class="uc-bpm-input" id="ucBpmInput" value="120" min="40" max="240"
         onfocus="this.select()"
@@ -54385,7 +54405,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <button class="uc-arrow" id="ucRedoBtnM" onclick="ucRedo()" title="Redo">&#8631;</button>
       </div>
       <div class="uc-mob-metro-group">
-        <button class="uc-btn uc-click" id="ucClickBtnM" onclick="ucToggleClick()" title="Toggle metronome">CLICK</button>
+        <button class="uc-btn uc-click" id="ucClickBtnM" onmousedown="_ucClickDown()" onmouseup="_ucClickUp()" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown()" ontouchend="_ucClickUp()" title="Tap to arm · Hold for standalone mode">CLICK</button>
         <span class="uc-bpm-label">BPM:</span>
         <input type="number" class="uc-bpm-input" id="ucBpmInputM" value="120" min="40" max="240"
           onfocus="this.select()"
