@@ -7995,7 +7995,7 @@ body.split-dragging { cursor: col-resize !important; user-select: none; }
 .split-btn { display: none !important; }
 .ks-btn, .ob-help-btn { display: none !important; }
 .header-report-bug { display: none !important; }
-#headerQuota { display: none !important; }
+/* #headerQuota — shown via JS when TIERS_SUSPENDED */
 /* Status pill on desktop: indicator only (no dropdown, no chevron) */
 .header-dropdown { display: none !important; }
 .header-status-btn .chevron { display: none; }
@@ -14752,6 +14752,23 @@ setTimeout(function() {
   </div>
 </div>
 
+<!-- ── Quota Reached Modal ─────────────────────── -->
+<div id="quotaReachedModal" onclick="if(event.target===this)closeQuotaReachedModal()" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.88);align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#0d0f16;border:1px solid #f5c842;border-radius:18px;padding:32px 24px;max-width:420px;width:100%;font-family:'IBM Plex Mono',monospace;text-align:center;margin:auto;">
+    <div style="font-size:36px;margin-bottom:12px;">&#9201;</div>
+    <div style="font-size:16px;font-weight:700;color:#fff;margin-bottom:10px;">Recording Limit Reached</div>
+    <div style="font-size:13px;color:#ccc;line-height:1.6;margin-bottom:16px;">
+      You've used your <strong style="color:#f5c842;">1 hour</strong> of recording storage.<br>
+      Delete some recordings to free up space.
+    </div>
+    <div style="font-size:11px;color:#f5c842;font-weight:600;letter-spacing:0.05em;margin-bottom:20px;">
+      Quotas will increase shortly.
+    </div>
+    <button onclick="openStorageModal();closeQuotaReachedModal();" style="width:100%;background:#f5c842;color:#000;border:none;border-radius:10px;padding:12px 6px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:8px;">Manage Storage</button>
+    <button onclick="closeQuotaReachedModal()" style="width:100%;background:none;border:1px solid #2a2d3a;border-radius:10px;padding:10px 6px;color:#ccc;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;cursor:pointer;">Got it</button>
+  </div>
+</div>
+
 <!-- ── End User Agreement Modal ─────────────────── -->
 <div id="eulaModal" style="display:none;position:fixed;inset:0;z-index:200000;background:rgba(0,0,0,0.92);align-items:center;justify-content:center;padding:20px;overflow-y:auto;">
   <div style="background:#0d0f16;border:1px solid #2a2d3a;border-radius:18px;padding:28px 24px;max-width:600px;width:100%;font-family:'IBM Plex Mono',monospace;margin:auto;max-height:90dvh;display:flex;flex-direction:column;">
@@ -15651,17 +15668,32 @@ const TIER_LIMITS = {
   studio:     { songs: Infinity, recordingMinutes: 600, loops: 4, tracks: 4, exports: Infinity, collab: true, uploadsPerSong: Infinity },
 };
 // Universal limits while tiers are suspended — all features unlocked, 3hr recording cap
-const SUSPENDED_TIER_LIMITS = { songs: Infinity, recordingMinutes: 180, loops: 4, tracks: 4, exports: Infinity, collab: true, uploadsPerSong: Infinity };
+const SUSPENDED_TIER_LIMITS = { songs: Infinity, recordingMinutes: 60, loops: 4, tracks: 4, exports: Infinity, collab: true, uploadsPerSong: Infinity };
 function getTierLimits() {
   if (TIERS_SUSPENDED) return SUSPENDED_TIER_LIMITS;
   return TIER_LIMITS[userTier] || TIER_LIMITS.free;
 }
 
-// ── Hide pricing UI when tiers are suspended ──
+// ── Tier suspension: hide pricing UI + show quota on login ──
 if (TIERS_SUSPENDED) {
   document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.dh-pricing-btn').forEach(el => el.style.display = 'none');
   });
+  // Refresh quota display once user is authenticated
+  const _tierSuspendedQuotaInit = () => {
+    if (typeof auth === 'undefined') return;
+    auth.onAuthStateChanged(u => {
+      if (!u) return;
+      // Small delay to let Firestore data settle
+      setTimeout(() => {
+        if (typeof _vrGetQuota === 'function' && typeof _updateQuotaDisplay === 'function') {
+          _vrGetQuota().then(({ remaining }) => _updateQuotaDisplay(remaining));
+        }
+      }, 1500);
+    });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _tierSuspendedQuotaInit);
+  else _tierSuspendedQuotaInit();
 }
 
 // ── Trial nudge — remind unsigned users to create an account ────
@@ -15764,6 +15796,165 @@ function closeUpgradeModal() {
   const modal = document.getElementById('upgradeModal');
   if (modal) modal.style.display = 'none';
 }
+
+// ── Quota Reached modal ─────────────────────────────��────────────
+let _quotaAlertSentThisSession = false;
+function _showQuotaReachedModal() {
+  const modal = document.getElementById('quotaReachedModal');
+  if (modal) modal.style.display = 'flex';
+  // Fire admin alert (once per session)
+  if (!_quotaAlertSentThisSession && auth.currentUser) {
+    _quotaAlertSentThisSession = true;
+    _sendQuotaAdminAlert();
+  }
+}
+function closeQuotaReachedModal() {
+  const modal = document.getElementById('quotaReachedModal');
+  if (modal) modal.style.display = 'none';
+}
+async function _sendQuotaAdminAlert() {
+  try {
+    const uid = auth.currentUser?.uid;
+    const email = auth.currentUser?.email || 'anonymous';
+    const { used } = await _vrGetQuota();
+    await db.collection('admin_alerts').add({
+      type: 'quota_reached',
+      uid: uid,
+      email: email,
+      totalUsageSec: Math.round(used),
+      timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch(e) { console.warn('[ADMIN ALERT] Failed to send quota alert:', e); }
+}
+
+// ── Analytics event logging (batched) ────────────────────────────
+// Events queue in memory, flush to Firestore as a single batch write
+// after 3 minutes of user inactivity. Also flushes on page unload.
+// Collections: analytics_events, error_logs
+let _dhAnalyticsReady = false;
+let _dhSessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+let _dhEventQueue = [];    // queued analytics events
+let _dhErrorQueue = [];    // queued error logs
+let _dhIdleTimer = null;
+const _DH_IDLE_FLUSH_MS = 3 * 60 * 1000; // 3 minutes
+
+function dhLogEvent(eventName) {
+  if (!_dhAnalyticsReady) return;
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  _dhEventQueue.push({
+    uid: uid,
+    event: eventName,
+    sessionId: _dhSessionId,
+    clientTimestamp: new Date().toISOString()
+  });
+  _dhResetIdleTimer();
+}
+
+function _dhResetIdleTimer() {
+  if (_dhIdleTimer) clearTimeout(_dhIdleTimer);
+  _dhIdleTimer = setTimeout(_dhFlushAll, _DH_IDLE_FLUSH_MS);
+}
+
+async function _dhFlushAll() {
+  _dhFlushEvents();
+  _dhFlushErrors();
+}
+
+async function _dhFlushEvents() {
+  if (_dhEventQueue.length === 0) return;
+  const toFlush = _dhEventQueue.splice(0);
+  try {
+    const batch = db.batch();
+    toFlush.forEach(evt => {
+      const ref = db.collection('analytics_events').doc();
+      batch.set(ref, { ...evt, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
+    });
+    await batch.commit();
+  } catch(e) {
+    // Put them back if flush failed — they'll go next time
+    _dhEventQueue.unshift(...toFlush);
+    console.warn('[ANALYTICS] Batch flush failed:', e);
+  }
+}
+
+async function _dhFlushErrors() {
+  if (_dhErrorQueue.length === 0) return;
+  const toFlush = _dhErrorQueue.splice(0);
+  try {
+    const batch = db.batch();
+    toFlush.forEach(err => {
+      const ref = db.collection('error_logs').doc();
+      batch.set(ref, { ...err, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
+    });
+    await batch.commit();
+  } catch(e) {
+    _dhErrorQueue.unshift(...toFlush);
+  }
+}
+
+// ── Session tracking ────────────────────────────────────────────
+function _dhInitSessionTracking() {
+  if (typeof auth === 'undefined') return;
+  auth.onAuthStateChanged(u => {
+    if (!u) return;
+    _dhAnalyticsReady = true;
+    dhLogEvent('session_start');
+    _dhResetIdleTimer();
+  });
+  // Flush + log session_end on page unload
+  window.addEventListener('beforeunload', () => {
+    if (!_dhAnalyticsReady || !auth.currentUser?.uid) return;
+    dhLogEvent('session_end');
+    // Synchronous flush attempt — batch commit may not complete, but try
+    _dhFlushAll();
+  });
+  // Flush on visibility hidden (mobile backgrounding) — also good checkpoint
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && _dhAnalyticsReady && auth.currentUser?.uid) {
+      dhLogEvent('session_end');
+      _dhFlushAll();
+    } else if (document.visibilityState === 'visible' && _dhAnalyticsReady && auth.currentUser?.uid) {
+      // User returned — start a fresh session segment
+      dhLogEvent('session_start');
+      _dhResetIdleTimer();
+    }
+  });
+  // Also reset idle timer on user interaction
+  ['click', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
+    document.addEventListener(evt, _dhResetIdleTimer, { passive: true, capture: true });
+  });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _dhInitSessionTracking);
+else _dhInitSessionTracking();
+
+// ── Global error handler (batched) ──────────────────────────────
+window.addEventListener('error', function(e) {
+  const uid = (typeof auth !== 'undefined' && auth.currentUser?.uid) || 'anonymous';
+  _dhErrorQueue.push({
+    uid: uid,
+    message: (e.message || '').slice(0, 500),
+    stack: (e.error?.stack || '').slice(0, 1000),
+    url: (e.filename || '').slice(0, 300),
+    line: e.lineno || 0,
+    userAgent: navigator.userAgent,
+    clientTimestamp: new Date().toISOString()
+  });
+  _dhResetIdleTimer();
+});
+window.addEventListener('unhandledrejection', function(e) {
+  const uid = (typeof auth !== 'undefined' && auth.currentUser?.uid) || 'anonymous';
+  _dhErrorQueue.push({
+    uid: uid,
+    message: ('Unhandled Promise: ' + (e.reason?.message || String(e.reason) || '')).slice(0, 500),
+    stack: (e.reason?.stack || '').slice(0, 1000),
+    url: '',
+    line: 0,
+    userAgent: navigator.userAgent,
+    clientTimestamp: new Date().toISOString()
+  });
+  _dhResetIdleTimer();
+});
 
 // ── Upgrade modal billing toggle ──────────────────────────────────
 let _upgradePeriod = 'monthly';
@@ -17258,6 +17449,7 @@ function cancelNewProject() {
 
 // ── Song CRUD ─────────────────────────────────────────────────────
 function newSong() {
+  dhLogEvent('song_create');
   const limits = getTierLimits();
   const uid = auth.currentUser?.uid;
   const myCount = songs.filter(s => !s.ownerId || s.ownerId === uid).length;
@@ -17899,6 +18091,7 @@ function updatePanelTitles(song) {
 
 function closeModal()    { document.getElementById('deleteModal').classList.remove('open'); }
 function doDelete() {
+  dhLogEvent('song_delete');
   const song = getCurrentSong();
   if (song) syncDeleteToSheet(song.id);
   songs = songs.filter(s => s.id !== currentId);
@@ -19199,6 +19392,7 @@ function instAddChordQuick(instId, partId, root, quality) {
 }
 
 function toggleChordPicker(instId, partId) {
+  dhLogEvent('chord_grid_edit');
   const el = document.getElementById(`cpicker-${instId}-${partId}`);
   if (!el) return;
   el.style.display = el.style.display === 'flex' ? 'none' : 'flex';
@@ -20210,6 +20404,7 @@ function _isIOS() {
 }
 
 async function initMidi() {
+  dhLogEvent('midi_connect');
   // ── 1. iOS detection ─────────────────────────────────────────────
   // All browsers on iOS (Chrome, Edge, Firefox, etc.) are required by Apple
   // to use WebKit as their engine. WebKit does not implement the Web MIDI API,
@@ -26506,6 +26701,7 @@ document.addEventListener('click', function(e) {
 
 function seqPlay() {
   if (seqIsPlaying) return;
+  dhLogEvent('sequencer_play');
   if (typeof _trialNudge === 'function') _trialNudge('chord', 3);
 
   // ── Build single-section data from the active sequence (no DOM reads) ──
@@ -32094,6 +32290,7 @@ function renderSharedWithList(song) {
 }
 
 async function submitShare() {
+  dhLogEvent('share_song');
   const email  = document.getElementById('shareEmailInput').value.trim().toLowerCase();
   const role   = document.getElementById('shareRoleSelect')?.value || 'edit';
   const errEl  = document.getElementById('shareError');
@@ -34440,8 +34637,8 @@ function setSplitLeftView(view) {
   }
   var sel = document.getElementById('splitLeftSelect');
   if (sel) sel.value = view;
-  // State persistence for paid users
-  if (typeof userTier !== 'undefined' && userTier !== 'free') {
+  // State persistence for paid users (or all users when tiers suspended)
+  if (TIERS_SUSPENDED || (typeof userTier !== 'undefined' && userTier !== 'free')) {
     try { localStorage.setItem('dh_split_left', view); } catch(e) {}
   }
 }
@@ -39007,6 +39204,7 @@ async function loopHandleTrackClick(i){
 }
 async function loopStartRecording(i){
   _orbitIdleStop(i); // stop idle animation for this ring
+  dhLogEvent('loop_record');
   if (typeof _trialNudge === 'function') _trialNudge('loop', 1);
   // Gate loop count for free tier
   const activeTracks = loopTracks.filter(t => t.buffer || t.state === 'recording').length;
@@ -39014,6 +39212,15 @@ async function loopStartRecording(i){
     showUpgradeModal(`Free plan includes ${getTierLimits().loops} loop. Upgrade to record up to 4 loops.`);
     return;
   }
+  // ── Quota check — block if user has no remaining recording time ──
+  try {
+    const { remaining } = await _vrGetQuota();
+    if (remaining <= 0) {
+      if (typeof _showQuotaReachedModal === 'function') _showQuotaReachedModal();
+      else showToast('Recording limit reached — delete recordings to free up space.', 'warn', 5000);
+      return;
+    }
+  } catch(e) { /* quota check failed — allow recording */ }
   const t=loopTracks[i];const stream=await loopEnsureMicStream();if(!stream)return;
   // Start VU meter now that mic is live (deferred to record click, not drawer open)
   _vuStart();
@@ -45322,6 +45529,7 @@ document.addEventListener('keydown', function(e) {
   if (document.getElementById('onboardingOverlay')?.classList.contains('open')) { obClose(); return; }
   if (document.getElementById('drawerHelpOverlay')?.classList.contains('open')) { closeDrawerHelp(); return; }
   if (document.getElementById('aboutOverlay')?.classList.contains('open'))      { closeAbout(); return; }
+  if (document.getElementById('quotaReachedModal')?.style.display === 'flex')  { closeQuotaReachedModal(); return; }
   if (document.getElementById('upgradeModal')?.style.display === 'flex')       { closeUpgradeModal(); return; }
   if (document.getElementById('shareModal')?.classList.contains('open'))       { closeShareModal(); return; }
   if (document.getElementById('exportModal')?.classList.contains('open'))      { closeExportPanel(); return; }
@@ -48332,6 +48540,7 @@ window.vrToggleRec = async function() {
   console.log('[MIC-DEBUG]   _mtStream:', !!_mtStream, '| active:', _mtStream ? _mtStream.active : 'N/A');
   if (_vrRecording) { _mtStopRecording(); return; }
   if (_mtArmedTrack < 0) { showToast('Arm a track first.', 'warn'); return; }
+  dhLogEvent('mt_record');
   // Trial nudge for unsigned users on record start
   if (typeof _trialNudgeImmediate === 'function') _trialNudgeImmediate('Login to save your recording');
   // Resume AudioContext synchronously here — still inside the user gesture click.
@@ -48342,11 +48551,8 @@ window.vrToggleRec = async function() {
   if (_mtAudioCtx.state === 'suspended') _mtAudioCtx.resume().catch(() => {});
   const { remaining } = await _vrGetQuota();
   if (remaining <= 0) {
-    if (userTier === 'free') {
-      showUpgradeModal(`You've used your ${getTierLimits().recordingMinutes} minutes of free recording storage. Upgrade for more.`);
-    } else {
-      _setStatus('Recording quota full — delete takes to free space');
-    }
+    if (typeof _showQuotaReachedModal === 'function') _showQuotaReachedModal();
+    else _setStatus('Recording quota full — delete takes to free space');
     return;
   }
 
@@ -52762,6 +52968,7 @@ function _ftCompPreviewAnimatePlayhead() {
 
 function ftCompCommit() {
   ftCompStopPreview();
+  dhLogEvent('comp_commit');
   if (!ftCompCuts || ftCompCuts.length === 0) { showToast('No comp cuts to commit.', 'warn'); return; }
   if (!auth.currentUser) { showToast('Please sign in first.', 'warn'); return; }
 
@@ -55482,6 +55689,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
   // ── Open / Close ──
   window.prOpen_ = function() {
+    dhLogEvent('piano_roll_open');
     // If desktop split mode is active but piano roll isn't in the split pane yet, route through split system
     if (typeof _splitActive !== 'undefined' && _splitActive &&
         !document.body.classList.contains('split-pr-active') &&
