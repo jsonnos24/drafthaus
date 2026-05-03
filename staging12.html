@@ -14534,12 +14534,61 @@ body.split-4track-active .ft-overlay { display: none !important; }
   background: rgba(245,166,35,0.08);
 }
 
+/* ── selection rectangle (drag-to-select) ── */
+.pr-select-rect {
+  position: absolute; pointer-events: none; z-index: 25;
+  border: 1.5px solid rgba(120,180,255,0.7);
+  border-radius: 3px;
+  background: linear-gradient(135deg, rgba(80,140,255,0.12), rgba(180,100,255,0.10));
+  box-shadow: 0 0 12px rgba(100,160,255,0.25), inset 0 0 8px rgba(120,180,255,0.08);
+  backdrop-filter: blur(1px);
+  display: none;
+}
+/* multi-selected note glow */
+.pr-note.multi-selected {
+  border-color: rgba(120,180,255,0.9) !important;
+  box-shadow: 0 0 8px rgba(100,160,255,0.5), 0 0 3px rgba(180,130,255,0.4) !important;
+  z-index: 6 !important;
+  filter: brightness(1.15);
+}
+/* drum grid selection rectangle */
+.seq-select-rect {
+  position: absolute; pointer-events: none; z-index: 25;
+  border: 1.5px solid rgba(120,180,255,0.7);
+  border-radius: 3px;
+  background: linear-gradient(135deg, rgba(80,140,255,0.12), rgba(180,100,255,0.10));
+  box-shadow: 0 0 12px rgba(100,160,255,0.25), inset 0 0 8px rgba(120,180,255,0.08);
+  display: none;
+}
+/* drum slot multi-selected */
+.seq-slot.multi-selected {
+  box-shadow: 0 0 8px rgba(100,160,255,0.5), 0 0 3px rgba(180,130,255,0.4) !important;
+  outline: 1.5px solid rgba(120,180,255,0.7);
+  outline-offset: -1px;
+  z-index: 6 !important;
+}
+
 /* ── snap indicator label ── */
 .pr-snap-label {
   position: absolute; top: 4px; right: 10px;
   font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--muted);
   z-index: 2; pointer-events: none;
 }
+
+/* ── Piano roll inside split right pane (desktop) ── */
+#splitRightContent > .pr-panel {
+  position: relative !important;
+  width: 100% !important; max-width: 100% !important;
+  height: 100% !important; max-height: 100% !important;
+  min-height: 0 !important;
+  flex: 1 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+body.split-pr-active .pr-overlay { display: none !important; }
+#splitRightContent > .pr-panel .pr-close-btn { display: none !important; }
+#splitRightContent > .pr-panel .pr-resize-bar { display: none !important; }
 
 /* ── Responsive ── */
 @media (max-width: 700px) {
@@ -14961,7 +15010,7 @@ setTimeout(function() {
           <div class="header-dropdown-sep hla-storage-mobile"></div>
           <div style="padding:6px 12px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:0.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="headerUserEmail"></div>
           <button class="header-dropdown-item" id="headerUpgradeGuestBtn" style="display:none;color:var(--gold);font-weight:700;" onclick="openGuestUpgradeModal();closeHeaderDropdown()">★ Create Account</button>
-          <button class="header-dropdown-item" onclick="showUpgradeModal('');closeHeaderDropdown()">$ Pricing</button>
+          <button class="header-dropdown-item dh-pricing-btn" onclick="showUpgradeModal('');closeHeaderDropdown()">$ Pricing</button>
           <button class="header-dropdown-item" onclick="openAbout();closeHeaderDropdown()">ℹ About Drafthaus</button>
           <button class="header-dropdown-item" onclick="showEulaModal();closeHeaderDropdown()">📄 Terms of Use</button>
           <button class="header-dropdown-item" onclick="showPrivacyModal();closeHeaderDropdown()">🔒 Privacy Policy</button>
@@ -15072,7 +15121,7 @@ setTimeout(function() {
       <span id="hdrMidiLabel">MIDI</span>
       <button id="hdrMidiConnectBtn" onclick="initMidi()" title="Connect MIDI device">Connect</button>
     </div>
-    <button class="split-btn" onclick="showUpgradeModal('')" title="Pricing">Pricing</button>
+    <button class="split-btn dh-pricing-btn" onclick="showUpgradeModal('')" title="Pricing">Pricing</button>
     <button class="split-btn" onclick="openAbout()" title="About Drafthaus">About</button>
     <div class="ks-wrap" id="ksWrap">
       <button class="ks-btn" onclick="toggleKsPanel()" title="Keyboard shortcuts">Keyboard Shortcuts</button>
@@ -15587,6 +15636,10 @@ let userSongOrders = {}; // { projKey: [songId,...] } — manual song order per 
 let userProjColors = {}; // { projPath: '#rrggbb' } — title color per project
 let userTier = 'free'; // 'free' | 'basic' | 'plus' | 'pro' — loaded from Firestore on login
 
+// ── Tier suspension flag ──────────────────────────────────────────
+// Flip to false to re-enable paid tiers
+const TIERS_SUSPENDED = true;
+
 // ── Tier helpers ───────────────────────────────────────────────────
 const TIER_LIMITS = {
   free:  { songs: Infinity, recordingMinutes: 10, loops: 4, tracks: 4, exports: Infinity, collab: false, uploadsPerSong: Infinity },
@@ -15597,7 +15650,19 @@ const TIER_LIMITS = {
   songwriter: { songs: Infinity, recordingMinutes: 240, loops: 4, tracks: 4, exports: Infinity, collab: true, uploadsPerSong: Infinity },
   studio:     { songs: Infinity, recordingMinutes: 600, loops: 4, tracks: 4, exports: Infinity, collab: true, uploadsPerSong: Infinity },
 };
-function getTierLimits() { return TIER_LIMITS[userTier] || TIER_LIMITS.free; }
+// Universal limits while tiers are suspended — all features unlocked, 3hr recording cap
+const SUSPENDED_TIER_LIMITS = { songs: Infinity, recordingMinutes: 180, loops: 4, tracks: 4, exports: Infinity, collab: true, uploadsPerSong: Infinity };
+function getTierLimits() {
+  if (TIERS_SUSPENDED) return SUSPENDED_TIER_LIMITS;
+  return TIER_LIMITS[userTier] || TIER_LIMITS.free;
+}
+
+// ── Hide pricing UI when tiers are suspended ──
+if (TIERS_SUSPENDED) {
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.dh-pricing-btn').forEach(el => el.style.display = 'none');
+  });
+}
 
 // ── Trial nudge — remind unsigned users to create an account ────
 var _trialNudgeCounts = { chord: 0, note: 0, drum: 0, loop: 0 };
@@ -15689,6 +15754,7 @@ function closePrivacyModal() {
 }
 
 function showUpgradeModal(reason) {
+  if (TIERS_SUSPENDED) return; // all features free while tiers are suspended
   const modal = document.getElementById('upgradeModal');
   const reasonEl = document.getElementById('upgradeModalReason');
   if (reasonEl) reasonEl.textContent = reason || 'Upgrade to unlock more features.';
@@ -19572,31 +19638,35 @@ var _kbdActiveSustain = new Map(); // "note:oct" → {src, gain} for live sustai
 // Start looper tracks whose assigned parts include partId; fade out and stop any previously triggered ones.
 // Tracks restart from the beginning on every part transition (even if assigned to both parts).
 function _seqTriggerLoopsForPart(partId) {
+  console.log('[LOOP-TRIGGER] partId:', partId, 'triggered:', Array.from(_seqTriggeredLoopTracks));
   // Bump generation so stale fade-out callbacks become no-ops
   var gen = ++_seqLoopTriggerGen;
-  // Fade out all currently triggered tracks then stop them
-  var fadingTracks = new Set(_seqTriggeredLoopTracks);
-  _seqTriggeredLoopTracks.clear();
-  fadingTracks.forEach(function(i) {
-    var t = loopTracks[i]; if (!t) return;
-    if (t.gainNode && loopAudioCtx) {
-      try {
-        t.gainNode.gain.setValueAtTime(Math.max(t.gainNode.gain.value, 0.001), loopAudioCtx.currentTime);
-        t.gainNode.gain.exponentialRampToValueAtTime(0.001, loopAudioCtx.currentTime + 0.5);
-      } catch(e) {}
-      setTimeout(function() {
-        // Only stop if no newer trigger has started on this track
-        if (_seqLoopTriggerGen !== gen) return;
-        loopStopPlayback(i);
-        t.state = 'idle';
+
+  if (!partId) {
+    console.warn('[LOOP-TRIGGER] null partId — fading ALL triggered loops');
+    // No part — fade out everything
+    var fadingAll = new Set(_seqTriggeredLoopTracks);
+    _seqTriggeredLoopTracks.clear();
+    fadingAll.forEach(function(i) {
+      var t = loopTracks[i]; if (!t) return;
+      if (t.gainNode && loopAudioCtx) {
+        try {
+          t.gainNode.gain.setValueAtTime(Math.max(t.gainNode.gain.value, 0.001), loopAudioCtx.currentTime);
+          t.gainNode.gain.exponentialRampToValueAtTime(0.001, loopAudioCtx.currentTime + 0.5);
+        } catch(e) {}
+        setTimeout(function() {
+          if (_seqLoopTriggerGen !== gen) return;
+          loopStopPlayback(i); t.state = 'idle';
+          try { loopUpdateTrackUI(i); loopDrawRing(t, 0); } catch(e) {}
+        }, 520);
+      } else {
+        loopStopPlayback(i); t.state = 'idle';
         try { loopUpdateTrackUI(i); loopDrawRing(t, 0); } catch(e) {}
-      }, 520);
-    } else {
-      loopStopPlayback(i); t.state = 'idle';
-      try { loopUpdateTrackUI(i); loopDrawRing(t, 0); } catch(e) {}
-    }
-  });
-  if (!partId) return;
+      }
+    });
+    return;
+  }
+
   if (!loopAudioCtx) {
     try {
       loopAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -19607,13 +19677,15 @@ function _seqTriggerLoopsForPart(partId) {
     } catch(e) { return; }
   }
   if (loopAudioCtx.state === 'suspended') loopAudioCtx.resume().catch(function(){});
+
   // Sync parts arrays from saved song data (picks up UI changes without stop/restart)
   var _syncSong = getCurrentSong();
   loopTracks.forEach(function(t, i) {
     var saved = _syncSong?.loopTracks?.[i];
     if (saved) t.parts = saved.parts || (saved.partId ? [saved.partId] : []);
   });
-  // Also resolve tracks linked via the seq-link UI (localStorage, keyed by seqId)
+
+  // Resolve tracks linked via the seq-link UI (localStorage, keyed by seqId)
   var _newLinkedLoopTracks = new Set();
   try {
     var _allSeqs = _syncSong ? getSongSequences(_syncSong) : [];
@@ -19630,11 +19702,53 @@ function _seqTriggerLoopsForPart(partId) {
       });
     }
   } catch(e) {}
-  // Start tracks assigned to the incoming part (always restart from beginning)
+
+  // Determine which tracks should be playing for the new part
+  var _nextActive = new Set();
   loopTracks.forEach(function(t, i) {
-    if ((!_newLinkedLoopTracks.has(i) && (!t.parts || !t.parts.includes(partId))) || t.state === 'recording') return;
+    if (t.state === 'recording') return;
+    var linked = _newLinkedLoopTracks.has(i);
+    var partMatch = t.parts && t.parts.includes(partId);
+    if (linked || partMatch) {
+      if (t.buffer) _nextActive.add(i);
+    }
+  });
+  console.log('[LOOP-TRIGGER] nextActive:', Array.from(_nextActive), 'linked:', Array.from(_newLinkedLoopTracks));
+
+  // Fade out tracks that were triggered but are NOT needed for the new part
+  var _prevTriggered = new Set(_seqTriggeredLoopTracks);
+  _seqTriggeredLoopTracks.clear();
+  _prevTriggered.forEach(function(i) {
+    if (_nextActive.has(i)) {
+      // This track should KEEP PLAYING — don't touch it, just re-register it
+      console.log('[LOOP-TRIGGER] KEEP ALIVE track', i);
+      _seqTriggeredLoopTracks.add(i);
+      return;
+    }
+    // Fade out and stop
+    console.log('[LOOP-TRIGGER] FADE OUT track', i, '(not in nextActive)');
+    var t = loopTracks[i]; if (!t) return;
+    if (t.gainNode && loopAudioCtx) {
+      try {
+        t.gainNode.gain.setValueAtTime(Math.max(t.gainNode.gain.value, 0.001), loopAudioCtx.currentTime);
+        t.gainNode.gain.exponentialRampToValueAtTime(0.001, loopAudioCtx.currentTime + 0.5);
+      } catch(e) {}
+      setTimeout(function() {
+        if (_seqLoopTriggerGen !== gen) return;
+        loopStopPlayback(i); t.state = 'idle';
+        try { loopUpdateTrackUI(i); loopDrawRing(t, 0); } catch(e) {}
+      }, 520);
+    } else {
+      loopStopPlayback(i); t.state = 'idle';
+      try { loopUpdateTrackUI(i); loopDrawRing(t, 0); } catch(e) {}
+    }
+  });
+
+  // Start tracks that are newly needed (weren't already playing)
+  _nextActive.forEach(function(i) {
+    if (_prevTriggered.has(i)) return; // already playing — skip
+    var t = loopTracks[i];
     if (t.buffer) {
-      // Buffer already loaded — start immediately
       t.state = 'playing'; loopStartPlayback(i);
       try { loopUpdateTrackUI(i); } catch(e) {}
       _seqTriggeredLoopTracks.add(i);
@@ -21118,6 +21232,7 @@ function renderSequencerHtml(song) {
       </select>
       <button class="seq-humanize-btn" id="seqHumanizeDrumsBtn" onclick="seqToggleHumanize('drums')" title="Humanize drums — each hit gets slight random timing so it feels like a real drummer">〜 Humanize</button>
       <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="applyDrumPattern('clear')">Clear</button>
+      <button class="seq-btn" style="font-size:9px;padding:4px 9px;background:var(--card2);border:1px solid var(--gold,#f5a623);color:var(--gold,#f5a623);border-radius:4px;cursor:pointer;" onclick="seqDupPattern()" title="Duplicate pattern — double bars and repeat beats">+Dup</button>
       <div style="display:inline-flex;align-items:center;gap:6px;margin-left:2px;border-left:1px solid var(--border2);padding-left:8px;">
         <select class="seq-select" id="myBeatsDropdown" onchange="if(this.value)loadBeatFromLibrary(this.value)" style="width:auto;max-width:180px;">
           <option value="">My Beats</option>
@@ -21203,7 +21318,8 @@ function renderSequencerHtml(song) {
     </div>
 
     <!-- ── Tape Stack: drum voices as collapsible strips ── -->
-    <div class="ts-stack" id="tsDrumStack">
+    <div class="ts-stack" id="tsDrumStack" style="position:relative;">
+      <div class="seq-select-rect" id="seqSelectRect"></div>
       ${[['Kick','seqKick','kick','#e8304a'],['Snare','seqSnare','snare','#87ceeb'],['Hi Hat','seqHat','hat','#f5a623'],['Hi Tom','seqHiTom','hitom','#ff9940'],['Lo Tom','seqLoTom','lotom','#cc7733'],['Crash','seqCrash','crash','#cc88ff'],['Claps','seqClap','clap','#00d26e']].map(([label,id,row,color])=>`
       <div class="ts-strip" data-voice="${row}" id="tsStrip_${row}">
         <div class="ts-strip-head" onclick="_tsToggleCollapse('${row}',event)">
@@ -23742,6 +23858,177 @@ function seqBuildGrids(song) {
   _seqSlotDragSetup();
 }
 
+/* ═══ DRUM GRID: LONG-PRESS DRAG-TO-SELECT + MOVE ═══ */
+(function() {
+  let _dsSelected = new Set(); // set of {voice, idx} keys like "kick:3"
+  let _dsSelecting = null;     // {startX, startY, stackRect} during selection
+  let _dsLongTimer = null;
+  let _dsGroupDrag = null;
+  const DS_HOLD_MS = 300;
+
+  function _dsKey(voice, idx) { return voice + ':' + idx; }
+
+  function _dsClearSelect() {
+    _dsSelected.clear();
+    document.querySelectorAll('.seq-slot.multi-selected').forEach(el => el.classList.remove('multi-selected'));
+  }
+
+  function _dsApplyVisual() {
+    const stack = document.getElementById('tsDrumStack');
+    if (!stack) return;
+    // Go through all drum lanes
+    [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqHiTom','hitom'],['seqLoTom','lotom'],['seqCrash','crash'],['seqClap','clap']].forEach(([elId, voice]) => {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      el.querySelectorAll('.seq-slot').forEach(slot => {
+        const idx = parseInt(slot.dataset.idx);
+        const key = _dsKey(voice, idx);
+        slot.classList.toggle('multi-selected', _dsSelected.has(key));
+      });
+    });
+  }
+
+  // Find slots that overlap a pixel rect relative to tsDrumStack
+  function _dsSlotsInRect(x1, y1, x2, y2) {
+    const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+    const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+    const stack = document.getElementById('tsDrumStack');
+    if (!stack) return new Set();
+    const stackRect = stack.getBoundingClientRect();
+    const hits = new Set();
+
+    [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqHiTom','hitom'],['seqLoTom','lotom'],['seqCrash','crash'],['seqClap','clap']].forEach(([elId, voice]) => {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      el.querySelectorAll('.seq-slot').forEach(slot => {
+        const sr = slot.getBoundingClientRect();
+        // Convert to stack-relative coordinates
+        const sx = sr.left - stackRect.left, sy = sr.top - stackRect.top;
+        const sw = sr.width, sh = sr.height;
+        if (sx + sw > minX && sx < maxX && sy + sh > minY && sy < maxY) {
+          if (slot.classList.contains('drum-on')) {
+            hits.add(_dsKey(voice, parseInt(slot.dataset.idx)));
+          }
+        }
+      });
+    });
+    return hits;
+  }
+
+  // Attach long-press detection to the drum stack
+  function _dsAttach() {
+    const stack = document.getElementById('tsDrumStack');
+    if (!stack || stack._dsAttached) return;
+    stack._dsAttached = true;
+
+    stack.addEventListener('pointerdown', e => {
+      // Only on seq-slot elements
+      const slot = e.target.closest('.seq-slot');
+      if (!slot) return;
+
+      const startX = e.clientX, startY = e.clientY;
+      _dsLongTimer = setTimeout(() => {
+        _dsLongTimer = null;
+        // Cancel the existing drum paint system
+        _drumPaint.active = false;
+        _drumPaint.mode = null;
+        // Release pointer capture so our overlay can track
+        try { slot.releasePointerCapture(e.pointerId); } catch(_) {}
+
+        // Start selection
+        _dsClearSelect();
+        const stackRect = stack.getBoundingClientRect();
+        const sx = startX - stackRect.left, sy = startY - stackRect.top;
+        _dsSelecting = { startX: sx, startY: sy };
+
+        const selectRect = document.getElementById('seqSelectRect');
+        if (selectRect) {
+          selectRect.style.display = 'block';
+          selectRect.style.left = sx + 'px';
+          selectRect.style.top = sy + 'px';
+          selectRect.style.width = '0px';
+          selectRect.style.height = '0px';
+        }
+
+        // Haptic feedback on mobile
+        if (navigator.vibrate) navigator.vibrate(30);
+
+        const onMove = ev => {
+          if (!_dsSelecting) return;
+          ev.preventDefault();
+          const mx = ev.clientX - stackRect.left;
+          const my = ev.clientY - stackRect.top;
+          const rLeft = Math.min(_dsSelecting.startX, mx);
+          const rTop = Math.min(_dsSelecting.startY, my);
+          const rW = Math.abs(mx - _dsSelecting.startX);
+          const rH = Math.abs(my - _dsSelecting.startY);
+
+          if (selectRect) {
+            selectRect.style.left = rLeft + 'px';
+            selectRect.style.top = rTop + 'px';
+            selectRect.style.width = rW + 'px';
+            selectRect.style.height = rH + 'px';
+          }
+
+          _dsSelected = _dsSlotsInRect(rLeft, rTop, rLeft + rW, rTop + rH);
+          _dsApplyVisual();
+        };
+
+        const onUp = () => {
+          if (selectRect) selectRect.style.display = 'none';
+          _dsSelecting = null;
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+        };
+
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+      }, DS_HOLD_MS);
+
+      // Cancel long-press if user moves too much (normal paint)
+      const cancelLong = ev => {
+        if (_dsLongTimer && (Math.abs(ev.clientX - startX) > 8 || Math.abs(ev.clientY - startY) > 8)) {
+          clearTimeout(_dsLongTimer);
+          _dsLongTimer = null;
+          document.removeEventListener('pointermove', cancelLong);
+        }
+      };
+      document.addEventListener('pointermove', cancelLong);
+
+      const cleanup = () => {
+        if (_dsLongTimer) { clearTimeout(_dsLongTimer); _dsLongTimer = null; }
+        document.removeEventListener('pointermove', cancelLong);
+        document.removeEventListener('pointerup', cleanup);
+        document.removeEventListener('pointercancel', cleanup);
+      };
+      document.addEventListener('pointerup', cleanup);
+      document.addEventListener('pointercancel', cleanup);
+    });
+
+    // Click anywhere outside to clear selection
+    document.addEventListener('pointerdown', e => {
+      if (_dsSelected.size > 0 && !e.target.closest('#tsDrumStack')) {
+        _dsClearSelect();
+      }
+    });
+  }
+
+  // Re-attach after each grid rebuild
+  const _origSeqBuildGrids = window.seqBuildGrids;
+  if (typeof _origSeqBuildGrids === 'function') {
+    window.seqBuildGrids = function() {
+      _origSeqBuildGrids.apply(this, arguments);
+      setTimeout(_dsAttach, 50);
+    };
+  }
+  // Also attach on DOMContentLoaded
+  document.addEventListener('DOMContentLoaded', () => setTimeout(_dsAttach, 200));
+
+  // Expose for external use
+  window._dsClearDrumSelect = _dsClearSelect;
+  window._dsGetDrumSelected = function() { return _dsSelected; };
+})();
+
 /* ═══ CHORD GRID SLOT DRAG REARRANGE ═══ */
 function _seqSlotDragSetup() {
   var grid = document.getElementById('seqChordGrid');
@@ -25830,15 +26117,7 @@ function ucEverything() {
       if (!hasLinks) mtPlay();
     } catch(e) { mtPlay(); }
   }
-  // Trigger only the looper tracks linked to the active sequence's part
-  if (typeof loopTracks !== 'undefined') {
-    const song = getCurrentSong();
-    if (song) {
-      const seqs = getSongSequences(song);
-      const seq = seqs[seqActiveIdx];
-      if (seq) _seqTriggerLoopsForPart(seq.partId || seq.part || null);
-    }
-  }
+  // Loop trigger is handled by seqPlay() song-mode startup — no duplicate call needed
 }
 
 // UCB I/O panel toggle
@@ -26642,8 +26921,13 @@ function seqScheduleNotes() {
           if (typeof kbdRenderMelodyTabs === 'function') { const _s = getCurrentSong(); if (_s) kbdRenderMelodyTabs(_s); }
           if (typeof loopRenderPartsStrip === 'function') loopRenderPartsStrip();
           _seqSyncBeatPulse(_seqSongSections[_nextSectionIdx]?.bpm || 120);
-          _seqTriggerLoopsForPart(_nextPartId);
-          _seqTriggerMtTracksForPart(_nextPartId);
+          // Loop + 4-track triggers: only fire from here if TL is NOT handling them
+          // (TL's _tlCheckSectionBoundary already calls _seqTriggerLoopsForPart on section changes)
+          var _tlHandlesLoops = (typeof TL !== 'undefined' && typeof TL.isPlaying === 'function' && TL.isPlaying());
+          if (!_tlHandlesLoops) {
+            _seqTriggerLoopsForPart(_nextPartId);
+            _seqTriggerMtTracksForPart(_nextPartId);
+          }
         }, _sectionAdvanceDelay);
       }
     }
@@ -27991,14 +28275,9 @@ function seqStop(letTracksFinish) {
   if (typeof loopRenderPartsStrip === 'function') loopRenderPartsStrip();
   // Stop any looper tracks that the sequencer triggered
   _seqStopTriggeredLoops();
-  // Also stop ALL playing looper tracks (catches any that escaped the triggered-set)
-  if (typeof loopTracks !== 'undefined') {
-    loopTracks.forEach(function(t, i) {
-      if (t && t.state === 'playing') {
-        try { loopStopPlayback(i); t.state = 'idle'; loopUpdateTrackUI(i); } catch(e) {}
-      }
-    });
-  }
+  // NOTE: Removed blanket kill-all-playing-loops — it was killing loops the user
+  // started manually (not seq-triggered). _seqStopTriggeredLoops() handles the
+  // seq-owned tracks. Manually-started loops should keep playing through seqStop.
   // Stop any 4-track lanes that the sequencer triggered
   // If letTracksFinish is true (natural sequence end), let 4-track audio play to its end
   if (!letTracksFinish && typeof _mtSeqStopAllTracks === 'function') _mtSeqStopAllTracks();
@@ -29088,10 +29367,10 @@ auth.onAuthStateChanged(user => {
           document.getElementById('v4ListWrap').style.display = '';
           if (user.isAnonymous) {
             v4UpdateGoldBanner('guest');
-          } else if (newTier === 'free') {
-            v4UpdateGoldBanner('free');
-          } else {
+          } else if (TIERS_SUSPENDED || newTier !== 'free') {
             v4UpdateGoldBanner('paid');
+          } else {
+            v4UpdateGoldBanner('free');
           }
           document.getElementById('songsGrid').style.display = 'none';
           const _gridHdr = document.getElementById('gridHeader');
@@ -29157,7 +29436,7 @@ auth.onAuthStateChanged(user => {
           appInited = true;
           // Handle ?checkout= param from landing page pricing buttons
           const _checkoutTier = new URLSearchParams(window.location.search).get('checkout');
-          if (_checkoutTier && PRICE_IDS[_checkoutTier]) {
+          if (!TIERS_SUSPENDED && _checkoutTier && PRICE_IDS[_checkoutTier]) {
             // Clean the URL so a refresh doesn't re-trigger
             history.replaceState(null, '', window.location.pathname);
             setTimeout(() => startCheckout(_checkoutTier), 400);
@@ -33762,7 +34041,8 @@ var _splitDrawerMap = {
   keyboard:  { drawerId: 'keyboardDrawer',  overlayId: 'keyboardDrawerOverlay', openFn: openKeyboardDrawer,  closeFn: null },
   sequencer: { drawerId: 'seqDrawer',       overlayId: 'seqDrawerOverlay',      openFn: openSeqDrawer,      closeFn: null },
   looper:    { drawerId: 'looperDrawer',    overlayId: 'looperOverlay',         openFn: openLooperDrawer,   closeFn: null },
-  '4track':  { drawerId: 'ftDrawer',        overlayId: 'ftOverlay',             openFn: null,               closeFn: null, is4track: true }
+  '4track':  { drawerId: 'ftDrawer',        overlayId: 'ftOverlay',             openFn: null,               closeFn: null, is4track: true },
+  pianoroll: { drawerId: 'prPanel',         overlayId: 'prOverlay',             openFn: null,               closeFn: null, isPianoRoll: true }
 };
 
 function openSplitMode(tool) {
@@ -33848,7 +34128,7 @@ function _showSplitRightDefault() {
   if (!el) return;
   el.classList.remove('srd-hidden');
   var name = (auth.currentUser?.displayName || auth.currentUser?.email || '').split(' ')[0].split('@')[0];
-  if (userTier === 'studio' || userTier === 'songwriter') {
+  if (TIERS_SUSPENDED || userTier === 'studio' || userTier === 'songwriter') {
     el.innerHTML = '';
   } else {
     el.innerHTML =
@@ -33967,6 +34247,18 @@ function setSplitRightTool(tool) {
       }
       try { vrOpen(); } catch(e) {}
     }
+  } else if (tool === 'pianoroll') {
+    /* ── Piano Roll in split pane ── */
+    var prPanelEl = document.getElementById('prPanel');
+    if (!prPanelEl) return;
+    if (!_splitOrigParents['pianoroll']) {
+      _splitOrigParents['pianoroll'] = prPanelEl.parentNode;
+    }
+    content.appendChild(prPanelEl);
+    document.body.classList.add('split-pr-active');
+    /* Open / render the piano roll */
+    try { prOpen_(); } catch(e) { console.warn('[split prOpen error]', e); }
+    document.body.style.overflow = '';
   } else {
     var cfg = _splitDrawerMap[tool];
     if (!cfg) return;
@@ -34035,6 +34327,17 @@ function _splitReturnDrawer() {
       try { vrClose(); } catch(e) {}
     }
     document.body.classList.remove('split-4track-active');
+    return;
+  }
+  if (_splitCurrentTool === 'pianoroll') {
+    var prPanelEl = document.getElementById('prPanel');
+    var origParent = _splitOrigParents['pianoroll'];
+    if (prPanelEl && origParent) {
+      origParent.appendChild(prPanelEl);
+      try { prClose(); } catch(e) {}
+    }
+    document.body.classList.remove('split-pr-active');
+    delete _splitOrigParents['pianoroll'];
     return;
   }
   var cfg = _splitDrawerMap[_splitCurrentTool];
@@ -34560,6 +34863,7 @@ function renderKeyboardDrawerHtml(song) {
             </select>
             <span style="flex:1"></span>
             <button class="seq-btn" style="font-size:9px;padding:2px 8px;background:var(--card2);border:1px solid var(--border2);color:var(--purple,#c8a0ff);border-radius:4px;cursor:pointer;" onclick="prOpen_()" title="Open Piano Roll">Piano Roll</button>
+            <button class="seq-btn" style="font-size:9px;padding:2px 8px;background:var(--card2);border:1px solid var(--gold,#f5a623);color:var(--gold,#f5a623);border-radius:4px;cursor:pointer;" onclick="seqDupPattern()" title="Duplicate chord pattern">+Dup</button>
             <button class="seq-btn" style="font-size:9px;padding:2px 8px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="seqClearAllChordSlots()" title="Clear all">Clear ×</button>
           </div>
           <div class="kbd-chord-seq-wrapper" style="margin:0;flex:1;min-height:0;display:flex;flex-direction:column;">
@@ -34670,6 +34974,7 @@ function renderKeyboardDrawerHtml(song) {
               <span class="kbd-stage-section-title" style="margin-bottom:0;">Chord Sequence</span>
               <span style="flex:1"></span>
               <button class="seq-btn" style="font-size:9px;padding:3px 8px;background:var(--card2);border:1px solid var(--border2);color:var(--purple,#c8a0ff);border-radius:4px;cursor:pointer;" onclick="prOpen_()" title="Open Piano Roll">Piano Roll</button>
+              <button class="seq-btn" style="font-size:9px;padding:3px 8px;background:var(--card2);border:1px solid var(--gold,#f5a623);color:var(--gold,#f5a623);border-radius:4px;cursor:pointer;" onclick="seqDupPattern()" title="Duplicate chord pattern">+Dup</button>
               <button class="seq-btn" style="font-size:9px;padding:3px 8px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="seqClearAllChordSlots()" title="Clear all">Clear</button>
             </div>
             <div class="kbd-chord-seq-wrapper" style="margin-bottom:0;">
@@ -35364,6 +35669,27 @@ function kbdBarsChanged(callerVal) {
   if (typeof loopSetBars === 'function') loopSetBars(parseInt(val));
   // Don't pre-save bars — let seqRebuild() detect old→new change and tile patterns
   seqRebuild();
+}
+
+// ── +Dup: duplicate pattern by doubling bars ─────────────────────
+function seqDupPattern() {
+  const barsEl = document.getElementById('seqBars');
+  if (!barsEl) return;
+  const curBars = parseInt(barsEl.value) || 2;
+  if (curBars >= 8) {
+    // Already at max — brief flash to indicate no-op
+    if (barsEl.style) { barsEl.style.outline = '2px solid var(--gold)'; setTimeout(() => { barsEl.style.outline = ''; }, 300); }
+    return;
+  }
+  const newBars = Math.min(8, curBars * 2);
+  // Add the option if it doesn't exist (e.g. going from 1 to 2)
+  if (!barsEl.querySelector('option[value="' + newBars + '"]')) {
+    const opt = document.createElement('option');
+    opt.value = newBars; opt.textContent = newBars;
+    barsEl.appendChild(opt);
+  }
+  barsEl.value = String(newBars);
+  kbdBarsChanged(String(newBars));
 }
 
 // ── Per-instrument step change handlers ──────────────────────────
@@ -37747,6 +38073,8 @@ function openLooperDrawer() {
   loopCheckMicStatus(); // update mic pill and warm up stream if already granted
   // VU meter starts only when record is clicked — not on open
   _drawerMobileHeaderHide();
+  // Start idle orbit animation for empty rings
+  requestAnimationFrame(function() { _orbitIdleStart(); });
 }
 function closeLooperDrawer() {
   if (_splitActive && _splitCurrentTool === 'looper') { splitExpandPane('left'); return; }
@@ -37760,6 +38088,7 @@ function closeLooperDrawer() {
   _vuMaybeStop();
   _sharedHeaderClose();
   _drawerMobileHeaderRestore();
+  _orbitIdleStop(); // stop all idle ring animations
 }
 
 function loopOnSongChange(song) {
@@ -38204,6 +38533,65 @@ function buildOrbitRings() {
   }
 }
 
+// ── Idle orbit animation — planets drift at different speeds when no loops are recorded ──
+var _orbitIdleRafs = [null, null, null, null]; // per-track rAF ids
+var _orbitIdleSpeeds = [0.0004, 0.00025, 0.00055, 0.00015]; // radians per ms — all different
+
+function _orbitIdleStart() {
+  var size = 600, cx = size/2, cy = size/2;
+  var outerR = size * 0.46, innerR = size * 0.26;
+  var ringGap = (outerR - innerR) / 3;
+
+  for (var i = 0; i < 4; i++) {
+    (function(idx) {
+      var t = loopTracks[idx];
+      // Only animate idle+empty tracks
+      if (t.state !== 'idle' || t.buffer) return;
+      // Already animating
+      if (_orbitIdleRafs[idx]) return;
+
+      var r = outerR - idx * ringGap;
+      var planet = document.getElementById('orbit-ring-planet-' + idx);
+      if (!planet) return;
+
+      // Show the planet with dimmed opacity for idle drift
+      planet.style.display = '';
+      var circles = planet.querySelectorAll('circle');
+      if (circles[0]) { circles[0].setAttribute('fill', t.color); circles[0].setAttribute('opacity', '0.12'); }
+      if (circles[1]) { circles[1].setAttribute('fill', t.color); circles[1].setAttribute('opacity', '0.5'); }
+      if (circles[2]) { circles[2].setAttribute('opacity', '0.7'); }
+
+      var angle = -Math.PI/2 + idx * 1.7; // stagger start positions
+      var speed = _orbitIdleSpeeds[idx];
+      var lastT = null;
+
+      function tick(ts) {
+        if (!lastT) lastT = ts;
+        var dt = ts - lastT;
+        lastT = ts;
+        angle += speed * dt;
+        var px = cx + r * Math.cos(angle);
+        var py = cy + r * Math.sin(angle);
+        if (circles[0]) { circles[0].setAttribute('cx', px); circles[0].setAttribute('cy', py); }
+        if (circles[1]) { circles[1].setAttribute('cx', px); circles[1].setAttribute('cy', py); }
+        if (circles[2]) { circles[2].setAttribute('cx', px); circles[2].setAttribute('cy', py); }
+        _orbitIdleRafs[idx] = requestAnimationFrame(tick);
+      }
+      _orbitIdleRafs[idx] = requestAnimationFrame(tick);
+    })(i);
+  }
+}
+
+function _orbitIdleStop(idx) {
+  if (idx !== undefined) {
+    if (_orbitIdleRafs[idx]) { cancelAnimationFrame(_orbitIdleRafs[idx]); _orbitIdleRafs[idx] = null; }
+  } else {
+    for (var j = 0; j < 4; j++) {
+      if (_orbitIdleRafs[j]) { cancelAnimationFrame(_orbitIdleRafs[j]); _orbitIdleRafs[j] = null; }
+    }
+  }
+}
+
 function buildOrbitStarfield() {
   const starfield = document.getElementById('orbitStarfield');
   if (!starfield) return;
@@ -38602,18 +38990,15 @@ async function loopHandleTrackClick(i){
     return;
   }
   const t=loopTracks[i];
-  // Ensure mic stream BEFORE any other await so getUserMedia fires while the
-  // browser still considers this a direct user gesture. Any unrelated await
-  // before getUserMedia (even a resolved one) breaks the gesture chain and
-  // causes browsers to block the permission request.
+  // Stop idle orbit animation for this ring
+  _orbitIdleStop(i);
+  // Idle + empty: trigger the same flow as hitting R / Record (REC picker)
   if(t.state==='idle'&&!t.buffer){
-    const stream=await loopEnsureMicStream();
-    if(!stream)return;
+    if (typeof ucRec === 'function') { ucRec(); return; }
   }
   await loopEnsureAudioCtx();
   if(t.state==='idle'){
     if(t.buffer){t.state='playing';loopStartPlayback(i);loopUpdateTrackUI(i);loopStartMetronome();}
-    else loopStartRecording(i);
   }
   else if(t.state==='preroll')loopClearTrack(i);
   else if(t.state==='recording')loopFinishRecording(i,true);
@@ -38621,6 +39006,7 @@ async function loopHandleTrackClick(i){
   else if(t.state==='muted')loopUnmuteTrack(i);
 }
 async function loopStartRecording(i){
+  _orbitIdleStop(i); // stop idle animation for this ring
   if (typeof _trialNudge === 'function') _trialNudge('loop', 1);
   // Gate loop count for free tier
   const activeTracks = loopTracks.filter(t => t.buffer || t.state === 'recording').length;
@@ -38639,9 +39025,10 @@ async function loopStartRecording(i){
     setTimeout(() => showToast('🎧 Speakers may be muted during recording to prevent feedback — use headphones for zero-latency monitoring.', 'info', 6000), 800);
   }
   t.chunks=[];t.allChunks=[];t.prerollOffset=0;t.state='preroll';t.ledLit=0;
-  t.intendedDuration=(loopBars*4*60)/loopBpm;
+  var _loopTimeSig=parseInt(document.getElementById('seqTime')?.value||getCurrentSong()?.sequencer?.time||4);
+  t.intendedDuration=(loopBars*_loopTimeSig*60)/loopBpm;
   t.recDuration=t.intendedDuration+0.2; // 200ms buffer to prevent end cut-off
-  const prd=(4*60)/loopBpm;t.prerollOffset=prd;
+  const prd=(_loopTimeSig*60)/loopBpm;t.prerollOffset=prd;
   const types=['audio/webm;codecs=opus','audio/webm',''];
   const mime=types.find(m=>!m||MediaRecorder.isTypeSupported(m))||'';
   try{t.mediaRecorder=new MediaRecorder(stream,mime?{mimeType:mime}:{});}
@@ -38732,7 +39119,9 @@ async function loopOnRecordStop(i){
   _scheduleMicInactivityRelease(); // restart countdown — mic no longer actively recording
 }
 function loopStartPlayback(i){
-  const t=loopTracks[i];if(!t.buffer)return;loopStopPlayback(i);
+  const t=loopTracks[i];if(!t.buffer)return;
+  console.log('[LOOP-START] track', i, 'duration:', t.recDuration?.toFixed(2)+'s', 'vol:', t.volume);
+  loopStopPlayback(i);
   t.gainNode=loopAudioCtx.createGain();t.gainNode.gain.value=t.volume/100;t.gainNode.connect(loopMasterGain||loopAudioCtx.destination);
   t.sourceNode=loopAudioCtx.createBufferSource();t.sourceNode.buffer=t.buffer;t.sourceNode.loop=true;t.sourceNode.connect(t.gainNode);t.sourceNode.start();
   if(typeof _bgEnsureKeepAlive==='function')_bgEnsureKeepAlive();
@@ -38742,7 +39131,11 @@ function loopStartPlayback(i){
 }
 function loopStopPlayback(i){
   const t=loopTracks[i];cancelAnimationFrame(t.rafId);
-  if(t.sourceNode){try{t.sourceNode.stop();}catch(e){}t.sourceNode.disconnect();t.sourceNode=null;}
+  if(t.sourceNode){
+    console.warn('[LOOP-STOP] track', i, 'sourceNode stopped');
+    console.trace('[LOOP-STOP] call stack');
+    try{t.sourceNode.stop();}catch(e){}t.sourceNode.disconnect();t.sourceNode=null;
+  }
   if(typeof _bgMaybeRelease==='function')setTimeout(_bgMaybeRelease,50);
 }
 function loopMuteTrack(i){const t=loopTracks[i];t.state='muted';if(t.gainNode)t.gainNode.gain.value=0;cancelAnimationFrame(t.rafId);loopDrawRing(t,0);loopUpdateTrackUI(i);}
@@ -53450,8 +53843,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   <div class="orbit-feedback-warn" id="loopFeedbackWarn" style="display:none">
     ⚠ Mic &amp; speakers on same device — use headphones to prevent feedback.
   </div>
-  <!-- Bars strip (visible on mobile, integrated into left col on desktop) -->
-  <div class="orbit-bars-strip" id="orbitBarsStrip">
+  <!-- Bars strip removed — bars are now controlled globally via UCB/keys/drums/seq -->
+  <div class="orbit-bars-strip" id="orbitBarsStrip" style="display:none !important;">
     <span class="orbit-bars-label">Bars</span>
     <div class="orbit-bar-btn" data-bars="1" onclick="loopSetBars(1)">1</div>
     <div class="orbit-bar-btn" data-bars="2" onclick="loopSetBars(2)">2</div>
@@ -53479,7 +53872,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             </div>
             <button class="orbit-tap-btn" id="loopTapBtn" onclick="loopTapTempo()">tap</button>
           </div>
-          <div class="orbit-bars-section">
+          <!-- Loop length section removed — bars controlled globally -->
+          <div class="orbit-bars-section" style="display:none !important;">
             <div class="orbit-meta-label">Loop length</div>
             <div class="orbit-bars-row" id="orbitBarsRow">
               <div class="orbit-bar-btn" data-bars="1" onclick="loopSetBars(1)">1<span class="orbit-bar-unit">b</span></div>
@@ -54982,6 +55376,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       <button class="pr-tool-btn active" id="prToolPointer" onclick="prSetTool('pointer')" title="Select / Move">▸ Pointer</button>
       <button class="pr-tool-btn" id="prToolPencil" onclick="prSetTool('pencil')" title="Draw Notes">✎ Pencil</button>
       <button class="pr-tool-btn" id="prToolEraser" onclick="prSetTool('eraser')" title="Erase Notes">✕ Eraser</button>
+      <button class="pr-tool-btn" id="prZoomFitBtn" onclick="prZoomToNotes()" title="Zoom to notes">⊕ Zoom</button>
       <span style="flex:1"></span>
       <span class="pr-snap-label" id="prSnapLabel">Snap: 1/16</span>
       <select class="pr-tool-btn" id="prSnapSel" onchange="prSetSnap(this.value)" style="padding:3px 6px;">
@@ -55006,6 +55401,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
               <canvas id="prGridCanvas"></canvas>
             </div>
             <div id="prNotesLayer" style="position:absolute;top:0;left:44px;right:0;bottom:0;z-index:3;"></div>
+            <div class="pr-select-rect" id="prSelectRect"></div>
             <div class="pr-playhead" id="prPlayhead"></div>
             <div class="pr-drop-indicator" id="prDropIndicator"></div>
           </div>
@@ -55086,13 +55482,23 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
   // ── Open / Close ──
   window.prOpen_ = function() {
+    // If desktop split mode is active but piano roll isn't in the split pane yet, route through split system
+    if (typeof _splitActive !== 'undefined' && _splitActive &&
+        !document.body.classList.contains('split-pr-active') &&
+        typeof setSplitRightTool === 'function' && window.innerWidth >= 900) {
+      setSplitRightTool('pianoroll');
+      return;
+    }
+    const inSplit = document.body.classList.contains('split-pr-active');
     const overlay = document.getElementById('prOverlay');
-    if (!overlay) return;
+    if (!inSplit && !overlay) return;
     prOpen = true;
-    overlay.classList.add('open');
+    if (!inSplit) {
+      overlay.classList.add('open');
+    }
     document.body.classList.add('pr-open');
     if (typeof uiStateSave === 'function') uiStateSave();
-    // Delay render so overlay is laid out and has dimensions
+    // Delay render so panel is laid out and has dimensions
     _prSyncEnabled = false; // don't sync during load
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -55112,10 +55518,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   };
 
   window.prClose = function() {
-    const overlay = document.getElementById('prOverlay');
-    if (!overlay) return;
     prOpen = false;
-    overlay.classList.remove('open');
+    const overlay = document.getElementById('prOverlay');
+    if (overlay) overlay.classList.remove('open');
     document.body.classList.remove('pr-open');
     if (typeof uiStateSave === 'function') uiStateSave();
   };
@@ -55138,6 +55543,68 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const label = document.getElementById('prSnapLabel');
     const names = {1:'1/4',2:'1/8',4:'1/16',8:'1/32'};
     if (label) label.textContent = 'Snap: ' + (names[prSnap] || '1/16');
+  };
+
+  // ── Zoom to Notes ──
+  window.prZoomToNotes = function() {
+    const allNotes = prNotes.concat(prDrumNotes || []);
+    if (!allNotes.length) return; // nothing to zoom to
+
+    // Collect all occupied rows (MIDI rows for piano notes, drum voice rows for drum notes)
+    const rowSet = new Set();
+    let minCol = Infinity, maxCol = 0;
+    prNotes.forEach(n => {
+      const row = midiToRow(n.midi);
+      rowSet.add(row);
+      if (n.startCol < minCol) minCol = n.startCol;
+      if (n.startCol + n.durCols > maxCol) maxCol = n.startCol + n.durCols;
+    });
+    if (prDrumNotes && prDrumNotes.length) {
+      // Drum rows sit below piano rows in "both" view, or are the only rows in "drum" view
+      const drumOffset = (prViewMode === 'drum') ? 0 : PR_TOTAL_ROWS + 1; // +1 for separator
+      prDrumNotes.forEach(n => {
+        const di = PR_DRUM_VOICES.findIndex(dv => dv.voice === n.voice);
+        if (di >= 0) rowSet.add(drumOffset + di);
+        if (n.startCol < minCol) minCol = n.startCol;
+        if (n.startCol + n.durCols > maxCol) maxCol = n.startCol + n.durCols;
+      });
+    }
+    if (!rowSet.size) return;
+
+    const rows = Array.from(rowSet).sort((a, b) => a - b);
+    const minRow = rows[0];
+    const maxRow = rows[rows.length - 1];
+
+    // Add 4 rows padding above and below
+    const padTop = Math.max(0, minRow - 4);
+    const padBot = maxRow + 4;
+    const visibleRows = padBot - padTop + 1;
+
+    // Adjust PR_ROW_H so this range fits the visible scroll height
+    const scroll = document.getElementById('prGridScroll');
+    if (!scroll) return;
+    const viewH = scroll.clientHeight;
+    const idealRowH = Math.floor(viewH / visibleRows);
+    PR_ROW_H = Math.max(8, Math.min(40, idealRowH)); // clamp to 8-40
+
+    // Re-render with new row height
+    prRender();
+
+    // Scroll vertically to center on the note region
+    scroll.scrollTop = padTop * PR_ROW_H;
+
+    // Scroll horizontally to the first note
+    if (minCol < Infinity) {
+      const targetX = minCol * PR_COL_W;
+      scroll.scrollLeft = Math.max(0, targetX - 20); // small left padding
+    }
+
+    // Brief flash on the zoom button to confirm action
+    const btn = document.getElementById('prZoomFitBtn');
+    if (btn) {
+      btn.style.background = 'rgba(245,166,35,0.35)';
+      setTimeout(() => { btn.style.background = ''; }, 300);
+    }
   };
 
   // ── View mode toggle (Piano / Drum / Both) ──
@@ -55764,6 +56231,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         layer.appendChild(el);
       });
     }
+    // Preserve multi-selection visual after re-render
+    if (prMultiSelected && prMultiSelected.size > 0) prApplyMultiSelectVisual();
   }
 
   // ── Note interaction: select, move, resize ──
@@ -55773,40 +56242,74 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
     if (prTool === 'eraser') {
       prNotes = prNotes.filter(n => n.id !== noteId);
+      prDrumNotes = prDrumNotes.filter(n => n.id !== noteId);
+      prMultiSelected.delete(noteId);
       prRenderNotes();
       return;
     }
 
+    // If this note is part of a multi-selection, start group drag
+    if (prMultiSelected.has(noteId) && prMultiSelected.size > 1) {
+      const layer = document.getElementById('prNotesLayer');
+      const rect = layer.getBoundingClientRect();
+      const cx = e.touches ? e.touches[0].clientX : e.clientX;
+      const cy = e.touches ? e.touches[0].clientY : e.clientY;
+      prGroupDragStart(e, cx - rect.left, cy - rect.top);
+      return;
+    }
+
+    // Single click on a note: clear multi-select, select just this one
+    prClearMultiSelect();
     prSelected = noteId;
     prRenderNotes();
 
-    const note = prNotes.find(n => n.id === noteId);
+    // Try piano note first, then drum note
+    const note = prNotes.find(n => n.id === noteId) || prDrumNotes.find(n => n.id === noteId);
     if (!note) return;
 
     // Preview the note/chord on tap
-    prPreviewNote(note);
+    if (note.midi !== undefined) prPreviewNote(note);
 
     const rect = document.getElementById('prNotesLayer').getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
-    prDragging = {
-      noteId, mode: 'move',
-      startX: clientX, startY: clientY,
-      origCol: note.startCol, origMidi: note.midi, origDur: note.durCols
-    };
+    if (note.midi !== undefined) {
+      // Piano note drag
+      prDragging = {
+        noteId, mode: 'move',
+        startX: clientX, startY: clientY,
+        origCol: note.startCol, origMidi: note.midi, origDur: note.durCols
+      };
+    } else {
+      // Drum note drag
+      const vi = PR_DRUM_VOICES.findIndex(v => v.voice === note.voice);
+      prDragging = {
+        noteId, mode: 'move',
+        startX: clientX, startY: clientY,
+        origCol: note.startCol, origVoiceIdx: vi, origVoice: note.voice, isDrum: true
+      };
+    }
 
     const onMove = ev => {
-      if (ev.cancelable) ev.preventDefault(); // prevent scroll on touch drag
+      if (ev.cancelable) ev.preventDefault();
       const cx = ev.touches ? ev.touches[0].clientX : ev.clientX;
       const cy = ev.touches ? ev.touches[0].clientY : ev.clientY;
       const dx = cx - prDragging.startX;
       const dy = cy - prDragging.startY;
       const dCols = Math.round(dx / PR_COL_W);
-      const dRows = Math.round(dy / PR_ROW_H);
 
-      note.startCol = Math.max(0, Math.min(prTotalCols - note.durCols, prDragging.origCol + dCols));
-      note.midi = Math.max(PR_MIN_MIDI, Math.min(PR_MAX_MIDI, prDragging.origMidi - dRows));
+      if (prDragging.isDrum) {
+        const drumRowH = (prViewMode === 'drum') ? PR_DRUM_ROW_H : PR_ROW_H;
+        const dRows = Math.round(dy / drumRowH);
+        note.startCol = Math.max(0, Math.min(prTotalCols - note.durCols, prDragging.origCol + dCols));
+        const newVi = Math.max(0, Math.min(PR_DRUM_VOICES.length - 1, prDragging.origVoiceIdx + dRows));
+        note.voice = PR_DRUM_VOICES[newVi].voice;
+      } else {
+        const dRows = Math.round(dy / PR_ROW_H);
+        note.startCol = Math.max(0, Math.min(prTotalCols - note.durCols, prDragging.origCol + dCols));
+        note.midi = Math.max(PR_MIN_MIDI, Math.min(PR_MAX_MIDI, prDragging.origMidi - dRows));
+      }
       prRenderNotes();
     };
 
@@ -55899,6 +56402,241 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     });
+  });
+
+  // ── Multi-select: drag rectangle to select notes ──
+  let prMultiSelected = new Set(); // set of noteIds
+  let _prSelecting = null; // {startX, startY, scrollLeft, scrollTop} during drag-select
+  let _prGroupDrag = null; // {startX, startY, origPositions:[{id,startCol,midi}]} during group move
+
+  // Clear multi-selection
+  function prClearMultiSelect() {
+    prMultiSelected.clear();
+    document.querySelectorAll('.pr-note.multi-selected').forEach(el => el.classList.remove('multi-selected'));
+  }
+
+  // Check which notes fall inside a pixel rect (relative to prNotesLayer)
+  function prNotesInRect(x1, y1, x2, y2) {
+    const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+    const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+    const hits = new Set();
+    // Piano notes
+    if (prViewMode !== 'drum') {
+      prNotes.forEach(n => {
+        const row = midiToRow(n.midi);
+        const nx = colToX(n.startCol);
+        const ny = row * PR_ROW_H;
+        const nw = n.durCols * PR_COL_W;
+        const nh = PR_ROW_H;
+        if (nx + nw > minX && nx < maxX && ny + nh > minY && ny < maxY) hits.add(n.id);
+      });
+    }
+    // Drum notes
+    if (prViewMode === 'drum' || prViewMode === 'both') {
+      const drumRowH = (prViewMode === 'drum') ? PR_DRUM_ROW_H : PR_ROW_H;
+      const drumYOff = (prViewMode === 'both') ? (PR_TOTAL_ROWS * PR_ROW_H + 6) : 0;
+      prDrumNotes.forEach(dn => {
+        const vi = PR_DRUM_VOICES.findIndex(v => v.voice === dn.voice);
+        if (vi < 0) return;
+        const nx = colToX(dn.startCol);
+        const ny = drumYOff + vi * drumRowH;
+        const nw = dn.durCols * PR_COL_W;
+        const nh = drumRowH;
+        if (nx + nw > minX && nx < maxX && ny + nh > minY && ny < maxY) hits.add(dn.id);
+      });
+    }
+    return hits;
+  }
+
+  // Apply multi-selected class to note elements
+  function prApplyMultiSelectVisual() {
+    document.querySelectorAll('.pr-note').forEach(el => {
+      const nid = parseInt(el.dataset.noteId);
+      el.classList.toggle('multi-selected', prMultiSelected.has(nid));
+    });
+  }
+
+  // Is a click on one of the multi-selected notes?
+  function prIsClickOnMultiSelected(x, y) {
+    // Check all multi-selected notes to see if x,y is inside one
+    const allNotes = prNotes.concat(prDrumNotes || []);
+    for (const n of allNotes) {
+      if (!prMultiSelected.has(n.id)) continue;
+      let nx, ny, nw, nh;
+      if (n.midi !== undefined) {
+        // piano note
+        const row = midiToRow(n.midi);
+        nx = colToX(n.startCol); ny = row * PR_ROW_H;
+        nw = n.durCols * PR_COL_W; nh = PR_ROW_H;
+      } else if (n.voice !== undefined) {
+        // drum note
+        const drumRowH = (prViewMode === 'drum') ? PR_DRUM_ROW_H : PR_ROW_H;
+        const drumYOff = (prViewMode === 'both') ? (PR_TOTAL_ROWS * PR_ROW_H + 6) : 0;
+        const vi = PR_DRUM_VOICES.findIndex(v => v.voice === n.voice);
+        if (vi < 0) continue;
+        nx = colToX(n.startCol); ny = drumYOff + vi * drumRowH;
+        nw = n.durCols * PR_COL_W; nh = drumRowH;
+      }
+      if (x >= nx && x < nx + nw && y >= ny && y < ny + nh) return true;
+    }
+    return false;
+  }
+
+  // Handler: pointer tool mousedown/touchstart on empty grid space
+  function prSelectionStart(e) {
+    if (prTool !== 'pointer') return;
+    // Only start on the layer itself (not on a note element)
+    if (e.target !== document.getElementById('prNotesLayer')) return;
+    e.preventDefault();
+
+    const layer = document.getElementById('prNotesLayer');
+    const rect = layer.getBoundingClientRect();
+    const cx = e.touches ? e.touches[0].clientX : e.clientX;
+    const cy = e.touches ? e.touches[0].clientY : e.clientY;
+    const x = cx - rect.left;
+    const y = cy - rect.top;
+
+    // If clicking on a multi-selected note area, start group drag instead
+    if (prMultiSelected.size > 0 && prIsClickOnMultiSelected(x, y)) {
+      prGroupDragStart(e, x, y);
+      return;
+    }
+
+    // Clear previous selection
+    prClearMultiSelect();
+    prSelected = null;
+
+    const scroll = document.getElementById('prGridScroll');
+    _prSelecting = {
+      startX: x, startY: y,
+      scrollLeft: scroll ? scroll.scrollLeft : 0,
+      scrollTop: scroll ? scroll.scrollTop : 0
+    };
+
+    const selectRect = document.getElementById('prSelectRect');
+    if (selectRect) {
+      selectRect.style.display = 'block';
+      selectRect.style.left = (PR_KEY_W + x) + 'px';
+      selectRect.style.top = y + 'px';
+      selectRect.style.width = '0px';
+      selectRect.style.height = '0px';
+    }
+
+    const onMove = ev => {
+      if (!_prSelecting) return;
+      if (ev.cancelable) ev.preventDefault();
+      const mcx = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      const mcy = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      const mx = mcx - rect.left;
+      const my = mcy - rect.top;
+
+      const sx = _prSelecting.startX, sy = _prSelecting.startY;
+      const rLeft = Math.min(sx, mx), rTop = Math.min(sy, my);
+      const rW = Math.abs(mx - sx), rH = Math.abs(my - sy);
+
+      if (selectRect) {
+        selectRect.style.left = (PR_KEY_W + rLeft) + 'px';
+        selectRect.style.top = rTop + 'px';
+        selectRect.style.width = rW + 'px';
+        selectRect.style.height = rH + 'px';
+      }
+
+      // Live highlight: find notes in rect
+      const hits = prNotesInRect(rLeft, rTop, rLeft + rW, rTop + rH);
+      prMultiSelected = hits;
+      prApplyMultiSelectVisual();
+    };
+
+    const onUp = () => {
+      if (selectRect) selectRect.style.display = 'none';
+      _prSelecting = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, {passive: false});
+    document.addEventListener('touchend', onUp);
+  }
+
+  // ── Group drag: move all multi-selected notes together ──
+  function prGroupDragStart(e, startX, startY) {
+    e.preventDefault();
+    // Snapshot original positions
+    const origPositions = [];
+    prNotes.forEach(n => {
+      if (prMultiSelected.has(n.id)) origPositions.push({id: n.id, startCol: n.startCol, midi: n.midi, type: 'piano'});
+    });
+    (prDrumNotes || []).forEach(n => {
+      if (prMultiSelected.has(n.id)) {
+        const vi = PR_DRUM_VOICES.findIndex(v => v.voice === n.voice);
+        origPositions.push({id: n.id, startCol: n.startCol, voiceIdx: vi, voice: n.voice, type: 'drum'});
+      }
+    });
+
+    _prGroupDrag = { startX, startY, origPositions };
+
+    const layer = document.getElementById('prNotesLayer');
+    const rect = layer.getBoundingClientRect();
+
+    const onMove = ev => {
+      if (!_prGroupDrag) return;
+      if (ev.cancelable) ev.preventDefault();
+      const cx = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      const cy = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      const mx = cx - rect.left;
+      const my = cy - rect.top;
+      const dx = mx - _prGroupDrag.startX;
+      const dy = my - _prGroupDrag.startY;
+      const dCols = Math.round(dx / PR_COL_W);
+      const dRows = Math.round(dy / PR_ROW_H);
+
+      _prGroupDrag.origPositions.forEach(op => {
+        if (op.type === 'piano') {
+          const n = prNotes.find(nn => nn.id === op.id);
+          if (n) {
+            n.startCol = Math.max(0, Math.min(prTotalCols - n.durCols, op.startCol + dCols));
+            n.midi = Math.max(PR_MIN_MIDI, Math.min(PR_MAX_MIDI, op.midi - dRows));
+          }
+        } else if (op.type === 'drum') {
+          const n = prDrumNotes.find(nn => nn.id === op.id);
+          if (n) {
+            n.startCol = Math.max(0, Math.min(prTotalCols - n.durCols, op.startCol + dCols));
+            // Snap drum voice to nearest row
+            const newVi = Math.max(0, Math.min(PR_DRUM_VOICES.length - 1, op.voiceIdx + dRows));
+            n.voice = PR_DRUM_VOICES[newVi].voice;
+          }
+        }
+      });
+      prRenderNotes();
+      prApplyMultiSelectVisual();
+    };
+
+    const onUp = () => {
+      _prGroupDrag = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
+      if (typeof prSaveToSequence === 'function') prSaveToSequence();
+      prAutoSync();
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, {passive: false});
+    document.addEventListener('touchend', onUp);
+  }
+
+  // Attach pointer-mode selection handlers
+  document.addEventListener('DOMContentLoaded', () => {
+    const notesLayer = document.getElementById('prNotesLayer');
+    if (!notesLayer) return;
+    notesLayer.addEventListener('mousedown', prSelectionStart);
+    notesLayer.addEventListener('touchstart', prSelectionStart, {passive: false});
   });
 
   // ── Chord palette drag & drop ──
