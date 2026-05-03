@@ -7176,6 +7176,66 @@ body.split-active #splitTransportDock { display: flex; }
   .mt4t-settings-row { display: none !important; }
 }
 /* ══ Unified Control Bar ══ */
+/* ══ REC Mode Picker ══ */
+.rec-picker-overlay {
+  display: none; position: fixed; inset: 0; z-index: 100010;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  align-items: flex-end; justify-content: center;
+  padding-bottom: calc(160px + env(safe-area-inset-bottom, 0px));
+  animation: recPickerFadeIn 0.15s ease-out;
+}
+.rec-picker-overlay.open { display: flex; }
+@keyframes recPickerFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.rec-picker {
+  background: #1a1b22; border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 16px; padding: 16px; min-width: 260px; max-width: 320px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  animation: recPickerSlideUp 0.2s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes recPickerSlideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.rec-picker-title {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint, #888);
+  margin-bottom: 12px; text-align: center;
+}
+.rec-picker-group {
+  display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;
+}
+.rec-picker-group-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint, #666);
+  padding-left: 4px;
+}
+.rec-picker-btn {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04); cursor: pointer; transition: all 0.12s;
+  color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500;
+}
+.rec-picker-btn:active { transform: scale(0.97); }
+.rec-picker-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); }
+.rec-picker-btn.rec-picker-4t { border-left: 3px solid #E8496B; }
+.rec-picker-btn.rec-picker-ck { border-left: 3px solid #4a9eff; }
+.rec-picker-btn .rec-picker-icon { font-size: 18px; width: 24px; text-align: center; flex-shrink: 0; }
+.rec-picker-btn .rec-picker-label { flex: 1; }
+.rec-picker-btn .rec-picker-hint {
+  font-size: 10px; color: var(--faint, #666); font-weight: 400;
+}
+.rec-picker-btn.rec-picker-last {
+  border-color: var(--gold, #f5a623); background: rgba(245,166,35,0.08);
+}
+.rec-picker-cancel {
+  display: block; width: 100%; padding: 10px; margin-top: 6px;
+  border: none; border-radius: 8px; background: rgba(255,255,255,0.06);
+  color: var(--faint, #888); font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  cursor: pointer; text-align: center; transition: background 0.12s;
+}
+.rec-picker-cancel:hover { background: rgba(255,255,255,0.1); }
+/* REC button mode label */
+.uc-rec-mode {
+  font-size: 9px; opacity: 0.7; margin-left: 2px;
+}
+
 .uc-bar {
   position: fixed;
   bottom: calc(52px + env(safe-area-inset-bottom, 0px));
@@ -24440,6 +24500,11 @@ function _seqDurToSlots() {
 function seqClickFillChord(name, degree) {
   seqPlayChordByName(name);
   if (seqChordMode === 'preview') return; // preview only — don't fill the grid
+  // C+K live recording: place at current beat position instead of next empty
+  if (typeof _ckIsRecording !== 'undefined' && _ckIsRecording) {
+    _ckPlaceChordAtBeat(name, degree);
+    return;
+  }
   // Find next empty slot in the chord grid
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
   const emptyIdx = slots.findIndex(s => !s.classList.contains('filled'));
@@ -25549,21 +25614,133 @@ function _ucSyncArrows() {
   });
 }
 
-// UCB Rec — delegates to existing recording logic
+// ── REC Mode Picker ──────────────────────────────────────────────────
+var _recMode = null; // 't1','t2','t3','t4','ck' or null
+var _recPickerOpen = false;
+var _recLongPressTimer = null;
+var _recLongPressed = false;
+
+// Restore saved mode on load
+try { _recMode = localStorage.getItem('drafthaus_rec_mode') || null; } catch(e) {}
+
+function recPickerShow() {
+  var overlay = document.getElementById('recPickerOverlay');
+  if (!overlay) return;
+  // Highlight last-used mode
+  overlay.querySelectorAll('.rec-picker-btn').forEach(function(btn) { btn.classList.remove('rec-picker-last'); });
+  if (_recMode) {
+    var modeMap = { t1: 0, t2: 1, t3: 2, t4: 3, ck: 4 };
+    var btns = overlay.querySelectorAll('.rec-picker-btn');
+    var idx = modeMap[_recMode];
+    if (idx !== undefined && btns[idx]) btns[idx].classList.add('rec-picker-last');
+  }
+  overlay.classList.add('open');
+  _recPickerOpen = true;
+}
+
+function recPickerClose() {
+  var overlay = document.getElementById('recPickerOverlay');
+  if (overlay) overlay.classList.remove('open');
+  _recPickerOpen = false;
+}
+
+function recPickerSelect(mode) {
+  _recMode = mode;
+  try { localStorage.setItem('drafthaus_rec_mode', mode); } catch(e) {}
+  recPickerClose();
+  _ucSyncRecLabel();
+  // Now start recording with the selected mode
+  _ucStartRecWithMode(mode);
+}
+
+function _ucSyncRecLabel() {
+  var labels = { t1: 'T1', t2: 'T2', t3: 'T3', t4: 'T4', ck: 'C+K' };
+  var suffix = _recMode ? ' · ' + (labels[_recMode] || '') : '';
+  ['ucRecBtn','ucRecBtnM'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el || el.classList.contains('uc-recording')) return;
+    el.innerHTML = 'REC' + (suffix ? '<span class="uc-rec-mode">' + suffix + '</span>' : '');
+  });
+}
+
+function _ucStartRecWithMode(mode) {
+  if (!mode) return;
+  if (mode.startsWith('t')) {
+    // 4-track: arm the selected track, then start recording
+    var trackIdx = parseInt(mode.charAt(1)) - 1; // 0-3
+    // Arm the track (mtArmTrack handles tier gating, lock checks, etc.)
+    if (typeof mtArmTrack === 'function') {
+      // If a different track is already armed, arm the new one (mtArmTrack toggles)
+      if (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack >= 0 && _mtArmedTrack !== trackIdx) {
+        mtArmTrack(_mtArmedTrack); // disarm current
+      }
+      if (typeof _mtArmedTrack === 'undefined' || _mtArmedTrack !== trackIdx) {
+        mtArmTrack(trackIdx); // arm selected
+      }
+    }
+    // Short delay to let arm + mic stream settle, then start recording
+    setTimeout(function() {
+      if (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack === trackIdx) {
+        if (typeof ftRecClick === 'function') ftRecClick();
+        else if (typeof vrToggleRec === 'function') vrToggleRec();
+        _ucSetRecState(true);
+      } else {
+        // Arming failed (locked, tier gated, etc.)
+        _ucSetRecState(false);
+      }
+    }, 150);
+  } else if (mode === 'ck') {
+    // Chords & Keys recording — handled by the C+K recording engine
+    if (typeof _ckStartRecording === 'function') {
+      _ckStartRecording();
+      _ucSetRecState(true);
+    } else {
+      showToast('Chords & Keys recording coming soon', 'info', 1800);
+    }
+  }
+}
+
+// UCB Rec — tap to record (saved mode), long-press to change mode
 function ucRec() {
+  // If currently recording, stop/cancel
   if (typeof _vrRecording !== 'undefined' && _vrRecording) {
-    // Currently recording — cancel
-    if (typeof mtCancelRecording === 'function') mtCancelRecording();
+    if (typeof _mtStopRecording === 'function') { try { _mtStopRecording(); } catch(e) {} }
     _ucSetRecState(false);
     return;
   }
-  // Push undo state before recording
-  var snap = _ucCaptureState();
-  if (snap) ucPushUndo(snap, 'recording');
-  // Delegate to existing rec logic
-  if (typeof sharedRec === 'function') sharedRec();
-  _ucSetRecState(true);
+  // If C+K recording is active, stop it
+  if (typeof _ckIsRecording !== 'undefined' && _ckIsRecording) {
+    if (typeof _ckStopRecording === 'function') _ckStopRecording();
+    _ucSetRecState(false);
+    return;
+  }
+  // If long-pressed, the picker is already shown — don't double-fire
+  if (_recLongPressed) { _recLongPressed = false; return; }
+  // No saved mode — show picker
+  if (!_recMode) { recPickerShow(); return; }
+  // Saved mode exists — start recording immediately
+  _ucStartRecWithMode(_recMode);
 }
+
+// Long-press handlers for REC button (attached via onmousedown/ontouchstart)
+function _ucRecDown(e) {
+  _recLongPressed = false;
+  _recLongPressTimer = setTimeout(function() {
+    _recLongPressed = true;
+    recPickerShow();
+  }, 500);
+}
+function _ucRecUp(e) {
+  if (_recLongPressTimer) { clearTimeout(_recLongPressTimer); _recLongPressTimer = null; }
+}
+
+// Sync label on page load
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function() { _ucSyncRecLabel(); });
+} else {
+  setTimeout(_ucSyncRecLabel, 100);
+}
+
 function _ucSetRecState(recording) {
   ['ucRecBtn','ucRecBtnM'].forEach(function(id) {
     var el = document.getElementById(id);
@@ -25572,8 +25749,8 @@ function _ucSetRecState(recording) {
       el.textContent = 'CANCEL';
       el.classList.add('uc-recording');
     } else {
-      el.textContent = 'REC';
       el.classList.remove('uc-recording');
+      _ucSyncRecLabel(); // restore "REC · T2" etc.
     }
   });
   // Dim/undim other buttons during recording
@@ -25616,11 +25793,16 @@ function ucPlay() {
 // UCB Stop — delegates to sharedStop
 // UCB Stop — universal: stops recording AND/OR playback
 function ucStop() {
-  // If recording, stop/cancel recording first
+  // If 4-track recording, stop it
   if (typeof _vrRecording !== 'undefined' && _vrRecording) {
     if (typeof _mtStopRecording === 'function') { try { _mtStopRecording(); } catch(e) { console.warn('[UCB] _mtStopRecording error', e); } }
-    _ucSetRecState(false);
   }
+  // If C+K recording, stop it
+  if (typeof _ckIsRecording !== 'undefined' && _ckIsRecording) {
+    if (typeof _ckStopRecording === 'function') { try { _ckStopRecording(); } catch(e) {} }
+  }
+  // Always reset rec button state (safety net for stuck states)
+  _ucSetRecState(false);
   // Always stop playback too
   if (typeof sharedStop === 'function') { try { sharedStop(); } catch(e) { console.warn('[UCB] sharedStop error', e); } }
   // Explicitly stop metronome (standalone or otherwise)
@@ -27160,7 +27342,7 @@ async function melodyStartRecord() {
   const bpm  = parseFloat(song?.sequencer?.bpm || document.getElementById('seqBpm')?.value || document.getElementById('kbdBpm')?.value || 100);
   const timeSig = parseInt(song?.sequencer?.time || document.getElementById('seqTime')?.value || 4);
   const stepMs  = (60000 / bpm); // one beat in ms
-  const totalCountInBeats = 3; // fixed 3-beat countdown
+  const totalCountInBeats = timeSig; // count-in matches time signature (4 for 4/4, 3 for 3/4, etc.)
 
   // Give the button a quick visual cue that recording is starting
   { const rb = document.getElementById('sharedRecBtn'); if (rb) rb.textContent = '…';
@@ -27377,6 +27559,225 @@ function kbdRenderMelodyTabs(song) {
   // Delegate to unified global strip renderer
   seqRenderSequenceTabs();
 }
+
+// ── Chords & Keys Live Recording Engine ─────────────────────────
+var _ckIsRecording  = false;
+var _ckRecStartTime = null;  // Date.now() at record arm (after count-in)
+var _ckCountingIn   = false;
+var _ckMetWasOff    = false; // track if we auto-enabled metronome
+
+async function _ckStartRecording() {
+  if (_ckIsRecording || _ckCountingIn) return;
+  _ckCountingIn = true;
+
+  const song = getCurrentSong();
+  if (!song) { _ckCountingIn = false; return; }
+
+  const bpm     = parseFloat(song.bpm || song?.sequencer?.bpm || document.getElementById('seqBpm')?.value || 100);
+  const timeSig = parseInt(song?.sequencer?.time || document.getElementById('seqTime')?.value || 4);
+  const stepMs  = 60000 / bpm; // one beat in ms
+  const countInBeats = timeSig; // count-in matches time signature
+
+  // Visual cue: update REC button to show counting
+  _ucSetRecState(true);
+
+  const ctx = getSeqAudioCtx();
+  if (ctx.state === 'suspended') { try { await ctx.resume(); } catch(e) {} }
+
+  // Schedule count-in clicks on audio clock
+  const startTime = ctx.currentTime + 0.05;
+  for (var beat = 0; beat < countInBeats; beat++) {
+    var t = startTime + beat * (stepMs / 1000);
+    seqClick(t, beat === 0);
+  }
+
+  // Show countdown numbers 3...2...1
+  for (var b = 0; b < countInBeats; b++) {
+    (function(beat) {
+      setTimeout(function() {
+        if (!_ckCountingIn) return;
+        _melodyShowCountdown(String(countInBeats - beat));
+      }, beat * stepMs);
+    })(b);
+  }
+
+  // Wait for count-in to finish
+  await new Promise(function(r) { setTimeout(r, countInBeats * stepMs - 20); });
+
+  if (!_ckCountingIn) return; // cancelled during count-in
+  _ckCountingIn = false;
+
+  // ── ARM recording ──
+  _ckIsRecording  = true;
+  _ckRecStartTime = Date.now();
+
+  // Enable melody recording so keyboard notes go into piano roll
+  melodyIsRecording = true;
+  melodyRecStart    = Date.now();
+  melodyNotes       = [];
+  melodyActiveNotes.clear();
+  melodyActiveNote  = null;
+  if (typeof prStartRecording === 'function') prStartRecording();
+
+  // Auto-enable metronome if off
+  if (!seqMetOn) {
+    seqMetOn = true;
+    _ckMetWasOff = true;
+    ['kbdMetBtn', 'sharedMetBtn'].forEach(function(id) {
+      var btn = document.getElementById(id); if (btn) btn.classList.add('on');
+    });
+  }
+
+  // Flash "●" then hide countdown
+  _melodyShowCountdown('●');
+  setTimeout(function() { if (_ckIsRecording) _melodyShowCountdown(null); }, 600);
+
+  // Ensure sequencer DOM exists — may need to render it
+  if (!document.querySelector('#seqChordGrid .seq-slot')) {
+    // Render sequencer into the hidden DOM
+    if (typeof renderSequencerHtml === 'function' && typeof initSequencer === 'function') {
+      var seqC = document.getElementById('seqContainer') || document.getElementById('seqPanel');
+      if (seqC && song.sequencer) {
+        seqC.innerHTML = renderSequencerHtml(song);
+        initSequencer(song);
+      }
+    }
+  }
+
+  // Start sequencer transport
+  if (!seqIsPlaying) seqPlay();
+
+  showToast('Recording C+K — tap chords & play keys', 'info', 2000);
+}
+
+function _ckStopRecording() {
+  if (!_ckIsRecording && !_ckCountingIn) return;
+
+  // If still counting in, just cancel
+  if (_ckCountingIn) {
+    _ckCountingIn = false;
+    _melodyShowCountdown(null);
+    _ucSetRecState(false);
+    return;
+  }
+
+  _ckIsRecording = false;
+
+  // Stop melody recording and finalize notes
+  var stopMs = Date.now();
+  melodyActiveNotes.forEach(function(active) {
+    active.durMs = Math.max(50, stopMs - active.pressedAt);
+    melodyNotes.push({ note: active.note, octave: active.octave, startMs: active.startMs, durMs: active.durMs });
+  });
+  melodyActiveNotes.clear();
+  melodyActiveNote = null;
+  melodyIsRecording = false;
+  if (typeof prStopRecording === 'function') prStopRecording();
+
+  // Quantize melody if enabled
+  var song = getCurrentSong();
+  var quantize = song?.sequencer?.melodyQuantize !== false;
+  if (quantize && melodyNotes.length > 0 && typeof melodyQuantizeNotes === 'function') {
+    melodyQuantizeNotes();
+  }
+
+  // Restore metronome state
+  if (_ckMetWasOff) {
+    _ckMetWasOff = false;
+    seqMetOn = false;
+    if (typeof globalMetroStop === 'function') globalMetroStop();
+    ['kbdMetBtn', 'sharedMetBtn'].forEach(function(id) {
+      var btn = document.getElementById(id); if (btn) btn.classList.remove('on');
+    });
+  }
+
+  // Stop transport
+  if (seqIsPlaying && typeof seqStop === 'function') seqStop();
+
+  // Save melody + chord data
+  if (typeof saveMelody === 'function') saveMelody();
+  if (typeof seqSaveChordSlots === 'function') seqSaveChordSlots();
+
+  // Update UI
+  _ucSetRecState(false);
+  _melodyShowCountdown(null);
+  if (typeof seqRenderMelodyRoll === 'function') seqRenderMelodyRoll();
+
+  showToast('C+K recording saved', 'success', 2000);
+}
+
+// Place a chord at the current beat position during C+K recording
+function _ckPlaceChordAtBeat(name, degree) {
+  if (!_ckIsRecording || !_ckRecStartTime) return false;
+
+  var song = getCurrentSong();
+  if (!song) return false;
+
+  var bpm        = parseFloat(song.bpm || song?.sequencer?.bpm || 100);
+  var timeSig    = parseInt(song?.sequencer?.time || 4);
+  var bars       = parseInt(song?.sequencer?.bars || 4);
+  var chordSteps = parseInt(song?.chordSteps || song?.sequencer?.chordSteps || 1);
+  var totalSlots = timeSig * bars * chordSteps;
+  var loopMs     = (60000 / bpm) * timeSig * bars; // total loop length in ms
+  var slotMs     = loopMs / totalSlots;             // duration of one slot in ms
+
+  var elapsed = Date.now() - _ckRecStartTime;
+  // Wrap around loop boundary
+  var posInLoop = elapsed % loopMs;
+  // Calculate which slot index we're at
+  var slotIdx = Math.floor(posInLoop / slotMs);
+  slotIdx = Math.max(0, Math.min(slotIdx, totalSlots - 1));
+
+  var slots = document.querySelectorAll('#seqChordGrid .seq-slot');
+  if (!slots || slotIdx >= slots.length) return false;
+
+  var slot = slots[slotIdx];
+  _seqSlotSetText(slot, name);
+  slot.classList.add('filled');
+  slot.classList.remove('chord-tail');
+  slot.draggable = true;
+  if (degree !== '' && degree !== undefined) slot.dataset.chordDegree = String(degree);
+  else delete slot.dataset.chordDegree;
+  slot.classList.add('just-dropped');
+  slot.addEventListener('animationend', function() { slot.classList.remove('just-dropped'); }, { once: true });
+
+  // Fill tail slots based on duration setting
+  var durSlots = (typeof _seqDurToSlots === 'function') ? _seqDurToSlots() : 1;
+  for (var ti = 1; ti < durSlots; ti++) {
+    var tailIdx = slotIdx + ti;
+    if (tailIdx >= slots.length) break;
+    if (slots[tailIdx].classList.contains('filled')) break;
+    _seqSlotSetText(slots[tailIdx], name);
+    slots[tailIdx].classList.add('filled', 'chord-tail');
+    if (degree !== '' && degree !== undefined) slots[tailIdx].dataset.chordDegree = String(degree);
+  }
+
+  // Save chord slots live
+  if (typeof seqSaveChordSlots === 'function') seqSaveChordSlots();
+
+  return true; // signal that we handled it
+}
+
+// Keyboard 1-8 → chord degree during C+K recording
+document.addEventListener('keydown', function(e) {
+  if (!_ckIsRecording) return;
+  var num = parseInt(e.key);
+  if (isNaN(num) || num < 1 || num > 8) return;
+  // Don't intercept if user is typing in an input/textarea
+  var tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+  e.preventDefault();
+  var key  = (typeof seqCurrentKey  === 'function') ? seqCurrentKey()  : 'C';
+  var mode = (typeof seqCurrentMode === 'function') ? seqCurrentMode() : 'major';
+  var chords = seqGetScaleChords(key, mode);
+  var idx = num - 1; // 1-based → 0-based
+  if (idx >= chords.length) return;
+  var chordName = chords[idx];
+  // Play the chord and place it at beat position
+  if (typeof seqPlayChordByName === 'function') seqPlayChordByName(chordName);
+  _ckPlaceChordAtBeat(chordName, String(idx));
+});
 
 window.kbdDuplicateMelodySeq = function() {
   const song = getCurrentSong();
@@ -36754,8 +37155,7 @@ document.addEventListener('keydown', function(e) {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key.toLowerCase() === 'r' && !e.shiftKey) {
     e.preventDefault();
-    if (typeof ftRecClick === 'function') ftRecClick();
-    else vrToggleRec();
+    ucRec(); // Use the same picker/mode flow as the REC button
   }
 });
 
@@ -52207,7 +52607,8 @@ function ftShowCountIn() {
 
   var song = getCurrentSong();
   var bpm = song ? (song.bpm || 120) : 120;
-  var totalBeats = ftCountInBars * 4;      // e.g. 2 bars × 4 = 8 beats
+  var timeSig = parseInt(song?.sequencer?.time || document.getElementById('seqTime')?.value || 4);
+  var totalBeats = ftCountInBars * timeSig; // e.g. 2 bars × 4 = 8 beats (or × 3 for 3/4)
   var beatSec = 60 / bpm;                  // one beat in seconds
   var beatMs  = beatSec * 1000;            // one beat in milliseconds
 
@@ -52223,7 +52624,7 @@ function ftShowCountIn() {
   var startTime = ctx.currentTime + 0.05;  // small buffer
   for (var b = 0; b < totalBeats; b++) {
     var t = startTime + b * beatSec;
-    var accent = (b % 4 === 0);            // accent on downbeat of each bar
+    var accent = (b % timeSig === 0);      // accent on downbeat of each bar
     seqClick(t, accent);
   }
 
@@ -52237,12 +52638,23 @@ function ftShowCountIn() {
   // so it rings even if vrToggleRec setup takes a few ms
   seqClick(downbeatTime, true);
 
+  /* ── Rebuild beat dots to match time signature ── */
+  var beatsContainer = document.querySelector('.ft-countin-beats');
+  if (beatsContainer) {
+    beatsContainer.innerHTML = '';
+    for (var d = 0; d < timeSig; d++) {
+      var dot = document.createElement('div');
+      dot.className = 'ft-countin-beat' + (d === 0 ? ' active' : '');
+      beatsContainer.appendChild(dot);
+    }
+  }
+
   /* ── Visual countdown: update display on each beat ── */
   var currentBeat = 0;
   function showBeat() {
-    var barNum    = Math.floor(currentBeat / 4) + 1;
-    var beatInBar = currentBeat % 4;
-    var displayNum = 4 - beatInBar;        // shows 4, 3, 2, 1
+    var barNum    = Math.floor(currentBeat / timeSig) + 1;
+    var beatInBar = currentBeat % timeSig;
+    var displayNum = timeSig - beatInBar;   // shows N, N-1, ..., 1
 
     var numEl = document.getElementById('ftCountInNumber');
     if (numEl) numEl.textContent = displayNum;
@@ -52305,7 +52717,7 @@ document.addEventListener('keydown', function(e) {
   if (target.contentEditable === 'true' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
 
   if (e.code === 'Space') { e.preventDefault(); ftPlayClick(); }
-  else if (e.key === 'r' || e.key === 'R') { ftRecClick(); }
+  else if (e.key === 'r' || e.key === 'R') { ucRec(); }
   else if ((e.key === 'c' || e.key === 'C') && _vrRecording) { e.preventDefault(); mtCancelRecording(); }
   else if (e.key === 'l' || e.key === 'L') { ftLoopClick(); }
   else if (e.key === 'Escape') {
@@ -54261,7 +54673,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     <span class="uc-bar-counter" id="ucBarCounter">1.1 BAR</span>
     <div class="uc-sep"></div>
     <div class="uc-transport-group">
-      <button class="uc-btn uc-rec" id="ucRecBtn" onclick="ucRec()" title="Record (R)">REC</button>
+      <button class="uc-btn uc-rec" id="ucRecBtn" onclick="ucRec()" onmousedown="_ucRecDown(event)" onmouseup="_ucRecUp(event)" onmouseleave="_ucRecUp(event)" ontouchstart="_ucRecDown(event)" ontouchend="_ucRecUp(event)" title="Record (R) · Long-press to change mode">REC</button>
       <button class="uc-btn uc-play" onclick="ucPlay()" title="Play (Space)">PLAY</button>
       <button class="uc-btn uc-stop" onclick="ucStop()" title="Stop (Esc)">STOP</button>
       <button class="uc-btn uc-everything" onclick="ucEverything()" title="Play everything together">EVERYTHING</button>
@@ -54313,7 +54725,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       </div>
     </div>
     <div class="uc-mob-bottom">
-      <button class="uc-btn uc-rec" id="ucRecBtnM" onclick="ucRec()" title="Record">REC</button>
+      <button class="uc-btn uc-rec" id="ucRecBtnM" onclick="ucRec()" onmousedown="_ucRecDown(event)" onmouseup="_ucRecUp(event)" onmouseleave="_ucRecUp(event)" ontouchstart="_ucRecDown(event)" ontouchend="_ucRecUp(event)" title="Record · Long-press to change mode">REC</button>
       <button class="uc-btn uc-play" onclick="ucPlay()" title="Play">PLAY</button>
       <button class="uc-btn uc-stop" onclick="ucStop()" title="Stop">STOP</button>
       <button class="uc-btn uc-everything" onclick="ucEverything()" title="Play everything">EVERYTHING</button>
@@ -54323,6 +54735,40 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   <select id="ucTimeSig" style="display:none;">
     <option value="4">4/4</option><option value="3">3/4</option><option value="2">2/4</option><option value="6">6/8</option><option value="5">5/4</option>
   </select>
+</div>
+
+<!-- ══ REC Mode Picker ══ -->
+<div id="recPickerOverlay" class="rec-picker-overlay" onclick="if(event.target===this)recPickerClose()">
+  <div class="rec-picker">
+    <div class="rec-picker-title">Record to…</div>
+    <div class="rec-picker-group">
+      <div class="rec-picker-group-label">4-Track</div>
+      <button class="rec-picker-btn rec-picker-4t" onclick="recPickerSelect('t1')">
+        <span class="rec-picker-icon">1</span>
+        <span class="rec-picker-label">Track 1</span>
+      </button>
+      <button class="rec-picker-btn rec-picker-4t" onclick="recPickerSelect('t2')">
+        <span class="rec-picker-icon">2</span>
+        <span class="rec-picker-label">Track 2</span>
+      </button>
+      <button class="rec-picker-btn rec-picker-4t" onclick="recPickerSelect('t3')">
+        <span class="rec-picker-icon">3</span>
+        <span class="rec-picker-label">Track 3</span>
+      </button>
+      <button class="rec-picker-btn rec-picker-4t" onclick="recPickerSelect('t4')">
+        <span class="rec-picker-icon">4</span>
+        <span class="rec-picker-label">Track 4</span>
+      </button>
+    </div>
+    <div class="rec-picker-group">
+      <div class="rec-picker-group-label">Sequencer</div>
+      <button class="rec-picker-btn rec-picker-ck" onclick="recPickerSelect('ck')">
+        <span class="rec-picker-icon">♫</span>
+        <span class="rec-picker-label">Chords &amp; Keys</span>
+      </button>
+    </div>
+    <button class="rec-picker-cancel" onclick="recPickerClose()">Cancel</button>
+  </div>
 </div>
 
 <!-- ══ Floating transport — placed last in DOM so it paints above all composited layers ══ -->
