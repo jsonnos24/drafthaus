@@ -22001,6 +22001,7 @@ function seqMgrBarsChanged(idx, val) {
     document.querySelectorAll('[id="kbdBars"]').forEach(function(el) { el.value = val; });
     document.querySelectorAll('[id="seqBars"]').forEach(function(el) { el.value = val; });
     var _mt4tBr = document.getElementById('mt4tBars'); if (_mt4tBr) _mt4tBr.value = val;
+    if (typeof loopSetBars === 'function') loopSetBars(parseInt(val));
   }
   showToast('Bars set to ' + val, 'info', 1200);
 }
@@ -25829,12 +25830,8 @@ function ucEverything() {
       if (!hasLinks) mtPlay();
     } catch(e) { mtPlay(); }
   }
-  // Also unmute/start looper tracks
+  // Trigger only the looper tracks linked to the active sequence's part
   if (typeof loopTracks !== 'undefined') {
-    loopTracks.forEach(function(t, i) {
-      if (t && t.state === 'muted' && t.buffer) loopUnmuteTrack(i);
-    });
-    // Trigger loops for the active section's part
     const song = getCurrentSong();
     if (song) {
       const seqs = getSongSequences(song);
@@ -27187,16 +27184,16 @@ function kbdPlayNote(note, octave, sustained = false) {
       if (sustained) {
         // Attack → sustain hold; release applied by kbdNoteOff on finger-lift
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.75, t + 0.06);
+        gain.gain.linearRampToValueAtTime(1.0, t + 0.04);
         src.connect(gain); gain.connect(seqGetMelodyOut());
         src.start(t);
         _kbdActiveSustain.set(sustKey, { src, gain });
       } else {
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.75, t + 0.06);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 1.8);
+        gain.gain.linearRampToValueAtTime(1.0, t + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 4.0);
         src.connect(gain); gain.connect(seqGetMelodyOut());
-        src.start(t); src.stop(t + 1.9);
+        src.start(t); src.stop(t + 4.2);
       }
       samplerPlayed = true;
     }
@@ -27210,16 +27207,16 @@ function kbdPlayNote(note, octave, sustained = false) {
       src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
       if (sustained) {
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.75, t + 0.06);
+        gain.gain.linearRampToValueAtTime(1.0, t + 0.04);
         src.connect(gain); gain.connect(seqGetMelodyOut());
         src.start(t);
         if (!_melodyInstrHas('piano')) _kbdActiveSustain.set(sustKey, { src, gain });
       } else {
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.75, t + 0.06);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 1.4);
+        gain.gain.linearRampToValueAtTime(1.0, t + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 3.5);
         src.connect(gain); gain.connect(seqGetMelodyOut());
-        src.start(t); src.stop(t + 1.5);
+        src.start(t); src.stop(t + 3.7);
       }
       samplerPlayed = true;
     }
@@ -27233,16 +27230,16 @@ function kbdPlayNote(note, octave, sustained = false) {
       src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
       if (sustained) {
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.75, t + 0.06);
+        gain.gain.linearRampToValueAtTime(1.0, t + 0.04);
         src.connect(gain); gain.connect(seqGetMelodyOut());
         src.start(t);
         _kbdActiveSustain.set(sustKey, { src, gain });
       } else {
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.75, t + 0.06);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+        gain.gain.linearRampToValueAtTime(1.0, t + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 3.0);
         src.connect(gain); gain.connect(seqGetMelodyOut());
-        src.start(t); src.stop(t + 1.6);
+        src.start(t); src.stop(t + 3.2);
       }
       samplerPlayed = true;
     }
@@ -27256,14 +27253,14 @@ function kbdPlayNote(note, octave, sustained = false) {
     o.connect(g); g.connect(seqGetMelodyOut());
     if (sustained) {
       g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.3, t + 0.06);
+      g.gain.linearRampToValueAtTime(0.5, t + 0.04);
       o.start(t);
       _kbdActiveSustain.set(sustKey, { src: o, gain: g });
     } else {
       g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.3, t + 0.06);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
-      o.start(t); o.stop(t + 1.3);
+      g.gain.linearRampToValueAtTime(0.5, t + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 3.0);
+      o.start(t); o.stop(t + 3.2);
     }
   }
 }
@@ -27276,14 +27273,14 @@ function kbdNoteOff(note, octave) {
   _kbdActiveSustain.delete(sustKey);
   const ctx = getSeqAudioCtx();
   const t = ctx.currentTime;
-  const releaseS = 0.25; // 250ms release tail
+  const releaseS = 1.2; // 1.2s release tail — natural piano decay
   try {
     active.gain.gain.cancelScheduledValues(t);
     active.gain.gain.setValueAtTime(Math.max(0.001, active.gain.gain.value), t);
     active.gain.gain.exponentialRampToValueAtTime(0.0001, t + releaseS);
   } catch(e) {}
   const src = active.src;
-  setTimeout(() => { try { src.stop(); } catch(e) {} }, (releaseS + 0.05) * 1000);
+  setTimeout(() => { try { src.stop(); } catch(e) {} }, (releaseS + 0.1) * 1000);
 }
 
 
@@ -35363,6 +35360,8 @@ function kbdBarsChanged(callerVal) {
   document.querySelectorAll('[id="kbdBars"]').forEach(el => { if (el.value !== val) el.value = val; });
   document.querySelectorAll('[id="seqBars"]').forEach(el => { if (el.value !== val) el.value = val; });
   const mt4tBr = document.getElementById('mt4tBars'); if (mt4tBr && mt4tBr.value !== val) mt4tBr.value = val;
+  // Sync looper bars
+  if (typeof loopSetBars === 'function') loopSetBars(parseInt(val));
   // Don't pre-save bars — let seqRebuild() detect old→new change and tile patterns
   seqRebuild();
 }
@@ -38814,6 +38813,11 @@ function loopTapTempo() {
 function loopSetBars(n) {
   loopBars = n;
   orbitSyncBarsUI();
+  // Sync other bar selectors (avoid infinite loop — only call if value differs)
+  var val = String(n);
+  document.querySelectorAll('[id="kbdBars"]').forEach(function(el) { if (el.value !== val) el.value = val; });
+  document.querySelectorAll('[id="seqBars"]').forEach(function(el) { if (el.value !== val) el.value = val; });
+  var mt4tBr = document.getElementById('mt4tBars'); if (mt4tBr && mt4tBr.value !== val) mt4tBr.value = val;
 }
 function loopSetTrackVolume(i, val) {
   const t = loopTracks[i];
