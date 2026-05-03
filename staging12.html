@@ -6593,6 +6593,17 @@ button, select, input, textarea { touch-action: manipulation; }
 .toast-success { background: rgba(100,220,180,0.10); border: 1px solid rgba(100,220,180,0.3); color: var(--teal); }
 @keyframes toastIn  { from{opacity:0;transform:translateY(10px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }
 @keyframes toastOut { from{opacity:1;transform:translateY(0) scale(1)} to{opacity:0;transform:translateY(6px) scale(0.97)} }
+/* Undo/Redo toast — small, top-right, lingers */
+#undo-toast {
+  position: fixed; top: 12px; right: 12px; z-index: 99998;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500;
+  letter-spacing: 0.03em; padding: 8px 14px; border-radius: 6px;
+  background: var(--card2); border: 1px solid var(--border2); color: var(--text);
+  box-shadow: 0 4px 18px rgba(0,0,0,0.45);
+  opacity: 0; pointer-events: none; transition: opacity 0.4s ease;
+}
+#undo-toast.visible { opacity: 1; pointer-events: auto; }
+#undo-toast.fading { opacity: 0; }
 @media(max-width:700px) {
   #toast-container { bottom: 150px; width: calc(100% - 28px); }
   .toast { width: 100%; max-width: 100%; font-size: 12px; }
@@ -15628,7 +15639,24 @@ const db   = firebase.firestore();
   const el = document.createElement('div');
   el.id = 'toast-container';
   document.body.appendChild(el);
+  // Undo/redo toast (small, top-right, lingers 5s then fades)
+  const ut = document.createElement('div');
+  ut.id = 'undo-toast';
+  document.body.appendChild(ut);
 })();
+var _undoToastTimer = null;
+function _showUndoToast(msg) {
+  var el = document.getElementById('undo-toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('fading');
+  el.classList.add('visible');
+  if (_undoToastTimer) clearTimeout(_undoToastTimer);
+  _undoToastTimer = setTimeout(function() {
+    el.classList.add('fading');
+    el.classList.remove('visible');
+  }, 5000);
+}
 function showToast(msg, type = 'info', duration = 3500) {
   const container = document.getElementById('toast-container');
   if (!container) return;
@@ -24027,6 +24055,8 @@ function seqBuildGrids(song) {
   };
 
   window._dtOpenDrumRoll = function() {
+    // Close the seq drawer first so it doesn't sit on top of or behind the piano roll
+    if (typeof closeSeqDrawer === 'function') closeSeqDrawer();
     // Open piano roll in drum view
     if (typeof prOpen_ === 'function') prOpen_();
     // Small delay to let it open, then switch to drum view
@@ -26325,7 +26355,7 @@ function ucUndo() {
   _ucRedoStack.push(current);
   _ucRestoreState(state);
   _ucSyncArrows();
-  showToast('Undo: ' + label, 'info', 1400);
+  _showUndoToast('↩ Undo: ' + label);
 }
 function ucRedo() {
   if (!_ucRedoStack.length) return;
@@ -26336,7 +26366,7 @@ function ucRedo() {
   _ucUndoStack.push(current);
   _ucRestoreState(state);
   _ucSyncArrows();
-  showToast('Redo: ' + label, 'info', 1400);
+  _showUndoToast('↪ Redo: ' + label);
 }
 function _ucCaptureState() {
   // Capture full song state for global undo — deep clone everything mutable
@@ -29508,6 +29538,7 @@ function tabClear(instId, partId) {
   // Clear beats AND chord pills
   const song = getCurrentSong();
   if (song?.instruments?.[instId]?.[partId]) {
+    ucPushUndo(_ucCaptureState(), 'clear instrument');
     song.instruments[instId][partId].chords   = [];
     song.instruments[instId][partId].beatMeta = [];
     song.updatedAt = Date.now();
@@ -30166,7 +30197,7 @@ function openInspoDrawer() {
   // Mobile: only one drawer at a time
   if (window.innerWidth < 768) {
     closeAllDrawers('inspoDrawer');
-    _drawerZCounter++;
+    _drawerZCounter = Math.min(_drawerZCounter + 1, _DRAWER_Z_MAX);
     document.getElementById('inspoDrawer').style.zIndex = _drawerZCounter;
   }
   document.getElementById('inspoDrawer').classList.add('open');
@@ -30988,7 +31019,7 @@ function openRunThroughDrawer() {
   // Mobile: only one drawer at a time
   if (window.innerWidth < 768) {
     closeAllDrawers('runThroughDrawer');
-    _drawerZCounter++;
+    _drawerZCounter = Math.min(_drawerZCounter + 1, _DRAWER_Z_MAX);
     var _rtEl = document.getElementById('runThroughDrawer');
     if (_rtEl) _rtEl.style.zIndex = _drawerZCounter;
   }
@@ -36096,6 +36127,7 @@ function kbdBpmChanged(callerVal) {
   const song = getCurrentSong();
   if (!song) return;
   seqGetData(song);
+  if (String(song.bpm) !== String(val)) ucPushUndo(_ucCaptureState(), 'BPM change');
   song.sequencer.bpm = val;
   song.bpm = val;
   song.updatedAt = Date.now();
@@ -36224,7 +36256,7 @@ function openKeyboardDrawer() {
   // Mobile: only one drawer at a time
   if (window.innerWidth < 768) {
     closeAllDrawers('keyboardDrawer');
-    _drawerZCounter++;
+    _drawerZCounter = Math.min(_drawerZCounter + 1, _DRAWER_Z_MAX);
     document.getElementById('keyboardDrawer').style.zIndex = _drawerZCounter;
   }
   _setNavOpen('nav-keyboard', true);
@@ -36375,7 +36407,7 @@ function openSeqDrawer() {
   // Mobile: only one drawer at a time
   if (window.innerWidth < 768) {
     closeAllDrawers('seqDrawer');
-    _drawerZCounter++;
+    _drawerZCounter = Math.min(_drawerZCounter + 1, _DRAWER_Z_MAX);
     document.getElementById('seqDrawer').style.zIndex = _drawerZCounter;
   }
   _setNavOpen('nav-sequencer', true);
@@ -38519,7 +38551,7 @@ function openLooperDrawer() {
   // Mobile: only one drawer at a time
   if (window.innerWidth < 768) {
     closeAllDrawers('looperDrawer');
-    _drawerZCounter++;
+    _drawerZCounter = Math.min(_drawerZCounter + 1, _DRAWER_Z_MAX);
     var _looperEl = document.getElementById('looperDrawer');
     if (_looperEl) _looperEl.style.zIndex = _drawerZCounter;
   }
@@ -45638,9 +45670,13 @@ function closeAllDrawers(exceptId) {
   });
   // Restore auto-scroll controls when all drawers close in perf mode
   if (!exceptId) _syncPerfControlsVisibility();
+  // Reset z-counter when no drawers remain open (prevents runaway z-index)
+  const anyOpen = document.querySelector('.seq-drawer.open, #inspoDrawer.open, #runThroughDrawer.open, #keyboardDrawer.open, #looperDrawer.open, #mixDrawer.open');
+  if (!anyOpen) _drawerZCounter = 980;
 }
 
-var _drawerZCounter = 980; // starts above all base drawer z-indexes (940-970)
+var _drawerZCounter = 980; // starts above all base drawer z-indexes (940-970), capped below piano roll (8000)
+const _DRAWER_Z_MAX = 7000;
 function toggleDrawer(drawerId, openFn, closeFn) {
   const drawer = document.getElementById(drawerId);
   if (drawer && drawer.classList.contains('open')) {
@@ -45654,7 +45690,7 @@ function toggleDrawer(drawerId, openFn, closeFn) {
     openFn();
     // On mobile, boost z-index so newly opened drawer is always on top
     if (window.innerWidth < 768 && drawer) {
-      _drawerZCounter++;
+      _drawerZCounter = Math.min(_drawerZCounter + 1, _DRAWER_Z_MAX);
       drawer.style.zIndex = _drawerZCounter;
     }
     // Hide auto-scroll when a drawer opens during rehearse mode
@@ -56778,11 +56814,19 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
     if (note.midi !== undefined) {
-      // Piano note drag
+      // Piano note drag — detect if it's part of a chord group
+      const isChord = !note.isPencil && note.chordName;
+      let chordSiblings = [];
+      let siblingOrigMidis = [];
+      if (isChord) {
+        chordSiblings = prNotes.filter(n => n.chordName === note.chordName && n.startCol === note.startCol && !n.isPencil);
+        siblingOrigMidis = chordSiblings.map(n => n.midi);
+      }
       prDragging = {
         noteId, mode: 'move',
         startX: clientX, startY: clientY,
-        origCol: note.startCol, origMidi: note.midi, origDur: note.durCols
+        origCol: note.startCol, origMidi: note.midi, origDur: note.durCols,
+        isChord, chordSiblings, siblingOrigMidis
       };
     } else {
       // Drum note drag
@@ -56808,6 +56852,14 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         note.startCol = Math.max(0, Math.min(prTotalCols - note.durCols, prDragging.origCol + dCols));
         const newVi = Math.max(0, Math.min(PR_DRUM_VOICES.length - 1, prDragging.origVoiceIdx + dRows));
         note.voice = PR_DRUM_VOICES[newVi].voice;
+      } else if (prDragging.isChord) {
+        // Chord drag — move all notes in the chord by the same semitone delta
+        const dRows = Math.round(dy / PR_ROW_H);
+        const semiDelta = -dRows; // up = higher pitch
+        prDragging.chordSiblings.forEach((n, idx) => {
+          n.midi = Math.max(PR_MIN_MIDI, Math.min(PR_MAX_MIDI, prDragging.siblingOrigMidis[idx] + semiDelta));
+          n.startCol = Math.max(0, Math.min(prTotalCols - n.durCols, prDragging.origCol + dCols));
+        });
       } else {
         const dRows = Math.round(dy / PR_ROW_H);
         note.startCol = Math.max(0, Math.min(prTotalCols - note.durCols, prDragging.origCol + dCols));
@@ -56817,13 +56869,31 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     };
 
     const onUp = () => {
+      // If chord was dragged vertically, update chord name based on new root
+      if (prDragging && prDragging.isChord && prDragging.chordSiblings.length) {
+        const semiDelta = note.midi - prDragging.origMidi;
+        if (semiDelta !== 0) {
+          const oldName = note.chordName;
+          // Parse old chord: root + quality
+          let oldRoot, qual;
+          if (oldName.length >= 2 && oldName[1] === '#') { oldRoot = oldName.slice(0, 2); qual = oldName.slice(2); }
+          else { oldRoot = oldName[0]; qual = oldName.slice(1); }
+          const oldRootIdx = SEQ_NOTES.indexOf(oldRoot);
+          if (oldRootIdx >= 0) {
+            const newRootIdx = ((oldRootIdx + semiDelta) % 12 + 12) % 12;
+            const newChordName = SEQ_NOTES[newRootIdx] + qual;
+            // Update all siblings with new chord name
+            prDragging.chordSiblings.forEach(n => { n.chordName = newChordName; });
+          }
+        }
+      }
       prDragging = null;
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
       document.removeEventListener('touchmove', onMove);
       document.removeEventListener('touchend', onUp);
-      // Save after drag
-      if (typeof prSaveToSequence === 'function') prSaveToSequence();
+      // Save after drag — triggers two-way sync to chord sequence
+      prAutoSync();
     };
 
     document.addEventListener('mousemove', onMove);
@@ -56856,7 +56926,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       document.removeEventListener('touchmove', onMove);
       document.removeEventListener('touchend', onUp);
       // Save after resize
-      if (typeof prSaveToSequence === 'function') prSaveToSequence();
+      prAutoSync();
     };
 
     document.addEventListener('mousemove', onMove);
@@ -57119,12 +57189,34 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     };
 
     const onUp = () => {
+      // Update chord names for any chord notes that moved vertically
+      if (_prGroupDrag) {
+        _prGroupDrag.origPositions.forEach(op => {
+          if (op.type !== 'piano') return;
+          const n = prNotes.find(nn => nn.id === op.id);
+          if (!n || n.isPencil || !n.chordName) return;
+          const semiDelta = n.midi - op.midi;
+          if (semiDelta === 0) return;
+          // Only update once per chord group (check if this is the first note in group)
+          const siblings = prNotes.filter(sn => sn.chordName === n.chordName && sn.startCol === n.startCol && !sn.isPencil && prMultiSelected.has(sn.id));
+          if (siblings[0].id !== n.id) return; // skip — first sibling handles it
+          const oldName = n.chordName;
+          let oldRoot, qual;
+          if (oldName.length >= 2 && oldName[1] === '#') { oldRoot = oldName.slice(0, 2); qual = oldName.slice(2); }
+          else { oldRoot = oldName[0]; qual = oldName.slice(1); }
+          const oldRootIdx = SEQ_NOTES.indexOf(oldRoot);
+          if (oldRootIdx >= 0) {
+            const newRootIdx = ((oldRootIdx + semiDelta) % 12 + 12) % 12;
+            const newChordName = SEQ_NOTES[newRootIdx] + qual;
+            siblings.forEach(sn => { sn.chordName = newChordName; });
+          }
+        });
+      }
       _prGroupDrag = null;
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
       document.removeEventListener('touchmove', onMove);
       document.removeEventListener('touchend', onUp);
-      if (typeof prSaveToSequence === 'function') prSaveToSequence();
       prAutoSync();
     };
 
@@ -57620,9 +57712,16 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   window.prLoadDrumData = function() { if (prOpen) prLoadDrumData(); };
   window.prRenderNotes  = function() { if (prOpen) prRenderNotes(); };
 
+  var _prLastUndoPush = 0; // throttle: don't push undo more than once per 2s
   window.prSavePianoRoll = function() {
     const song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
     if (!song || !song.sequencer) return;
+    // Push undo (throttled to avoid flooding stack on rapid edits)
+    const now = Date.now();
+    if (now - _prLastUndoPush > 2000 && typeof ucPushUndo === 'function') {
+      ucPushUndo(_ucCaptureState(), 'piano roll edit');
+      _prLastUndoPush = now;
+    }
     // Save prNotes as a lightweight array
     song.sequencer.pianoRoll = prNotes.map(function(n) {
       return {
