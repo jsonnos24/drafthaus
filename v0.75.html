@@ -9439,9 +9439,16 @@ body.songlist-active.split-active #viewList {
     background: rgba(245,166,35,0.15); color: var(--gold);
     border-color: rgba(245,166,35,0.5);
   }
-  /* ── Hide slots outside active bar ── */
+  /* ── Hide slots outside active bar (drums + chords) ── */
   .ts-lane.mob-bar-view .seq-slot { display: none !important; }
   .ts-lane.mob-bar-view .seq-slot.mob-bar-visible { display: flex !important; }
+  #seqChordGrid.mob-bar-view .seq-slot { display: none !important; }
+  #seqChordGrid.mob-bar-view .seq-slot.mob-bar-visible { display: flex !important; }
+  /* When mob-bar-view is active, chord grid shows one bar at a time —
+     override --chord-cols to chordSteps (set by JS as --chord-cols-per-beat) */
+  #seqChordGrid.mob-bar-view {
+    grid-template-columns: repeat(var(--chord-cols-per-beat, 4), 1fr) !important;
+  }
   /* ── Taller drum rows in portrait ── */
   .ts-lane { height: 56px !important; gap: 2px !important; }
   .ts-strip-body { padding: 6px 8px 10px !important; gap: 4px !important; }
@@ -22109,10 +22116,20 @@ function initSequencer(song) {
   });
 }
 
-/* ── v1.5: Mobile drum bar navigation ─────────────────────────────── */
+/* ── v1.5: Mobile bar navigation (drums + chords) ────────────────── */
 var _mobDrumBar = 0; // 0-based current bar index
 function _mobDrumBarInit() {
-  if (window.innerWidth > 700 || window.matchMedia('(orientation:landscape)').matches) return;
+  if (window.innerWidth > 700 || window.matchMedia('(orientation:landscape)').matches) {
+    // Clean up mob-bar-view on landscape/desktop so all slots show
+    var cg = document.getElementById('seqChordGrid');
+    if (cg) { cg.classList.remove('mob-bar-view'); cg.querySelectorAll('.seq-slot').forEach(function(s) { s.classList.remove('mob-bar-visible'); }); }
+    var dl = document.querySelectorAll('#tsDrumStack .ts-lane');
+    dl.forEach(function(l) { l.classList.remove('mob-bar-view'); l.querySelectorAll('.seq-slot').forEach(function(s) { s.classList.remove('mob-bar-visible'); }); });
+    // Remove chord bar nav if present
+    var ocn = document.getElementById('seqMobChordBarNav');
+    if (ocn) ocn.remove();
+    return;
+  }
   var stack = document.getElementById('tsDrumStack');
   if (!stack) return;
   // Remove any existing nav
@@ -22140,18 +22157,32 @@ function _mobDrumBarInit() {
   }
   // Insert before the drum stack
   stack.parentNode.insertBefore(nav, stack);
+  // Also insert a chord bar nav above the chord grid in portrait
+  var oldChordNav = document.getElementById('seqMobChordBarNav');
+  if (oldChordNav) oldChordNav.remove();
+  var chordInline = document.getElementById('kbdPortSeqInline');
+  if (chordInline) {
+    var cnav = nav.cloneNode(true);
+    cnav.id = 'seqMobChordBarNav';
+    // Re-attach click handlers on cloned buttons
+    cnav.querySelectorAll('.seq-mob-bar-btn').forEach(function(btn) {
+      btn.onclick = function() { _mobDrumBarSelect(parseInt(this.dataset.bar), stepsPerBar); };
+    });
+    chordInline.insertBefore(cnav, chordInline.firstChild);
+  }
   // Apply bar filter
   _mobDrumBar = Math.min(_mobDrumBar, bars - 1);
   _mobDrumBarApply(stepsPerBar);
 }
 function _mobDrumBarSelect(bar, stepsPerBar) {
   _mobDrumBar = bar;
-  // Update active button
-  var btns = document.querySelectorAll('.seq-mob-bar-btn');
+  // Update active buttons (both drum nav and chord nav)
+  var btns = document.querySelectorAll('#seqMobBarNav .seq-mob-bar-btn, #seqMobChordBarNav .seq-mob-bar-btn');
   btns.forEach(function(b) { b.classList.toggle('active', parseInt(b.dataset.bar) === bar); });
   _mobDrumBarApply(stepsPerBar);
 }
 function _mobDrumBarApply(stepsPerBar) {
+  // ── Drums ──
   var lanes = document.querySelectorAll('#tsDrumStack .ts-lane');
   var startIdx = _mobDrumBar * stepsPerBar;
   var endIdx = startIdx + stepsPerBar;
@@ -22162,6 +22193,21 @@ function _mobDrumBarApply(stepsPerBar) {
       slot.classList.toggle('mob-bar-visible', idx >= startIdx && idx < endIdx);
     });
   });
+  // ── Chords — same bar filter ──
+  var chordGrid = document.getElementById('seqChordGrid');
+  if (chordGrid) {
+    // --chord-cols is already set to (time × chordSteps) by seqBuildGrids — that's slots per bar
+    var chordSlotsPerBar = parseInt(chordGrid.style.getPropertyValue('--chord-cols')) || 4;
+    var cStart = _mobDrumBar * chordSlotsPerBar;
+    var cEnd = cStart + chordSlotsPerBar;
+    chordGrid.classList.add('mob-bar-view');
+    // Set per-beat column count so CSS grid shows only one bar width
+    chordGrid.style.setProperty('--chord-cols-per-beat', chordSlotsPerBar);
+    chordGrid.querySelectorAll('.seq-slot').forEach(function(slot) {
+      var idx = parseInt(slot.dataset.idx || '0');
+      slot.classList.toggle('mob-bar-visible', idx >= cStart && idx < cEnd);
+    });
+  }
 }
 // Re-init on orientation change
 window.addEventListener('orientationchange', function() { setTimeout(_mobDrumBarInit, 300); });
