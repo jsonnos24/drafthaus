@@ -719,7 +719,7 @@ select.si-tile-input { cursor: pointer; }
 /* Confirm modal */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.82);
-  display: none; align-items: flex-start; justify-content: center;
+  display: none; align-items: center; justify-content: center;
   z-index: 10400; padding: 20px 0; overflow-y: auto;
 }
 .modal-overlay.open { display: flex; -webkit-overflow-scrolling: touch; }
@@ -18107,39 +18107,14 @@ function openSong(id) {
   // Render sequence strip tabs so the global strip is populated immediately
   if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
 
-  // ── Default layout: Desktop = restore last drawer, Mobile = 4-track ──
+  // ── Default layout: Desktop = song list (no drawer), Mobile = 4-track ──
   if (window.innerWidth >= 900) {
-    // Restore last-used right tool (default to keyboard if none saved)
-    var _savedRightTool = null;
-    try { _savedRightTool = localStorage.getItem('dh_split_right'); } catch(e) {}
-    var _rightTool = _savedRightTool || 'keyboard';
-
-    // Desktop: auto-enter split mode with last-used drawer
-    if (!_splitActive) {
-      _splitActive = true;
-      document.body.classList.add('split-active');
-      document.getElementById('splitBtn')?.classList.add('active');
-    }
-    // Only enter perf mode if no saved drawer (first-time default)
-    if (!_savedRightTool) {
-      ilSetPerfMode(true);
-    } else {
-      ilSetPerfMode(false);
-    }
-    // Ensure left pane shows lyrics (runthrough)
-    var _leftSel = document.getElementById('splitLeftSelect');
-    if (_leftSel) _leftSel.value = 'lyrics';
-    // Set right pane to restored tool
-    if (typeof setSplitRightTool === 'function') setSplitRightTool(_rightTool);
-    _splitCurrentTool = _rightTool;
-    var _rightSel = document.getElementById('splitRightSelect');
-    if (_rightSel) _rightSel.value = _rightTool;
-    // Reset any expanded pane so both are visible
-    if (_splitExpandedSide) {
-      _splitExpandedSide = null;
-      document.body.classList.remove('split-expanded-left', 'split-expanded-right');
-      if (typeof _syncExpandBtns === 'function') _syncExpandBtns();
-    }
+    // No split, no drawer — just show the detail/list view
+    // User explicitly opens drawers via bottom nav
+    _splitActive = false;
+    document.body.classList.remove('split-active', 'split-expanded-left', 'split-expanded-right');
+    _splitExpandedSide = null;
+    ilSetPerfMode(false);
   } else {
     // Mobile: open new 4-track recorder (ft- design)
     setTimeout(function() {
@@ -32467,43 +32442,62 @@ function _uiRestoreFromState(state, song) {
       // Show detail view FIRST so DOM is ready for split setup
       showDetail();
 
-      // Set up split mode
+      // Set up split mode — new paradigm: drawers at 100% unless lyrics split is active
       var rightTool = state.splitRight || state.drawerOpen || 'keyboard';
       if (rightTool === 'none') rightTool = 'keyboard';
-      if (state.splitActive !== false) {
+
+      // If split was not active (no drawer open), just show the detail view
+      if (state.splitActive === false) {
+        // No drawer, no split — just lyrics/detail view
+        if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
+      } else {
+        // Split was active — restore drawer
         _splitActive = true;
         document.body.classList.add('split-active');
         var splitBtn = document.getElementById('splitBtn');
         if (splitBtn) splitBtn.classList.add('active');
-      }
 
-      // Set left pane
-      var leftSel = document.getElementById('splitLeftSelect');
-      if (leftSel) leftSel.value = state.splitLeft || 'lyrics';
+        // Set left pane
+        var leftSel = document.getElementById('splitLeftSelect');
+        if (leftSel) leftSel.value = state.splitLeft || 'lyrics';
 
-      // Perf mode
-      if (state.perfMode && typeof ilSetPerfMode === 'function') {
-        ilSetPerfMode(true);
-      } else if (typeof ilSetPerfMode === 'function') {
-        ilSetPerfMode(false);
-      }
+        // Set right tool (this opens the drawer into the right pane)
+        console.log('[UI-STATE] Calling setSplitRightTool:', rightTool);
+        if (typeof setSplitRightTool === 'function') setSplitRightTool(rightTool);
+        _splitCurrentTool = rightTool;
+        var rightSel = document.getElementById('splitRightSelect');
+        if (rightSel) rightSel.value = rightTool;
 
-      // Set right tool (this opens the drawer into the right pane)
-      console.log('[UI-STATE] Calling setSplitRightTool:', rightTool);
-      if (typeof setSplitRightTool === 'function') setSplitRightTool(rightTool);
-      _splitCurrentTool = rightTool;
-      var rightSel = document.getElementById('splitRightSelect');
-      if (rightSel) rightSel.value = rightTool;
-
-      // Split expanded state — only apply if explicitly set
-      if (state.splitExpanded && state.splitExpanded !== 'null') {
-        _splitExpandedSide = state.splitExpanded;
-        document.body.classList.add('split-expanded-' + state.splitExpanded);
+        // Restore expanded state — drawer-only (expanded-right) vs lyrics split (no expand)
+        if (state.splitExpanded && state.splitExpanded !== 'null') {
+          _splitExpandedSide = state.splitExpanded;
+          document.body.classList.add('split-expanded-' + state.splitExpanded);
+          // If expanded-right (drawer only), no perf mode needed
+          if (state.splitExpanded === 'right') {
+            if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
+          } else {
+            // Lyrics split — restore perf mode
+            if (state.perfMode && typeof ilSetPerfMode === 'function') ilSetPerfMode(true);
+            else if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
+          }
+        } else {
+          // No expand state saved — default to drawer at 100% (expanded right)
+          _splitExpandedSide = 'right';
+          document.body.classList.remove('split-expanded-left');
+          document.body.classList.add('split-expanded-right');
+          if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
+        }
         if (typeof _syncExpandBtns === 'function') _syncExpandBtns();
-      } else {
-        _splitExpandedSide = null;
-        // Ensure no stale expand classes (belt + suspenders)
-        document.body.classList.remove('split-expanded-left', 'split-expanded-right');
+
+        // If lyrics split is active (no expand), set 20/80 ratio
+        if (!_splitExpandedSide) {
+          var _lsRatio = '20%';
+          document.documentElement.style.setProperty('--split-left', _lsRatio);
+          var _lsDiv = document.getElementById('splitDivider');
+          var _lsRp  = document.getElementById('splitRightPanel');
+          if (_lsDiv) _lsDiv.style.left = 'calc(' + _lsRatio + ' - 3px)';
+          if (_lsRp)  _lsRp.style.left = _lsRatio;
+        }
       }
 
       console.log('[UI-STATE] Desktop restore done. body classes:', document.body.className);
@@ -35081,31 +35075,25 @@ function _syncExpandBtns() {
 }
 
 function closeSplitMode() {
-  // On desktop, split is always-on — treat as "collapse right pane / go home"
-  if (window.innerWidth >= 900) {
-    if (_splitCurrentTool) {
-      _splitReturnDrawer();
-      _splitCurrentTool = null;
-    }
-    document.body.classList.remove('split-tool-left', 'split-expanded-left', 'split-expanded-right');
-    _splitExpandedSide = null;
-    _splitToolSide = 'right';
-    _syncExpandBtns();
-    var rSel = document.getElementById('splitRightSelect');
-    if (rSel) rSel.value = '';
-    _showSplitRightDefault();
-    return;
-  }
-  // Mobile: actually close the split
+  // Desktop: actually close split (drawers are no longer always-on)
   if (!_splitActive) return;
   _splitActive = false;
-  _splitReturnDrawer();
+  if (_splitCurrentTool) {
+    _splitReturnDrawer();
+    _splitCurrentTool = null;
+  }
   document.body.classList.remove('split-active', 'split-tool-left', 'split-expanded-left', 'split-expanded-right');
   _splitExpandedSide = null;
   _splitToolSide = 'right';
+  _syncExpandBtns();
   var btn = document.getElementById('splitBtn');
   if (btn) btn.classList.remove('active');
-  _splitCurrentTool = null;
+  var rSel = document.getElementById('splitRightSelect');
+  if (rSel) rSel.value = '';
+  if (window.innerWidth >= 900) {
+    _showSplitRightDefault();
+  }
+  if (typeof uiStateSave === 'function') uiStateSave();
 }
 
 /* ── Split right pane default panel ─────────────────────────────── */
@@ -35344,39 +35332,29 @@ function switchSplitSides() {
   document.body.classList.toggle('split-tool-left', _splitToolSide === 'left');
 }
 
-/* Central router for all desktop tool clicks */
+/* Central router for all desktop tool clicks — drawers open at 100% (no lyrics split) */
 function _desktopOpenTool(toolKey) {
   if (window.innerWidth < 900) return false; // let caller handle mobile
-  // In rehearse mode on desktop: exit perf mode and open the tool in the split pane
+  // Exit perf/rehearse mode
   if (document.body.classList.contains('il-perf-active')) {
     if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
   }
-  // Same tool clicked while visible in right pane → collapse/toggle
-  if (_splitActive && _splitCurrentTool === toolKey && _splitExpandedSide !== 'left') {
-    splitExpandPane('left'); // collapses right pane; pressing again restores it
+  // Same tool already open at 100% → toggle off
+  if (_splitActive && _splitCurrentTool === toolKey && _splitExpandedSide === 'right') {
+    closeSplitMode();
     return true;
   }
-  // If right pane was collapsed (left expanded), restore split first
-  if (_splitExpandedSide === 'left') {
-    _splitExpandedSide = null;
-    document.body.classList.remove('split-expanded-left');
-    _syncExpandBtns();
-  }
-  // Set split ratio — default 35% left / 65% right; respect per-tool saved pref
-  var ratio;
-  var saved = null;
-  try { saved = localStorage.getItem('drafthaus_split_ratio_' + toolKey); } catch(e) {}
-  ratio = saved || '35%';
-  document.documentElement.style.setProperty('--split-left', ratio);
-  var div = document.getElementById('splitDivider');
-  var rp  = document.getElementById('splitRightPanel');
-  if (div) div.style.left = 'calc(' + ratio + ' - 3px)';
-  if (rp)  rp.style.left = ratio;
+  // Open the tool at 100% — drawer fills the screen, no lyrics
   if (_splitActive) {
     setSplitRightTool(toolKey);
   } else {
     openSplitMode(toolKey);
   }
+  // Expand right pane to 100%
+  _splitExpandedSide = 'right';
+  document.body.classList.remove('split-expanded-left');
+  document.body.classList.add('split-expanded-right');
+  _syncExpandBtns();
   return true;
 }
 
@@ -35465,20 +35443,12 @@ function _setWorkLayout() {
   }, 80);
 }
 
-/* ── Always-on split init (desktop only) ─────────────────────────── */
+/* ── Desktop init — no split by default, user opens drawers explicitly ── */
 function _initSplitAlwaysOn() {
   if (window.innerWidth < 900) return; // mobile stays non-split
-  _splitActive = true;
-  document.body.classList.add('split-active');
-  document.getElementById('splitBtn')?.classList.add('active');
-
-  // v4: Always start on the song list expanded — no auto-restoring drawers/tools.
-  // User picks a song from the kanban, THEN split can open tools.
-  var lSel = document.getElementById('splitLeftSelect');
-  if (lSel) lSel.value = 'list';
-
-  // Expand the list to full width (no right tool panel on load)
-  splitExpandPane('left');
+  // Don't auto-activate split — user will open a drawer or have state restored
+  _splitActive = false;
+  document.body.classList.remove('split-active');
 }
 
 // Track which split pane was last interacted with (for Enter key expand)
@@ -35490,14 +35460,9 @@ document.addEventListener('pointerdown', function(e) {
   if (left  && left.contains(e.target))  { _splitActiveSide = 'left'; }
 }, { passive: true });
 
-// Toggle split on desktop resize
+// Close split on mobile resize (don't auto-open split on desktop — user controls it)
 window.addEventListener('resize', function() {
-  if (window.innerWidth >= 900 && !_splitActive) {
-    _splitActive = true;
-    document.body.classList.add('split-active');
-    document.getElementById('splitBtn')?.classList.add('active');
-    if (!_splitCurrentTool) splitExpandPane('left');
-  } else if (window.innerWidth < 900 && _splitActive) {
+  if (window.innerWidth < 900 && _splitActive) {
     // Return any active tool before collapsing
     if (_splitCurrentTool) _splitReturnDrawer();
     _splitActive = false;
@@ -36829,7 +36794,7 @@ function openKeyboardDrawer() {
 }
 
 function closeKeyboardDrawer() {
-  if (_splitActive && _splitCurrentTool === 'keyboard') { splitExpandPane('left'); return; }
+  if (_splitActive && _splitCurrentTool === 'keyboard') { closeSplitMode(); return; }
 
   // ── Clean up any active drag-to-arrange state ──
   if (_kbdDragState) {
@@ -36945,7 +36910,7 @@ function _seqHoistSettingsStrip(body) {
 }
 
 function closeSeqDrawer() {
-  if (_splitActive && _splitCurrentTool === 'sequencer') { splitExpandPane('left'); return; }
+  if (_splitActive && _splitCurrentTool === 'sequencer') { closeSplitMode(); return; }
 
   // ── Flush sequencer state before closing ──
   try {
@@ -39064,7 +39029,7 @@ function openLooperDrawer() {
   requestAnimationFrame(function() { _orbitIdleStart(); });
 }
 function closeLooperDrawer() {
-  if (_splitActive && _splitCurrentTool === 'looper') { splitExpandPane('left'); return; }
+  if (_splitActive && _splitCurrentTool === 'looper') { closeSplitMode(); return; }
   _setNavOpen('nav-looper', false);
   var _lpEl = document.getElementById('looperDrawer');
   if (_lpEl) { _lpEl.classList.remove('open'); _lpEl.style.zIndex = ''; }
@@ -40981,30 +40946,87 @@ function _navSetPriorState() {
   else                             _navPriorState = 'lyrics';
 }
 
-// ── Lyrics / Performance toggle ──
-// First tap (or from another view): enter Lyrics mode (perf-mode on, editing enabled)
-// Second tap while in Lyrics: toggle to Performance mode (scroll, metro, no editing)
-// Third tap while in Performance: back to Lyrics
+// ── Edit Lyrics — 3-way toggle ──
+// State 1: Off (default) — no lyrics, no split
+// State 2: If a drawer is open at 100% → split: lyrics 20% left, drawer 80% right
+// State 3: If lyrics split is active → close lyrics, drawer goes back to 100%
+// If no drawer is open → just show/hide lyrics view normally
 function navLyricsToggleTap() {
   if (!getCurrentSong || !getCurrentSong()) { showNoSongModal(navLyricsToggleTap); return; }
+
+  // ── Desktop 3-way toggle ──
+  if (window.innerWidth >= 900) {
+    var lyricsInSplit = _splitActive && _splitExpandedSide !== 'right' && _splitExpandedSide !== 'left';
+
+    // STATE 3: Lyrics split is active → close lyrics, expand drawer back to 100%
+    if (lyricsInSplit && _splitCurrentTool) {
+      // Expand right pane (drawer) to 100%, hiding lyrics
+      _splitExpandedSide = 'right';
+      document.body.classList.remove('split-expanded-left');
+      document.body.classList.add('split-expanded-right');
+      _syncExpandBtns();
+      if (window._ilPerfMode) ilSetPerfMode(false);
+      _syncBottomNav();
+      if (typeof uiStateSave === 'function') uiStateSave();
+      return;
+    }
+
+    // STATE 2: Drawer is open at 100% (expanded right) → create lyrics split 20/80
+    if (_splitActive && _splitExpandedSide === 'right' && _splitCurrentTool) {
+      // Remove expanded-right to reveal the split layout
+      _splitExpandedSide = null;
+      document.body.classList.remove('split-expanded-right', 'split-expanded-left');
+      // Set 20% left (lyrics) / 80% right (drawer)
+      var ratio = '20%';
+      document.documentElement.style.setProperty('--split-left', ratio);
+      var div = document.getElementById('splitDivider');
+      var rp  = document.getElementById('splitRightPanel');
+      if (div) div.style.left = 'calc(' + ratio + ' - 3px)';
+      if (rp)  rp.style.left = ratio;
+      // Ensure lyrics view is showing on the left
+      _ensureDetailView();
+      if (window._songViewMode !== 'runthrough') {
+        setSongViewMode('runthrough');
+        var song = getCurrentSong();
+        if (song) ilInitAndRender(song);
+      }
+      ilSetPerfMode(true);
+      _syncExpandBtns();
+      _syncBottomNav();
+      if (typeof uiStateSave === 'function') uiStateSave();
+      return;
+    }
+
+    // No drawer open — just show lyrics view (standard behavior)
+    _ensureDetailView();
+    if (window._songViewMode !== 'runthrough') {
+      setSongViewMode('runthrough');
+      var song2 = getCurrentSong();
+      if (song2) ilInitAndRender(song2);
+    }
+    // Toggle perf mode
+    if (window._ilPerfMode) {
+      ilSetPerfMode(false);
+    } else {
+      ilSetPerfMode(true);
+    }
+    _syncBottomNav();
+    return;
+  }
+
+  // ── Mobile: keep existing perf toggle behavior ──
   var inRunthrough = window._songViewMode === 'runthrough';
   var inPerf       = !!window._ilPerfMode;
-
-  // If we're already in runthrough + perf mode, toggle the performance-only sub-state
   if (inRunthrough && inPerf) {
-    // Toggle between "lyrics editing" (perf-active) and "performance" (perf-perform)
     var btn = document.getElementById('navLyricsToggleBtn');
     var lbl = btn ? btn.querySelector('.bottom-nav-label') : null;
     if (btn && btn.classList.contains('perf-active')) {
-      // Already in perf-active (lyrics editing) → switch to performance read-only
       btn.classList.remove('perf-active');
       btn.classList.add('perf-perform');
       if (lbl) lbl.textContent = 'Perform';
-      // Enter scroll/performance mode
       if (typeof ilScrollStart === 'function') ilScrollStart();
       return;
     } else if (btn && btn.classList.contains('perf-perform')) {
-      // In performance → switch back to lyrics editing
       btn.classList.remove('perf-perform');
       btn.classList.add('perf-active');
       if (lbl) lbl.textContent = 'Lyrics';
@@ -41012,32 +41034,15 @@ function navLyricsToggleTap() {
       return;
     }
   }
-
-  // Coming from another view → enter Lyrics mode
   closeAllDrawers();
   _ensureDetailView();
   if (window._songViewMode !== 'runthrough') {
     setSongViewMode('runthrough');
-    var song = getCurrentSong();
-    if (song) ilInitAndRender(song);
+    var song3 = getCurrentSong();
+    if (song3) ilInitAndRender(song3);
   }
   ilSetPerfMode(true);
   _syncBottomNav();
-  // Desktop: open 4-track in split right pane
-  if (window.innerWidth >= 900) {
-    setTimeout(function() {
-      var ratio;
-      try { ratio = localStorage.getItem('drafthaus_split_ratio_4track'); } catch(e) {}
-      ratio = ratio || '35%';
-      document.documentElement.style.setProperty('--split-left', ratio);
-      var div = document.getElementById('splitDivider');
-      var rp  = document.getElementById('splitRightPanel');
-      if (div) div.style.left = 'calc(' + ratio + ' - 3px)';
-      if (rp)  rp.style.left = ratio;
-      openSplitMode('4track');
-      document.body.classList.add('il-perf-split');
-    }, 80);
-  }
 }
 
 // Keep navLyricsTap as alias for internal calls
@@ -41106,88 +41111,33 @@ function navToolTap(toolKey) {
   _exitActionMode();
 
   // ── Desktop routing ──
+  // New paradigm: drawers open at 100% width (no lyrics split).
+  // Split only happens when Edit Lyrics is explicitly toggled on.
   if (window.innerWidth >= 900) {
-    // Close any open drawers (seq/drum, looper, keyboard, etc.) before switching tools
-    closeAllDrawers();
-    var _onDetailView = document.getElementById('viewDetail')?.classList.contains('active');
-    var _fromSongList = !_onDetailView;
+    _ensureDetailView();
 
-    if (toolKey === '4track') {
-      // No-op only if already fully visible in split on the detail view
-      if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === '4track') return;
-      // Ensure lyrics/runthrough in left pane
-      _ensureDetailView();
-      if (window._songViewMode !== 'runthrough') {
-        setSongViewMode('runthrough');
-        var song = getCurrentSong();
-        if (song) ilInitAndRender(song);
-      }
-      // Coming from song list: split was silently pre-activated but layout not set.
-      // Force a fresh split setup so divider + ratio are properly configured.
-      if (_fromSongList && typeof _splitActive !== 'undefined' && _splitActive) {
-        closeSplitMode();
-      }
-      _openLyrics4trackSplit();
+    // If this tool is already open at 100% (expanded right), toggle it off
+    if (_splitActive && _splitCurrentTool === toolKey && _splitExpandedSide === 'right') {
+      closeSplitMode();
       return;
     }
 
-    // Keyboard: lyrics left + keys right (open split directly with keyboard)
-    if (toolKey === 'keyboard') {
-      if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === 'keyboard') return;
-      _ensureDetailView();
-      if (window._songViewMode !== 'runthrough') {
-        setSongViewMode('runthrough');
-        var song = getCurrentSong();
-        if (song) ilInitAndRender(song);
-      }
-      if (_fromSongList && typeof _splitActive !== 'undefined' && _splitActive) {
-        closeSplitMode();
-      }
-      // Open split directly with keyboard — no 4-track intermediary
-      if (typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool !== 'keyboard') {
-        setSplitRightTool('keyboard');
-      } else if (!_splitActive) {
-        var _kbRatio;
-        try { _kbRatio = localStorage.getItem('drafthaus_split_ratio_keyboard') || localStorage.getItem('drafthaus_split_ratio_4track'); } catch(e) {}
-        _kbRatio = _kbRatio || '35%';
-        document.documentElement.style.setProperty('--split-left', _kbRatio);
-        var _kbDiv = document.getElementById('splitDivider');
-        var _kbRp  = document.getElementById('splitRightPanel');
-        if (_kbDiv) _kbDiv.style.left = 'calc(' + _kbRatio + ' - 3px)';
-        if (_kbRp)  _kbRp.style.left = _kbRatio;
-        openSplitMode('keyboard');
-      }
-      _splitCurrentTool = 'keyboard';
-      var kbSel = document.getElementById('splitRightSelect');
-      if (kbSel) kbSel.value = 'keyboard';
-      return;
+    // Open the drawer at 100% — use split infrastructure with right expanded
+    // setSplitRightTool handles returning the previous drawer, so no closeAllDrawers needed
+    if (_splitActive) {
+      // Switch tool but ensure expanded-right (no lyrics)
+      setSplitRightTool(toolKey);
+    } else {
+      openSplitMode(toolKey);
     }
-
-    // Drums: open full width (no split)
-    if (toolKey === 'sequencer') {
-      if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === 'sequencer') return;
-      _ensureDetailView();
-      // Close any existing split — drums get full width
-      if (typeof _splitActive !== 'undefined' && _splitActive) closeSplitMode();
-      openSeqDrawer();
-      return;
-    }
-
-    // Looper: open in right split pane (75% right, 25% left lyrics)
-    if (toolKey === 'looper') {
-      if (_onDetailView && typeof _splitActive !== 'undefined' && _splitActive && _splitCurrentTool === 'looper') return;
-      _ensureDetailView();
-      if (window._songViewMode !== 'runthrough') {
-        setSongViewMode('runthrough');
-        var song = getCurrentSong();
-        if (song) ilInitAndRender(song);
-      }
-      if (_fromSongList && typeof _splitActive !== 'undefined' && _splitActive) {
-        closeSplitMode();
-      }
-      _openLyricsToolSplit(toolKey);
-      return;
-    }
+    // Expand right pane to 100% — no lyrics visible
+    _splitExpandedSide = 'right';
+    document.body.classList.remove('split-expanded-left');
+    document.body.classList.add('split-expanded-right');
+    _syncExpandBtns();
+    // Exit perf/lyrics mode since drawer is fullscreen
+    if (window._ilPerfMode) ilSetPerfMode(false);
+    return;
   }
 
   // ── Mobile routing ──
@@ -56401,15 +56351,20 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
 <!-- ── Welcome popup (first-time users) ─────────────────────────────── -->
 <div class="modal-overlay" id="welcomePopup">
-  <div class="modal-box welcome-box">
-    <div class="welcome-title">Welcome to Drafthaus</div>
-    <div class="welcome-steps">
-      <div class="welcome-step"><span class="welcome-num">1</span><span>Tap <b>+New</b> to start blank, or <b>Roll</b> to get a generated beat + chords</span></div>
-      <div class="welcome-step"><span class="welcome-num">2</span><span>Assign recordings, loops, beats &amp; chords to each song part</span></div>
-      <div class="welcome-step"><span class="welcome-num">3</span><span>Add parts <em>(Intro, Verse…)</em> in the <b>sequence strip</b> below the header</span></div>
-      <div class="welcome-step"><span class="welcome-num">4</span><span>Double-click a part to <b>link</b> what plays during it</span></div>
+  <div class="modal-box welcome-box" style="text-align:center;">
+    <div class="welcome-title" style="font-size:24px; margin-bottom:6px;">The Songwriter's Workbench</div>
+    <div style="font-family:'IBM Plex Sans',sans-serif; font-size:14px; color:rgba(255,255,255,0.55); margin-bottom:20px; line-height:1.5;">All your songwriting tools in one place.<br>From first spark to finished draft.</div>
+    <div class="welcome-steps" style="text-align:left; gap:14px;">
+      <div class="welcome-step"><span class="welcome-num">1</span><span>Record takes and <b>comp</b> them — layer your best moments into one perfect pass</span></div>
+      <div class="welcome-step"><span class="welcome-num">2</span><span>Compose chord progressions or pick common ones based on mood</span></div>
+      <div class="welcome-step"><span class="welcome-num">3</span><span>Generate drum beats based on genre</span></div>
+      <div class="welcome-step"><span class="welcome-num">4</span><span>Link loops, recordings, chords &amp; beats to song parts — then sequence the whole thing</span></div>
+      <div class="welcome-step"><span class="welcome-num">5</span><span>Sync across desktop &amp; mobile in real time</span></div>
+      <div class="welcome-step"><span class="welcome-num">6</span><span>Export your final draft — MIDI, WAV, PDF charts &amp; lyrics</span></div>
+      <div class="welcome-step"><span class="welcome-num">7</span><span>Import your MIDI and audio files into any music production software</span></div>
+      <div class="welcome-step"><span class="welcome-num">8</span><span>Send drafts to bandmates with a single link</span></div>
     </div>
-    <button class="welcome-dismiss" onclick="dismissWelcome()">Got it</button>
+    <button class="welcome-dismiss" onclick="dismissWelcome()">Let's Go</button>
   </div>
 </div>
 
