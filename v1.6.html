@@ -6145,8 +6145,8 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ── Global sequence strip — fixed bottom above control bar on mobile ── */
   .global-seq-strip {
     position: fixed;
-    /* Sit above UCB: nav(54) + UCB(~90) + gap(4) = 148 */
-    bottom: calc(148px + env(safe-area-inset-bottom, 0px));
+    /* Sit above UCB: nav(54) + UCB(~44 collapsed) + gap(4) = 102; JS overrides dynamically */
+    bottom: calc(102px + env(safe-area-inset-bottom, 0px));
     top: auto !important;
     left: 0; right: 0;
     z-index: 99999 !important;
@@ -15800,6 +15800,13 @@ setTimeout(function() {
 window._seqStripShow = function() {
   var s = document.getElementById('globalSeqStrip');
   if (!s) return;
+  // Hide strip in mobile landscape when a drawer is open
+  var isLandscape = window.matchMedia('(orientation: landscape) and (max-height: 600px) and (max-width: 920px)').matches;
+  var hasDrawer = document.body.classList.contains('seq-drawer-open') || document.body.classList.contains('ft-drawer-open') || document.body.classList.contains('keyboard-drawer-open');
+  if (isLandscape && hasDrawer) {
+    s.style.setProperty('display', 'none', 'important');
+    return;
+  }
   s.style.setProperty('display', 'flex', 'important');
   s.style.setProperty('visibility', 'visible', 'important');
   s.style.setProperty('opacity', '1', 'important');
@@ -22350,6 +22357,19 @@ function seqRenderSequenceTabs() {
       strip.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
     }
   }
+
+  // Keep strip bottom position in sync with UCB height on mobile (skip in landscape drawers)
+  var _isLand = window.matchMedia('(orientation: landscape) and (max-height: 600px) and (max-width: 920px)').matches;
+  var _hasDrawer = document.body.classList.contains('seq-drawer-open') || document.body.classList.contains('ft-drawer-open') || document.body.classList.contains('keyboard-drawer-open');
+  if (window.innerWidth < 768 && strip.style.display !== 'none' && !(_isLand && _hasDrawer)) {
+    var ucb = document.getElementById('ucBar');
+    var nav = document.querySelector('.bottom-nav');
+    var navH = nav ? nav.offsetHeight : 54;
+    var ucbH = ucb ? ucb.offsetHeight : 44;
+    var stripBottom = navH + ucbH + 4;
+    strip.style.setProperty('bottom', 'calc(' + stripBottom + 'px + env(safe-area-inset-bottom, 0px))', 'important');
+    strip.style.setProperty('top', 'auto', 'important');
+  }
 }
 
 // ── Sequence strip Play/Stop toggle ─────────────────────────────────────────
@@ -26996,7 +27016,11 @@ function ucToggleIoPanel() {
 // UCB Click — tap to arm; hold for standalone metronome
 var _ucClickHoldTimer = null;
 var _ucClickDidHold = false;
-function _ucClickDown() {
+var _ucClickTouched = false;
+function _ucClickDown(e) {
+  // Prevent ghost mouse events after touch
+  if (e && e.type === 'touchstart') { _ucClickTouched = true; }
+  if (e && e.type === 'mousedown' && _ucClickTouched) { _ucClickTouched = false; return; }
   _ucClickDidHold = false;
   _ucClickHoldTimer = setTimeout(function() {
     _ucClickDidHold = true;
@@ -27009,7 +27033,8 @@ function _ucClickDown() {
     if (typeof globalMetroStart === 'function') globalMetroStart({ standalone: true });
   }, 500);
 }
-function _ucClickUp() {
+function _ucClickUp(e) {
+  if (e && e.type === 'mouseup' && _ucClickTouched) { _ucClickTouched = false; return; }
   if (_ucClickHoldTimer) { clearTimeout(_ucClickHoldTimer); _ucClickHoldTimer = null; }
   if (!_ucClickDidHold) {
     // Normal tap — just toggle armed state
@@ -55255,7 +55280,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <button class="split-transport-btn split-play-btn" onclick="seqPlay()" title="Play loop">▶ Play</button>
         <button class="split-transport-btn split-play-btn" onclick="seqPlaySong()" title="Play full song">▶▶ Seq</button>
         <button class="split-transport-btn split-stop-btn" onclick="sharedStop()" title="Stop">■ Stop</button>
-        <button class="split-transport-btn split-met-btn" id="splitMetBtn" onmousedown="_ucClickDown()" onmouseup="_ucClickUp()" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown()" ontouchend="_ucClickUp()" title="Tap to arm · Hold for standalone mode">Metro</button>
+        <button class="split-transport-btn split-met-btn" id="splitMetBtn" onmousedown="_ucClickDown(event)" onmouseup="_ucClickUp(event)" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown(event)" ontouchend="_ucClickUp(event)" title="Tap to arm · Hold for standalone mode">Metro</button>
         <button class="split-transport-btn split-io-transport-btn" onclick="splitToggleIoPanel()" title="Audio Input / Output">I/O</button>
       </div>
       <!-- 4-track transport — only visible when 4-track occupies split right -->
@@ -55264,7 +55289,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <button class="split-transport-btn split-play-btn" id="mtPlayBtn" onclick="mtPlay()" disabled title="Play (Space)">▶ Play</button>
         <button class="split-transport-btn split-play-btn" id="mtPlaySeqBtn" onclick="sharedPlaySong()" title="Play full song — plays all sections in order">▶▶ Seq</button>
         <button class="split-transport-btn split-stop-btn" id="mtStopBtn" onclick="sharedStop()" disabled title="Stop (Space)">■ Stop</button>
-        <button class="split-transport-btn split-met-btn" id="mtMetBtn" onmousedown="_ucClickDown()" onmouseup="_ucClickUp()" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown()" ontouchend="_ucClickUp()" title="Tap to arm · Hold for standalone mode">Metro</button>
+        <button class="split-transport-btn split-met-btn" id="mtMetBtn" onmousedown="_ucClickDown(event)" onmouseup="_ucClickUp(event)" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown(event)" ontouchend="_ucClickUp(event)" title="Tap to arm · Hold for standalone mode">Metro</button>
         <button class="split-transport-btn split-tap-btn split-tap-desktop" id="mtTapBtn" onclick="rtTapTempo()" title="Tap Tempo (Tab)">TAP</button>
         <button class="split-transport-btn split-io-transport-btn" onclick="splitToggleIoPanel()" title="Audio Input / Output">I/O</button>
       </div>
@@ -56002,7 +56027,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     </div>
     <div class="uc-sep"></div>
     <div class="uc-metro-group">
-      <button class="uc-btn uc-click" id="ucClickBtn" onmousedown="_ucClickDown()" onmouseup="_ucClickUp()" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown()" ontouchend="_ucClickUp()" title="Tap to arm · Hold for standalone mode">CLICK</button>
+      <button class="uc-btn uc-click" id="ucClickBtn" onmousedown="_ucClickDown(event)" onmouseup="_ucClickUp(event)" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown(event)" ontouchend="_ucClickUp(event)" title="Tap to arm · Hold for standalone mode">CLICK</button>
       <span class="uc-bpm-label">BPM:</span>
       <input type="number" class="uc-bpm-input" id="ucBpmInput" value="120" min="40" max="240"
         onfocus="this.select()"
@@ -56033,7 +56058,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         <button class="uc-arrow" id="ucRedoBtnM" onclick="ucRedo()" title="Redo">&#8631;</button>
       </div>
       <div class="uc-mob-metro-group">
-        <button class="uc-btn uc-click" id="ucClickBtnM" onmousedown="_ucClickDown()" onmouseup="_ucClickUp()" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown()" ontouchend="_ucClickUp()" title="Tap to arm · Hold for standalone mode">CLICK</button>
+        <button class="uc-btn uc-click" id="ucClickBtnM" onmousedown="_ucClickDown(event)" onmouseup="_ucClickUp(event)" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown(event)" ontouchend="_ucClickUp(event)" title="Tap to arm · Hold for standalone mode">CLICK</button>
         <span class="uc-bpm-label">BPM:</span>
         <input type="number" class="uc-bpm-input" id="ucBpmInputM" value="120" min="40" max="240"
           onfocus="this.select()"
@@ -56043,7 +56068,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       </div>
     </div>
     <div class="uc-mob-bottom">
-      <button class="uc-mob-expand-btn" onclick="(function(b){var t=document.getElementById('ucMobTop');if(t){t.classList.toggle('uc-mob-expanded');b.textContent=t.classList.contains('uc-mob-expanded')?'▼':'···'}})(this)" title="Toggle controls">···</button>
+      <button class="uc-mob-expand-btn" onclick="(function(b){var t=document.getElementById('ucMobTop');if(t){t.classList.toggle('uc-mob-expanded');b.textContent=t.classList.contains('uc-mob-expanded')?'▼':'···';setTimeout(function(){if(typeof _seqStripShow==='function')_seqStripShow();},60)}})(this)" title="Toggle controls">···</button>
       <span class="uc-mob-inline-info">
         <span class="uc-mob-bar-num" id="ucBarNumInline">1.1</span>
         <span class="uc-mob-bpm-num" id="ucBpmInline">120</span>
@@ -56210,7 +56235,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     <button class="split-transport-btn split-stop-btn" onclick="sharedStop()" title="Stop (Esc)">
       <span class="t-btn-label">■ Stop</span>
     </button>
-    <button id="sharedMetBtn" class="split-transport-btn split-met-btn" onmousedown="_ucClickDown()" onmouseup="_ucClickUp()" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown()" ontouchend="_ucClickUp()" title="Tap to arm · Hold for standalone mode">
+    <button id="sharedMetBtn" class="split-transport-btn split-met-btn" onmousedown="_ucClickDown(event)" onmouseup="_ucClickUp(event)" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown(event)" ontouchend="_ucClickUp(event)" title="Tap to arm · Hold for standalone mode">
       <span class="t-btn-label">Metro</span>
     </button>
     <button id="sharedIoPill" class="split-transport-btn shared-io-toggle" onclick="sharedToggleIoPanel()" title="Audio Input / Output devices">
@@ -56250,7 +56275,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       onclick="sharedStop()" disabled
       title="Stop">■ Stop</button>
     <button class="split-transport-btn split-met-btn" id="mtMetBtnM"
-      onmousedown="_ucClickDown()" onmouseup="_ucClickUp()" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown()" ontouchend="_ucClickUp()"
+      onmousedown="_ucClickDown(event)" onmouseup="_ucClickUp(event)" onmouseleave="if(_ucClickHoldTimer){clearTimeout(_ucClickHoldTimer);_ucClickHoldTimer=null;}" ontouchstart="_ucClickDown(event)" ontouchend="_ucClickUp(event)"
       title="Tap to arm · Hold for standalone mode">Metro</button>
   </div>
 </div>
