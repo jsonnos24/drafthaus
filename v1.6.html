@@ -1286,8 +1286,11 @@ button, select, input, textarea { touch-action: manipulation; }
   /* Split panel — correct top for mobile header (43px) — seq strip now at bottom */
   #splitRightPanel { top: calc(43px + env(safe-area-inset-top, 0px)); }
   #splitDivider    { top: calc(43px + env(safe-area-inset-top, 0px)); }
-  /* In perf/rehearse mode — seq strip stays at bottom on mobile */
-  body.il-perf-active:not(.split-active) .global-seq-strip { top: auto !important; opacity: 0.9; }
+  /* In perf/rehearse mode — hide strip + toggle on mobile (header hidden too) */
+  body.il-perf-active:not(.split-active) .global-seq-strip { display: none !important; }
+  body.il-perf-active:not(.split-active) .seq-strip-toggle-btn { display: none !important; }
+  /* When header scrolls away, strip + toggle follow it up */
+  body.header-scrolled-away .global-seq-strip { top: calc(-50px + env(safe-area-inset-top, 0px)) !important; pointer-events: none; }
   /* In split+perf mode, header stays visible but seq strip is hidden — drop panels to header-bottom only */
   body.il-perf-active.split-active #splitRightPanel,
   body.il-perf-active.split-active #splitDivider {
@@ -1471,6 +1474,11 @@ button, select, input, textarea { touch-action: manipulation; }
   body.seq-drawer-open #siteHeader { display: none !important; }
   body.seq-drawer-open #headerTransport { display: none !important; }
 
+  /* Hide toggle when drawer provides its own compact strip */
+  body.seq-drawer-open .seq-strip-toggle-btn,
+  body.ft-drawer-open .seq-strip-toggle-btn,
+  body.keyboard-drawer-open .seq-strip-toggle-btn,
+  body.looper-drawer-open .seq-strip-toggle-btn { display: none !important; }
   /* Seq strip stays visible at top — compact */
   body.seq-drawer-open .global-seq-strip {
     top: env(safe-area-inset-top, 0px) !important;
@@ -6133,7 +6141,8 @@ button, select, input, textarea { touch-action: manipulation; }
   body { padding-bottom: 0; }
   /* header (43px + safe-area) — seq strip now at bottom, accounted for in bottom padding */
   #viewList  { padding-top: calc(43px + env(safe-area-inset-top, 0px)); padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
-  #viewDetail { padding-top: calc(43px + env(safe-area-inset-top, 0px)); padding-bottom: calc(196px + env(safe-area-inset-bottom, 0px)); }
+  #viewDetail { padding-top: calc(95px + env(safe-area-inset-top, 0px)); padding-bottom: calc(196px + env(safe-area-inset-bottom, 0px)); }
+  body.seq-strip-collapsed #viewDetail { padding-top: calc(43px + env(safe-area-inset-top, 0px)); }
   /* Hide sticky song bar on mobile — header + bottom nav already handle navigation */
   #stickySongBar { display: none !important; }
   /* Remove the container padding-top that was only needed to clear the now-hidden sticky bar */
@@ -6142,20 +6151,19 @@ button, select, input, textarea { touch-action: manipulation; }
   body.mt4t-bar-open #viewList,
   body.mt4t-bar-open #viewDetail { padding-bottom: calc(102px + env(safe-area-inset-bottom, 0px)); }
 
-  /* ── Global sequence strip — fixed bottom above control bar on mobile ── */
+  /* ── Global sequence strip — fixed top, flush below header on mobile ── */
   .global-seq-strip {
     position: fixed;
-    /* Sit above UCB: nav(54) + UCB(~44 collapsed) + gap(4) = 102; JS overrides dynamically */
-    bottom: calc(102px + env(safe-area-inset-bottom, 0px));
-    top: auto !important;
+    top: calc(43px + env(safe-area-inset-top, 0px));
+    bottom: auto;
     left: 0; right: 0;
     z-index: 99999 !important;
     height: 48px;
     background: rgba(10,10,12,0.97);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border-top: 2px solid var(--gold);
-    border-bottom: none;
+    border-bottom: 2px solid var(--gold);
+    border-top: none;
     display: flex;
     align-items: center;
     overflow-x: auto;
@@ -6164,15 +6172,21 @@ button, select, input, textarea { touch-action: manipulation; }
     -ms-overflow-style: none;
     padding: 0 6px;
     gap: 4px;
-    transition: bottom 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
-    will-change: bottom;
+    transition: top 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+    will-change: top;
+  }
+  /* Collapsed state — slide up behind header */
+  body.seq-strip-collapsed .global-seq-strip {
+    top: calc(-6px + env(safe-area-inset-top, 0px)) !important;
+    height: 0; overflow: hidden; border-bottom: none;
+    pointer-events: none;
   }
   .global-seq-strip::-webkit-scrollbar { display: none; }
 
   /* Modal overlay approach: all drawers use the same strip position — no per-drawer overrides needed */
 
   /* ── Mobile drawers: respect iOS safe area + header ── */
-  /* header (43px) — seq strip is now at bottom, no longer takes top space */
+  /* header (43px) — drawers start below header */
   .backend-drawer {
     top: calc(43px + env(safe-area-inset-top, 0px)) !important;
     height: calc(100dvh - 43px - env(safe-area-inset-top, 0px)) !important;
@@ -8825,6 +8839,9 @@ body.il-perf-active .reh-sep { background: rgba(0,0,0,0.12); }
 body.il-perf-active .global-seq-strip {
   display: none !important;
 }
+body.il-perf-active .seq-strip-toggle-btn {
+  display: none !important;
+}
 body.il-perf-active #headerTransport {
   display: none !important;
 }
@@ -8985,10 +9002,67 @@ body.il-perf-active #stickySongBar { display: none !important; }
   }
   .global-seq-strip::-webkit-scrollbar { display: none; }
   body.header-scrolled-away .global-seq-strip { top: 0; }
+  body.header-scrolled-away.seq-strip-collapsed .global-seq-strip { top: -50px !important; }
+  /* Desktop collapsed state */
+  body.seq-strip-collapsed .global-seq-strip {
+    top: -6px !important;
+    height: 0; overflow: hidden; border-bottom: none;
+    pointer-events: none;
+  }
 }
 
 /* ── Global seq strip ── */
-.global-seq-strip { transition: top 0.28s cubic-bezier(0.34,1.56,0.64,1), bottom 0.28s cubic-bezier(0.34,1.56,0.64,1); }
+.global-seq-strip { transition: top 0.28s cubic-bezier(0.34,1.56,0.64,1), bottom 0.28s cubic-bezier(0.34,1.56,0.64,1), height 0.28s cubic-bezier(0.34,1.56,0.64,1); }
+
+/* ── Seq strip toggle button ── */
+.seq-strip-toggle-btn {
+  position: fixed;
+  z-index: 100000;
+  right: 10px;
+  width: 28px; height: 22px;
+  background: rgba(10,10,12,0.92);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 0 0 6px 6px;
+  border-top: none;
+  color: var(--muted);
+  font-size: 13px; line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: top 0.28s cubic-bezier(0.34,1.56,0.64,1), color 0.18s;
+  font-family: system-ui, sans-serif;
+  padding: 0; margin: 0;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.seq-strip-toggle-btn:active { color: var(--text); }
+/* Mobile positioning: below strip bottom edge */
+@media (max-width: 700px) {
+  .seq-strip-toggle-btn {
+    top: calc(91px + env(safe-area-inset-top, 0px));
+  }
+  body.seq-strip-collapsed .seq-strip-toggle-btn {
+    top: calc(43px + env(safe-area-inset-top, 0px));
+  }
+  body.header-scrolled-away .seq-strip-toggle-btn {
+    top: calc(-30px + env(safe-area-inset-top, 0px)); pointer-events: none;
+  }
+}
+/* Desktop positioning: below strip */
+@media (min-width: 701px) {
+  .seq-strip-toggle-btn {
+    top: 93px; /* 45px header + 48px strip */
+  }
+  body.seq-strip-collapsed .seq-strip-toggle-btn {
+    top: 45px;
+  }
+  body.header-scrolled-away .seq-strip-toggle-btn {
+    top: 48px; /* strip top(0) + strip height(48) */
+  }
+  body.header-scrolled-away.seq-strip-collapsed .seq-strip-toggle-btn {
+    top: 0;
+  }
+}
+/* Hide toggle when strip would be hidden (songlist, no song, etc.) */
+body.songlist-active:not(.keyboard-drawer-open):not(.seq-drawer-open):not(.looper-drawer-open):not(.ft-drawer-open) .seq-strip-toggle-btn { display: none !important; }
 
 /* ── Backend drawer — disabled ── */
 #backendDrawer { display: none !important; }
@@ -14888,7 +14962,12 @@ body.split-pr-active .pr-overlay { display: none !important; }
   body.ft-drawer-open #globalSeqStrip,
   body.keyboard-drawer-open #globalSeqStrip,
   body.looper-drawer-open #globalSeqStrip,
-  body.pr-open #globalSeqStrip {
+  body.pr-open #globalSeqStrip,
+  body.seq-drawer-open .seq-strip-toggle-btn,
+  body.ft-drawer-open .seq-strip-toggle-btn,
+  body.keyboard-drawer-open .seq-strip-toggle-btn,
+  body.looper-drawer-open .seq-strip-toggle-btn,
+  body.pr-open .seq-strip-toggle-btn {
     display: none !important;
   }
 
@@ -15820,21 +15899,16 @@ window._seqStripShow = function() {
     s.style.setProperty('display', 'none', 'important');
     return;
   }
+  var collapsed = document.body.classList.contains('seq-strip-collapsed');
   s.style.setProperty('display', 'flex', 'important');
   s.style.setProperty('visibility', 'visible', 'important');
   s.style.setProperty('opacity', '1', 'important');
-  s.style.setProperty('pointer-events', 'auto', 'important');
+  if (!collapsed) s.style.setProperty('pointer-events', 'auto', 'important');
   s.style.setProperty('z-index', '99999', 'important');
-  // Stack from bottom: nav(~54) → UCB(~90) → seq strip
-  // Measure UCB dynamically so strip never overlaps
-  if (window.innerWidth < 768) {
-    var ucb = document.getElementById('ucBar');
-    var nav = document.querySelector('.bottom-nav');
-    var navH = nav ? nav.offsetHeight : 54;
-    var ucbH = ucb ? ucb.offsetHeight : 90;
-    var stripBottom = navH + ucbH + 4; // 4px breathing room
-    s.style.setProperty('bottom', 'calc(' + stripBottom + 'px + env(safe-area-inset-bottom, 0px))', 'important');
-    s.style.setProperty('top', 'auto', 'important');
+  // Mobile: strip sits flush below header (top-positioned)
+  if (window.innerWidth < 768 && !collapsed) {
+    s.style.setProperty('top', 'calc(43px + env(safe-area-inset-top, 0px))', 'important');
+    s.style.setProperty('bottom', 'auto', 'important');
   }
   if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
 };
@@ -15852,6 +15926,16 @@ window._seqStripHideIfNoDrawer = function() {
     s.style.removeProperty('bottom');
     s.style.removeProperty('top');
     s.style.removeProperty('pointer-events');
+  }
+};
+
+/* ── Seq strip show/hide toggle ── */
+window.seqStripToggle = function() {
+  var collapsed = document.body.classList.toggle('seq-strip-collapsed');
+  var btn = document.getElementById('seqStripToggleBtn');
+  if (btn) {
+    btn.textContent = collapsed ? '▼' : '▲';
+    btn.title = collapsed ? 'Show sequence strip' : 'Hide sequence strip';
   }
 };
 
@@ -55120,6 +55204,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
 <!-- ── Global sequence strip — one unified tab strip below nav bar ── -->
 <div id="globalSeqStrip" class="global-seq-strip"></div>
+<button class="seq-strip-toggle-btn" id="seqStripToggleBtn" onclick="seqStripToggle()" title="Hide sequence strip">▲</button>
 
 <!-- ── Mobile full-screen lyrics editor ── -->
 <div id="ilMobLyricsModal">
