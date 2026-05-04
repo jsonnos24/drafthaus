@@ -14883,10 +14883,12 @@ body.split-pr-active .pr-overlay { display: none !important; }
   body.ft-drawer-open #siteHeader,
   body.keyboard-drawer-open #siteHeader,
   body.looper-drawer-open #siteHeader,
+  body.pr-open #siteHeader,
   body.seq-drawer-open #globalSeqStrip,
   body.ft-drawer-open #globalSeqStrip,
   body.keyboard-drawer-open #globalSeqStrip,
-  body.looper-drawer-open #globalSeqStrip {
+  body.looper-drawer-open #globalSeqStrip,
+  body.pr-open #globalSeqStrip {
     display: none !important;
   }
 
@@ -15801,14 +15803,20 @@ setTimeout(function() {
 
 <script>
 /* ── Seq strip visibility helper (must be early — called by drawer open/close) ── */
+window._isSeqStripLandscapeHidden = function() {
+  if (!window.matchMedia('(orientation: landscape)').matches) return false;
+  if (window.innerHeight > 650) return false;
+  var cl = document.body.classList;
+  var mixOpen = document.getElementById('mixDrawer')?.classList.contains('open');
+  return cl.contains('seq-drawer-open') || cl.contains('ft-drawer-open') ||
+         cl.contains('keyboard-drawer-open') || cl.contains('looper-drawer-open') ||
+         cl.contains('pr-open') || mixOpen;
+};
 window._seqStripShow = function() {
   var s = document.getElementById('globalSeqStrip');
   if (!s) return;
-  // Hide strip in mobile landscape when a drawer is open
-  var isLandscape = window.matchMedia('(orientation: landscape)').matches && window.innerHeight < 650;
-  var cl = document.body.classList;
-  var hasDrawer = cl.contains('seq-drawer-open') || cl.contains('ft-drawer-open') || cl.contains('keyboard-drawer-open') || cl.contains('looper-drawer-open');
-  if (isLandscape && hasDrawer) {
+  // Hide strip in mobile landscape when any drawer is open
+  if (_isSeqStripLandscapeHidden()) {
     s.style.setProperty('display', 'none', 'important');
     return;
   }
@@ -15832,8 +15840,9 @@ window._seqStripShow = function() {
 };
 window._seqStripHideIfNoDrawer = function() {
   var b = document.body.classList;
+  var mixOpen = document.getElementById('mixDrawer')?.classList.contains('open');
   if (b.contains('ft-drawer-open') || b.contains('seq-drawer-open') ||
-      b.contains('keyboard-drawer-open') || b.contains('looper-drawer-open')) return;
+      b.contains('keyboard-drawer-open') || b.contains('looper-drawer-open') || mixOpen) return;
   var s = document.getElementById('globalSeqStrip');
   if (s) {
     s.style.removeProperty('display');
@@ -22269,6 +22278,10 @@ function seqRenderSequenceTabs() {
   // Render into the global persistent strip (replaces all three per-drawer strips)
   const strip = document.getElementById('globalSeqStrip');
   if (!strip) return;
+  // Enforce landscape hide — inline style overrides CSS
+  if (typeof _isSeqStripLandscapeHidden === 'function' && _isSeqStripLandscapeHidden()) {
+    strip.style.setProperty('display', 'none', 'important');
+  }
   const song = getCurrentSong();
   if (!song) { strip.innerHTML = ''; return; }
   const seqs = getSongSequences(song);
@@ -22364,10 +22377,8 @@ function seqRenderSequenceTabs() {
   }
 
   // Keep strip bottom position in sync with UCB height on mobile (skip in landscape drawers)
-  var _isLand = window.matchMedia('(orientation: landscape)').matches && window.innerHeight < 650;
-  var _cl = document.body.classList;
-  var _hasDrawer = _cl.contains('seq-drawer-open') || _cl.contains('ft-drawer-open') || _cl.contains('keyboard-drawer-open') || _cl.contains('looper-drawer-open');
-  if (window.innerWidth < 768 && strip.style.display !== 'none' && !(_isLand && _hasDrawer)) {
+  var _landHidden = typeof _isSeqStripLandscapeHidden === 'function' && _isSeqStripLandscapeHidden();
+  if (window.innerWidth < 768 && strip.style.display !== 'none' && !_landHidden) {
     var ucb = document.getElementById('ucBar');
     var nav = document.querySelector('.bottom-nav');
     var navH = nav ? nav.offsetHeight : 54;
@@ -44991,6 +45002,7 @@ function openMixDrawer() {
   _mixDrawerOpen = true;
   document.getElementById('mixDrawer').classList.add('open');
   document.getElementById('mixDrawerOverlay').classList.add('open');
+  _seqStripShow();
   // Ensure 4-track AudioContext exists so mixer analysers can be created
   // (take decode creates it, but belt-and-suspenders for metering)
   if (typeof _mtCreateCtxSync === 'function') _mtCreateCtxSync();
@@ -45035,6 +45047,7 @@ function closeMixDrawer() {
   _setNavOpen('nav-mix', false);
   document.getElementById('mixDrawer').classList.remove('open');
   document.getElementById('mixDrawerOverlay').classList.remove('open');
+  if (typeof _seqStripHideIfNoDrawer === 'function') _seqStripHideIfNoDrawer();
 }
 
 // ── Mixer analyser creation ────────────────────────────────────────
