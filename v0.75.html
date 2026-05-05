@@ -14923,13 +14923,8 @@ body.split-pr-active .pr-overlay { display: none !important; }
   .pr-view-toggle { order: -1; width: 100%; justify-content: center; }
   .pr-tool-btn { font-size: 9px; padding: 3px 6px; }
 }
-/* ── Mobile landscape + piano roll open: seq strip & UCB to bottom ── */
+/* ── Mobile landscape + piano roll open: strip stays at top, UCB at bottom ── */
 @media (max-width: 920px) and (orientation: landscape) {
-  .pr-overlay.open ~ .global-seq-strip,
-  body.pr-open .global-seq-strip {
-    bottom: calc(54px + env(safe-area-inset-bottom, 0px)) !important;
-    z-index: 99999 !important;
-  }
   .pr-overlay.open ~ .uc-bar,
   body.pr-open .uc-bar {
     bottom: env(safe-area-inset-bottom, 0px) !important;
@@ -20940,9 +20935,11 @@ async function initMidi() {
       _midiUpdateUI();
     };
     _midiUpdateUI();
-    if (_instrHas('piano'))  loadPianoSamples();
-    if (_instrHas('piano2')) loadPiano2Samples();
-    if (_instrHas('guitar')) loadGuitarSamples();
+    // Load samples for both chord and melody instruments so MIDI plays immediately
+    if (_instrHas('piano')  || _melodyInstrHas('piano'))  loadPianoSamples();
+    if (_instrHas('piano2') || _melodyInstrHas('piano2')) loadPiano2Samples();
+    if (_instrHas('guitar') || _melodyInstrHas('guitar')) loadGuitarSamples();
+    console.log('[MIDI] initMidi — loading samples for chordInstr:' + _activeInstrument + ' melodyInstr:' + _kbdMelodyInstrument);
 
     // Show status modal only if no device is connected yet
     const inputs = [..._midiAccess.inputs.values()];
@@ -21093,12 +21090,18 @@ function _midiSyncLearnBtn() {
   });
 }
 
+var _midiDebugCount = 0;
 function _midiHandleMessage(msg) {
   const [status, note, vel] = msg.data;
   const cmd     = status & 0xf0;
   const channel = status & 0x0f; // 0-indexed: 9 = MIDI channel 10 (GM drums)
+  // Debug: log first 10 messages and then every 50th
+  if (_midiDebugCount < 10 || _midiDebugCount % 50 === 0) {
+    console.log('[MIDI] msg #' + _midiDebugCount + ' — cmd:0x' + cmd.toString(16) + ' ch:' + channel + ' note:' + note + ' vel:' + vel);
+  }
+  _midiDebugCount++;
   // Always ignore MIDI channel 10 (GM drums, 0-indexed: 9)
-  if (channel === 9) return;
+  if (channel === 9) { console.log('[MIDI] ignored — drum channel 10'); return; }
   // Learn mode: capture channel from first incoming note-on, then play it
   if (_midiLearning && cmd === 0x90 && vel > 0) {
     _midiMelodyChannel = channel;
@@ -21108,7 +21111,10 @@ function _midiHandleMessage(msg) {
     // fall through so the note that triggered learn still plays
   }
   // If user has locked to a specific melody channel, ignore everything else
-  if (_midiMelodyChannel >= 0 && channel !== _midiMelodyChannel) return;
+  if (_midiMelodyChannel >= 0 && channel !== _midiMelodyChannel) {
+    if (_midiDebugCount <= 10) console.log('[MIDI] ignored — locked to ch ' + (_midiMelodyChannel+1) + ', got ch ' + (channel+1));
+    return;
+  }
   if (cmd === 0x90 && vel > 0) {
     _midiNoteOn(note, vel / 127);
   } else if (cmd === 0x80 || (cmd === 0x90 && !vel)) {
@@ -21119,22 +21125,29 @@ function _midiHandleMessage(msg) {
 // Route MIDI channel-10 (GM drum) notes to the sequencer drum sounds
 
 function _midiNoteOn(midiNote, velocity) {
+  console.log('[MIDI] _midiNoteOn — note:' + midiNote + ' vel:' + velocity.toFixed(2) +
+    ' | melodyInstr:' + _kbdMelodyInstrument + ' chordInstr:' + _activeInstrument +
+    ' | pianoLoaded:' + _pianoLoaded + ' piano2Loaded:' + _piano2Loaded + ' guitarLoaded:' + _guitarLoaded +
+    ' | audioCtx state:' + (typeof seqAudioCtx !== 'undefined' && seqAudioCtx ? seqAudioCtx.state : 'NO CTX'));
   if (typeof _trialNudge === 'function') _trialNudge('note', 3);
   const ctx = getSeqAudioCtx();
-  if (ctx.state === 'suspended') ctx.resume();
+  if (ctx.state === 'suspended') { console.log('[MIDI] resuming suspended AudioContext'); ctx.resume(); }
   _seqEnsureMasterGain();
   let samplerPlayed = false;
   if (_melodyInstrHas('piano') && _pianoLoaded) {
     playPianoNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
     samplerPlayed = true;
+    console.log('[MIDI] → played via piano sampler');
   }
   if (_melodyInstrHas('piano2') && _piano2Loaded) {
     playPiano2Note(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
     samplerPlayed = true;
+    console.log('[MIDI] → played via piano2 sampler');
   }
   if (_melodyInstrHas('guitar') && _guitarLoaded) {
     playGuitarNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
     samplerPlayed = true;
+    console.log('[MIDI] → played via guitar sampler');
   }
   if (_melodyInstrHas('synth') || (!samplerPlayed && !_anyPianoMelodyReady() && (!_melodyInstrHas('guitar') || !_guitarLoaded))) {
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
@@ -45124,6 +45137,10 @@ function mixSetMainMaster(val) {
 }
 
 function openMixDrawer() {
+  // Close any other open drawers first (mobile: one at a time)
+  if (window.innerWidth < 768) {
+    closeAllDrawers('mixDrawer');
+  }
   _setNavOpen('nav-mix', true);
   _mixDrawerOpen = true;
   document.getElementById('mixDrawer').classList.add('open');
