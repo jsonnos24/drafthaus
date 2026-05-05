@@ -9041,13 +9041,13 @@ body.il-perf-active #stickySongBar { display: none !important; }
 /* Mobile positioning: below strip bottom edge */
 @media (max-width: 700px) {
   .seq-strip-toggle-btn {
-    top: calc(91px + env(safe-area-inset-top, 0px));
+    top: 91px; /* 43px header + 48px strip */
   }
   body.seq-strip-collapsed .seq-strip-toggle-btn {
-    top: calc(43px + env(safe-area-inset-top, 0px));
+    top: 43px;
   }
   body.header-scrolled-away .seq-strip-toggle-btn {
-    top: calc(-30px + env(safe-area-inset-top, 0px)); pointer-events: none;
+    top: -30px; pointer-events: none;
   }
 }
 /* Desktop positioning: below strip */
@@ -15929,9 +15929,9 @@ window._seqStripShow = function() {
   s.style.setProperty('opacity', '1', 'important');
   if (!collapsed) s.style.setProperty('pointer-events', 'auto', 'important');
   s.style.setProperty('z-index', '99999', 'important');
-  // Mobile: strip sits flush below header (top-positioned)
+  // Mobile: strip sits flush below header (top-positioned) — matches desktop pattern
   if (window.innerWidth < 768 && !collapsed) {
-    s.style.setProperty('top', 'calc(43px + env(safe-area-inset-top, 0px))', 'important');
+    s.style.setProperty('top', '43px', 'important');
     s.style.setProperty('bottom', 'auto', 'important');
   }
   if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
@@ -25145,9 +25145,11 @@ function seqBarPaginate(page) {
   const isMobile = window.innerWidth <= 768 && window.matchMedia('(orientation: portrait)').matches;
   let nav = pane.querySelector('.seq-bar-nav');
   if (!isMobile) {
-    // Desktop/landscape — show all slots, remove nav
+    // Desktop/landscape — show all slots, remove nav, restore full grid columns
     if (nav) nav.remove();
     pane.querySelectorAll('.seq-slot').forEach(s => s.style.display = '');
+    const cg = pane.querySelector('#seqChordGrid');
+    if (cg) cg.style.removeProperty('--chord-cols');
     return;
   }
 
@@ -25180,6 +25182,10 @@ function seqBarPaginate(page) {
     const idx = parseInt(s.dataset.idx);
     s.style.display = (idx >= startIdx && idx < endIdx) ? '' : 'none';
   });
+
+  // Shrink grid columns to one bar's worth so visible slots fill the width
+  const cg = pane.querySelector('#seqChordGrid');
+  if (cg) cg.style.setProperty('--chord-cols', stepsPerBar);
 
   // Create or update nav
   if (!nav) {
