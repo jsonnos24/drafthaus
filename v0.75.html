@@ -969,13 +969,13 @@ button, select, input, textarea { touch-action: manipulation; }
      Tabs → Grid → Drummer controls stacked vertically
   ═══════════════════════════════════════════════════════ */
 
-  /* Seq drawer — full height, seq strip is at bottom so no top offset needed for it */
+  /* Seq drawer — full height */
   .seq-drawer {
     height: 100dvh !important;
     max-height: 100dvh !important;
     border-radius: 0 !important;
   }
-  /* Keyboard + looper drawers: offset top to clear header (43px) — seq strip at bottom */
+  /* Keyboard + looper drawers: offset top to clear header (43px) */
   .keyboard-drawer,
   .looper-drawer {
     top: calc(43px + env(safe-area-inset-top, 0px)) !important;
@@ -1281,9 +1281,9 @@ button, select, input, textarea { touch-action: manipulation; }
     z-index: 9951; background: transparent; cursor: pointer;
   }
   body.header-scrolled-away .header-recovery-zone { display: block; }
-  .sticky-song-bar { top: calc(43px + env(safe-area-inset-top, 0px)); padding: 6px 14px; } /* below header (43px) — seq strip now at bottom */
+  .sticky-song-bar { top: calc(43px + env(safe-area-inset-top, 0px)); padding: 6px 14px; } /* below header (43px) */
   body.song-bar-visible #viewDetail .container { padding-top: 44px; }
-  /* Split panel — correct top for mobile header (43px) — seq strip now at bottom */
+  /* Split panel — correct top for mobile header (43px) */
   #splitRightPanel { top: calc(43px + env(safe-area-inset-top, 0px)); }
   #splitDivider    { top: calc(43px + env(safe-area-inset-top, 0px)); }
   /* In perf/rehearse mode — hide strip + toggle on mobile (header hidden too) */
@@ -6139,7 +6139,7 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* Push content down so it isn't hidden behind header; add bottom padding for bottom nav + seq strip */
   body { padding-bottom: 0; }
-  /* header (43px + safe-area) — seq strip now at bottom, accounted for in bottom padding */
+  /* header (43px + safe-area) + seq strip (48px) below it */
   #viewList  { padding-top: calc(43px + env(safe-area-inset-top, 0px)); padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
   #viewDetail { padding-top: calc(95px + env(safe-area-inset-top, 0px)); padding-bottom: calc(196px + env(safe-area-inset-bottom, 0px)); transition: padding-top 0.28s cubic-bezier(0.34,1.56,0.64,1); }
   body.seq-strip-collapsed #viewDetail { padding-top: calc(43px + env(safe-area-inset-top, 0px)); }
@@ -22498,17 +22498,8 @@ function seqRenderSequenceTabs() {
     }
   }
 
-  // Keep strip bottom position in sync with UCB height on mobile (skip in landscape drawers)
-  var _landHidden = typeof _isSeqStripLandscapeHidden === 'function' && _isSeqStripLandscapeHidden();
-  if (window.innerWidth < 768 && strip.style.display !== 'none' && !_landHidden) {
-    var ucb = document.getElementById('ucBar');
-    var nav = document.querySelector('.bottom-nav');
-    var navH = nav ? nav.offsetHeight : 54;
-    var ucbH = ucb ? ucb.offsetHeight : 44;
-    var stripBottom = navH + ucbH + 4;
-    strip.style.setProperty('bottom', 'calc(' + stripBottom + 'px + env(safe-area-inset-bottom, 0px))', 'important');
-    strip.style.setProperty('top', 'auto', 'important');
-  }
+  // Mobile: strip sits below header at top (matches desktop positioning)
+  // Position is handled by CSS (.global-seq-strip { top: 43px }) and _seqStripShow()
 }
 
 // ── Sequence strip Play/Stop toggle ─────────────────────────────────────────
@@ -25139,24 +25130,24 @@ function _seqSlotDragSetup() {
 // ── Mobile bar pagination ──────────────────────────────────────
 var _seqBarPage = 0;
 function seqBarPaginate(page) {
-  const pane = document.querySelector('.seq-grid-pane');
-  if (!pane) return;
   // Only paginate on narrow screens (portrait mobile)
   const isMobile = window.innerWidth <= 768 && window.matchMedia('(orientation: portrait)').matches;
-  let nav = pane.querySelector('.seq-bar-nav');
+
+  // Find chord grid in whichever drawer is open (seq drawer or keyboard drawer)
+  const cg = document.getElementById('seqChordGrid');
+  if (!cg) return;
+  const chordGridRow = cg.closest('.seq-grid-row[data-row="chord"]');
+  const navParent = chordGridRow ? (chordGridRow.closest('.seq-pattern-grid')?.parentNode || chordGridRow.parentNode) : null;
+
   if (!isMobile) {
-    // Desktop/landscape — show all slots, remove nav, restore full grid columns
-    if (nav) nav.remove();
-    pane.querySelectorAll('.seq-slot').forEach(s => s.style.display = '');
-    const cg = pane.querySelector('#seqChordGrid');
-    if (cg) cg.style.removeProperty('--chord-cols');
+    // Desktop/landscape — show all, remove nav, restore grid columns
+    if (navParent) { const n = navParent.querySelector('.seq-bar-nav'); if (n) n.remove(); }
+    cg.querySelectorAll('.seq-slot').forEach(s => s.style.display = '');
+    cg.querySelectorAll('.chord-grid-bar-label').forEach(l => l.style.display = '');
+    cg.style.removeProperty('--chord-cols');
     return;
   }
 
-  // Mobile portrait: only paginate chord grid (data-row="chord")
-  // Drum grids use horizontal scrolling instead
-  const chordGrid = pane.querySelector('.seq-grid-row[data-row="chord"]');
-  if (!chordGrid) return;
   const song = getCurrentSong ? getCurrentSong() : null;
   if (!song) return;
   const sd = seqGetData(song);
@@ -25176,30 +25167,34 @@ function seqBarPaginate(page) {
   const startIdx = _seqBarPage * stepsPerBar;
   const endIdx = startIdx + stepsPerBar;
 
-  // Show/hide slots in chord grid only based on current bar page
-  // (drum grids stay visible with horizontal scrolling)
-  chordGrid.querySelectorAll('.seq-slot').forEach(s => {
+  // Hide all bar labels — the nav replaces them
+  cg.querySelectorAll('.chord-grid-bar-label').forEach(l => l.style.display = 'none');
+
+  // Show only slots for the current bar
+  cg.querySelectorAll('.seq-slot').forEach(s => {
     const idx = parseInt(s.dataset.idx);
     s.style.display = (idx >= startIdx && idx < endIdx) ? '' : 'none';
   });
 
-  // Shrink grid columns to one bar's worth so visible slots fill the width
-  const cg = pane.querySelector('#seqChordGrid');
-  if (cg) cg.style.setProperty('--chord-cols', stepsPerBar);
+  // Set grid columns to one bar's worth so visible slots fill the width
+  cg.style.setProperty('--chord-cols', stepsPerBar);
 
-  // Create or update nav
-  if (!nav) {
+  // Create or update bar navigation
+  let nav = navParent ? navParent.querySelector('.seq-bar-nav') : null;
+  if (!nav && navParent) {
     nav = document.createElement('div');
     nav.className = 'seq-bar-nav';
-    const patGrid = pane.querySelector('.seq-pattern-grid');
-    if (patGrid) patGrid.parentNode.insertBefore(nav, patGrid);
-    else pane.prepend(nav);
+    const patGrid = navParent.querySelector('.seq-pattern-grid');
+    if (patGrid) navParent.insertBefore(nav, patGrid);
+    else navParent.prepend(nav);
   }
-  nav.innerHTML = '<button onclick="seqBarPaginate(' + (_seqBarPage - 1) + ')"' +
-    (_seqBarPage <= 0 ? ' disabled' : '') + '>&larr;</button>' +
-    '<span class="seq-bar-label">Bar ' + (_seqBarPage + 1) + ' / ' + bars + '</span>' +
-    '<button onclick="seqBarPaginate(' + (_seqBarPage + 1) + ')"' +
-    (_seqBarPage >= bars - 1 ? ' disabled' : '') + '>&rarr;</button>';
+  if (nav) {
+    nav.innerHTML = '<button onclick="seqBarPaginate(' + (_seqBarPage - 1) + ')"' +
+      (_seqBarPage <= 0 ? ' disabled' : '') + '>&larr;</button>' +
+      '<span class="seq-bar-label">Bar ' + (_seqBarPage + 1) + ' / ' + bars + '</span>' +
+      '<button onclick="seqBarPaginate(' + (_seqBarPage + 1) + ')"' +
+      (_seqBarPage >= bars - 1 ? ' disabled' : '') + '>&rarr;</button>';
+  }
 }
 
 // Re-paginate on resize/orientation change
@@ -32396,7 +32391,7 @@ function _uiCaptureState() {
   // Is user on song list?
   var onSongList = document.body.classList.contains('songlist-active');
 
-  return {
+  var captured = {
     splitRight: splitRight,
     splitLeft: splitLeft,
     splitActive: !!(typeof _splitActive !== 'undefined' && _splitActive),
@@ -32409,6 +32404,12 @@ function _uiCaptureState() {
     onSongList: onSongList,
     timestamp: Date.now()
   };
+  console.log('[UI-STATE] DEBUG _uiCaptureState →', JSON.stringify(captured));
+  if (captured.drawerOpen === 'none' && !captured.onSongList) {
+    console.log('[UI-STATE] ⚠ SAVING drawerOpen:"none" — next restore will show Edit Lyrics');
+    console.trace('[UI-STATE] ⚠ Call stack for drawerOpen:none save');
+  }
+  return captured;
 }
 
 function uiStateSave() {
@@ -32455,10 +32456,14 @@ function _uiDismissLoadingScreen() {
 
 function _uiRestoreFromState(state, song) {
   console.log('[UI-STATE] _uiRestoreFromState called — state:', state ? JSON.stringify(state) : 'NULL', 'song:', song?.id);
-  if (!song) { console.warn('[UI-STATE] No song, dismissing'); _uiDismissLoadingScreen(); return; }
+  console.log('[UI-STATE] DEBUG — window size:', window.innerWidth, 'x', window.innerHeight, '| isMobile:', window.innerWidth < 900);
+  if (state) {
+    console.log('[UI-STATE] DEBUG — state.splitActive:', state.splitActive, '| state.splitRight:', state.splitRight, '| state.drawerOpen:', state.drawerOpen, '| state.mobileDrawer:', state.mobileDrawer, '| state.splitExpanded:', state.splitExpanded, '| state.perfMode:', state.perfMode);
+  }
+  if (!song) { console.warn('[UI-STATE] No song, dismissing — THIS CAUSES EDIT LYRICS'); _uiDismissLoadingScreen(); return; }
   // No saved state — fall back to normal openSong flow behind loading screen
   if (!state) {
-    console.log('[UI-STATE] No saved state — falling back to openSong()');
+    console.log('[UI-STATE] ⚠ No saved state — falling back to openSong() — LIKELY CAUSES EDIT LYRICS if no drawer opens');
     _uiRestoring = true;
     openSong(song.id);
     // Let openSong's synchronous DOM updates settle, then reveal + save state for next load
@@ -32488,15 +32493,32 @@ function _uiRestoreFromState(state, song) {
       // ── Mobile restore ──
       showDetail();
       var mDrawer = state.mobileDrawer || state.drawerOpen || '4track';
+      console.log('[UI-STATE] DEBUG Mobile — resolved mDrawer:', mDrawer, '| state.mobileDrawer:', state.mobileDrawer, '| state.drawerOpen:', state.drawerOpen);
+      if (mDrawer === 'none') {
+        console.log('[UI-STATE] ⚠ mDrawer is "none" — no drawer will open → EDIT LYRICS visible');
+      }
       setTimeout(function() {
+        console.log('[UI-STATE] DEBUG Mobile — opening drawer:', mDrawer);
         if (mDrawer === '4track' && typeof ftOpen === 'function') ftOpen();
         else if (mDrawer === 'keyboard' && typeof openKeyboardDrawer === 'function') openKeyboardDrawer();
         else if (mDrawer === 'sequencer' && typeof openSeqDrawer === 'function') openSeqDrawer();
         else if (mDrawer === 'looper' && typeof openLooperDrawer === 'function') openLooperDrawer();
         else if (mDrawer === 'mixer' && typeof openMixDrawer === 'function') openMixDrawer();
-        else if (typeof ftOpen === 'function') ftOpen();
+        else if (typeof ftOpen === 'function') { console.log('[UI-STATE] ⚠ No drawer match for "' + mDrawer + '" — falling back to ftOpen'); ftOpen(); }
+        else { console.log('[UI-STATE] ⚠ ftOpen not available — NO DRAWER OPENED → EDIT LYRICS'); }
         _uiRestoring = false;
         _uiDismissLoadingScreen();
+        // Log final state for verification
+        setTimeout(function() {
+          var openDrawers = [];
+          if (document.getElementById('ftDrawer')?.classList.contains('open')) openDrawers.push('4track');
+          if (document.getElementById('keyboardDrawer')?.classList.contains('open')) openDrawers.push('keyboard');
+          if (document.getElementById('seqDrawer')?.classList.contains('open')) openDrawers.push('sequencer');
+          if (document.getElementById('looperDrawer')?.classList.contains('open')) openDrawers.push('looper');
+          if (document.getElementById('mixDrawer')?.classList.contains('open')) openDrawers.push('mixer');
+          console.log('[UI-STATE] DEBUG Mobile — FINAL open drawers:', openDrawers.length ? openDrawers.join(', ') : 'NONE (Edit Lyrics showing)');
+          console.log('[UI-STATE] DEBUG Mobile — body classes:', document.body.className);
+        }, 200);
       }, 50);
     } else {
       // ── Desktop restore ──
@@ -32517,6 +32539,7 @@ function _uiRestoreFromState(state, song) {
       // If split was not active (no drawer open), just show the detail view
       if (state.splitActive === false) {
         // No drawer, no split — just lyrics/detail view
+        console.log('[UI-STATE] ⚠ Desktop — splitActive is false → no drawer opening → EDIT LYRICS visible');
         if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
       } else {
         // Split was active — restore drawer
