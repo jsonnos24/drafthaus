@@ -20865,8 +20865,8 @@ function _isIOS() {
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS
 }
 
-async function initMidi() {
-  dhLogEvent('midi_connect');
+async function initMidi(silent) {
+  if (!silent) dhLogEvent('midi_connect');
   // ── 1. iOS detection ─────────────────────────────────────────────
   // All browsers on iOS (Chrome, Edge, Firefox, etc.) are required by Apple
   // to use WebKit as their engine. WebKit does not implement the Web MIDI API,
@@ -20941,19 +20941,23 @@ async function initMidi() {
     if (_instrHas('guitar') || _melodyInstrHas('guitar')) loadGuitarSamples();
     console.log('[MIDI] initMidi — loading samples for chordInstr:' + _activeInstrument + ' melodyInstr:' + _kbdMelodyInstrument);
 
-    // Show status modal only if no device is connected yet
+    // Show status modal only if no device is connected yet (skip for auto-reconnect)
     const inputs = [..._midiAccess.inputs.values()];
-    if (inputs.length === 0) {
-      var m = _showMidiModal(
-        'MIDI ready — no device detected',
-        'Permission granted. Connect a MIDI keyboard or controller and it will ' +
-        'appear automatically.',
-        '#f5a623'
-      );
-      var st = document.getElementById('midiModalStatusText');
-      if (st) st.textContent = 'Permission granted · no device connected';
-    } else {
-      showToast('MIDI connected — ' + inputs.length + ' device' + (inputs.length > 1 ? 's' : ''), 'success', 3000);
+    if (!silent) {
+      if (inputs.length === 0) {
+        var m = _showMidiModal(
+          'MIDI ready — no device detected',
+          'Permission granted. Connect a MIDI keyboard or controller and it will ' +
+          'appear automatically.',
+          '#f5a623'
+        );
+        var st = document.getElementById('midiModalStatusText');
+        if (st) st.textContent = 'Permission granted · no device connected';
+      } else {
+        showToast('MIDI connected — ' + inputs.length + ' device' + (inputs.length > 1 ? 's' : ''), 'success', 3000);
+      }
+    } else if (inputs.length > 0) {
+      console.log('[MIDI] Auto-reconnected — ' + inputs.length + ' device(s)');
     }
 
   } catch(e) {
@@ -32712,6 +32716,19 @@ function initApp() {
     if (typeof loadAcousticSamples === 'function') loadAcousticSamples();
     if (typeof loadAcoustic2Samples === 'function') loadAcoustic2Samples();
   }, 1500);
+
+  // Auto-reconnect MIDI if permission was previously granted (no prompt shown)
+  setTimeout(() => {
+    if (!navigator.requestMIDIAccess) return;
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'midi', sysex: false }).then(perm => {
+        if (perm.state === 'granted') {
+          console.log('[MIDI] Auto-reconnecting — permission already granted');
+          initMidi(true);
+        }
+      }).catch(() => {});
+    }
+  }, 2000);
 
   // NOTE: Loading screen is NOT removed here.
   // It stays up until _uiRestoreFromState() or the song-list fallback dismisses it.
