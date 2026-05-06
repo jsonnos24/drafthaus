@@ -57085,6 +57085,54 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 </div>
 
 <script>
+/* ── PR-BG-DEBUG: auto-fires 3s after load + callable via prBgDebug() ── */
+window._prBgDebug = function() {
+  var ids = ['prOverlay','prPanel','prGridScroll','prGridContainer','prCanvasLayer','prGridCanvas','prNotesLayer','prKeys','splitRightContent','splitRightPanel'];
+  console.log('%c[PR-BG-DEBUG] ══ Piano Roll Background Audit ══', 'color:#ff5f5f;font-weight:bold');
+  ids.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) { console.log('[PR-BG-DEBUG]', id, '→ NOT FOUND'); return; }
+    var cs = getComputedStyle(el);
+    var bg = cs.backgroundColor;
+    var w = el.offsetWidth, h = el.offsetHeight;
+    var light = (bg === 'rgb(255, 255, 255)' || bg === 'rgba(0, 0, 0, 0)' || bg === 'white');
+    console.log(
+      '%c[PR-BG-DEBUG] ' + id + '%c → bg:' + bg + ' | ' + w + 'x' + h + (light ? ' ⚠️ WHITE/TRANSPARENT' : ''),
+      'color:#f5a623', light ? 'color:#ff5f5f;font-weight:bold' : 'color:#64dcb4'
+    );
+  });
+  var canvas = document.getElementById('prGridCanvas');
+  if (canvas) console.log('[PR-BG-DEBUG] canvas dim:', canvas.width + 'x' + canvas.height, '| style:', canvas.style.width, canvas.style.height, '| pos:', canvas.style.position, canvas.style.left);
+  var cont = document.getElementById('prGridContainer');
+  var scr = document.getElementById('prGridScroll');
+  if (cont && scr) {
+    console.log('[PR-BG-DEBUG] container:', cont.offsetWidth + 'x' + cont.offsetHeight, '| scroll vp:', scr.clientWidth + 'x' + scr.clientHeight, '| scrollH:', scr.scrollHeight);
+    if (scr.clientHeight > cont.offsetHeight) console.log('%c[PR-BG-DEBUG] ⚠️ SCROLL VP TALLER THAN CONTAINER — gap at bottom!', 'color:#ff5f5f;font-weight:bold');
+  }
+  var w2 = document.getElementById('prGridScroll');
+  while (w2 && w2 !== document.body) {
+    var wBg = getComputedStyle(w2).backgroundColor;
+    if (wBg === 'rgb(255, 255, 255)') {
+      console.log('%c[PR-BG-DEBUG] ⚠️ WHITE ANCESTOR: ' + (w2.id || w2.className || w2.tagName), 'color:#ff5f5f;font-weight:bold;font-size:14px');
+      break;
+    }
+    w2 = w2.parentElement;
+  }
+  console.log('[PR-BG-DEBUG] body bg:', getComputedStyle(document.body).backgroundColor);
+  // check all children of prPanel for white bg
+  var panel = document.getElementById('prPanel');
+  if (panel) {
+    panel.querySelectorAll('*').forEach(function(el) {
+      var bg2 = getComputedStyle(el).backgroundColor;
+      if (bg2 === 'rgb(255, 255, 255)') {
+        console.log('%c[PR-BG-DEBUG] ⚠️ WHITE CHILD: ' + (el.id || el.className || el.tagName) + ' | ' + el.offsetWidth + 'x' + el.offsetHeight, 'color:#ff5f5f;font-weight:bold');
+      }
+    });
+  }
+};
+window.prBgDebug = window._prBgDebug;
+setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebug(); }, 3000);
+
 /* ════════════════════════════════════════════════════════════════════
    PIANO ROLL ENGINE
    ════════════════════════════════════════════════════════════════════ */
@@ -57192,44 +57240,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         }
         // Enable auto-sync now that initial render is done
         setTimeout(() => { _prSyncEnabled = true; }, 50);
-        // ── DEBUG: trace white background ──
-        setTimeout(() => {
-          var _dbgIds = ['prOverlay','prPanel','prGridScroll','prGridContainer','prCanvasLayer','prGridCanvas','prNotesLayer','prKeys','splitRightContent','splitRightPanel'];
-          console.log('%c[PR-BG-DEBUG] ══ Piano Roll Background Audit ══', 'color:#ff5f5f;font-weight:bold');
-          _dbgIds.forEach(function(id) {
-            var el = document.getElementById(id);
-            if (!el) { console.log('[PR-BG-DEBUG]', id, '→ NOT FOUND'); return; }
-            var cs = getComputedStyle(el);
-            var bg = cs.backgroundColor;
-            var w = el.offsetWidth, h = el.offsetHeight;
-            var isWhite = bg === 'rgb(255, 255, 255)' || bg === 'rgba(0, 0, 0, 0)' || bg === 'white';
-            console.log(
-              '%c[PR-BG-DEBUG] ' + id + '%c → bg:' + bg + ' | ' + w + 'x' + h + (isWhite ? ' ⚠️ WHITE/TRANSPARENT' : ''),
-              'color:#f5a623', isWhite ? 'color:#ff5f5f;font-weight:bold' : 'color:#64dcb4'
-            );
-          });
-          var canvas = document.getElementById('prGridCanvas');
-          if (canvas) {
-            console.log('[PR-BG-DEBUG] canvas dimensions:', canvas.width, 'x', canvas.height, '| style:', canvas.style.width, canvas.style.height, '| position:', canvas.style.position, '| left:', canvas.style.left);
-          }
-          var container = document.getElementById('prGridContainer');
-          var scrollEl = document.getElementById('prGridScroll');
-          if (container && scrollEl) {
-            console.log('[PR-BG-DEBUG] container:', container.offsetWidth + 'x' + container.offsetHeight, '| scroll viewport:', scrollEl.clientWidth + 'x' + scrollEl.clientHeight, '| scrollHeight:', scrollEl.scrollHeight);
-            if (scrollEl.clientHeight > container.offsetHeight) console.log('%c[PR-BG-DEBUG] ⚠️ SCROLL VIEWPORT TALLER THAN CONTAINER — gap at bottom!', 'color:#ff5f5f;font-weight:bold');
-          }
-          // Walk up from prGridScroll to find first white ancestor
-          var walker = document.getElementById('prGridScroll');
-          while (walker && walker !== document.body) {
-            var wBg = getComputedStyle(walker).backgroundColor;
-            if (wBg === 'rgb(255, 255, 255)') {
-              console.log('%c[PR-BG-DEBUG] ⚠️ WHITE ANCESTOR FOUND: ' + (walker.id || walker.className || walker.tagName), 'color:#ff5f5f;font-weight:bold;font-size:14px');
-              break;
-            }
-            walker = walker.parentElement;
-          }
-          console.log('[PR-BG-DEBUG] body bg:', getComputedStyle(document.body).backgroundColor);
-        }, 200);
+        if (typeof window._prBgDebug === 'function') setTimeout(window._prBgDebug, 200);
       });
     });
   };
