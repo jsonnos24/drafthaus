@@ -14821,7 +14821,7 @@ body.split-4track-active .ft-overlay { display: none !important; }
   cursor: pointer;
 }
 .pr-time-ruler:hover { background: #1e1e36; }
-.pr-time-ruler canvas { display: block; width: 100%; height: 100%; }
+.pr-time-ruler canvas { display: block; height: 100%; }
 /* scrollable grid */
 .pr-grid-scroll {
   flex: 1; overflow: auto; position: relative; min-height: 0;
@@ -57596,18 +57596,11 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     keys.innerHTML = html;
   }
 
-  // Track scroll-based redraw — debounced to avoid thrashing during playback
+  // Scroll handler — full grid is pre-rendered, just sync ruler
   let _prGridScrollRAF = null;
   let _prScrollDebounce = null;
   function _prOnGridScroll() {
-    // Always sync ruler playhead position immediately
     _prSyncRulerScroll();
-    // Debounce the heavy canvas re-render (150ms after scroll stops)
-    clearTimeout(_prScrollDebounce);
-    _prScrollDebounce = setTimeout(() => {
-      prRenderGrid();
-      prRenderRuler();
-    }, 150);
   }
 
   function prRenderGrid() {
@@ -57629,19 +57622,15 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     container.style.width = (PR_KEY_W + gridW) + 'px';
     container.style.height = gridH + 'px';
 
-    // Viewport-based canvas: only render the visible region + buffer
-    const vpW = scrollEl ? scrollEl.clientWidth : gridW;
-    const scrollX = scrollEl ? scrollEl.scrollLeft : 0;
-    const buffer = 200;
-    const renderLeft = Math.max(0, scrollX - buffer);
-    const renderRight = Math.min(gridW, scrollX + vpW + buffer);
-    const renderW = renderRight - renderLeft;
+    // Render full grid width — no viewport clipping, instant scroll
+    const renderLeft = 0;
+    const renderW = gridW;
 
     canvas.width = renderW;
     canvas.height = gridH;
     canvas.style.width = renderW + 'px';
     canvas.style.height = gridH + 'px';
-    canvas.style.left = renderLeft + 'px';
+    canvas.style.left = '0px';
     canvas.style.position = 'absolute';
 
     const ctx = canvas.getContext('2d');
@@ -57760,19 +57749,14 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     if (!canvas) return;
 
     const fullGridW = prTotalCols * PR_COL_W + PR_KEY_W;
-    // Viewport-based ruler: only render visible region
-    const vpW = scrollEl ? scrollEl.clientWidth : fullGridW;
-    const scrollX = scrollEl ? scrollEl.scrollLeft : 0;
-    const buffer = 200;
-    const renderLeft = Math.max(0, scrollX - buffer);
-    const renderRight = Math.min(fullGridW, scrollX + vpW + buffer);
-    const renderW = renderRight - renderLeft;
+    // Render full ruler width — no viewport clipping
+    const renderLeft = 0;
+    const renderW = fullGridW;
 
     canvas.width = renderW;
     canvas.height = 24;
     canvas.style.width = renderW + 'px';
-    // Position canvas within the ruler using transform instead of scroll sync
-    canvas.style.transform = `translateX(${renderLeft - scrollX}px)`;
+    canvas.style.transform = '';
 
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, renderW, 24);
@@ -57822,13 +57806,14 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   }
 
   function _prSyncRulerScroll() {
-    // Ruler canvas is now re-rendered on scroll via _prOnGridScroll,
-    // but we still need to position the playhead indicator
     const scroll = document.getElementById('prGridScroll');
+    if (!scroll) return;
+    // Sync ruler canvas position with grid scroll
+    const rulerCanvas = document.getElementById('prRulerCanvas');
+    if (rulerCanvas) rulerCanvas.style.transform = `translateX(${-scroll.scrollLeft}px)`;
+    // Sync playhead indicator
     const rulerPH = document.getElementById('prRulerPlayhead');
-    if (scroll && rulerPH) {
-      rulerPH.style.transform = `translateX(${-scroll.scrollLeft}px)`;
-    }
+    if (rulerPH) rulerPH.style.transform = `translateX(${-scroll.scrollLeft}px)`;
   }
 
   // ── Auto-sync: debounced push to chord grid after any edit ──
