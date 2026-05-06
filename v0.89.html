@@ -14876,6 +14876,9 @@ body.split-4track-active .ft-overlay { display: none !important; }
 }
 .pr-note:hover { filter: brightness(1.3); z-index: 4; }
 .pr-note.selected { border-color: #fff; box-shadow: 0 0 6px rgba(192,132,252,0.5); z-index: 5; }
+.pr-vel-bar { position:absolute; bottom:0; left:0; right:0; pointer-events:none; border-radius:0 0 2px 2px; opacity:0.35; }
+.pr-vel-num { position:absolute; right:2px; bottom:0; font-size:6px; color:rgba(255,255,255,0.6); pointer-events:none; line-height:1; }
+.pr-vel-zone { position:absolute; bottom:0; left:0; right:0; height:35%; cursor:ns-resize; z-index:1; }
 .pr-note .pr-note-resize {
   position: absolute; right: 0; top: 0; bottom: 0; width: 6px;
   cursor: ew-resize; background: transparent;
@@ -20308,6 +20311,7 @@ var _seqNextNoteTime = 0;
 var _seqLoopBaseTime = 0; // v0.85: drift-free loop anchor
 var _seqLoopStepCount = 0; // v0.85: total steps since base was set
 var _seqStepIndex = 0;
+var _prPendingSeekStep = -1; // ruler-click seek: next seqPlay starts here
 var _seqSchedulerCtx = null;
 var _seqStopGen = 0;  // bumped on every seqStop(); async callbacks bail out when stale
 var _seqPlayGen = 0;  // snapshot of _seqStopGen at play time — visual timeouts check this
@@ -20656,6 +20660,19 @@ const SEQ_PROGRESSIONS = [
   { id:'i-VII-VI-VII', group:'Minor & Dark', label:'i - VII - VI - VII', tokens:['i','VII','VI','VII'], moods:'brooding, hypnotic',             genres:'metal, alternative' },
   { id:'i-iv-v',       group:'Minor & Dark', label:'i - iv - v',         tokens:['i','iv','v'],         moods:'dark, traditional, tense',       genres:'minor blues, folk' },
   { id:'i-iv-VII-III', group:'Minor & Dark', label:'i - iv - VII - III', tokens:['i','iv','VII','III'], moods:'mysterious, exotic',             genres:'prog, experimental' },
+  // ── Metal ────────────────────────────────────────────────────────────
+  { id:'i-bII-i-VII',    group:'Metal', label:'i - bII - i - VII',    tokens:['i','bII','i','VII'],    moods:'aggressive, crushing, relentless',  genres:'death metal, extreme metal' },
+  { id:'i-bII-v-bII',    group:'Metal', label:'i - bII - v - bII',    tokens:['i','bII','v','bII'],    moods:'brutal, dissonant, suffocating',    genres:'death metal, black metal' },
+  { id:'i-bVI-bVII-i',   group:'Metal', label:'i - bVI - bVII - i',   tokens:['i','bVI','bVII','i'],   moods:'ominous, doom, heavy',              genres:'doom metal, sludge' },
+  { id:'i-bVII-bVI-V',   group:'Metal', label:'i - bVII - bVI - V',   tokens:['i','bVII','bVI','V'],   moods:'descending, menacing, phrygian',    genres:'metal, thrash' },
+  { id:'i-iv-bVI-V',     group:'Metal', label:'i - iv - bVI - V',     tokens:['i','iv','bVI','V'],     moods:'dark, powerful, driving',            genres:'heavy metal, power metal' },
+  { id:'i-V-bVI-iv',     group:'Metal', label:'i - V - bVI - iv',     tokens:['i','V','bVI','iv'],     moods:'dramatic, intense, classic metal',   genres:'metal, hard rock' },
+  // ── Prog Rock ────────────────────────────────────────────────────────
+  { id:'I-bVII-IV-bVI',  group:'Prog Rock', label:'I - bVII - IV - bVI', tokens:['I','bVII','IV','bVI'], moods:'adventurous, modal, expansive',   genres:'prog rock, art rock' },
+  { id:'i-III-VII-IV',   group:'Prog Rock', label:'i - III - VII - IV',  tokens:['i','III','VII','IV'],  moods:'epic, shifting, cinematic',        genres:'prog rock, prog metal' },
+  { id:'I-ii-IV-bVII',   group:'Prog Rock', label:'I - ii - IV - bVII',  tokens:['I','ii','IV','bVII'],  moods:'wandering, exploratory',           genres:'prog rock, fusion' },
+  { id:'i-VII-VI-V',     group:'Prog Rock', label:'i - VII - VI - V',    tokens:['i','VII','VI','V'],    moods:'descending, theatrical, dramatic',  genres:'prog rock, neoclassical' },
+  { id:'I-V-bVI-bVII',   group:'Prog Rock', label:'I - V - bVI - bVII',  tokens:['I','V','bVI','bVII'],  moods:'unexpected, bold, genre-bending',  genres:'prog rock, experimental' },
 ];
 
 // ── Mini Mixer gains ─────────────────────────────────────────────
@@ -25724,6 +25741,21 @@ function _seqProgressionFill(progressionId) {
     if (el.value !== progressionId) el.value = progressionId;
   });
 
+  // Sync progression into PR so it's visible and plays from PR
+  if (typeof window.prLoadFromGrid === 'function' && typeof window.prRender === 'function') {
+    var _prIsOpen = document.body.classList.contains('pr-open');
+    if (_prIsOpen) {
+      console.log('[PR-progression] reloading PR from grid after progression apply');
+      if (typeof window.prSetSyncEnabled === 'function') window.prSetSyncEnabled(false);
+      window.prLoadFromGrid();
+      if (typeof window.prHumanizeNotes === 'function') window.prHumanizeNotes();
+      window.prRender();
+      if (typeof window.prBuildPalette === 'function') window.prBuildPalette();
+      if (typeof window.prSetSyncEnabled === 'function') window.prSetSyncEnabled(true);
+      if (typeof window.prSavePianoRoll === 'function') window.prSavePianoRoll();
+    }
+  }
+
   showToast(`${prog.label} · ${prog.moods}`, 'success', 2500);
 }
 
@@ -25951,7 +25983,13 @@ function _seqDurToSlots() {
 
 function seqClickFillChord(name, degree) {
   seqPlayChordByName(name);
-  if (seqChordMode === 'preview') return; // preview only — don't fill the grid
+  if (seqChordMode === 'preview') return;
+  // PR step-input: place chord at compose cursor if PR is active
+  if (typeof window.prIsComposeActive === 'function' && window.prIsComposeActive() && typeof window.prComposeStepChord === 'function') {
+    console.log('[PR-compose] chord pill "' + name + '" → prComposeStepChord');
+    window.prComposeStepChord(name, degree);
+    return;
+  }
   // C+K live recording: place at current beat position instead of next empty
   if (typeof _ckIsRecording !== 'undefined' && _ckIsRecording) {
     _ckPlaceChordAtBeat(name, degree);
@@ -28062,11 +28100,17 @@ function seqPlay() {
   // Resume within the user gesture (or as close as possible).
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
   _seqSchedulerCtx = ctx;
-  _seqStepIndex = 0;
-  _seqBarPage = 0; // reset pagination to bar 1 on play
+  if (_prPendingSeekStep >= 0) {
+    _seqStepIndex = _prPendingSeekStep;
+    console.log('[PR-seek] starting from pending seek step=' + _prPendingSeekStep);
+    _prPendingSeekStep = -1;
+  } else {
+    _seqStepIndex = 0;
+  }
+  _seqBarPage = 0;
   _seqNextNoteTime = ctx.currentTime + 0.05;
-  _seqLoopBaseTime = _seqNextNoteTime; // v0.85: anchor for drift-free looping
-  _seqLoopStepCount = 0; // total steps since loop base was set
+  _seqLoopBaseTime = _seqNextNoteTime;
+  _seqLoopStepCount = 0;
 
   // Kick off the lookahead scheduler — runs every 25ms so audio is
   // pre-scheduled ~150ms ahead on the audio thread, which is immune to
@@ -29581,6 +29625,24 @@ document.addEventListener('keydown', function(e) {
   _ckPlaceChordAtBeat(chordName, String(idx));
 });
 
+// ── Compose mode: physical keyboard 1-9 → key slots → PR step-input ──
+document.addEventListener('keydown', function(e) {
+  if (_ckIsRecording) return; // handled by the recording handler above
+  var num = parseInt(e.key);
+  if (isNaN(num) || num < 1 || num > 9) return;
+  var tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  // Only act when compose mode is active and PR is open
+  if (seqChordMode !== 'compose') return;
+  if (!document.body.classList.contains('pr-open')) return;
+  e.preventDefault();
+  var idx = num - 1;
+  if (typeof seqClickKeySlot === 'function') {
+    console.log('[PR-compose] key ' + num + ' → seqClickKeySlot(' + idx + ')');
+    seqClickKeySlot(idx);
+  }
+});
+
 window.kbdDuplicateMelodySeq = function() {
   const song = getCurrentSong();
   if (!song) return;
@@ -29685,7 +29747,8 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
     const t = Math.max(loopStartTime, loopStartTime + n.startMs / 1000 + melJitter);
     const dur = n.durMs / 1000;
     const midiNote = SEQ_NOTES.indexOf(n.note) + ((n.octave || 4) + 1) * 12;
-    const amp = 0.22 * (seqHumanizeMelody ? (0.80 + Math.random() * 0.45) : 1.0);
+    const noteVel = (n.vel != null) ? n.vel : 1.0;
+    const amp = 0.22 * noteVel * (seqHumanizeMelody ? (0.80 + Math.random() * 0.45) : 1.0);
 
     // Decay tail: how long a note rings out after its recorded duration ends.
     // Samplers (piano/guitar) get a longer natural tail; synth gets a medium release.
@@ -36379,7 +36442,7 @@ function renderKeyboardDrawerHtml(song) {
       <!-- ═══ LANDSCAPE TOOLBAR ═══ -->
       <div class="kbd-land-toolbar">
         <button class="seq-chord-mode-btn${seqChordMode==='preview'?' active':''}" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Preview — clicking a chord just plays it">▶ Preview</button>
-        <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)">
+        <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="border:1.5px solid var(--gold, #f5a623);box-shadow:0 0 4px rgba(245,166,35,0.25);">
           ${_keyOptions}
         </select>
         <select class="seq-select" id="kbdBars" onchange="kbdBarsChanged(this.value)" style="font-size:10px;width:auto;" title="Bars">
@@ -36472,7 +36535,7 @@ function renderKeyboardDrawerHtml(song) {
       <div class="kbd-stage-toolbar">
         <button class="seq-chord-mode-btn${seqChordMode==='preview'?' active':''}" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Preview — clicking a chord just plays it">▶ Preview</button>
         <button class="seq-chord-mode-btn" id="seqSweepBtn" onclick="seqToggleSweepMode()" title="Sweep — hover over chord pills to auto-play">⟿ Sweep</button>
-        <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;max-width:140px;">
+        <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;max-width:140px;border:1.5px solid var(--gold, #f5a623);box-shadow:0 0 4px rgba(245,166,35,0.25);">
           ${_keyOptions}
         </select>
         <select class="seq-select" id="kbdKeysTimeSig" onchange="kbdTimeSigChanged(this.value)" style="font-size:10px;width:52px;" title="Time Signature">
@@ -36495,10 +36558,12 @@ function renderKeyboardDrawerHtml(song) {
           <option value="8"${songGrid==='8'?' selected':''}>1/32</option>
           <option value="3"${songGrid==='3'?' selected':''}>Triplets</option>
         </select>
-        <select class="seq-select" id="kbdDesktopNoteDur" onchange="kbdNoteDurationChanged(this.value)" style="font-size:10px;width:80px;" title="Note duration (compose pen size)">
+        <select class="seq-select" id="kbdDesktopNoteDur" onchange="kbdNoteDurationChanged(this.value)" style="font-size:10px;width:80px;border:1.5px solid #e8749a;box-shadow:0 0 4px rgba(232,116,154,0.25);" title="Note duration (compose pen size)">
           <option value="1">𝅝 Whole</option>
           <option value="0.5">𝅗𝅥 Half</option>
           <option value="0.25" selected>♩ Quarter</option>
+          <option value="0.125">♪ Eighth</option>
+          <option value="0.0625">𝅘𝅥𝅯 16th</option>
         </select>
         <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="font-size:10px;max-width:200px;">
           ${_progressionOptions}
@@ -36583,10 +36648,12 @@ function renderKeyboardDrawerHtml(song) {
           <button class="kbd-port-mode-toggle${seqChordMode==='compose'?' active':''}" onclick="kbdPortToggleComposeMode()">
             ${seqChordMode==='compose' ? '✏ Compose' : '▶ Preview'}
           </button>
-          <select class="seq-select kbd-port-dur-select" id="kbdPortNoteDur" onchange="kbdNoteDurationChanged(this.value)" title="Note duration for compose mode">
+          <select class="seq-select kbd-port-dur-select" id="kbdPortNoteDur" onchange="kbdNoteDurationChanged(this.value)" title="Note duration for compose mode" style="border:1.5px solid #e8749a;box-shadow:0 0 4px rgba(232,116,154,0.25);">
             <option value="1">𝅝 Whole</option>
             <option value="0.5">𝅗𝅥 Half</option>
             <option value="0.25" selected>♩ Quarter</option>
+            <option value="0.125">♪ Eighth</option>
+            <option value="0.0625">𝅘𝅥𝅯 16th</option>
           </select>
           <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="font-size:10px;max-width:140px;">
             ${_progressionOptions}
@@ -56948,7 +57015,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       <select class="seq-select ucb-select" id="ucbChordProg" onchange="ucbChordProgChanged(this.value)" title="Chord Progression">
         <option value="">Chords</option>
       </select>
-      <select class="seq-select ucb-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" title="Key Signature" style="font-size:10px;">
+      <select class="seq-select ucb-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" title="Key Signature" style="font-size:10px;border:1.5px solid var(--gold, #f5a623);box-shadow:0 0 4px rgba(245,166,35,0.25);">
         <option value="">Key</option>
         <option>C major</option><option>C minor</option>
         <option>C# / Db major</option><option>C# / Db minor</option>
@@ -57082,34 +57149,38 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     <div class="pr-resize-bar" id="prResizeBar"></div>
     <div class="pr-header">
       <span class="pr-title" id="prTitleLabel">Piano Roll</span>
-      <div class="pr-view-toggle">
-        <button class="pr-view-btn active" id="prViewPiano" onclick="prSetView('piano')">Piano</button>
-        <button class="pr-view-btn" id="prViewDrum" onclick="prSetView('drum')">Drums</button>
-        <button class="pr-view-btn" id="prViewBoth" onclick="prSetView('both')">Both</button>
-      </div>
       <button class="pr-tool-btn active" id="prToolPointer" onclick="prSetTool('pointer')" title="Select / Move">▸ Pointer</button>
       <button class="pr-tool-btn" id="prToolPencil" onclick="prSetTool('pencil')" title="Draw Notes">✎ Pencil</button>
       <button class="pr-tool-btn" id="prToolEraser" onclick="prSetTool('eraser')" title="Erase Notes">✕ Eraser</button>
       <button class="pr-tool-btn" id="prZoomFitBtn" onclick="prZoomToNotes()" title="Zoom to notes">⊕ Zoom</button>
       <span style="flex:1"></span>
-      <span class="pr-snap-label" id="prSnapLabel">Snap: 1/16</span>
-      <select class="pr-tool-btn" id="prSnapSel" onchange="prSetSnap(this.value)" style="padding:3px 6px;">
-        <option value="1">1/4</option>
-        <option value="2">1/8</option>
-        <option value="4" selected>1/16</option>
-        <option value="8">1/32</option>
-      </select>
+      <button class="pr-tool-btn" onclick="prRandomizeVelocity()" title="Randomize velocities (selected or all)">🎲 Vel</button>
       <button class="pr-tool-btn" id="prQFlamBtn" onclick="prApplyQFlam()" title="Q-Flam: stagger selected notes in time">Q-Flam</button>
-      <select class="pr-tool-btn" id="prQFlamAmt" style="padding:3px 6px;" title="Flam intensity">
-        <option value="1">Tight</option>
-        <option value="2" selected>Medium</option>
-        <option value="3">Wide</option>
-        <option value="5">Extra</option>
+      <select class="pr-tool-btn" id="prQFlamAmt" style="padding:3px 6px;font-size:9px;" title="Flam offset per note (ticks, 960 PPQ)">
+        <option value="-3840">−1/1 (3840t)</option>
+        <option value="-1920">−1/2 (1920t)</option>
+        <option value="-960">−1/4 (960t)</option>
+        <option value="-480">−1/8 (480t)</option>
+        <option value="-240">−1/16 (240t)</option>
+        <option value="-120">−1/32 (120t)</option>
+        <option value="-60">−1/64 (60t)</option>
+        <option value="-40">−1/96 (40t)</option>
+        <option value="-20">−1/192 (20t)</option>
+        <option value="0">0 ticks</option>
+        <option value="20" selected>+1/192 (20t)</option>
+        <option value="40">+1/96 (40t)</option>
+        <option value="60">+1/64 (60t)</option>
+        <option value="120">+1/32 (120t)</option>
+        <option value="240">+1/16 (240t)</option>
+        <option value="480">+1/8 (480t)</option>
+        <option value="960">+1/4 (960t)</option>
+        <option value="1920">+1/2 (1920t)</option>
+        <option value="3840">+1/1 (3840t)</option>
       </select>
       <button class="pr-tool-btn" onclick="prTranspose(-1)" title="Transpose down 1 semitone" style="padding:2px 6px;font-size:11px;">▼</button>
       <button class="pr-tool-btn" onclick="prTranspose(1)" title="Transpose up 1 semitone" style="padding:2px 6px;font-size:11px;">▲</button>
       <span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#aaa;margin-left:6px;" title="Horizontal zoom">H<input type="range" id="prZoomH" min="12" max="60" value="28" style="width:60px;accent-color:#e8749a;cursor:pointer;" oninput="prSetZoomH(+this.value)"></span>
-      <span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#aaa;" title="Vertical zoom">V<input type="range" id="prZoomV" min="12" max="36" value="22" style="width:60px;accent-color:#e8749a;cursor:pointer;" oninput="prSetZoomV(+this.value)"></span>
+      <span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#aaa;" title="Vertical zoom">V<input type="range" id="prZoomV" min="12" max="40" value="26" style="width:60px;accent-color:#e8749a;cursor:pointer;" oninput="prSetZoomV(+this.value)"></span>
       <button class="pr-close-btn" onclick="prClose()" title="Close">✕</button>
     </div>
     <div class="pr-body">
@@ -57191,7 +57262,7 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
   const PR_MIN_MIDI = 36; // C2
   const PR_MAX_MIDI = 84; // C6
   const PR_TOTAL_ROWS = PR_MAX_MIDI - PR_MIN_MIDI + 1; // 49 rows
-  let PR_ROW_H = (window.innerWidth >= 768) ? 22 : 18;
+  let PR_ROW_H = (window.innerWidth >= 768) ? 26 : 22;
   const PR_KEY_W = 44;
   let PR_COL_W = 28; // pixels per grid subdivision
 
@@ -57348,16 +57419,19 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
       if (typeof showToast === 'function') showToast('Select 2+ notes for Q-Flam', 'info', 1500);
       return;
     }
-    var amt = parseInt(document.getElementById('prQFlamAmt')?.value || 2);
-    // Sort by pitch (highest first = lowest midi last) to stagger from top to bottom
+    var ticks = parseInt(document.getElementById('prQFlamAmt')?.value || 20);
+    var ticksPerBeat = 960;
+    var colsPerBeat = prSnap;
+    var ticksPerCol = ticksPerBeat / colsPerBeat;
+    var colOffset = ticks / ticksPerCol;
     targets.sort(function(a, b) { return b.midi - a.midi; });
-    // Apply incremental offset: first note stays, each subsequent shifts by amt subdivisions
     for (var i = 0; i < targets.length; i++) {
-      targets[i].startCol = Math.max(0, Math.min(prTotalCols - targets[i].durCols, targets[i].startCol + i * amt));
+      var newCol = targets[i].startCol + Math.round(i * colOffset);
+      targets[i].startCol = Math.max(0, Math.min(prTotalCols - targets[i].durCols, newCol));
     }
     prRenderNotes();
     prAutoSync();
-    console.log('[PR-qflam] applied: ' + targets.length + ' notes, amt=' + amt + ' subs, range col ' + targets[0].startCol + '→' + targets[targets.length - 1].startCol);
+    console.log('[PR-qflam] applied: ' + targets.length + ' notes, ticks=' + ticks + ' (' + colOffset.toFixed(2) + ' cols), range col ' + targets[0].startCol + '→' + targets[targets.length - 1].startCol);
     if (typeof showToast === 'function') showToast('Q-Flam applied (' + targets.length + ' notes)', 'info', 1200);
   };
 
@@ -58045,8 +58119,39 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
         el.style.top = (row * PR_ROW_H + 1) + 'px';
         el.style.width = Math.max(8, n.durCols * PR_COL_W - 2) + 'px';
         el.style.height = (PR_ROW_H - 2) + 'px';
-        el.textContent = midiToName(n.midi);
-        if (n.chordName) el.title = n.chordName.replace('_viii','⁸');
+        var noteH = PR_ROW_H - 2;
+        var vel = (n.vel != null) ? n.vel : 0.8;
+        var velPct = Math.round(vel * 100);
+        var velColor = vel > 0.7 ? '#e8749a' : vel > 0.4 ? '#f5a623' : '#4ecdc4';
+
+        // Note name label
+        var label = document.createElement('span');
+        label.style.cssText = 'position:relative;z-index:2;pointer-events:none;';
+        label.textContent = midiToName(n.midi);
+        el.appendChild(label);
+
+        // Velocity fill bar
+        var vBar = document.createElement('div');
+        vBar.className = 'pr-vel-bar';
+        vBar.style.height = Math.max(1, Math.round(vel * noteH)) + 'px';
+        vBar.style.background = velColor;
+        el.appendChild(vBar);
+
+        // Velocity number (only if note wide enough)
+        if (n.durCols * PR_COL_W > 28) {
+          var vNum = document.createElement('div');
+          vNum.className = 'pr-vel-num';
+          vNum.textContent = velPct;
+          el.appendChild(vNum);
+        }
+
+        if (n.chordName) el.title = n.chordName.replace('_viii','⁸') + ' vel:' + velPct;
+        else el.title = midiToName(n.midi) + ' vel:' + velPct;
+
+        // Velocity drag zone (bottom 35%)
+        var vZone = document.createElement('div');
+        vZone.className = 'pr-vel-zone';
+        el.appendChild(vZone);
 
         // Resize handle
         const rh = document.createElement('div');
@@ -58122,6 +58227,50 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
       prRenderNotes();
       if (typeof prSavePianoRoll === 'function') prSavePianoRoll();
       return;
+    }
+
+    // Bottom-zone click = velocity drag (bottom 35% of note box)
+    var velEl = e.target.closest('.pr-note');
+    if (velEl) {
+      var elRect = velEl.getBoundingClientRect();
+      var clickY = e.touches ? e.touches[0].clientY : e.clientY;
+      var pctFromTop = (clickY - elRect.top) / elRect.height;
+      if (pctFromTop > 0.65) {
+        var velNote = prNotes.find(n => n.id === noteId) || prDrumNotes.find(n => n.id === noteId);
+        if (!velNote) return;
+        var velTargets;
+        if (prMultiSelected.has(noteId) && prMultiSelected.size > 1) {
+          velTargets = prNotes.filter(n => prMultiSelected.has(n.id)).concat(prDrumNotes.filter(n => prMultiSelected.has(n.id)));
+        } else {
+          velTargets = [velNote];
+        }
+        var startY = clickY;
+        var origVels = velTargets.map(n => (n.vel != null) ? n.vel : 0.8);
+        var onVelMove = function(ev) {
+          if (ev.cancelable) ev.preventDefault();
+          var cy = ev.touches ? ev.touches[0].clientY : ev.clientY;
+          var dy = startY - cy;
+          var delta = dy / 120;
+          velTargets.forEach(function(n, i) {
+            n.vel = Math.max(0.01, Math.min(1, origVels[i] + delta));
+          });
+          prRenderNotes();
+        };
+        var onVelUp = function() {
+          document.removeEventListener('mousemove', onVelMove);
+          document.removeEventListener('mouseup', onVelUp);
+          document.removeEventListener('touchmove', onVelMove);
+          document.removeEventListener('touchend', onVelUp);
+          prAutoSync();
+          if (typeof prSavePianoRoll === 'function') prSavePianoRoll();
+          console.log('[PR-vel] adjusted ' + velTargets.length + ' notes, vel=' + velTargets.map(n => n.vel.toFixed(2)).join(','));
+        };
+        document.addEventListener('mousemove', onVelMove);
+        document.addEventListener('mouseup', onVelUp);
+        document.addEventListener('touchmove', onVelMove, {passive: false});
+        document.addEventListener('touchend', onVelUp);
+        return;
+      }
     }
 
     // If this note is part of a multi-selection, start group drag
@@ -58297,8 +58446,8 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
 
       const newNote = {
         id: prNextId++,
-        midi, startCol: col, durCols: prSnap,
-        chordName: '', degree: -1, isPencil: true
+        midi, startCol: col, durCols: prDurToCols(),
+        chordName: '', degree: -1, isPencil: true, vel: 0.8
       };
       prNotes.push(newNote);
       prSelected = newNote.id;
@@ -59101,6 +59250,32 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
   window.prComposeOff = function() { console.log('[PR-compose] cursor off'); prComposeCursor = -1; prRenderNotes(); };
   window.prIsComposeActive = function() { return prOpen && prComposeCursor >= 0; };
 
+  // Step-input for chord pills: resolve chord → MIDI notes → place at cursor
+  window.prComposeStepChord = function(name, degree) {
+    if (!prOpen || prComposeCursor < 0) return false;
+    var durCols = prDurToCols();
+    if (prComposeCursor + durCols > prTotalCols) { console.log('[PR-compose] chord cursor at end, cannot place'); return false; }
+    // Resolve chord to MIDI array
+    var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    var key = 'C', mode = 'major';
+    if (song) { var pk = prParseKey(song); key = pk.key; mode = pk.mode; }
+    var midiMap = (typeof seqGenChordMidi === 'function') ? seqGenChordMidi(key, mode) : {};
+    var midiNotes = midiMap[name] || ((typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(name) : null);
+    if (!midiNotes || !midiNotes.length) { console.log('[PR-compose] could not resolve chord "' + name + '" to MIDI'); return false; }
+    midiNotes.forEach(function(midi) {
+      prNotes.push({
+        id: prNextId++,
+        midi: midi, startCol: prComposeCursor, durCols: durCols,
+        chordName: name, degree: (degree !== '' && degree !== undefined) ? parseInt(degree) : -1, isPencil: false
+      });
+    });
+    console.log('[PR-compose] chord "' + name + '" placed: ' + midiNotes.length + ' notes [' + midiNotes.join(',') + '] col=' + prComposeCursor + ' dur=' + durCols);
+    prComposeCursor += durCols;
+    prRenderNotes();
+    prAutoSync();
+    return true;
+  };
+
   // ══════════════════════════════════════════════════════════
   // ── PIANO ROLL RECORDING ENGINE ──
   // prNotes[] is the single source of truth for all note data.
@@ -59246,7 +59421,7 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
       return {
         id: n.id, midi: n.midi, startCol: n.startCol, durCols: n.durCols,
         chordName: n.chordName || '', degree: n.degree != null ? n.degree : -1,
-        isPencil: !!n.isPencil
+        isPencil: !!n.isPencil, vel: (n.vel != null) ? n.vel : 0.8
       };
     });
     // Persist
@@ -59271,7 +59446,7 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
         id: n.id || ('load_' + Math.random().toString(36).substr(2, 8)),
         midi: n.midi, startCol: n.startCol, durCols: n.durCols,
         chordName: n.chordName || '', degree: n.degree != null ? n.degree : -1,
-        isPencil: !!n.isPencil
+        isPencil: !!n.isPencil, vel: (n.vel != null) ? n.vel : 0.8
       });
     });
     console.log('[PR] Loaded', prNotes.length, 'notes from pianoRoll');
@@ -59310,6 +59485,60 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
     console.log('[PR] Migrated', prNotes.length, 'notes from melody[]');
   };
 
+  // ── Humanize PR notes: randomize velocities with musical logic + auto-flam chords ──
+  window.prHumanizeNotes = function() {
+    if (!prNotes.length) return;
+    var chordGroups = {};
+    prNotes.forEach(function(n) {
+      if (n.vel == null) n.vel = 0.8;
+      if (!n.isPencil && n.chordName) {
+        var gk = n.chordName + ':' + n.startCol;
+        if (!chordGroups[gk]) chordGroups[gk] = [];
+        chordGroups[gk].push(n);
+      } else {
+        n.vel = 0.55 + Math.random() * 0.40;
+      }
+    });
+    Object.values(chordGroups).forEach(function(notes) {
+      notes.sort(function(a, b) { return a.midi - b.midi; });
+      notes.forEach(function(n, i) {
+        if (i === 0) n.vel = 0.70 + Math.random() * 0.20;
+        else n.vel = 0.50 + Math.random() * 0.30;
+      });
+      if (notes.length > 1) {
+        var ticksPerBeat = 960;
+        var colsPerBeat = prSnap;
+        var ticksPerCol = ticksPerBeat / colsPerBeat;
+        var flamTicks = 15 + Math.floor(Math.random() * 25);
+        var flamCols = flamTicks / ticksPerCol;
+        for (var i = 1; i < notes.length; i++) {
+          notes[i].startCol = Math.min(prTotalCols - notes[i].durCols, notes[i].startCol + Math.round(i * flamCols));
+        }
+      }
+    });
+    prRenderNotes();
+    prAutoSync();
+    console.log('[PR-humanize] velocities + auto-flam applied to ' + prNotes.length + ' notes');
+  };
+
+  // ── Randomize velocities only (toolbar button) ──
+  window.prRandomizeVelocity = function() {
+    var targets;
+    if (prMultiSelected && prMultiSelected.size > 0) {
+      targets = prNotes.filter(function(n) { return prMultiSelected.has(n.id); });
+    } else {
+      targets = prNotes;
+    }
+    if (!targets.length) return;
+    targets.forEach(function(n) {
+      n.vel = 0.40 + Math.random() * 0.55;
+    });
+    prRenderNotes();
+    prAutoSync();
+    if (typeof prSavePianoRoll === 'function') prSavePianoRoll();
+    if (typeof showToast === 'function') showToast('Velocities randomized (' + targets.length + ' notes)', 'info', 1200);
+  };
+
   // ── Schedule recorded notes for playback ──
   // Splits prNotes into chord notes (→ chord audio bus) and pencil/melody notes (→ melody bus).
   // Chord notes use seqPlayChordPiano/Piano2/Guitar with per-chord stagger;
@@ -59337,34 +59566,36 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
       var durCols = Math.min(n.durCols, sectionCols - n.startCol);
       var durMs = (durCols / sectionCols) * loopDurMs;
 
+      var noteVel = (n.vel != null) ? n.vel : 0.8;
       if (!n.isPencil && n.chordName) {
-        // Group chord notes by chordName + startCol so they play as a single chord hit
         var gk = n.chordName + ':' + n.startCol;
         if (!chordGroups[gk]) {
-          chordGroups[gk] = { chordName: n.chordName, midiNotes: [], startSec: startSec, durMs: durMs };
+          chordGroups[gk] = { chordName: n.chordName, midiNotes: [], startSec: startSec, durMs: durMs, velSum: 0, velCount: 0 };
         }
         chordGroups[gk].midiNotes.push(n.midi);
         chordGroups[gk].durMs = Math.max(chordGroups[gk].durMs, durMs);
+        chordGroups[gk].velSum += noteVel;
+        chordGroups[gk].velCount++;
       } else {
-        // Pencil / melody note → melody bus
         var noteIdx = n.midi % 12;
         var octave = Math.floor(n.midi / 12) - 1;
         var noteName = PR_NOTES_ALL[noteIdx];
         if (!noteName) return;
         var startMs = (n.startCol / sectionCols) * loopDurMs;
-        melodyArr.push({ note: noteName, octave: octave, startMs: startMs, durMs: Math.max(30, durMs) });
+        melodyArr.push({ note: noteName, octave: octave, startMs: startMs, durMs: Math.max(30, durMs), vel: noteVel });
       }
     });
 
     // ── Schedule chord groups through chord audio bus ──
     var _cgKeys = Object.keys(chordGroups);
     console.log('[PR-playback] scheduling: chordGroups=' + _cgKeys.length + ' (' + _cgKeys.join(', ') + ') melodyNotes=' + melodyArr.length + ' loopDur=' + loopDurSec.toFixed(2) + 's sectionCols=' + sectionCols);
-    var vel = parseFloat(sd.vel || document.getElementById('seqVel')?.value || 0.8);
+    var globalVel = parseFloat(sd.vel || document.getElementById('seqVel')?.value || 0.8);
     var _hzChords = (typeof seqHumanizeChords !== 'undefined') && seqHumanizeChords;
     Object.values(chordGroups).forEach(function(g) {
       var t = loopStartTime + g.startSec;
       if (_hzChords) t = Math.max(0.001, t + (Math.random() - 0.5) * 0.034);
-      var v = vel * (0.80 + Math.random() * 0.40);
+      var chordVel = (g.velCount > 0) ? (g.velSum / g.velCount) : globalVel;
+      var v = chordVel * (0.80 + Math.random() * 0.40);
       var midis = g.midiNotes;
       var chordDurS = g.durMs / 1000;
       console.log('[PR-playback] chord: ' + g.chordName + ' midis=[' + midis.join(',') + '] t=' + t.toFixed(3) + ' durS=' + chordDurS.toFixed(3) + ' vel=' + v.toFixed(2));
@@ -59522,33 +59753,33 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
     const col = Math.max(0, Math.min(prTotalCols - 1, Math.floor(clickX / PR_COL_W)));
 
     // Map column to sequencer step index (within the section's range)
-    const chordSlots = document.querySelectorAll('#seqChordGrid .seq-slot');
-    const totalSlots = chordSlots.length || 8;
     const song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
     const _sd = song ? (song.sequencer || {}) : {};
+    const drumSteps = parseInt(song?.drumSteps || _sd.drumSteps || _sd.grid || 4);
     const _sBars = parseInt(_sd.bars || 4);
     const _sBeats = _sBars * prTimeSig;
     const _sCols = _sBeats * prSnap;
-    // Wrap the column into the section range, then map to step
+    const totalDrumSlots = _sBeats * drumSteps;
     const sectionCol = col % _sCols;
-    const targetStep = Math.floor(sectionCol * totalSlots / _sCols);
+    const targetStep = Math.floor(sectionCol * totalDrumSlots / _sCols);
 
-    // Move the playhead visually immediately
+    // Move the playhead visually
     const xPos = col * PR_COL_W;
     const playhead = document.getElementById('prPlayhead');
     const rulerPH = document.getElementById('prRulerPlayhead');
     if (playhead) { playhead.classList.add('active'); playhead.style.left = (PR_KEY_W + xPos) + 'px'; }
     if (rulerPH)  { rulerPH.classList.add('active');  rulerPH.style.left = (PR_KEY_W + xPos) + 'px'; }
 
-    // Seek: stop, then restart from the target position
-    if (typeof seqStop === 'function' && (typeof seqIsPlaying !== 'undefined') && seqIsPlaying) seqStop();
-
-    // Start playback from the clicked position
-    // seqPlay() is synchronous — it sets _seqStepIndex=0 then kicks off
-    // the scheduler interval. We override the step index immediately after,
-    // before the first interval tick fires (25ms away).
-    if (typeof seqPlay === 'function') seqPlay();
-    _seqStepIndex = targetStep;
+    if (typeof seqIsPlaying !== 'undefined' && seqIsPlaying) {
+      // Already playing → seek immediately: stop and restart from target
+      if (typeof seqStop === 'function') seqStop();
+      _prPendingSeekStep = targetStep;
+      if (typeof seqPlay === 'function') seqPlay();
+    } else {
+      // Not playing → park the playhead, start from here on next play
+      _prPendingSeekStep = targetStep;
+      console.log('[PR-seek] parked playhead at col=' + col + ' step=' + targetStep + ' — will start on next play');
+    }
   }
 
   // Attach click handler once DOM is ready
