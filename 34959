@@ -20776,6 +20776,7 @@ function playGuitarNote(midiNote, time, velocity, durationS) {
   gain.connect(seqGetChordsOut());
   src.start(time);
   src.stop(time + dur + 0.1);
+  if (typeof _prChordScheduledNodes !== 'undefined') _prChordScheduledNodes.push(src);
 }
 
 function _guitarUpdateUI() {
@@ -20839,6 +20840,7 @@ function playPianoNote(midiNote, time, velocity, durationS) {
   gain.connect(seqGetChordsOut());
   src.start(time);
   src.stop(time + dur + 0.1);
+  if (typeof _prChordScheduledNodes !== 'undefined') _prChordScheduledNodes.push(src);
 }
 
 function _pianoUpdateUI() {
@@ -20907,6 +20909,7 @@ function playPiano2Note(midiNote, time, velocity, durationS) {
   gain.connect(seqGetChordsOut());
   src.start(time);
   src.stop(time + dur + 0.1);
+  if (typeof _prChordScheduledNodes !== 'undefined') _prChordScheduledNodes.push(src);
 }
 
 function seqPlayChordPiano2(midiNotes, time, velocity, durS) {
@@ -25747,6 +25750,9 @@ function _seqProgressionFill(progressionId) {
     if (_prIsOpen) {
       console.log('[PR-progression] reloading PR from grid after progression apply');
       if (typeof window.prSetSyncEnabled === 'function') window.prSetSyncEnabled(false);
+      // Clear saved pianoRoll so prLoadFromGrid reads fresh chord grid instead of stale data
+      var _prSong = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+      if (_prSong && _prSong.sequencer) delete _prSong.sequencer.pianoRoll;
       window.prLoadFromGrid();
       if (typeof window.prHumanizeNotes === 'function') window.prHumanizeNotes();
       window.prRender();
@@ -28392,6 +28398,7 @@ function seqScheduleNotes() {
       if (_pf !== 'drums' && i === 0) {
         melodyScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} });
         melodyScheduledNodes = [];
+        if (typeof _prChordScheduledNodes !== 'undefined') { _prChordScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} }); _prChordScheduledNodes = []; }
         const secLoopDurMs = sec.totalSteps * sec.stepDur * 1000;
         var _hasPrNotes2 = (typeof prSchedulePlayback === 'function' && window._prNotesCount && window._prNotesCount() > 0);
         if (_hasPrNotes2) {
@@ -28587,6 +28594,7 @@ function seqScheduleNotes() {
       if (i === 0 && !melodyIsRecording) {
         melodyScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} });
         melodyScheduledNodes = [];
+        if (typeof _prChordScheduledNodes !== 'undefined') { _prChordScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} }); _prChordScheduledNodes = []; }
         clearMelodyKeyHighlights();
         // Piano roll is the source of truth — if it has notes, play from there;
         // otherwise fall back to the old melodyNotes array.
@@ -29137,6 +29145,7 @@ function kbdNoteOff(note, octave) {
 var melodyIsRecording = false;
 var melodyCountingIn  = false; // true while count-in is running (blocks re-entry)
 var melodyScheduledNodes = []; // track live oscillators for instant clear
+var _prChordScheduledNodes = []; // track PR chord AudioBufferSourceNodes for cleanup on stop
 var melodyRecStart    = null;
 var melodyNoteStart   = null;
 var melodyActiveNote  = null; // kept for legacy compat — real tracking uses melodyActiveNotes
@@ -29856,6 +29865,7 @@ function seqStop(letTracksFinish) {
   _mixUpdateTransport(0, 4);
   melodyScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} });
   melodyScheduledNodes = [];
+  if (typeof _prChordScheduledNodes !== 'undefined') { _prChordScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} }); _prChordScheduledNodes = []; }
   clearMelodyKeyHighlights();
   seqRenderSequenceTabs();
   if (typeof kbdRenderMelodyTabs === 'function') { const _s = getCurrentSong(); if (_s) kbdRenderMelodyTabs(_s); }
@@ -59024,11 +59034,13 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
       if (_prSong) seqLoadSequenceIntoDOM(_prSong.sequencer, _prSong);
     }
 
-    // Save the song
-    if (typeof saveSongDebounced === 'function') saveSongDebounced();
-    else if (typeof saveSong === 'function') saveSong();
-
-    /* Sync is now always automatic — no manual button */
+    // Save the song to Firestore
+    var _syncSong = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    if (_syncSong) {
+      _syncSong.updatedAt = Date.now();
+      if (typeof save === 'function') save();
+      if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(_syncSong);
+    }
   };
 
   // ── Two-way drum sync: piano roll → sequencer arrays + drum drawer DOM ──
@@ -59092,10 +59104,10 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
       if (typeof _tsUpdateHits === 'function') _tsUpdateHits(dv.voice, el);
     });
 
-    // Save
+    // Save to Firestore
     song.updatedAt = Date.now();
-    if (typeof saveSongDebounced === 'function') saveSongDebounced();
-    else if (typeof save === 'function') save();
+    if (typeof save === 'function') save();
+    if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
   };
 
   // ── Resize panel ──
@@ -59430,9 +59442,10 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
         isPencil: !!n.isPencil, vel: (n.vel != null) ? n.vel : 0.8
       };
     });
-    // Persist
-    if (typeof saveSongDebounced === 'function') saveSongDebounced();
-    else if (typeof saveSong === 'function') saveSong();
+    // Persist to Firestore
+    song.updatedAt = Date.now();
+    if (typeof save === 'function') save();
+    if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
   };
 
   // Console helper: call prDebugReset() to re-trigger one-time logs on next playback
@@ -59494,37 +59507,108 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
   // ── Humanize PR notes: randomize velocities with musical logic + auto-flam chords ──
   window.prHumanizeNotes = function() {
     if (!prNotes.length) return;
+    var colsPerBeat = prSnap;
+    var colsPerWhole = colsPerBeat * 4;
+    var colsPerHalf = colsPerBeat * 2;
+    var colsPerQuarter = colsPerBeat;
+    var colsPer16th = Math.max(1, Math.round(colsPerBeat / 4));
+
+    // Collect chord groups by chordName + startCol
     var chordGroups = {};
+    var chordOrder = [];
     prNotes.forEach(function(n) {
       if (n.vel == null) n.vel = 0.8;
       if (!n.isPencil && n.chordName) {
         var gk = n.chordName + ':' + n.startCol;
-        if (!chordGroups[gk]) chordGroups[gk] = [];
+        if (!chordGroups[gk]) { chordGroups[gk] = []; chordOrder.push(gk); }
         chordGroups[gk].push(n);
       } else {
         n.vel = 0.55 + Math.random() * 0.40;
       }
     });
-    Object.values(chordGroups).forEach(function(notes) {
-      notes.sort(function(a, b) { return a.midi - b.midi; });
-      notes.forEach(function(n, i) {
-        if (i === 0) n.vel = 0.70 + Math.random() * 0.20;
-        else n.vel = 0.50 + Math.random() * 0.30;
+
+    // Rhythm patterns: arrays of beat-fraction durations that sum to the chord's total
+    // Applied per chord group to create musical variety
+    var rhythmPatterns = [
+      [1],                        // whole — sustain full
+      [0.5, 0.5],                 // half + half
+      [0.5, 0.25, 0.25],         // half + quarter + quarter
+      [0.25, 0.25, 0.25, 0.25],  // four quarters
+      [0.75, 0.25],              // dotted half + quarter
+      [0.25, 0.25, 0.5],         // quarter + quarter + half
+    ];
+
+    chordOrder.forEach(function(gk, gIdx) {
+      var notes = chordGroups[gk];
+      if (!notes.length) return;
+      var origStartCol = notes[0].startCol;
+      var origDurCols = notes[0].durCols;
+      var origDurBeats = origDurCols / colsPerBeat;
+
+      // Pick a rhythm pattern — first chord more likely full sustain, others varied
+      var pattern;
+      if (gIdx === 0 && Math.random() < 0.6) {
+        pattern = [1]; // first chord often sustains full
+      } else if (origDurBeats <= 1) {
+        pattern = [1]; // quarter note or less — don't subdivide
+      } else {
+        pattern = rhythmPatterns[Math.floor(Math.random() * rhythmPatterns.length)];
+      }
+
+      // Remove original notes, replace with rhythmic hits
+      var midiList = notes.map(function(n) { return n.midi; }).sort(function(a, b) { return a - b; });
+      var chordName = notes[0].chordName;
+      var degree = notes[0].degree;
+      // Remove originals from prNotes
+      var noteIds = {};
+      notes.forEach(function(n) { noteIds[n.id] = true; });
+      prNotes = prNotes.filter(function(n) { return !noteIds[n.id]; });
+
+      // Place rhythmic hits
+      var beatPos = 0;
+      pattern.forEach(function(frac, pIdx) {
+        var hitDurBeats = origDurBeats * frac;
+        var hitDurCols = Math.max(1, Math.round(hitDurBeats * colsPerBeat));
+        var hitStartCol = origStartCol + Math.round(beatPos * colsPerBeat);
+        if (hitStartCol + hitDurCols > prTotalCols) hitDurCols = prTotalCols - hitStartCol;
+        if (hitStartCol >= prTotalCols) return;
+
+        midiList.forEach(function(midi, mIdx) {
+          var v;
+          if (pIdx === 0) v = (mIdx === 0) ? (0.72 + Math.random() * 0.20) : (0.52 + Math.random() * 0.28);
+          else v = (mIdx === 0) ? (0.55 + Math.random() * 0.20) : (0.40 + Math.random() * 0.28);
+          prNotes.push({
+            id: prNextId++, midi: midi, startCol: hitStartCol, durCols: hitDurCols,
+            chordName: chordName, degree: degree, isPencil: false, vel: v
+          });
+        });
+        beatPos += hitDurBeats;
       });
-      if (notes.length > 1) {
-        var ticksPerBeat = 960;
-        var colsPerBeat = prSnap;
-        var ticksPerCol = ticksPerBeat / colsPerBeat;
-        var flamTicks = 15 + Math.floor(Math.random() * 25);
-        var flamCols = flamTicks / ticksPerCol;
-        for (var i = 1; i < notes.length; i++) {
-          notes[i].startCol = Math.min(prTotalCols - notes[i].durCols, notes[i].startCol + Math.round(i * flamCols));
-        }
+    });
+
+    // Auto-flam each chord hit group
+    var flamGroups = {};
+    prNotes.forEach(function(n) {
+      if (!n.isPencil && n.chordName) {
+        var fk = n.chordName + ':' + n.startCol;
+        if (!flamGroups[fk]) flamGroups[fk] = [];
+        flamGroups[fk].push(n);
       }
     });
+    var ticksPerCol = 960 / colsPerBeat;
+    Object.values(flamGroups).forEach(function(fNotes) {
+      if (fNotes.length < 2) return;
+      fNotes.sort(function(a, b) { return a.midi - b.midi; });
+      var flamTicks = 15 + Math.floor(Math.random() * 25);
+      var flamCols = flamTicks / ticksPerCol;
+      for (var i = 1; i < fNotes.length; i++) {
+        fNotes[i].startCol = Math.min(prTotalCols - fNotes[i].durCols, fNotes[i].startCol + Math.round(i * flamCols));
+      }
+    });
+
     prRenderNotes();
     prAutoSync();
-    console.log('[PR-humanize] velocities + auto-flam applied to ' + prNotes.length + ' notes');
+    console.log('[PR-humanize] rhythm + velocity + flam applied to ' + prNotes.length + ' notes, ' + chordOrder.length + ' chord groups');
   };
 
   // ── Randomize velocities only (toolbar button) ──
@@ -59552,6 +59636,7 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
 
   window.prSchedulePlayback = function(audioCtx, loopStartTime, loopDurSec) {
     if (!prNotes.length) return null;
+    if (typeof _prChordScheduledNodes !== 'undefined') { _prChordScheduledNodes.forEach(function(n) { try { n.stop(); } catch(e) {} }); _prChordScheduledNodes = []; }
     var loopDurMs = loopDurSec * 1000;
 
     var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
@@ -60090,6 +60175,10 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
       melodyScheduledNodes.forEach(function(n) { try { n.stop(); } catch(e) {} });
       melodyScheduledNodes = [];
     }
+    if (typeof _prChordScheduledNodes !== 'undefined') {
+      _prChordScheduledNodes.forEach(function(n) { try { n.stop(); } catch(e) {} });
+      _prChordScheduledNodes = [];
+    }
 
     // Mute
     if (typeof seqMasterGain !== 'undefined' && seqMasterGain) {
@@ -60443,8 +60532,9 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
       if (e.type === 'tempo') { o.bpm = e.bpm; o.timeSig = e.timeSig; }
       return o;
     });
-    if (typeof saveSongDebounced === 'function') saveSongDebounced();
-    else if (typeof saveSong === 'function') saveSong();
+    song.updatedAt = Date.now();
+    if (typeof save === 'function') save();
+    if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
   }
 
   // ── Load timeline from saved data or migrate from legacy ──
