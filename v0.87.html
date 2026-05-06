@@ -26366,7 +26366,9 @@ window._prInlineActive = false;
 window.kbdStageInitInlinePR = function() {
   const col = document.getElementById('kbdStagePrCol');
   const panel = document.getElementById('prPanel');
-  if (!col || !panel) return;
+  console.log('[KBD-DEBUG] kbdStageInitInlinePR — col:', !!col, 'panel:', !!panel);
+  if (col) console.log('[KBD-DEBUG] col dims:', col.offsetWidth, 'x', col.offsetHeight, '| col parent:', col.parentElement?.className);
+  if (!col || !panel) { console.warn('[KBD-DEBUG] kbdStageInitInlinePR ABORTED — missing element'); return; }
   // Move prPanel from overlay into the inline column
   col.innerHTML = '';
   col.appendChild(panel);
@@ -26401,7 +26403,10 @@ window.kbdStageInitInlinePR = function() {
   var _prInlineRetries = 0;
   function _prInlineTryRender() {
     var scroll = document.getElementById('prGridScroll');
-    if (scroll && scroll.clientWidth > 0) {
+    var sw = scroll ? scroll.clientWidth : -1;
+    console.log('[KBD-DEBUG] _prInlineTryRender attempt', _prInlineRetries, '| scroll:', !!scroll, '| clientWidth:', sw);
+    if (scroll && sw > 0) {
+      console.log('[KBD-DEBUG] PR inline render GO — clientWidth:', sw, 'clientHeight:', scroll.clientHeight);
       if (typeof prLoadFromGrid === 'function') prLoadFromGrid();
       if (typeof prRender === 'function') prRender();
       if (typeof prBuildPalette === 'function') prBuildPalette();
@@ -26409,9 +26414,12 @@ window.kbdStageInitInlinePR = function() {
       var c4row = (84 - 60);
       scroll.scrollTop = Math.max(0, c4row * rowH - scroll.clientHeight / 2);
       if (typeof prSetSyncEnabled === 'function') setTimeout(function() { prSetSyncEnabled(true); }, 50);
+      console.log('[KBD-DEBUG] PR inline render DONE');
     } else if (_prInlineRetries < 20) {
       _prInlineRetries++;
       requestAnimationFrame(_prInlineTryRender);
+    } else {
+      console.error('[KBD-DEBUG] PR inline render GAVE UP after 20 retries — clientWidth still 0');
     }
   }
   requestAnimationFrame(_prInlineTryRender);
@@ -35799,13 +35807,15 @@ function setSplitRightTool(tool) {
     if (!cfg) return;
     var drawer = document.getElementById(cfg.drawerId);
     if (!drawer) return;
+    console.log('[KBD-DEBUG] setSplitRightTool generic path — tool:', tool, '| drawer:', cfg.drawerId, '| drawer dims:', drawer.offsetWidth, 'x', drawer.offsetHeight, '| splitRightContent dims:', content.offsetWidth, 'x', content.offsetHeight);
     if (!_splitOrigParents[tool]) {
       _splitOrigParents[tool] = drawer.parentNode;
     }
     content.appendChild(drawer);
     drawer.classList.add('open');
+    console.log('[KBD-DEBUG] drawer reparented into splitRightContent, calling openFn:', !!cfg.openFn);
     if (typeof cfg.openFn === 'function') {
-      try { cfg.openFn(); } catch(e) {}
+      try { cfg.openFn(); } catch(e) { console.error('[KBD-DEBUG] openFn ERROR:', e.message, e.stack); }
     }
   }
   // Sync dropdown
@@ -36233,6 +36243,7 @@ function _loopShowPicker(show) {
 }
 
 function renderKeyboardDrawerHtml(song) {
+  console.log('[KBD-DEBUG] renderKeyboardDrawerHtml — song:', song ? song.id : 'NULL');
   const sd = song?.sequencer || {};
   const melodyInstrument = sd.melodyInstrument || 'piano';
   const melodyQuantize = sd.melodyQuantize !== false;
@@ -36241,6 +36252,7 @@ function renderKeyboardDrawerHtml(song) {
   _kbdMelodyInstrument = melodyInstrument;
 
   if (!song) {
+    console.warn('[KBD-DEBUG] renderKeyboardDrawerHtml — NO SONG, returning picker HTML');
     // No song — show picker
     return `
       <div style="padding:10px 0 16px;">
@@ -37241,6 +37253,8 @@ function kbdGridChanged(callerVal) {
 }
 
 function openKeyboardDrawer() {
+  console.log('[KBD-DEBUG] openKeyboardDrawer called');
+  console.log('[KBD-DEBUG] innerWidth:', window.innerWidth, 'innerHeight:', window.innerHeight);
   // ── Perf mode: only one tool panel at a time ──
   if (window._ilPerfMode && document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
     vrClose();
@@ -37264,6 +37278,7 @@ function openKeyboardDrawer() {
   _drawerMobileHeaderHide();
 
   const song = getCurrentSong();
+  console.log('[KBD-DEBUG] getCurrentSong:', song ? song.id : 'NULL', '| title:', song?.title || song?.workingTitle || 'none');
   const nameEl = document.getElementById('keyboardDrawerSongName');
   if (nameEl) nameEl.textContent = song ? (song.title || song.workingTitle || 'Untitled') : 'Select a song';
 
@@ -37288,8 +37303,12 @@ function openKeyboardDrawer() {
   }
 
   const body = document.getElementById('keyboardDrawerBody');
-  if (!body) return;
-  body.innerHTML = renderKeyboardDrawerHtml(song);
+  if (!body) { console.error('[KBD-DEBUG] keyboardDrawerBody NOT FOUND — aborting'); return; }
+  console.log('[KBD-DEBUG] body found, offsetWidth:', body.offsetWidth, 'offsetHeight:', body.offsetHeight);
+  var _kbdHtml = renderKeyboardDrawerHtml(song);
+  console.log('[KBD-DEBUG] renderKeyboardDrawerHtml returned', _kbdHtml ? _kbdHtml.length + ' chars' : 'EMPTY/NULL');
+  body.innerHTML = _kbdHtml;
+  console.log('[KBD-DEBUG] body.innerHTML set, childElementCount:', body.childElementCount);
 
   // Settings controls are static in #sharedDrawerHeader; remove dynamic copy from body
   const _kbdStripCopy = body.querySelector('.kbd-settings-strip');
@@ -37315,9 +37334,15 @@ function openKeyboardDrawer() {
     && window.matchMedia('(orientation: landscape)').matches;
   const _kbdPortMobile = window.innerWidth < 768 && !_kbdLandMobile;
   const _kbdMobileCompact = _kbdLandMobile || _kbdPortMobile;
+  console.log('[KBD-DEBUG] _kbdMobileCompact:', _kbdMobileCompact, '| _kbdLandMobile:', _kbdLandMobile, '| _kbdPortMobile:', _kbdPortMobile);
 
   // Render keyboard, melody roll, tabs, MIDI status, chord grid + pills
   requestAnimationFrame(() => {
+    console.log('[KBD-DEBUG] RAF fired — rendering grids');
+    var _kbdDrawerEl = document.getElementById('keyboardDrawer');
+    var _kbdBodyEl = document.getElementById('keyboardDrawerBody');
+    console.log('[KBD-DEBUG] drawer.open:', _kbdDrawerEl?.classList.contains('open'), '| drawer dims:', _kbdDrawerEl?.offsetWidth, 'x', _kbdDrawerEl?.offsetHeight, '| body dims:', _kbdBodyEl?.offsetWidth, 'x', _kbdBodyEl?.offsetHeight);
+    console.log('[KBD-DEBUG] drawer parent:', _kbdDrawerEl?.parentElement?.id || _kbdDrawerEl?.parentElement?.className);
     if (!_kbdMobileCompact) {
       seqRenderKeyboard();
       seqRenderMelodyRoll();
@@ -37337,6 +37362,7 @@ function openKeyboardDrawer() {
     }
     // Unified pagination: init bar nav for keys (fixes first-load bug)
     setTimeout(_seqBarPaginateAll, 50);
+    console.log('[KBD-DEBUG] grid render done — stage-grid visible:', !!document.querySelector('.kbd-stage-grid'));
 
     // Desktop stage: init inline piano roll
     if (!_kbdMobileCompact && typeof kbdStageInitInlinePR === 'function') {
