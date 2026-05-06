@@ -57085,61 +57085,45 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 </div>
 
 <script>
-/* ── PR-BG-DEBUG v2: full ancestor walk + keyboard drawer scan ── */
+/* ── PR-BG-DEBUG v3: canvas GPU limit test ── */
 window._prBgDebug = function() {
-  console.log('%c[PR-BG-DEBUG] ══ v2 — Full Ancestor Walk ══', 'color:#ff5f5f;font-weight:bold');
-  // Walk EVERY ancestor from prPanel to body
-  var el = document.getElementById('prPanel');
-  if (!el) { console.log('[PR-BG-DEBUG] prPanel not found!'); return; }
-  while (el) {
-    var cs = getComputedStyle(el);
-    var bg = cs.backgroundColor;
-    var tag = el.tagName + (el.id ? '#'+el.id : '') + (el.className ? '.'+String(el.className).split(' ').join('.') : '');
-    var isLight = false;
-    // Parse rgb values to check if light
-    var m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-    if (m) {
-      var r = +m[1], g = +m[2], b = +m[3];
-      isLight = (r > 200 && g > 200 && b > 200);
-    }
-    var transparent = (bg === 'rgba(0, 0, 0, 0)');
+  console.log('%c[PR-BG-DEBUG] ══ v3 — Canvas GPU Limit Test ══', 'color:#ff5f5f;font-weight:bold');
+  var canvas = document.getElementById('prGridCanvas');
+  if (!canvas) { console.log('[PR-BG-DEBUG] prGridCanvas not found'); return; }
+  console.log('[PR-BG-DEBUG] canvas.width:', canvas.width, '| canvas.height:', canvas.height);
+  console.log('[PR-BG-DEBUG] style:', canvas.style.width, 'x', canvas.style.height);
+  var ctx = canvas.getContext('2d');
+  if (!ctx) { console.log('%c[PR-BG-DEBUG] ⚠️ getContext returned null!', 'color:#ff5f5f;font-weight:bold'); return; }
+  // Test: draw red pixel at (5,5) and read it back
+  ctx.fillStyle = '#ff0000';
+  ctx.fillRect(5, 5, 1, 1);
+  try {
+    var px = ctx.getImageData(5, 5, 1, 1).data;
+    var working = (px[0] === 255 && px[1] === 0 && px[2] === 0);
     console.log(
-      '%c[PR-BG-DEBUG] ' + tag + '%c → bg:' + bg + ' | ' + el.offsetWidth + 'x' + el.offsetHeight +
-        (isLight ? ' ⚠️ LIGHT!' : '') + (transparent ? ' (transparent)' : ''),
-      'color:#f5a623', isLight ? 'color:#ff5f5f;font-weight:bold' : 'color:#64dcb4'
+      '%c[PR-BG-DEBUG] Canvas render test: ' + (working ? '✅ WORKING' : '❌ BROKEN — GPU limit exceeded!') +
+      ' (readback: r=' + px[0] + ' g=' + px[1] + ' b=' + px[2] + ' a=' + px[3] + ')',
+      working ? 'color:#64dcb4;font-weight:bold' : 'color:#ff5f5f;font-weight:bold;font-size:14px'
     );
-    if (el === document.body) break;
-    el = el.parentElement;
+  } catch(e) {
+    console.log('%c[PR-BG-DEBUG] ⚠️ getImageData failed:', e.message, 'color:#ff5f5f;font-weight:bold');
   }
-  // Scan keyboard drawer and stage grid for light backgrounds
-  console.log('%c[PR-BG-DEBUG] ── Keyboard Drawer Scan ──', 'color:#ff5f5f;font-weight:bold');
-  var kbd = document.getElementById('keyboardDrawer');
-  if (kbd) {
-    var scanEls = kbd.querySelectorAll('*');
-    scanEls.forEach(function(el2) {
-      var bg2 = getComputedStyle(el2).backgroundColor;
-      var m2 = bg2.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-      if (m2 && +m2[1] > 200 && +m2[2] > 200 && +m2[3] > 200) {
-        var t2 = el2.tagName + (el2.id ? '#'+el2.id : '') + (el2.className ? '.'+String(el2.className).split(' ')[0] : '');
-        console.log(
-          '%c[PR-BG-DEBUG] ⚠️ LIGHT EL: ' + t2 + ' → ' + bg2 + ' | ' + el2.offsetWidth + 'x' + el2.offsetHeight,
-          'color:#ff5f5f;font-weight:bold'
-        );
-      }
-    });
-  } else {
-    console.log('[PR-BG-DEBUG] keyboardDrawer NOT FOUND');
+  // Check max canvas size
+  var testC = document.createElement('canvas');
+  testC.width = 1; testC.height = 1;
+  var testCtx = testC.getContext('2d');
+  // Binary search for max width
+  var lo = 1024, hi = 200000;
+  while (lo < hi - 1) {
+    var mid = Math.floor((lo + hi) / 2);
+    testC.width = mid; testC.height = 1;
+    testCtx.fillStyle = '#ff0000';
+    testCtx.fillRect(0, 0, 1, 1);
+    var d = testCtx.getImageData(0, 0, 1, 1).data;
+    if (d[0] === 255) lo = mid; else hi = mid;
   }
-  // Also scan splitRightContent direct children
-  var src = document.getElementById('splitRightContent');
-  if (src) {
-    console.log('%c[PR-BG-DEBUG] ── splitRightContent children ──', 'color:#ff5f5f');
-    for (var i = 0; i < src.children.length; i++) {
-      var ch = src.children[i];
-      var cbg = getComputedStyle(ch).backgroundColor;
-      console.log('[PR-BG-DEBUG]   child ' + i + ': ' + ch.tagName + (ch.id ? '#'+ch.id : '') + ' → bg:' + cbg + ' | ' + ch.offsetWidth + 'x' + ch.offsetHeight);
-    }
-  }
+  console.log('[PR-BG-DEBUG] GPU max canvas width: ~' + lo + 'px | current grid: ' + canvas.width + 'px' +
+    (canvas.width > lo ? ' ⚠️ EXCEEDS LIMIT!' : ''));
 };
 window.prBgDebug = window._prBgDebug;
 setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebug(); }, 3000);
