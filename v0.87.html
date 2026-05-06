@@ -4384,7 +4384,7 @@ button, select, input, textarea { touch-action: manipulation; }
     grid-template-rows: 1fr;
     gap: 0;
     padding: 0;
-    flex: 1; min-height: 0; height: 100%;
+    flex: 1; min-height: 0; height: 0;
   }
   .kbd-stage-col { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; min-height: 0; }
   /* Section headings */
@@ -33064,8 +33064,8 @@ function _uiRestoreFromState(state, song) {
       }
 
       _uiRestoring = false;
-      // Small delay to let all DOM updates settle before revealing
-      setTimeout(function() { _uiDismissLoadingScreen(); }, 80);
+      // Extra time for song data + drawers to fully render behind loading screen
+      setTimeout(function() { _uiDismissLoadingScreen(); }, 1100);
     }
 
     // Warm up audio contexts (normally done in openSong from user gesture)
@@ -37303,6 +37303,19 @@ function openKeyboardDrawer() {
   const body = document.getElementById('keyboardDrawerBody');
   if (!body) { console.error('[KBD-DEBUG] keyboardDrawerBody NOT FOUND — aborting'); return; }
   console.log('[KBD-DEBUG] body found, offsetWidth:', body.offsetWidth, 'offsetHeight:', body.offsetHeight);
+  // Rescue prPanel before innerHTML wipe — it may be inside kbdStagePrCol
+  var _prPanelRescue = document.getElementById('prPanel');
+  var _prOverlayRescue = document.getElementById('prOverlay');
+  if (_prPanelRescue && _prOverlayRescue && body.contains(_prPanelRescue)) {
+    console.log('[KBD-DEBUG] rescuing prPanel back to overlay before innerHTML wipe');
+    _prOverlayRescue.appendChild(_prPanelRescue);
+    _prPanelRescue.style.maxHeight = '';
+    _prPanelRescue.style.height = '';
+    _prPanelRescue.style.borderRadius = '';
+    _prPanelRescue.style.border = '';
+    _prPanelRescue.style.boxShadow = '';
+    window._prInlineActive = false;
+  }
   var _kbdHtml = renderKeyboardDrawerHtml(song);
   console.log('[KBD-DEBUG] renderKeyboardDrawerHtml returned', _kbdHtml ? _kbdHtml.length + ' chars' : 'EMPTY/NULL');
   body.innerHTML = _kbdHtml;
