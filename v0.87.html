@@ -57640,12 +57640,22 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
     keys.innerHTML = html;
   }
 
-  // Scroll handler — full grid is pre-rendered, just sync ruler
+  // Scroll handler — viewport canvas needs re-render on scroll
   let _prGridScrollRAF = null;
   let _prScrollDebounce = null;
   function _prOnGridScroll() {
     _prSyncRulerScroll();
+    if (!_prGridScrollRAF) {
+      _prGridScrollRAF = requestAnimationFrame(() => {
+        _prGridScrollRAF = null;
+        _prPaintGridViewport();
+        _prPaintRulerViewport();
+      });
+    }
   }
+
+  // Cached grid geometry — set once by prRenderGrid, reused by viewport painter
+  let _prGridW = 0, _prGridH = 0;
 
   function prRenderGrid() {
     const canvas = document.getElementById('prGridCanvas');
@@ -57657,38 +57667,49 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
     const rowH = vp.rowH;
     const totalRows = vp.totalRows;
 
-    const gridW = prTotalCols * PR_COL_W;
-    const gridH = (prViewMode === 'drum')
+    _prGridW = prTotalCols * PR_COL_W;
+    _prGridH = (prViewMode === 'drum')
       ? PR_DRUM_VOICES.length * PR_DRUM_ROW_H
       : (prViewMode === 'both')
-        ? PR_TOTAL_ROWS * PR_ROW_H + 6 + PR_DRUM_VOICES.length * PR_ROW_H // piano + separator + drums
+        ? PR_TOTAL_ROWS * PR_ROW_H + 6 + PR_DRUM_VOICES.length * PR_ROW_H
         : PR_TOTAL_ROWS * PR_ROW_H;
-    container.style.width = (PR_KEY_W + gridW) + 'px';
-    container.style.height = gridH + 'px';
+    container.style.width = (PR_KEY_W + _prGridW) + 'px';
+    container.style.height = _prGridH + 'px';
 
-    // Render full grid width — no viewport clipping, instant scroll
-    const renderLeft = 0;
-    const renderRight = gridW;
-    const renderW = gridW;
+    canvas.style.position = 'absolute';
+    _prPaintGridViewport();
+  }
+
+  // Paint only the visible viewport slice of the grid canvas
+  function _prPaintGridViewport() {
+    const canvas = document.getElementById('prGridCanvas');
+    const scrollEl = document.getElementById('prGridScroll');
+    if (!canvas || !scrollEl) return;
+
+    const gridW = _prGridW;
+    const gridH = _prGridH;
+    const vpW = scrollEl.clientWidth;
+    const buffer = 200;
+    const scrollX = scrollEl.scrollLeft;
+    const renderLeft = Math.max(0, scrollX - buffer);
+    const renderRight = Math.min(gridW, scrollX + vpW + buffer);
+    const renderW = renderRight - renderLeft;
 
     canvas.width = renderW;
     canvas.height = gridH;
     canvas.style.width = renderW + 'px';
     canvas.style.height = gridH + 'px';
-    canvas.style.left = '0px';
-    canvas.style.position = 'absolute';
+    canvas.style.left = renderLeft + 'px';
 
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, renderW, gridH);
 
     // ── Draw row backgrounds ──
     if (prViewMode === 'drum') {
-      // Drum rows only
       PR_DRUM_VOICES.forEach((dv, i) => {
         const y = i * PR_DRUM_ROW_H;
         ctx.fillStyle = (i % 2 === 0) ? '#1e1e30' : '#1a1a28';
         ctx.fillRect(0, y, renderW, PR_DRUM_ROW_H);
-        // Voice color accent line
         ctx.strokeStyle = dv.color + '33';
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -57697,7 +57718,6 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
         ctx.stroke();
       });
     } else {
-      // Piano rows
       for (let row = 0; row < PR_TOTAL_ROWS; row++) {
         const midi = rowToMidi(row);
         const y = row * PR_ROW_H;
@@ -57712,7 +57732,6 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
           ctx.stroke();
         }
       }
-      // Both mode: separator + drum rows below piano
       if (prViewMode === 'both') {
         const sepY = PR_TOTAL_ROWS * PR_ROW_H;
         ctx.fillStyle = '#f5a623';
@@ -57792,16 +57811,27 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
     const canvas = document.getElementById('prRulerCanvas');
     const scrollEl = document.getElementById('prGridScroll');
     if (!canvas) return;
+    _prPaintRulerViewport();
+  }
+
+  function _prPaintRulerViewport() {
+    const canvas = document.getElementById('prRulerCanvas');
+    const scrollEl = document.getElementById('prGridScroll');
+    if (!canvas || !scrollEl) return;
 
     const fullGridW = prTotalCols * PR_COL_W + PR_KEY_W;
-    // Render full ruler width — no viewport clipping
-    const renderLeft = 0;
-    const renderRight = fullGridW;
-    const renderW = fullGridW;
+    const vpW = scrollEl.clientWidth;
+    const buffer = 200;
+    const scrollX = scrollEl.scrollLeft;
+    const renderLeft = Math.max(0, scrollX - buffer);
+    const renderRight = Math.min(fullGridW, scrollX + vpW + buffer);
+    const renderW = renderRight - renderLeft;
 
     canvas.width = renderW;
     canvas.height = 24;
     canvas.style.width = renderW + 'px';
+    canvas.style.position = 'absolute';
+    canvas.style.left = renderLeft + 'px';
     canvas.style.transform = '';
 
     const ctx = canvas.getContext('2d');
@@ -57811,7 +57841,6 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
 
     ctx.font = '9px "IBM Plex Mono", monospace';
 
-    // Only draw visible columns
     const firstCol = Math.max(0, Math.floor((renderLeft - PR_KEY_W) / PR_COL_W) - 1);
     const lastCol = Math.min(prTotalCols, Math.ceil((renderRight - PR_KEY_W) / PR_COL_W) + 1);
 
@@ -57854,9 +57883,7 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
   function _prSyncRulerScroll() {
     const scroll = document.getElementById('prGridScroll');
     if (!scroll) return;
-    // Sync ruler canvas position with grid scroll
-    const rulerCanvas = document.getElementById('prRulerCanvas');
-    if (rulerCanvas) rulerCanvas.style.transform = `translateX(${-scroll.scrollLeft}px)`;
+    // Ruler canvas is viewport-painted via _prPaintRulerViewport, no transform needed
     // Sync playhead indicator
     const rulerPH = document.getElementById('prRulerPlayhead');
     if (rulerPH) rulerPH.style.transform = `translateX(${-scroll.scrollLeft}px)`;
