@@ -22221,7 +22221,9 @@ function renderSequencerHtml(song) {
 
 function initSequencer(song) {
   seqSongId = song.id;
-  seqActiveIdx = 0;  // reset to first sequence on each open
+  // Only reset to 0 if opening a DIFFERENT song; if same song (e.g. page restore),
+  // keep the restored seqActiveIdx so the user returns to the sequence they were editing.
+  if (seqSongId !== song.id) seqActiveIdx = 0;
 
   // Kick off drum sample loading in background (no-op if already loading/ready)
   if (seqDrumMode === 'lacer' && _acousticLoadState === 'idle') {
@@ -23570,6 +23572,7 @@ function seqSwitchToSequence(idx) {
   // Load new sequence into DOM
   seqLoadSequenceIntoDOM(seqs[idx], song);
   seqRenderSequenceTabs();
+  if (typeof uiStateSave === 'function') uiStateSave();
 
   // Cross-instrument triggers only apply in song mode — loop mode is isolated
   // (loops/4-track are only coordinated during full-sequence playback).
@@ -33119,6 +33122,7 @@ function _uiCaptureState() {
     armedTrack: (typeof _mtArmedTrack !== 'undefined') ? window._mtArmedTrack : -1,
     mobileDrawer: isMobile ? activeDrawer : null,
     onSongList: onSongList,
+    seqActiveIdx: (typeof seqActiveIdx !== 'undefined') ? seqActiveIdx : 0,
     timestamp: Date.now()
   };
   console.log('[UI-STATE] DEBUG _uiCaptureState →', JSON.stringify(captured));
@@ -33188,6 +33192,13 @@ function _uiRestoreFromState(state, song) {
   }
   _uiRestoring = true;
   var isMobile = window.innerWidth < 900;
+
+  // Restore active sequence index BEFORE anything reads it
+  if (state.seqActiveIdx !== undefined && state.seqActiveIdx !== null) {
+    var maxIdx = (song.sequences || []).length - 1;
+    seqActiveIdx = Math.min(state.seqActiveIdx, Math.max(maxIdx, 0));
+    console.log('[UI-STATE] Restored seqActiveIdx:', seqActiveIdx, '(saved:', state.seqActiveIdx, ', max:', maxIdx, ')');
+  }
 
   try {
     // 1. Populate song fields silently (already loaded)
