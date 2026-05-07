@@ -16277,10 +16277,16 @@ function showToast(msg, type = 'info', duration = 3500) {
   const timer = setTimeout(remove, duration);
   toast.addEventListener('click', () => { clearTimeout(timer); remove(); });
 }
-// Force LOCAL persistence so Firebase never tries to use sessionStorage for auth state
-// On iOS WebKit, LOCAL (IndexedDB) can fail silently — log it so we know
+// Force LOCAL persistence so Firebase never tries to use sessionStorage for auth state.
+// On iOS WebKit (Safari, Chrome), Private Browsing disables IndexedDB entirely
+// (QuotaExceededError / DOMException code 22). Fall back through SESSION → NONE
+// so auth still works in-memory for that session.
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e => {
-  console.warn('[AUTH] setPersistence(LOCAL) failed:', e?.code, e?.message);
+  console.warn('[AUTH] setPersistence(LOCAL) failed:', e?.code || e?.name, e?.message);
+  return auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(e2 => {
+    console.warn('[AUTH] setPersistence(SESSION) also failed:', e2?.code || e2?.name, '— falling back to NONE (in-memory)');
+    return auth.setPersistence(firebase.auth.Auth.Persistence.NONE).catch(() => {});
+  });
 });
 // ──────────────────────────────────────────────────────────────────
 
@@ -30945,7 +30951,7 @@ function scheduleSyncToSheet(song) {
 
 async function fetchFullSongFromSheet(id) {
   try {
-    const doc = await db.collection('songs').doc(id).get();
+    const doc = await db.collection('songs').doc(id).get({ source: 'server' });
     if (!doc.exists) return null;
     const full = normalizeLoadedSong({ ...doc.data(), _fromSheet: false });
     const idx = songs.findIndex(x => x.id === id);
@@ -33131,10 +33137,14 @@ async function loadSongsFromSheet() {
       return;
     }
     console.log('[LOAD] Fetching songs for uid:', uid);
+    // Force { source: 'server' } so Firestore never touches IndexedDB cache.
+    // On iOS WebKit Private Browsing, IndexedDB is disabled (QuotaExceededError / code 22)
+    // and even a default .get() can throw if the SDK tries to cache the result.
+    const _getOpts = { source: 'server' };
     const [ownedSnap, sharedSnap, readOnlySnap] = await Promise.all([
-      db.collection('songs').where('ownerId', '==', uid).get(),
-      db.collection('songs').where('sharedWith', 'array-contains', uid).get(),
-      db.collection('songs').where('sharedReadOnly', 'array-contains', uid).get(),
+      db.collection('songs').where('ownerId', '==', uid).get(_getOpts),
+      db.collection('songs').where('sharedWith', 'array-contains', uid).get(_getOpts),
+      db.collection('songs').where('sharedReadOnly', 'array-contains', uid).get(_getOpts),
     ]);
 
     const allDocs = [...ownedSnap.docs, ...sharedSnap.docs];
