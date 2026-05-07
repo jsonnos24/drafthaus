@@ -27868,13 +27868,7 @@ async function sharedPlaySong() {
     try {
       const _4tLinks = _seqLinksLoad('4t');
       const hasLinks = Object.values(_4tLinks).some(function(arr) { return arr && arr.length > 0; });
-      if (!hasLinks) {
-        // Sync 4-track start with sequencer's first note
-        var _ctx = _seqSchedulerCtx || getSeqAudioCtx();
-        var _syncMs = Math.max(0, (_seqPlayStartSeqTime - _ctx.currentTime) * 1000);
-        if (_syncMs > 0) { setTimeout(function() { if (seqIsPlaying) mtPlay(); }, _syncMs); }
-        else mtPlay();
-      }
+      if (!hasLinks) mtPlay();
     } catch(e) { mtPlay(); }
   }
 }
@@ -49006,41 +49000,37 @@ window.mtPlayWithSeq = async function() {
     if (btn) btn.classList.remove('mt-active');
     return;
   }
-  // Ensure both audio contexts exist before starting either, so clock delta is valid
+  // Ensure both audio contexts exist before starting either
   const has4track = _mtTracks.some(t => t && t.buffer);
   if (has4track) await _mtEnsureCtx();
   const _seqCtxReady = getSeqAudioCtx();
   if (_seqCtxReady.state === 'suspended') _seqCtxReady.resume().catch(() => {});
-  // Start sequencer FIRST — it pre-schedules 50ms ahead
+  // Start sequencer — it pre-schedules 50ms ahead (ctx.currentTime + 0.05)
   if (typeof seqPlay === 'function') {
     try { seqPlay(); } catch(e) { console.warn('seqPlay error', e); }
   } else {
     console.warn('seqPlay not available');
   }
-  // Start 4-track aligned to sequencer's first note
+  // Start 4-track with same 50ms audio-clock delay for sample-accurate alignment
+  // (sourceNode.start(when) uses hardware clock, no setTimeout jitter)
   if (has4track) {
     const offset = _mtScrubOffset || 0;
     _mtScrubOffset = 0;
-    // Delay 4-track start to match sequencer's first scheduled note
-    var _syncDelay = Math.max(0, (_seqPlayStartSeqTime - _seqCtxReady.currentTime) * 1000);
-    if (_syncDelay > 0) {
-      setTimeout(function() { if (!seqIsPlaying) return; _mtStartPlayback(offset); }, _syncDelay);
-    } else {
-      _mtStartPlayback(offset);
-    }
+    _mtStartPlayback(offset, 0.05);
   }
   const btn = document.getElementById('mtPlaySeqBtn');
   if (btn) btn.classList.add('mt-active');
 };
 
-function _mtStartPlayback(offsetSec) {
+function _mtStartPlayback(offsetSec, audioDelay) {
   _mtIsPlaying = true;
   // Unified metronome: start AFTER _mtIsPlaying is set so anyActive check passes
   globalMetroStartIfEnabled();
   if (typeof _bgEnsureKeepAlive === 'function') _bgEnsureKeepAlive();
   if (typeof _mtUpdateMiniPlaybar === 'function') _mtUpdateMiniPlaybar();
   if (typeof htStartClock === 'function') htStartClock();
-  _mtPlayStartCtx = _mtAudioCtx.currentTime;
+  var _startWhen = (audioDelay > 0) ? _mtAudioCtx.currentTime + audioDelay : 0;
+  _mtPlayStartCtx = (audioDelay > 0) ? _mtAudioCtx.currentTime + audioDelay : _mtAudioCtx.currentTime;
   const offset = offsetSec || 0;
   _mtPlayStartOffset = offset;
   _mtTracks.forEach((t, i) => {
@@ -49065,7 +49055,7 @@ function _mtStartPlayback(offsetSec) {
     t.sourceNode = _mtAudioCtx.createBufferSource();
     t.sourceNode.buffer = t.buffer;
     t.sourceNode.connect(t.gainNode);
-    t.sourceNode.start(0, Math.min(offset, t.buffer.duration));
+    t.sourceNode.start(_startWhen, Math.min(offset, t.buffer.duration));
     t.sourceNode.onended = () => { if (!_vrRecording) _mtCheckAllEnded(); };
   });
   // Apply mute/solo gain state to all tracks
