@@ -28216,29 +28216,33 @@ async function seqPlaySong() {
 
   const seqs = getSongSequences(song);
 
-  // Build the set of valid part IDs so we can filter positively
-  const partOrder = STRUCTURE_PARTS.map(p => p.id);
-  const validPartIds = new Set(partOrder);
+  // Build playback order from song.sectionOrder (user-defined arrangement)
+  // falling back to STRUCTURE_PARTS order for legacy songs without sectionOrder
+  const _playOrder = (song.sectionOrder && song.sectionOrder.length)
+    ? song.sectionOrder
+    : STRUCTURE_PARTS.map(p => p.id);
+  const validPartIds = new Set(STRUCTURE_PARTS.map(p => p.id));
 
   // Separate unassigned (no valid partId) from assigned sequences
   const unassigned = seqs.filter(s => {
     const pid = s.partId || s.part || '';
     return !validPartIds.has(pid);
   });
-  const assigned = [...seqs]
-    .filter(s => {
-      const pid = s.partId || s.part || '';
-      return validPartIds.has(pid);
-    })
-    .sort((a, b) => {
-      const ai = partOrder.indexOf(a.partId || a.part || '');
-      const bi = partOrder.indexOf(b.partId || b.part || '');
-      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-    });
+  // Build a lookup: partId → sequence object
+  const _seqByPart = {};
+  seqs.forEach(s => {
+    const pid = s.partId || s.part || '';
+    if (pid && validPartIds.has(pid)) _seqByPart[pid] = s;
+  });
+  // Walk sectionOrder and collect sequences that exist and are checked
+  const assigned = _playOrder
+    .filter(pid => _seqByPart[pid] && song.structure?.[pid]?.checked !== false)
+    .map(pid => _seqByPart[pid]);
 
   // Unassigned sequences play first (as an intro), followed by assigned parts in order
   const sorted = [...unassigned, ...assigned];
 
+  console.log('[STRIP-PLAY] sorted sections:', sorted.length, sorted.map(s => (s.partId||s.part||'?') + '(' + s.bars + 'bars)').join(' → '));
   if (sorted.length < 1) { showToast('No sequences to play.', 'info', 3000); return; }
 
   // Mark as playing BEFORE async prefetch so seqStop() can cancel us
@@ -28271,6 +28275,9 @@ async function seqPlaySong() {
       clap:        seq.clap   || [],
       hitom:       seq.hitom  || [],
       lotom:       seq.lotom  || [],
+      kickVel: seq.kickVel, snareVel: seq.snareVel, hatVel: seq.hatVel,
+      crashVel: seq.crashVel, clapVel: seq.clapVel, hitomVel: seq.hitomVel, lotomVel: seq.lotomVel,
+      chordVelocities: seq.chordVelocities, chordFlamMs: seq.chordFlamMs,
       melody:          seq.melody          || [],
       melodyInstrument: seq.melodyInstrument || 'piano',
       totalSteps, stepDur, bpm, drumSteps, chordSteps, time, bars,
@@ -28528,6 +28535,7 @@ function seqScheduleNotes() {
 
       // Advance to next section when this one finishes
       if (_seqSongSectionStep >= sec.totalSteps) {
+        console.log('[STRIP-ADV] section ' + _seqSongSectionIdx + ' (' + (sec.partId||'?') + ') done after ' + sec.totalSteps + ' steps → advancing');
         _seqSongSectionStep = 0;
         _seqSongSectionIdx++;
         // Loop back to start when sequence ends
@@ -32095,7 +32103,7 @@ function launchInspoSong() {
     return {
       partId: sid, part: sid,
       bpm: String(d.bpm), time: d.timeSig, bars: String(cfg.bars), grid: _songGrid,
-      chordSteps: _songGrid,
+      drumSteps: _songGrid, chordSteps: _songGrid,
       key: d.root || d.key.split(' ')[0],
       chordSlots: chordResult.slots,
       chordContinued: chordResult.continued,
@@ -32116,6 +32124,8 @@ function launchInspoSong() {
     title: d.title,
     bpm: String(d.bpm),
     grid: _songGrid,
+    drumSteps: _songGrid,
+    chordSteps: _songGrid,
     key: d.key,
     tuning: '', project: '', status: 'idea',
     structure: _inspoStructure,
@@ -57441,7 +57451,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       </select>
       <button class="pr-tool-btn" onclick="prTranspose(-1)" title="Transpose down 1 semitone" style="padding:2px 6px;font-size:11px;">▼</button>
       <button class="pr-tool-btn" onclick="prTranspose(1)" title="Transpose up 1 semitone" style="padding:2px 6px;font-size:11px;">▲</button>
-      <span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#aaa;margin-left:6px;" title="Horizontal zoom">H<input type="range" id="prZoomH" min="12" max="60" value="28" style="width:60px;accent-color:#e8749a;cursor:pointer;" oninput="prSetZoomH(+this.value)"></span>
+      <span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#aaa;margin-left:6px;" title="Horizontal zoom">H<input type="range" id="prZoomH" min="6" max="60" value="12" style="width:60px;accent-color:#e8749a;cursor:pointer;" oninput="prSetZoomH(+this.value)"></span>
       <span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#aaa;" title="Vertical zoom">V<input type="range" id="prZoomV" min="12" max="40" value="26" style="width:60px;accent-color:#e8749a;cursor:pointer;" oninput="prSetZoomV(+this.value)"></span>
       <button class="pr-close-btn" onclick="prClose()" title="Close">✕</button>
     </div>
@@ -57526,7 +57536,7 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
   const PR_TOTAL_ROWS = PR_MAX_MIDI - PR_MIN_MIDI + 1; // 49 rows
   let PR_ROW_H = (window.innerWidth >= 768) ? 26 : 22;
   const PR_KEY_W = 44;
-  let PR_COL_W = 28; // pixels per grid subdivision
+  let PR_COL_W = (window.innerWidth >= 768) ? 12 : 28; // desktop: ~6 bars visible; mobile: wider cells
 
   // ── State ──
   let prOpen = false;
@@ -57643,6 +57653,7 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
     _prSyncEnabled = false; // don't sync during load
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        _prRestoreZoom();
         prLoadFromGrid();
         prRender();
         prBuildPalette();
@@ -57811,12 +57822,37 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
     console.log('[PR-zoom] H=' + val + 'px (was ' + PR_COL_W + ')');
     PR_COL_W = val;
     prRender();
+    _prSaveZoom();
   };
   window.prSetZoomV = function(val) {
     console.log('[PR-zoom] V=' + val + 'px (was ' + PR_ROW_H + ')');
     PR_ROW_H = val;
     prRender();
+    _prSaveZoom();
   };
+  // ── Persist zoom to song.uiState so it restores across sessions ──
+  function _prSaveZoom() {
+    var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    if (!song) return;
+    if (!song.uiState) song.uiState = {};
+    song.uiState.prZoomH = PR_COL_W;
+    song.uiState.prZoomV = PR_ROW_H;
+    if (typeof save === 'function') save();
+  }
+  function _prRestoreZoom() {
+    var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    var ui = song?.uiState;
+    if (ui?.prZoomH) {
+      PR_COL_W = ui.prZoomH;
+      var hSlider = document.getElementById('prZoomH');
+      if (hSlider) hSlider.value = PR_COL_W;
+    }
+    if (ui?.prZoomV) {
+      PR_ROW_H = ui.prZoomV;
+      var vSlider = document.getElementById('prZoomV');
+      if (vSlider) vSlider.value = PR_ROW_H;
+    }
+  }
 
   // ── Key transposition ──
   window.prTranspose = function(semitones) {
