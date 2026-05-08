@@ -29431,21 +29431,19 @@ async function seqPlaySong() {
     }
   } catch(e) { console.warn('[SeqPrefetch] error:', e); }
   console.log('[PLAY-SEQ-PERF] prefetch kicked off (non-blocking):', (performance.now()-_t0).toFixed(1)+'ms');
-  _seqSongSectionIdx  = 0;
+  // Start from the user's currently selected section (if it exists in the play order),
+  // otherwise fall back to section 0.
+  var _startSectionIdx = 0;
+  for (var _si = 0; _si < _seqSongSections.length; _si++) {
+    if (_seqSongSections[_si]._seqIdx === seqActiveIdx) { _startSectionIdx = _si; break; }
+  }
+  _seqSongSectionIdx  = _startSectionIdx;
   _seqSongSectionStep = 0;
   _seqPlayMode = 'song';
   _seqPlayGen = _seqStopGen; // snapshot: visual timeouts bail if seqStop() bumps _seqStopGen
-  // Select the first section's sequence so grid/drums show what's playing
-  var _initSeqIdx = _seqSongSections[0]?._seqIdx;
-  if (_initSeqIdx !== undefined && _initSeqIdx !== seqActiveIdx) {
-    seqSaveAllToCurrent(song);
-    seqActiveIdx = _initSeqIdx;
-    kbdMelodySeqIdx = _initSeqIdx;
-    melodyNotes = (seqs[_initSeqIdx]?.melody || []).slice();
-    melodyActiveNote = null;
-    song.sequencer = seqs[_initSeqIdx];
-    seqLoadSequenceIntoDOM(seqs[_initSeqIdx], song);
-  }
+  // Skip pre-start steps so timing aligns with the chosen section offset
+  var _startSkipSteps = 0;
+  for (var _sk = 0; _sk < _startSectionIdx; _sk++) _startSkipSteps += _seqSongSections[_sk].totalSteps;
   // Restore master gain (seqStop mutes it for instant silence)
   if (seqMasterGain) { try { seqMasterGain.gain.cancelScheduledValues(0); _mixApplyMain(); } catch(e) {} }
   _mixLog('GAIN', 'song playback start → restored via _mixApplyMain');
@@ -29461,7 +29459,7 @@ async function seqPlaySong() {
   _seqNextNoteTime = ctx.currentTime + 0.05;
   _seqLoopBaseTime = _seqNextNoteTime;
   _seqPlayStartSeqTime = _seqNextNoteTime;
-  _seqLoopStepCount = 0;
+  _seqLoopStepCount = _startSkipSteps; // offset so timing aligns with selected section
   // Capture clock delta so 4-track triggers can schedule precisely on _mtAudioCtx
   if (typeof _mtAudioCtx !== 'undefined' && _mtAudioCtx) {
     _seqMtClockDelta = _mtAudioCtx.currentTime - ctx.currentTime;
@@ -29477,22 +29475,29 @@ async function seqPlaySong() {
   seqRenderSequenceTabs();
   if (typeof kbdRenderMelodyTabs === 'function') kbdRenderMelodyTabs(song);
   if (typeof loopRenderPartsStrip === 'function') loopRenderPartsStrip();
-  showToast('Playing full draft — ' + sorted.map(s => seqGetPartLabel(s.partId||s.part)).join(' → '), 'success', 4000);
+  var _startLabel = seqGetPartLabel(_seqSongSections[_startSectionIdx]?.partId || _seqSongSections[_startSectionIdx]?.part);
+  showToast((_startSectionIdx > 0 ? 'Playing from ' + _startLabel + ' — ' : 'Playing full draft — ') + sorted.map(s => seqGetPartLabel(s.partId||s.part)).join(' → '), 'success', 4000);
 
   // Set beat duration CSS variable for pulse animation
-  _seqSyncBeatPulse(_seqSongSections[0]?.bpm || 120);
+  _seqSyncBeatPulse(_seqSongSections[_startSectionIdx]?.bpm || 120);
 
-  // Trigger looper + 4-track tracks for the first section — delay to align with
+  // Trigger looper + 4-track tracks for the starting section — delay to align with
   // the sequencer's first note (0.05s from ctx.currentTime at schedule time)
+  var _startPartId = _seqSongSections[_startSectionIdx]?.partId || null;
   var _firstNoteDelay = Math.max(0, (_seqNextNoteTime - ctx.currentTime) * 1000);
   setTimeout(function() {
     if (!seqIsPlaying || _seqPlayMode !== 'song') return;
-    _seqTriggerLoopsForPart(_seqSongSections[0]?.partId || null);
-    _seqTriggerMtTracksForPart(_seqSongSections[0]?.partId || null);
+    _seqTriggerLoopsForPart(_startPartId);
+    _seqTriggerMtTracksForPart(_startPartId);
   }, _firstNoteDelay);
-  // Sync unified timeline transport — song mode starts from beat 0
+  // Sync unified timeline transport — start from selected section's beat offset
+  var _tlStartBeatOffset = 0;
   if (typeof TL !== 'undefined' && typeof TL.play === 'function') {
-    try { TL.seek(0); TL.play(0); } catch(e) { console.warn('[TL] play sync error:', e); }
+    try {
+      var _tlSecs = TL.getSections();
+      if (_tlSecs && _tlSecs[_startSectionIdx]) _tlStartBeatOffset = _tlSecs[_startSectionIdx].beatStart;
+      TL.seek(_tlStartBeatOffset); TL.play(_tlStartBeatOffset);
+    } catch(e) { console.warn('[TL] play sync error:', e); }
   }
   console.log('[PLAY-SEQ-PERF] total startup:', (performance.now()-_t0).toFixed(1)+'ms');
 }
