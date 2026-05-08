@@ -29390,6 +29390,7 @@ async function seqPlaySong() {
       chordVelocities: seq.chordVelocities, chordFlamMs: seq.chordFlamMs,
       melody:          seq.melody          || [],
       melodyInstrument: seq.melodyInstrument || 'piano',
+      pianoRoll:       seq.pianoRoll       || [],
       totalSteps, stepDur, bpm, drumSteps, chordSteps, time, bars,
       grid: drumSteps, // backward compat
       totalChordSteps,
@@ -29532,12 +29533,10 @@ function seqScheduleNotes() {
     const _hasSynth  = _instrHas('synth');
     const _useSampler = _anyPianoChordReady() || (_hasGuitar && _guitarLoaded);
     const loopChordsMidi = _useSampler ? seqGenChordMidi(loopKey, loopMode) : null;
-    var _prIsSource = (typeof prSchedulePlayback === 'function' && window._prNotesCount && window._prNotesCount() > 0);
-    if (!window._prGateLogged) { console.log('[PR-gate] song-mode: prIsSource=' + _prIsSource + ' prNotesCount=' + (window._prNotesCount ? window._prNotesCount() : 'N/A')); window._prGateLogged = true; }
-
     while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
       if (_seqSongSectionIdx >= _seqSongSections.length) { _seqSongSectionIdx = 0; _seqSongSectionStep = 0; }
       const sec  = _seqSongSections[_seqSongSectionIdx];
+      var _prIsSource = (typeof prSchedulePlayback === 'function' && sec.pianoRoll && sec.pianoRoll.length > 0);
       const i    = _seqSongSectionStep;
       const stepDur     = sec.stepDur;
       const beatsPerBar = sec.time * sec.grid;
@@ -29599,9 +29598,11 @@ function seqScheduleNotes() {
         melodyScheduledNodes = [];
         if (typeof _prChordScheduledNodes !== 'undefined') { _prChordScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} }); _prChordScheduledNodes = []; }
         const secLoopDurMs = sec.totalSteps * sec.stepDur * 1000;
-        var _hasPrNotes2 = (typeof prSchedulePlayback === 'function' && window._prNotesCount && window._prNotesCount() > 0);
+        var _secPR = sec.pianoRoll && sec.pianoRoll.length ? sec.pianoRoll : null;
+        var _hasPrNotes2 = (typeof prSchedulePlayback === 'function' && (_secPR || (window._prNotesCount && window._prNotesCount() > 0)));
         if (_hasPrNotes2) {
-          prSchedulePlayback(ctx, baseTime, secLoopDurMs / 1000);
+          console.log('[SONG-PR] sec=' + _seqSongSectionIdx + ' using ' + (_secPR ? 'sec.pianoRoll(' + _secPR.length + ')' : 'global prNotes'));
+          prSchedulePlayback(ctx, baseTime, secLoopDurMs / 1000, _secPR);
         } else {
           seqScheduleMelody(ctx, baseTime, secLoopDurMs, sec.melody, sec.melodyInstrument);
         }
@@ -62036,8 +62037,9 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
   // Chord notes use seqPlayChordPiano/Piano2/Guitar with per-chord stagger;
   // pencil notes use seqScheduleMelody for melodic instrument routing.
 
-  window.prSchedulePlayback = function(audioCtx, loopStartTime, loopDurSec) {
-    if (!prNotes.length) return null;
+  window.prSchedulePlayback = function(audioCtx, loopStartTime, loopDurSec, notesOverride) {
+    var _notes = notesOverride || prNotes;
+    if (!_notes.length) return null;
     if (typeof _prChordScheduledNodes !== 'undefined') { _prChordScheduledNodes.forEach(function(n) { try { n.stop(); } catch(e) {} }); _prChordScheduledNodes = []; }
     var loopDurMs = loopDurSec * 1000;
 
@@ -62053,7 +62055,7 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
     var chordGroups = {}; // key: "chordName:startCol" → {midiNotes[], startCol, durCols}
     var melodyArr = [];
 
-    prNotes.forEach(function(n) {
+    _notes.forEach(function(n) {
       if (n.startCol >= sectionCols) return;
       var startSec = (n.startCol / sectionCols) * loopDurSec;
       var durCols = Math.min(n.durCols, sectionCols - n.startCol);
