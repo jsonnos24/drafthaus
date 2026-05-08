@@ -4511,36 +4511,65 @@ button, select, input, textarea { touch-action: manipulation; }
     display: none;
   }
 
-  /* ═══ INLINE KEYBOARD (below piano roll on wide desktop) ═══ */
-  .pr-inline-kbd {
-    display: none; flex-shrink: 0; overflow-x: auto; overflow-y: hidden;
-    overscroll-behavior-x: none; background: #111118; border-top: 1px solid #28283a;
-    padding: 4px 0 6px 0; position: relative;
+  /* ═══════════════════ FLOATING KEYBOARD OVERLAY ═══════════════════ */
+  .fkb-wrap {
+    position: fixed; right: 0; top: 40%; z-index: 9990;
+    font-family: 'IBM Plex Mono', monospace;
   }
-  @media (min-width: 1400px) {
-    .pr-inline-kbd { display: block; }
+  .fkb-tab {
+    position: absolute; right: 0; top: 0;
+    width: 28px; padding: 10px 4px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1a 100%);
+    border: 1.5px solid #f5a623; border-right: none;
+    border-radius: 8px 0 0 8px;
+    color: #f5a623; font-size: 11px; text-align: center; line-height: 1.5;
+    cursor: pointer; user-select: none;
+    box-shadow: -2px 2px 12px rgba(0,0,0,0.5);
+    transition: background 0.15s, box-shadow 0.15s;
   }
-  .pr-inline-kbd-board {
-    position: relative; height: 72px; background: #111;
+  .fkb-tab span { display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.15em; }
+  .fkb-tab:hover { background: linear-gradient(135deg, #252540 0%, #1a1a2e 100%); box-shadow: -2px 2px 16px rgba(245,166,35,0.3); }
+  .fkb-open .fkb-tab { display: none; }
+  .fkb-panel {
+    display: none; min-width: 340px;
+    background: linear-gradient(180deg, #141420 0%, #0d0d18 100%);
+    border: 1.5px solid #f5a623; border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(245,166,35,0.15);
+    overflow: hidden;
   }
-  .pr-inline-kbd .ik-white {
-    position: absolute; top: 0; width: 23px; height: 72px;
-    border: 1px solid #444; border-radius: 0 0 4px 4px; cursor: pointer;
-    display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px;
-    box-sizing: border-box; transition: background 0.06s;
+  .fkb-open .fkb-panel { display: block; }
+  .fkb-header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px; background: rgba(245,166,35,0.08);
+    border-bottom: 1px solid #28283a; cursor: grab; user-select: none;
   }
-  .pr-inline-kbd .ik-black {
-    position: absolute; top: 0; width: 15px; height: 44px;
-    border: 1px solid #000; border-radius: 0 0 3px 3px; cursor: pointer;
-    z-index: 2; box-sizing: border-box; transition: background 0.06s;
+  .fkb-header:active { cursor: grabbing; }
+  .fkb-title {
+    font-size: 11px; font-weight: 700; color: #f5a623; letter-spacing: 0.05em;
   }
-  .pr-inline-kbd .ik-white.ik-active,
-  .pr-inline-kbd .ik-black.ik-active { background: #ff6b6b !important; }
-  .pr-inline-kbd .ik-white.chord-highlight,
-  .pr-inline-kbd .ik-black.chord-highlight { background: #4ade80 !important; }
-  .pr-inline-kbd .ik-label {
-    font-family: 'IBM Plex Mono', monospace; font-size: 8px; font-weight: 400;
-    pointer-events: none; user-select: none;
+  .fkb-spacer { flex: 1; }
+  .fkb-oct-btn {
+    width: 22px; height: 22px; padding: 0; line-height: 20px; text-align: center;
+    background: transparent; border: 1px solid #444; border-radius: 4px;
+    color: #ccc; font-size: 14px; font-weight: 700; cursor: pointer;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .fkb-oct-btn:hover { border-color: #f5a623; color: #f5a623; }
+  .fkb-oct-label {
+    font-size: 9px; color: var(--faint, #888); min-width: 30px; text-align: center;
+  }
+  .fkb-close-btn {
+    width: 22px; height: 22px; padding: 0; line-height: 20px; text-align: center;
+    background: transparent; border: 1px solid #444; border-radius: 4px;
+    color: #888; font-size: 12px; cursor: pointer; margin-left: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .fkb-close-btn:hover { border-color: #ff6b6b; color: #ff6b6b; }
+  .fkb-body {
+    padding: 6px 8px 10px; max-height: 120px;
+  }
+  @media (max-width: 767px) {
+    .fkb-wrap { display: none !important; }
   }
 
   /* ═══════════════════ KEYBOARD DRAWER — MOBILE LANDSCAPE ═══════════════════ */
@@ -22390,7 +22419,7 @@ function seqOnSongKeyChange(rawOldKey) {
   if (document.getElementById('seqChordPills')) {
     seqRenderChordPills(song);
     seqRenderKeyboard();
-    prInlineKeyboardRender();
+    fkbRender();
   }
   // Refresh PR palette + full re-render if open (new key = new scale highlights)
   if (typeof window.prBuildPalette === 'function') window.prBuildPalette();
@@ -27413,7 +27442,7 @@ function seqRenderChordPills(song) {
   seqUpdateHumanizeBtns();
   seqRenderKeyTriggers(); // keep key bank in sync when key/mode changes
   seqRenderKeyboard();
-  prInlineKeyboardRender();
+  fkbRender();
 }
 
 // ── Delegated passive touch listeners for chord pills ──────────────
@@ -30140,141 +30169,214 @@ function seqRenderKeyboard() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  INLINE KEYBOARD — horizontal piano below piano roll (desktop)
+//  FLOATING KEYBOARD — draggable overlay with right-edge tab
 // ═══════════════════════════════════════════════════════════════
-var _ikDragging = false;
-var _ikTouchActiveKey = null;
+var _fkbOpen = false;
+var _fkbDragging = false;
+var _fkbTouchActiveKey = null;
+var _fkbOctaves = [3, 4, 5];
+var _fkbEl = null;
 
-function prInlineKeyboardRender() {
-  const el = document.getElementById('prInlineKbd');
+function fkbInit() {
+  if (_fkbEl) return;
+  if (window.innerWidth < 768) return;
+  var wrap = document.createElement('div');
+  wrap.id = 'fkbWrap';
+  wrap.className = 'fkb-wrap';
+  wrap.innerHTML =
+    '<div class="fkb-tab" id="fkbTab" title="Piano Keyboard">🎹<br><span>K</span><span>E</span><span>Y</span><span>S</span></div>' +
+    '<div class="fkb-panel" id="fkbPanel">' +
+      '<div class="fkb-header" id="fkbHeader">' +
+        '<span class="fkb-title">🎹 Keyboard</span>' +
+        '<span class="fkb-spacer"></span>' +
+        '<button class="fkb-oct-btn" id="fkbShrink" title="Remove octave">−</button>' +
+        '<span class="fkb-oct-label" id="fkbOctLabel">3 oct</span>' +
+        '<button class="fkb-oct-btn" id="fkbGrow" title="Add octave">+</button>' +
+        '<button class="fkb-close-btn" id="fkbClose" title="Collapse">✕</button>' +
+      '</div>' +
+      '<div class="fkb-body" id="fkbBody"></div>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  _fkbEl = wrap;
+
+  document.getElementById('fkbTab').addEventListener('click', fkbToggle);
+  document.getElementById('fkbClose').addEventListener('click', fkbToggle);
+  document.getElementById('fkbShrink').addEventListener('click', function() { fkbResize(-1); });
+  document.getElementById('fkbGrow').addEventListener('click', function() { fkbResize(1); });
+
+  // Drag logic on header
+  var hdr = document.getElementById('fkbHeader');
+  var dragOff = { x: 0, y: 0 };
+  var dragging = false;
+  hdr.addEventListener('pointerdown', function(e) {
+    if (e.target.tagName === 'BUTTON') return;
+    dragging = true;
+    var rect = wrap.getBoundingClientRect();
+    dragOff.x = e.clientX - rect.left;
+    dragOff.y = e.clientY - rect.top;
+    hdr.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  hdr.addEventListener('pointermove', function(e) {
+    if (!dragging) return;
+    var x = e.clientX - dragOff.x;
+    var y = e.clientY - dragOff.y;
+    x = Math.max(0, Math.min(window.innerWidth - 120, x));
+    y = Math.max(0, Math.min(window.innerHeight - 60, y));
+    wrap.style.left = x + 'px';
+    wrap.style.top = y + 'px';
+    wrap.style.right = 'auto';
+    wrap.style.bottom = 'auto';
+  });
+  hdr.addEventListener('pointerup', function() { dragging = false; });
+  hdr.addEventListener('lostpointercapture', function() { dragging = false; });
+}
+
+function fkbToggle() {
+  if (!_fkbEl) fkbInit();
+  if (!_fkbEl) return;
+  _fkbOpen = !_fkbOpen;
+  _fkbEl.classList.toggle('fkb-open', _fkbOpen);
+  if (_fkbOpen) fkbRender();
+}
+
+function fkbResize(delta) {
+  var allOct = [1,2,3,4,5,6,7];
+  var lo = _fkbOctaves[0];
+  var hi = _fkbOctaves[_fkbOctaves.length - 1];
+  if (delta > 0) {
+    if (hi < 7) hi++;
+    else if (lo > 1) lo--;
+    else return;
+  } else {
+    if (_fkbOctaves.length <= 1) return;
+    hi--;
+  }
+  _fkbOctaves = [];
+  for (var i = lo; i <= hi; i++) _fkbOctaves.push(i);
+  var lbl = document.getElementById('fkbOctLabel');
+  if (lbl) lbl.textContent = _fkbOctaves.length + ' oct';
+  fkbRender();
+}
+
+function fkbRender() {
+  if (!_fkbEl) fkbInit();
+  if (!_fkbOpen) return;
+  var el = document.getElementById('fkbBody');
   if (!el) return;
-  const W = 24, BW = 15, WH = 72, BH = 44;
-  const octaves = [1, 2, 3, 4, 5, 6, 7];
-  const totalWidth = 7 * octaves.length * W;
-  const key  = seqCurrentKey();
-  const mode = seqCurrentMode();
-  const rootIdx = SEQ_NOTES.indexOf(key);
-  const scaleNotes = new Set(SEQ_SCALES[mode].steps.map(s => SEQ_NOTES[(rootIdx + s) % 12]));
-  const rootNote = key;
+  if (typeof seqCurrentKey !== 'function') return;
+  var W = 26, BW = 16, WH = 80, BH = 50;
+  var totalWidth = 7 * _fkbOctaves.length * W;
+  var key  = seqCurrentKey();
+  var mode = seqCurrentMode();
+  var rootIdx = SEQ_NOTES.indexOf(key);
+  var scaleNotes = new Set(SEQ_SCALES[mode].steps.map(function(s) { return SEQ_NOTES[(rootIdx + s) % 12]; }));
 
-  const WHITE_SCALE_BG  = '#3d2a6e';
-  const WHITE_SCALE_BDR = '#7c5cbf';
-  const WHITE_ROOT_BG   = '#6d28d9';
-  const WHITE_ROOT_BDR  = '#a855f7';
-  const WHITE_DEFAULT_BG  = '#1e1e2e';
-  const WHITE_DEFAULT_BDR = '#444';
-  const BLACK_SCALE_BG  = '#5b21b6';
-  const BLACK_ROOT_BG   = '#7c3aed';
-  const BLACK_DEFAULT_BG = '#0a0a0f';
+  var WSB = '#3d2a6e', WSBD = '#7c5cbf', WRB = '#6d28d9', WRBD = '#a855f7';
+  var WDB = '#1e1e2e', WDBD = '#444';
+  var BSB = '#5b21b6', BRB = '#7c3aed', BDB = '#0a0a0f';
 
-  const blackDefs = [
-    { note:'C#', offset: 0.67 },
-    { note:'D#', offset: 1.67 },
-    { note:'F#', offset: 3.67 },
-    { note:'G#', offset: 4.67 },
-    { note:'A#', offset: 5.67 },
+  var blackDefs = [
+    { note:'C#', offset: 0.67 }, { note:'D#', offset: 1.67 },
+    { note:'F#', offset: 3.67 }, { note:'G#', offset: 4.67 }, { note:'A#', offset: 5.67 }
   ];
 
   el.innerHTML = '';
-  const board = document.createElement('div');
-  board.className = 'pr-inline-kbd-board';
-  board.style.width = totalWidth + 'px';
+  el.style.overflowX = 'auto';
+  el.style.overflowY = 'hidden';
+  el.style.overscrollBehaviorX = 'none';
+  var board = document.createElement('div');
+  board.style.cssText = 'position:relative;width:' + totalWidth + 'px;height:' + WH + 'px;background:#111;';
 
-  octaves.forEach((oct, oi) => {
-    const octStartX = oi * 7 * W;
-
-    KBD_WHITE_NOTES.forEach((note, wi) => {
-      const inScale = scaleNotes.has(note);
-      const isRoot  = note === rootNote;
-      const defBg   = isRoot ? WHITE_ROOT_BG  : (inScale ? WHITE_SCALE_BG  : WHITE_DEFAULT_BG);
-      const bdrCol  = isRoot ? WHITE_ROOT_BDR  : (inScale ? WHITE_SCALE_BDR : WHITE_DEFAULT_BDR);
-      const k = document.createElement('div');
-      k.className = 'ik-white';
-      k.style.left = (octStartX + wi * W) + 'px';
-      k.style.background = defBg;
-      k.style.borderColor = bdrCol;
+  _fkbOctaves.forEach(function(oct, oi) {
+    var octStartX = oi * 7 * W;
+    KBD_WHITE_NOTES.forEach(function(note, wi) {
+      var inScale = scaleNotes.has(note);
+      var isRoot  = note === key;
+      var bg  = isRoot ? WRB : (inScale ? WSB : WDB);
+      var bdr = isRoot ? WRBD : (inScale ? WSBD : WDBD);
+      var k = document.createElement('div');
+      k.style.cssText = 'position:absolute;left:' + (octStartX + wi * W) + 'px;top:0;width:' + (W-1) + 'px;height:' + WH + 'px;background:' + bg + ';border:1px solid ' + bdr + ';border-radius:0 0 4px 4px;cursor:pointer;display:flex;align-items:flex-end;justify-content:center;padding-bottom:3px;box-sizing:border-box;transition:background 0.06s;';
+      k.className = 'fkb-key';
       k.dataset.note = note;
       k.dataset.oct  = oct;
-      k._origBg = defBg;
+      k._origBg = bg;
       if (note === 'C' || isRoot) {
-        const lc = isRoot ? '#fff' : (inScale ? '#9b6dff' : '#666');
-        k.innerHTML = '<span class="ik-label" style="color:' + lc + ';font-weight:' + (isRoot ? '700' : '400') + ';">' + note + oct + '</span>';
+        var lc = isRoot ? '#fff' : (inScale ? '#9b6dff' : '#666');
+        k.innerHTML = '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:8px;color:' + lc + ';font-weight:' + (isRoot?'700':'400') + ';pointer-events:none;user-select:none;">' + note + oct + '</span>';
       }
-      const down = () => { k.classList.add('ik-active'); kbdPlayNote(note, oct, true); melodyRecordNote(note, oct, true); };
-      const up   = () => { k.classList.remove('ik-active'); kbdNoteOff(note, oct); melodyRecordNote(note, oct, false); };
-      k.addEventListener('mousedown',  down);
-      k.addEventListener('mouseup',    up);
-      k.addEventListener('mouseleave', () => { if (_ikDragging) up(); else up(); });
-      k.addEventListener('mouseenter', () => { if (_ikDragging) down(); });
-      k.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); _ikTouchActiveKey = k; down(); }, { passive: false });
+      var dn = function() { k.style.background = '#ff6b6b'; kbdPlayNote(note, oct, true); melodyRecordNote(note, oct, true); };
+      var up = function() { k.style.background = bg; kbdNoteOff(note, oct); melodyRecordNote(note, oct, false); };
+      k.addEventListener('mousedown', dn);
+      k.addEventListener('mouseup', up);
+      k.addEventListener('mouseleave', function() { up(); });
+      k.addEventListener('mouseenter', function() { if (_fkbDragging) dn(); });
+      k.addEventListener('touchstart', function(e) { e.preventDefault(); e.stopPropagation(); _fkbTouchActiveKey = k; dn(); }, { passive: false });
       board.appendChild(k);
     });
-
-    blackDefs.forEach(({ note, offset }) => {
-      const inScale = scaleNotes.has(note);
-      const isRoot  = note === rootNote;
-      const defBg   = isRoot ? BLACK_ROOT_BG : (inScale ? BLACK_SCALE_BG : BLACK_DEFAULT_BG);
-      const bk = document.createElement('div');
-      bk.className = 'ik-black';
-      bk.style.left = (octStartX + offset * W - BW/2 + W/2) + 'px';
-      bk.style.background = defBg;
+    blackDefs.forEach(function(d) {
+      var note = d.note, offset = d.offset;
+      var inScale = scaleNotes.has(note);
+      var isRoot  = note === key;
+      var bg = isRoot ? BRB : (inScale ? BSB : BDB);
+      var bk = document.createElement('div');
+      bk.style.cssText = 'position:absolute;left:' + (octStartX + offset * W - BW/2 + W/2) + 'px;top:0;width:' + BW + 'px;height:' + BH + 'px;background:' + bg + ';border:1px solid #000;border-radius:0 0 3px 3px;cursor:pointer;z-index:2;box-sizing:border-box;transition:background 0.06s;';
+      bk.className = 'fkb-key';
       bk.dataset.note = note;
       bk.dataset.oct  = oct;
-      bk._origBg = defBg;
-      const down = () => { bk.classList.add('ik-active'); kbdPlayNote(note, oct, true); melodyRecordNote(note, oct, true); };
-      const up   = () => { bk.classList.remove('ik-active'); kbdNoteOff(note, oct); melodyRecordNote(note, oct, false); };
-      bk.addEventListener('mousedown',  e => { e.stopPropagation(); down(); });
-      bk.addEventListener('mouseup',    up);
-      bk.addEventListener('mouseleave', () => { if (_ikDragging) up(); else up(); });
-      bk.addEventListener('mouseenter', e => { e.stopPropagation(); if (_ikDragging) down(); });
-      bk.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); _ikTouchActiveKey = bk; down(); }, { passive: false });
+      bk._origBg = bg;
+      var dn = function() { bk.style.background = '#ff6b6b'; kbdPlayNote(note, oct, true); melodyRecordNote(note, oct, true); };
+      var up = function() { bk.style.background = bg; kbdNoteOff(note, oct); melodyRecordNote(note, oct, false); };
+      bk.addEventListener('mousedown', function(e) { e.stopPropagation(); dn(); });
+      bk.addEventListener('mouseup', up);
+      bk.addEventListener('mouseleave', function() { up(); });
+      bk.addEventListener('mouseenter', function(e) { e.stopPropagation(); if (_fkbDragging) dn(); });
+      bk.addEventListener('touchstart', function(e) { e.preventDefault(); e.stopPropagation(); _fkbTouchActiveKey = bk; dn(); }, { passive: false });
       board.appendChild(bk);
     });
   });
 
   el.appendChild(board);
 
-  board.addEventListener('mousedown', () => { _ikDragging = true; });
-  board.addEventListener('mouseup',   () => { _ikDragging = false; });
-  el.addEventListener('mouseleave',   () => { _ikDragging = false; });
-  document.addEventListener('mouseup', () => { _ikDragging = false; }, { passive: true });
+  board.addEventListener('mousedown', function() { _fkbDragging = true; });
+  board.addEventListener('mouseup',   function() { _fkbDragging = false; });
+  el.addEventListener('mouseleave',   function() { _fkbDragging = false; });
+  document.addEventListener('mouseup', function() { _fkbDragging = false; }, { passive: true });
 
-  board.addEventListener('touchmove', e => {
+  board.addEventListener('touchmove', function(e) {
     e.preventDefault();
-    const touch = e.touches[0];
-    const elem  = document.elementFromPoint(touch.clientX, touch.clientY);
-    if (!elem || (!elem.classList.contains('ik-white') && !elem.classList.contains('ik-black'))) return;
-    if (elem === _ikTouchActiveKey) return;
-    if (_ikTouchActiveKey) {
-      _ikTouchActiveKey.classList.remove('ik-active');
-      kbdNoteOff(_ikTouchActiveKey.dataset.note, parseInt(_ikTouchActiveKey.dataset.oct));
-      melodyRecordNote(_ikTouchActiveKey.dataset.note, parseInt(_ikTouchActiveKey.dataset.oct), false);
+    var touch = e.touches[0];
+    var elem  = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (!elem || !elem.classList.contains('fkb-key')) return;
+    if (elem === _fkbTouchActiveKey) return;
+    if (_fkbTouchActiveKey) {
+      _fkbTouchActiveKey.style.background = _fkbTouchActiveKey._origBg;
+      kbdNoteOff(_fkbTouchActiveKey.dataset.note, parseInt(_fkbTouchActiveKey.dataset.oct));
+      melodyRecordNote(_fkbTouchActiveKey.dataset.note, parseInt(_fkbTouchActiveKey.dataset.oct), false);
     }
-    _ikTouchActiveKey = elem;
-    elem.classList.add('ik-active');
+    _fkbTouchActiveKey = elem;
+    elem.style.background = '#ff6b6b';
     kbdPlayNote(elem.dataset.note, parseInt(elem.dataset.oct), true);
     melodyRecordNote(elem.dataset.note, parseInt(elem.dataset.oct), true);
   }, { passive: false });
 
-  const _ikRelease = () => {
-    if (_ikTouchActiveKey) {
-      _ikTouchActiveKey.classList.remove('ik-active');
-      kbdNoteOff(_ikTouchActiveKey.dataset.note, parseInt(_ikTouchActiveKey.dataset.oct));
-      melodyRecordNote(_ikTouchActiveKey.dataset.note, parseInt(_ikTouchActiveKey.dataset.oct), false);
-      _ikTouchActiveKey = null;
+  var _fkbRelease = function() {
+    if (_fkbTouchActiveKey) {
+      _fkbTouchActiveKey.style.background = _fkbTouchActiveKey._origBg;
+      kbdNoteOff(_fkbTouchActiveKey.dataset.note, parseInt(_fkbTouchActiveKey.dataset.oct));
+      melodyRecordNote(_fkbTouchActiveKey.dataset.note, parseInt(_fkbTouchActiveKey.dataset.oct), false);
+      _fkbTouchActiveKey = null;
     }
-    _ikDragging = false;
+    _fkbDragging = false;
   };
-  board.addEventListener('touchend',    _ikRelease);
-  board.addEventListener('touchcancel', _ikRelease);
+  board.addEventListener('touchend',    _fkbRelease);
+  board.addEventListener('touchcancel', _fkbRelease);
 
-  const c4Idx = octaves.indexOf(4);
+  var c4Idx = _fkbOctaves.indexOf(4);
   if (c4Idx >= 0) {
-    const c4X = c4Idx * 7 * W;
-    const containerW = el.clientWidth || el.offsetWidth || 300;
-    if (totalWidth > containerW) {
-      el.scrollLeft = Math.max(0, c4X - containerW / 2 + W * 3);
-    }
+    var c4X = c4Idx * 7 * W;
+    var cW = el.clientWidth || el.offsetWidth || 300;
+    if (totalWidth > cW) el.scrollLeft = Math.max(0, c4X - cW / 2 + W * 3);
   }
 }
 
@@ -38168,7 +38270,6 @@ function renderKeyboardDrawerHtml(song) {
         <!-- ── RIGHT: Inline Piano Roll mount point ── -->
         <div class="kbd-stage-pr-col" id="kbdStagePrCol">
           <!-- prPanel will be reparented here from the overlay -->
-          <div class="pr-inline-kbd" id="prInlineKbd"></div>
         </div>
 
       </div>
@@ -38744,7 +38845,7 @@ window._kbdDspLoad = function(id) {
       const _lm = window.innerWidth < 768 && window.innerHeight <= 500 && window.matchMedia('(orientation: landscape)').matches;
       const _pm = window.innerWidth < 768 && !_lm;
       const _mc = _lm || _pm;
-      requestAnimationFrame(() => { if(!_mc){seqRenderKeyboard();seqRenderMelodyRoll();kbdRenderMelodyTabs(song);prInlineKeyboardRender();} _midiUpdateUI(); seqBuildGrids(song); seqRenderChordPills(song); if(!_mc)seqRenderKeyTriggers(song); if(_pm){kbdPortUpdatePeek();kbdPortUpdateBadge();} });
+      requestAnimationFrame(() => { if(!_mc){seqRenderKeyboard();seqRenderMelodyRoll();kbdRenderMelodyTabs(song);fkbRender();} _midiUpdateUI(); seqBuildGrids(song); seqRenderChordPills(song); if(!_mc)seqRenderKeyTriggers(song); if(_pm){kbdPortUpdatePeek();kbdPortUpdateBadge();} });
     }
   });
 };
@@ -38761,7 +38862,7 @@ window._kbdDspNew = function() {
       const _lm = window.innerWidth < 768 && window.innerHeight <= 500 && window.matchMedia('(orientation: landscape)').matches;
       const _pm = window.innerWidth < 768 && !_lm;
       const _mc = _lm || _pm;
-      requestAnimationFrame(() => { if(!_mc){seqRenderKeyboard();seqRenderMelodyRoll();kbdRenderMelodyTabs(song);prInlineKeyboardRender();} _midiUpdateUI(); seqBuildGrids(song); seqRenderChordPills(song); if(!_mc)seqRenderKeyTriggers(song); if(_pm){kbdPortUpdatePeek();kbdPortUpdateBadge();} });
+      requestAnimationFrame(() => { if(!_mc){seqRenderKeyboard();seqRenderMelodyRoll();kbdRenderMelodyTabs(song);fkbRender();} _midiUpdateUI(); seqBuildGrids(song); seqRenderChordPills(song); if(!_mc)seqRenderKeyTriggers(song); if(_pm){kbdPortUpdatePeek();kbdPortUpdateBadge();} });
     }
     showToast('New draft created — open the editor to name it.', 'success', 4000);
   });
@@ -39029,7 +39130,7 @@ function openKeyboardDrawer() {
       seqRenderKeyboard();
       seqRenderMelodyRoll();
       kbdRenderMelodyTabs(song);
-      prInlineKeyboardRender();
+      fkbRender();
       _midiUpdateUI();
       seqBuildGrids(song);
       seqRenderChordPills(song);
@@ -40118,7 +40219,7 @@ function seqKeySelectChanged(triggerEl) {
   // Refresh pills, keyboard, and key display
   seqRenderChordPills(song);
   seqRenderKeyboard();
-  prInlineKeyboardRender();
+  fkbRender();
   // Refresh PR palette + full re-render if open (new key = new scale highlights)
   if (typeof window.prBuildPalette === 'function') window.prBuildPalette();
   if (typeof window.prRender === 'function') window.prRender();
