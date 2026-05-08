@@ -23090,8 +23090,10 @@ function getSongSequences(song) {
 
 function seqGetData(song) {
   const seqs = getSongSequences(song);
-  const active = seqs[Math.min(seqActiveIdx, seqs.length - 1)] || {};
+  const idx = Math.min(seqActiveIdx, seqs.length - 1);
+  const active = seqs[idx] || {};
   song.sequencer = active;
+  console.log('[SEQ-GET] seqActiveIdx=' + seqActiveIdx + ' → idx=' + idx + ' partId=' + (active.partId||'?') + ' seqs.length=' + seqs.length);
   return active;
 }
 
@@ -24121,6 +24123,7 @@ function seqSwitchToSequence(idx) {
   // Save current DOM state before switching
   seqSaveAllToCurrent(song);
 
+  console.log('[SEQ-SWITCH] ' + seqActiveIdx + ' → ' + idx + ' partId=' + (seqs[idx]?.partId||'?') + ' chords=' + (seqs[idx]?.chordSlots||[]).filter(Boolean).length);
   seqActiveIdx = idx;
   kbdMelodySeqIdx = idx; // keep keyboard melody tab in sync
   melodyNotes = (seqs[idx].melody || []).slice(); // load the new sequence's notes
@@ -24182,6 +24185,8 @@ function seqSaveAllToCurrent(song) {
 
 function seqLoadSequenceIntoDOM(seq, song) {
   if (!seq) return;
+  var _seqsRef = song?.sequences || [];
+  console.log('[LOAD-DOM] seqActiveIdx=' + seqActiveIdx + ' seq===seqs[' + _seqsRef.indexOf(seq) + '] partId=' + (seq.partId||seq.part||'?') + ' chords=' + (seq.chordSlots||[]).filter(Boolean).length);
   // BPM is song-wide — always use song.bpm, not per-sequence
   const _songBpm = song?.bpm || seq.bpm || '100';
   const bpmEl = document.getElementById('seqBpm');   if (bpmEl) bpmEl.value = _songBpm;
@@ -26562,7 +26567,12 @@ function seqSaveChordSlots() {
   seqGetData(song); // ensure song.sequencer → active sequence
   ucPushUndo(_ucCaptureState(), 'chord slots'); // snapshot BEFORE overwriting
   const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
-  song.sequencer.chordSlots     = slots.map(s => s.dataset.seqChordRaw || s.textContent.trim().replace('⁸','_viii') || '');
+  var _saveSlots = slots.map(s => s.dataset.seqChordRaw || s.textContent.trim().replace('⁸','_viii') || '');
+  var _seqRef = song.sequencer;
+  var _seqsArr = song.sequences || [];
+  var _matchIdx = _seqsArr.indexOf(_seqRef);
+  console.log('[CHORD-SAVE] seqActiveIdx=' + seqActiveIdx + ' song.sequencer===seqs[' + _matchIdx + '] partId=' + (_seqRef?.partId||'?') + ' slots=' + _saveSlots.filter(Boolean).join(','));
+  song.sequencer.chordSlots     = _saveSlots;
   song.sequencer.chordDegrees   = slots.map(s => s.dataset.chordDegree ?? '');
   song.sequencer.chordContinued = slots.map(s => s.classList.contains('chord-tail'));
   song.updatedAt = Date.now();
@@ -26700,6 +26710,7 @@ function _seqProgressionFill(progressionId) {
   if (!prog) return;
   const song = getCurrentSong();
   if (!song) return;
+  console.log('[PROG-FILL] seqActiveIdx=' + seqActiveIdx + ' progId=' + progressionId);
   ucPushUndo(_ucCaptureState(), 'chord progression');
 
   const sd         = seqGetData(song);
