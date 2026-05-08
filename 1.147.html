@@ -18833,13 +18833,26 @@ function updateHeaderSongTitle(song) {
 function populateSongFields(song) {
   // Clean up bloated pianoRoll from prior cross-contamination bug
   var _prCap = (typeof _PR_MAX_NOTES_PER_SEQ !== 'undefined') ? _PR_MAX_NOTES_PER_SEQ : 200;
+  var _prSnap2 = (typeof prSnap !== 'undefined') ? prSnap : 4;
+  var _prDirty = false;
   if (song && Array.isArray(song.sequences)) {
     song.sequences.forEach(function(seq) {
       if (seq && Array.isArray(seq.pianoRoll) && seq.pianoRoll.length > _prCap) {
         console.warn('[POPULATE] Stripping bloated pianoRoll (' + seq.pianoRoll.length + ' notes) from part=' + (seq.partId || '?'));
         delete seq.pianoRoll;
+        _prDirty = true;
+      }
+      if (seq && Array.isArray(seq.pianoRoll) && seq.pianoRoll.length) {
+        var _mc = parseInt(seq.time || 4) * parseInt(seq.bars || 4) * _prSnap2;
+        var _b = seq.pianoRoll.length;
+        seq.pianoRoll = seq.pianoRoll.filter(function(n) { return n && n.startCol < _mc; });
+        if (seq.pianoRoll.length !== _b) {
+          console.warn('[POPULATE] Stripped ' + (_b - seq.pianoRoll.length) + ' out-of-bounds PR notes from part=' + (seq.partId || '?'));
+          _prDirty = true;
+        }
       }
     });
+    if (_prDirty) { song.updatedAt = Date.now(); save(); scheduleSyncToSheet(song); }
   }
   updateStickyBar(song);
   updateHeaderSongTitle(song);
@@ -29446,7 +29459,14 @@ async function seqPlaySong() {
       chordVelocities: seq.chordVelocities, chordFlamMs: seq.chordFlamMs,
       melody:          seq.melody          || [],
       melodyInstrument: seq.melodyInstrument || 'piano',
-      pianoRoll:       seq.pianoRoll       || [],
+      pianoRoll:       (function() {
+        var pr = seq.pianoRoll || [];
+        if (!pr.length) return pr;
+        var maxCol = time * bars * (typeof prSnap !== 'undefined' ? prSnap : 4);
+        var clean = pr.filter(function(n) { return n.startCol < maxCol; });
+        if (clean.length !== pr.length) console.warn('[PR-CLEAN] ' + (seq.partId||'?') + ': stripped ' + (pr.length - clean.length) + '/' + pr.length + ' out-of-bounds notes (maxCol=' + maxCol + ')');
+        return clean;
+      })(),
       totalSteps, stepDur, bpm, drumSteps, chordSteps, time, bars,
       grid: drumSteps, // backward compat
       totalChordSteps,
@@ -32291,10 +32311,20 @@ function normalizeLoadedSong(s) {
   s.instruments = decodeInstrumentsFromFirestore(s.instruments);
   // Clean up bloated pianoRoll arrays (from prior cross-contamination bug)
   if (Array.isArray(s.sequences)) {
+    var _prSnap = (typeof prSnap !== 'undefined') ? prSnap : 4;
     s.sequences.forEach(function(seq) {
       if (seq && Array.isArray(seq.pianoRoll) && seq.pianoRoll.length > _PR_MAX_NOTES_PER_SEQ) {
         console.warn('[NORMALIZE] Stripping bloated pianoRoll (' + seq.pianoRoll.length + ' notes) from part=' + (seq.partId || '?'));
         delete seq.pianoRoll;
+      }
+      // Strip out-of-bounds notes (cross-contamination artifacts)
+      if (seq && Array.isArray(seq.pianoRoll) && seq.pianoRoll.length) {
+        var _maxCol = parseInt(seq.time || 4) * parseInt(seq.bars || 4) * _prSnap;
+        var _before = seq.pianoRoll.length;
+        seq.pianoRoll = seq.pianoRoll.filter(function(n) { return n && n.startCol < _maxCol; });
+        if (seq.pianoRoll.length !== _before) {
+          console.warn('[NORMALIZE] Stripped ' + (_before - seq.pianoRoll.length) + ' out-of-bounds notes from part=' + (seq.partId || '?') + ' (maxCol=' + _maxCol + ')');
+        }
       }
     });
   }
