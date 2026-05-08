@@ -18803,6 +18803,16 @@ function updateHeaderSongTitle(song) {
 }
 
 function populateSongFields(song) {
+  // Clean up bloated pianoRoll from prior cross-contamination bug
+  var _prCap = (typeof _PR_MAX_NOTES_PER_SEQ !== 'undefined') ? _PR_MAX_NOTES_PER_SEQ : 200;
+  if (song && Array.isArray(song.sequences)) {
+    song.sequences.forEach(function(seq) {
+      if (seq && Array.isArray(seq.pianoRoll) && seq.pianoRoll.length > _prCap) {
+        console.warn('[POPULATE] Stripping bloated pianoRoll (' + seq.pianoRoll.length + ' notes) from part=' + (seq.partId || '?'));
+        delete seq.pianoRoll;
+      }
+    });
+  }
   updateStickyBar(song);
   updateHeaderSongTitle(song);
   currentInstrument = 'guitar';
@@ -32239,7 +32249,54 @@ function decodeInstrumentsFromFirestore(raw) {
 // Normalise a song object freshly loaded from Firestore
 function normalizeLoadedSong(s) {
   s.instruments = decodeInstrumentsFromFirestore(s.instruments);
+  // Clean up bloated pianoRoll arrays (from prior cross-contamination bug)
+  if (Array.isArray(s.sequences)) {
+    s.sequences.forEach(function(seq) {
+      if (seq && Array.isArray(seq.pianoRoll) && seq.pianoRoll.length > _PR_MAX_NOTES_PER_SEQ) {
+        console.warn('[NORMALIZE] Stripping bloated pianoRoll (' + seq.pianoRoll.length + ' notes) from part=' + (seq.partId || '?'));
+        delete seq.pianoRoll;
+      }
+    });
+  }
   return s;
+}
+
+// ── pianoRoll compaction: keep doc under Firestore 1MB limit ──
+// Strips pianoRoll arrays from sequences payload when doc is too large.
+// pianoRoll is regenerable from chord grid, so it's safe to drop.
+var _PR_MAX_NOTES_PER_SEQ = 200; // sanity cap per section
+function _compactSequencesForSync(seqs) {
+  if (!Array.isArray(seqs)) return seqs;
+  return seqs.map(function(seq) {
+    if (!seq) return seq;
+    var pr = seq.pianoRoll;
+    if (Array.isArray(pr) && pr.length > _PR_MAX_NOTES_PER_SEQ) {
+      console.warn('[COMPACT] trimming pianoRoll from ' + pr.length + ' to ' + _PR_MAX_NOTES_PER_SEQ + ' notes on part=' + (seq.partId || '?'));
+      seq = Object.assign({}, seq);
+      seq.pianoRoll = pr.slice(0, _PR_MAX_NOTES_PER_SEQ);
+    }
+    return seq;
+  });
+}
+
+function _estimateDocSize(payload) {
+  try { return JSON.stringify(payload).length; } catch(e) { return 0; }
+}
+
+function _stripPianoRollsForSize(payload) {
+  if (!payload.sequences || !Array.isArray(payload.sequences)) return payload;
+  payload = Object.assign({}, payload);
+  payload.sequences = payload.sequences.map(function(seq) {
+    if (!seq || !seq.pianoRoll || !seq.pianoRoll.length) return seq;
+    seq = Object.assign({}, seq);
+    delete seq.pianoRoll;
+    return seq;
+  });
+  if (payload.sequencer && payload.sequencer.pianoRoll) {
+    payload.sequencer = Object.assign({}, payload.sequencer);
+    delete payload.sequencer.pianoRoll;
+  }
+  return payload;
 }
 
 async function syncToSheet(song) {
@@ -32274,7 +32331,7 @@ async function syncToSheet(song) {
       moods:          song.moods          || [],
       instruments:    encodeInstrumentsForFirestore(song.instruments),
       sequencer:      song.sequencer      || {},
-      sequences:      song.sequences      || [],
+      sequences:      _compactSequencesForSync(song.sequences || []),
       loopTracks:     song.loopTracks     || [],
       mtTracks:       song.mtTracks       || [],
       seqLinks4t:     song.seqLinks4t     || {},
@@ -32285,6 +32342,14 @@ async function syncToSheet(song) {
       createdAt:      song.createdAt      || Date.now(),
       ...(song.publicToken ? { publicToken: song.publicToken } : {}),
     });
+    var _docSize = _estimateDocSize(payload);
+    console.log('[SYNC] payload size: ' + Math.round(_docSize/1024) + 'KB');
+    if (_docSize > 900000) {
+      console.warn('[SYNC] Doc too large (' + Math.round(_docSize/1024) + 'KB), stripping pianoRoll data');
+      payload = _stripPianoRollsForSize(payload);
+      _docSize = _estimateDocSize(payload);
+      console.log('[SYNC] After strip: ' + Math.round(_docSize/1024) + 'KB');
+    }
     await db.collection('songs').doc(song.id).set(payload, { merge: true });
     clearPendingSync(song.id);
     setSyncStatus('saved', 'Saved ✓');
@@ -61863,6 +61928,29 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
     window._prGateLogged = false; window._prGateLoggedKbd = false;
     window._prGateLoggedLoop = false; window._prSustainLogged = false;
     console.log('[PR-debug] one-time log flags reset — next playback will log again');
+  };
+
+  // Console helper: clean up bloated pianoRoll on current song
+  window.prCleanupBloat = function(maxNotes) {
+    maxNotes = maxNotes || 200;
+    var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    if (!song || !Array.isArray(song.sequences)) { console.log('No song/sequences'); return; }
+    var cleaned = 0;
+    song.sequences.forEach(function(seq, i) {
+      if (seq && Array.isArray(seq.pianoRoll) && seq.pianoRoll.length > maxNotes) {
+        console.log('[CLEANUP] Deleting pianoRoll (' + seq.pianoRoll.length + ' notes) from sequences[' + i + '] part=' + (seq.partId || '?'));
+        delete seq.pianoRoll;
+        cleaned++;
+      }
+    });
+    if (cleaned > 0) {
+      song.updatedAt = Date.now();
+      if (typeof save === 'function') save();
+      if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
+      console.log('[CLEANUP] Cleaned ' + cleaned + ' sequences, syncing to Firestore');
+    } else {
+      console.log('[CLEANUP] No bloated pianoRoll found (all under ' + maxNotes + ' notes)');
+    }
   };
 
   window.prLoadPianoRoll = function(song) {
