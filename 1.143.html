@@ -21452,8 +21452,13 @@ async function initMidi(silent) {
     _midiEnabled    = true;
     _midiPermission = 'granted';
 
-    // Default: first input device receives messages
+    // Restore saved MIDI device by name, fall back to first input
     const _allInputs = [..._midiAccess.inputs.values()];
+    const _savedMidiName = (window._lastStateFromFirestore || {}).midiInputName;
+    if (_savedMidiName && !_midiInputId) {
+      const _match = _allInputs.find(inp => inp.name === _savedMidiName);
+      if (_match) { _midiInputId = _match.id; console.log('[MIDI-DBG] Restored saved device: "' + _savedMidiName + '"'); }
+    }
     if (!_midiInputId && _allInputs[0]) _midiInputId = _allInputs[0].id;
 
     // ── MIDI DEBUG: device enumeration ──
@@ -21938,6 +21943,15 @@ function _midiSelectInput(deviceId) {
   var sel2 = null;
   if (_midiAccess) _midiAccess.inputs.forEach(inp => { if (inp.id === deviceId) sel2 = inp; });
   showToast('MIDI input: ' + (sel2 ? sel2.name : deviceId), 'success', 2500);
+  // Persist device name to Firestore so it's remembered next session
+  if (sel2 && typeof db !== 'undefined' && typeof auth !== 'undefined' && auth.currentUser) {
+    var uid = auth.currentUser.uid;
+    if (uid) {
+      db.collection('users').doc(uid).update({ 'lastState.midiInputName': sel2.name }).catch(function(e) {
+        console.warn('[MIDI] failed to save device pref:', e.message);
+      });
+    }
+  }
 }
 
 
@@ -39589,6 +39603,20 @@ function mprBuildChordPalette() {
   if (origPal && origPal !== pal) {
     if (typeof window.prBuildPalette === 'function') window.prBuildPalette();
     pal.innerHTML = origPal.innerHTML;
+  }
+  // Fallback: if PR palette was empty, build directly
+  if (!pal.querySelector('.pr-chord-pill')) {
+    var key = (typeof seqCurrentKey === 'function') ? seqCurrentKey() : (song.key || 'C');
+    var mode = (typeof seqCurrentMode === 'function') ? seqCurrentMode() : (song.mode || 'major');
+    var names = (typeof seqGetScaleChords === 'function') ? seqGetScaleChords(key, mode) : [];
+    if (names.length) {
+      var html = '<div class="pr-chord-palette-title">Chords</div>';
+      names.forEach(function(name, i) {
+        var display = name.replace('_viii', '⁸');
+        html += '<div class="pr-chord-pill" data-degree="' + i + '" data-chord="' + name + '">' + display + '</div>';
+      });
+      pal.innerHTML = html;
+    }
   }
   // Rewire pill clicks to respect Preview/Compose mode
   pal.querySelectorAll('.pr-chord-pill').forEach(function(pill) {
