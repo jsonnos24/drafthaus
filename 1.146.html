@@ -17278,8 +17278,36 @@ function deleteProjectFolder(fullPath) {
 }
 
 function save() {
-  try { localStorage.setItem('track_songs', JSON.stringify(songs)); }
-  catch(e) { console.warn('[SAVE] localStorage write failed (code ' + (e?.code||'?') + '):', e?.message); }
+  try {
+    // Strip pianoRoll from localStorage cache to stay under quota (~5MB).
+    // Firestore is source of truth; pianoRoll is regenerable from chord grid.
+    var _lsSongs = songs.map(function(s) {
+      if (!s.sequences || !s.sequences.some(function(sq) { return sq && sq.pianoRoll && sq.pianoRoll.length > 50; })) return s;
+      var clone = Object.assign({}, s);
+      clone.sequences = s.sequences.map(function(sq) {
+        if (!sq || !sq.pianoRoll || sq.pianoRoll.length <= 50) return sq;
+        var sc = Object.assign({}, sq);
+        delete sc.pianoRoll;
+        return sc;
+      });
+      return clone;
+    });
+    localStorage.setItem('track_songs', JSON.stringify(_lsSongs));
+  }
+  catch(e) {
+    // If still too large, try without sequences entirely
+    try {
+      var _lsMeta = songs.map(function(s) {
+        var m = Object.assign({}, s);
+        delete m.sequences;
+        delete m.sequencer;
+        return m;
+      });
+      localStorage.setItem('track_songs', JSON.stringify(_lsMeta));
+    } catch(e2) {
+      console.warn('[SAVE] localStorage write failed even after trim');
+    }
+  }
 }
 
 function genId() {
@@ -32311,7 +32339,7 @@ async function syncToSheet(song) {
     const _dbgHatHits = (_dbgSeq0.hat||[]).filter(Boolean).length;
     const _dbgTopKick = (song.sequencer?.kick||[]).filter(Boolean).length;
     console.log('[DRUM-DEBUG] syncToSheet — sequences[0] kick:', _dbgKickHits, 'snare:', _dbgSnareHits, 'hat:', _dbgHatHits, '| top-level sequencer kick:', _dbgTopKick, '| seq===seq[0]:', song.sequencer === _dbgSeq0);
-    const payload = sanitizeForFirestore({
+    let payload = sanitizeForFirestore({
       id:             song.id,
       ownerId:        song.ownerId        || uid,
       sharedWith:     song.sharedWith     || [],
