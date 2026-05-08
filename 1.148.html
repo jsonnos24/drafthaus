@@ -49337,13 +49337,15 @@ document.addEventListener('keydown', function(e) {
   // ── STOP: kill everything that's running ──
   if (_anythingOn) {
     if (_isRecording && typeof _mtStopRecording === 'function') _mtStopRecording();
-    if (_isSeqPlaying && typeof seqStop === 'function') seqStop();
-    // Always stop 4-track — both standalone and seq-linked
-    if (typeof _mtStopAll === 'function') try { _mtStopAll(); } catch(_e) {}
-    if (typeof _mtSeqStopAllTracks === 'function') try { _mtSeqStopAllTracks(); } catch(_e) {}
-    if (_isMetroOn && typeof seqToggleMet === 'function') seqToggleMet();   // toggles off unified metro
-    // Also stop looper tracks
-    if (typeof loopMasterStop === 'function') try { loopMasterStop(); } catch(_e) {}
+    // Use sharedStop to properly clean up song-mode, strip play, loops, 4-track
+    if (_isSeqPlaying && typeof sharedStop === 'function') { sharedStop(); }
+    else {
+      // No sequencer playing — stop remaining subsystems individually
+      if (typeof _mtStopAll === 'function') try { _mtStopAll(); } catch(_e) {}
+      if (typeof _mtSeqStopAllTracks === 'function') try { _mtSeqStopAllTracks(); } catch(_e) {}
+      if (typeof loopMasterStop === 'function') try { loopMasterStop(); } catch(_e) {}
+    }
+    if (_isMetroOn && typeof seqToggleMet === 'function') seqToggleMet();
     return;
   }
 
@@ -49360,7 +49362,8 @@ document.addEventListener('keydown', function(e) {
     if (e.shiftKey) { if (typeof mtPlayWithSeq === 'function') mtPlayWithSeq(); }
     else            { if (typeof mtPlay === 'function') mtPlay(); }
   } else if (seqOpen || kbdOpen || loopOpen) {
-    if (e.shiftKey) { sharedPlaySong(); } else { sharedPlay(); }
+    // Shift+Space always → full song. Plain Space → resume last mode (song or loop)
+    if (e.shiftKey || _seqLastPlayMode === 'song') { sharedPlaySong(); } else { sharedPlay(); }
   } else {
     // No drawer open — check if 4-track has content or we're in split/perf mode
     var _mt4tReady = window._mtTracks && window._mtTracks.some(function(t){ return t && t.buffer; });
