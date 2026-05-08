@@ -21709,6 +21709,8 @@ function _midiHandleMessage(msg) {
 // Route MIDI channel-10 (GM drum) notes to the sequencer drum sounds
 
 function _midiNoteOn(midiNote, velocity) {
+  var _fmn = SEQ_NOTES[midiNote % 12], _fmo = Math.floor(midiNote / 12) - 1;
+  if (_fmn) fkbNoteOn(_fmn, _fmo);
   // Step-input: place note in PR when compose mode is active
   if (seqChordMode === 'compose' && typeof window.prIsComposeActive === 'function' && window.prIsComposeActive()) {
     window.prComposeStepInput(midiNote);
@@ -21760,6 +21762,8 @@ function _midiNoteOn(midiNote, velocity) {
 }
 
 function _midiNoteOff(midiNote) {
+  var _fmn = SEQ_NOTES[midiNote % 12], _fmo = Math.floor(midiNote / 12) - 1;
+  if (_fmn) fkbNoteOff(_fmn, _fmo);
   _midiHighlightKey(midiNote, false);
   // Record note-off to melody if recording is active
   if (typeof melodyRecordNote === 'function') {
@@ -26961,8 +26965,7 @@ function seqPillRelease() {
 }
 
 function seqShowChordOnKeyboard(chordName) {
-  seqHideChordOnKeyboard(); // clear any previous
-  // Resolve MIDI notes for this chord name
+  seqHideChordOnKeyboard();
   const loopChordsMidi = seqGenChordMidi(seqCurrentKey(), seqCurrentMode());
   let midiNotes = (loopChordsMidi && loopChordsMidi[chordName]) || _chordVariantToMidi(chordName);
   if (!midiNotes || !midiNotes.length) return;
@@ -26973,10 +26976,12 @@ function seqShowChordOnKeyboard(chordName) {
       k.classList.add('chord-highlight');
     }
   });
+  fkbHighlightChord(midiNotes);
 }
 
 function seqHideChordOnKeyboard() {
   document.querySelectorAll('#seqKeyboard .seq-key.chord-highlight').forEach(k => k.classList.remove('chord-highlight'));
+  fkbClearHighlight();
 }
 
 // Show sweep button on desktop only
@@ -30237,7 +30242,14 @@ function fkbToggle() {
   if (!_fkbEl) return;
   _fkbOpen = !_fkbOpen;
   _fkbEl.classList.toggle('fkb-open', _fkbOpen);
-  if (_fkbOpen) fkbRender();
+  if (_fkbOpen) {
+    fkbRender();
+  } else {
+    _fkbEl.style.left = '';
+    _fkbEl.style.top = '';
+    _fkbEl.style.right = '0';
+    _fkbEl.style.bottom = '';
+  }
 }
 
 function fkbResize(delta) {
@@ -30272,9 +30284,9 @@ function fkbRender() {
   var rootIdx = SEQ_NOTES.indexOf(key);
   var scaleNotes = new Set(SEQ_SCALES[mode].steps.map(function(s) { return SEQ_NOTES[(rootIdx + s) % 12]; }));
 
-  var WSB = '#3d2a6e', WSBD = '#7c5cbf', WRB = '#6d28d9', WRBD = '#a855f7';
-  var WDB = '#1e1e2e', WDBD = '#444';
-  var BSB = '#5b21b6', BRB = '#7c3aed', BDB = '#0a0a0f';
+  var WSB = '#e8dff5', WSBD = '#9b6dff', WRB = '#c4a6f7', WRBD = '#7c3aed';
+  var WDB = '#f0ede8', WDBD = '#c8c4be';
+  var BSB = '#2a1a4e', BRB = '#1a0a3e', BDB = '#111';
 
   var blackDefs = [
     { note:'C#', offset: 0.67 }, { note:'D#', offset: 1.67 },
@@ -30302,7 +30314,7 @@ function fkbRender() {
       k.dataset.oct  = oct;
       k._origBg = bg;
       if (note === 'C' || isRoot) {
-        var lc = isRoot ? '#fff' : (inScale ? '#9b6dff' : '#666');
+        var lc = isRoot ? '#4c1d95' : (inScale ? '#6d28d9' : '#999');
         k.innerHTML = '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:8px;color:' + lc + ';font-weight:' + (isRoot?'700':'400') + ';pointer-events:none;user-select:none;">' + note + oct + '</span>';
       }
       var dn = function() { k.style.background = '#ff6b6b'; kbdPlayNote(note, oct, true); melodyRecordNote(note, oct, true); };
@@ -30380,7 +30392,58 @@ function fkbRender() {
   }
 }
 
+function fkbHighlightChord(midiNotes) {
+  if (!_fkbOpen) return;
+  var body = document.getElementById('fkbBody');
+  if (!body) return;
+  var pitchClasses = new Set(midiNotes.map(function(m) { return m % 12; }));
+  body.querySelectorAll('.fkb-key').forEach(function(k) {
+    var ni = SEQ_NOTES.indexOf(k.dataset.note);
+    if (ni >= 0 && pitchClasses.has(ni)) {
+      k.style.background = '#4ade80';
+      k._chordHL = true;
+    }
+  });
+}
+
+function fkbClearHighlight() {
+  if (!_fkbOpen) return;
+  var body = document.getElementById('fkbBody');
+  if (!body) return;
+  body.querySelectorAll('.fkb-key').forEach(function(k) {
+    if (k._chordHL) {
+      k.style.background = k._origBg;
+      k._chordHL = false;
+    }
+  });
+}
+
+function fkbNoteOn(note, oct) {
+  if (!_fkbOpen) return;
+  var body = document.getElementById('fkbBody');
+  if (!body) return;
+  body.querySelectorAll('.fkb-key').forEach(function(k) {
+    if (k.dataset.note === note && k.dataset.oct == oct) {
+      k.style.background = '#ff6b6b';
+      k._noteHL = true;
+    }
+  });
+}
+
+function fkbNoteOff(note, oct) {
+  if (!_fkbOpen) return;
+  var body = document.getElementById('fkbBody');
+  if (!body) return;
+  body.querySelectorAll('.fkb-key').forEach(function(k) {
+    if (k.dataset.note === note && k.dataset.oct == oct && k._noteHL) {
+      k.style.background = k._origBg;
+      k._noteHL = false;
+    }
+  });
+}
+
 function kbdPlayNote(note, octave, sustained = false) {
+  fkbNoteOn(note, octave);
   const ctx = getSeqAudioCtx();
   if (ctx.state === 'suspended') ctx.resume();
   _seqEnsureMasterGain();
@@ -30498,6 +30561,7 @@ function kbdPlayNote(note, octave, sustained = false) {
 
 // Apply release envelope and stop a sustained note on finger-lift
 function kbdNoteOff(note, octave) {
+  fkbNoteOff(note, octave);
   const sustKey = note + ':' + octave;
   const active = _kbdActiveSustain.get(sustKey);
   if (!active) return;
