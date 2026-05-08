@@ -29581,7 +29581,9 @@ function seqScheduleNotes() {
     while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
       if (_seqSongSectionIdx >= _seqSongSections.length) { _seqSongSectionIdx = 0; _seqSongSectionStep = 0; }
       const sec  = _seqSongSections[_seqSongSectionIdx];
-      var _prIsSource = (typeof prSchedulePlayback === 'function' && sec.pianoRoll && sec.pianoRoll.length > 0);
+      // Song mode: always use chordSlots for chord playback (pianoRoll is visual/editing only).
+      // pianoRoll data may be stale from cross-contamination bug; chordSlots are authoritative.
+      var _prIsSource = false;
       const i    = _seqSongSectionStep;
       const stepDur     = sec.stepDur;
       const beatsPerBar = sec.time * sec.grid;
@@ -29638,18 +29640,13 @@ function seqScheduleNotes() {
       // [UNIFIED METRO] — metro clicks now handled by globalMetroStart(), removed inline seqClick
 
       // Melody: schedule all notes once per section start
+      // Song mode uses chordSlots for chords (not pianoRoll), so only schedule melody here.
       if (_pf !== 'drums' && i === 0) {
         melodyScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} });
         melodyScheduledNodes = [];
         if (typeof _prChordScheduledNodes !== 'undefined') { _prChordScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} }); _prChordScheduledNodes = []; }
         const secLoopDurMs = sec.totalSteps * sec.stepDur * 1000;
-        var _secPR = sec.pianoRoll && sec.pianoRoll.length ? sec.pianoRoll : null;
-        if (_secPR && typeof prSchedulePlayback === 'function') {
-          console.log('[SONG-PR] sec=' + _seqSongSectionIdx + ' using sec.pianoRoll(' + _secPR.length + ')');
-          prSchedulePlayback(ctx, baseTime, secLoopDurMs / 1000, _secPR);
-        } else {
-          seqScheduleMelody(ctx, baseTime, secLoopDurMs, sec.melody, sec.melodyInstrument);
-        }
+        seqScheduleMelody(ctx, baseTime, secLoopDurMs, sec.melody, sec.melodyInstrument);
       }
       } // end _tlTakeover guard
 
