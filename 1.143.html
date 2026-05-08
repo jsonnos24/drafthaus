@@ -39378,8 +39378,10 @@ function mprInit() {
   if (ui?.mobileKeysZoomV) {
     window.prSetZoomV(ui.mobileKeysZoomV);
   }
-  // Build mobile chord palette
+  // Build mobile chord palette (immediate + delayed retry for song data)
   mprBuildChordPalette();
+  setTimeout(mprBuildChordPalette, 600);
+  setTimeout(mprBuildChordPalette, 1500);
   // Render PR after layout settles
   var _mprRetries = 0;
   function _mprTryRender() {
@@ -39587,36 +39589,38 @@ function mprToggleChordSidebar() {
   var toggle = document.getElementById('mprChordToggle');
   if (sidebar) sidebar.classList.toggle('open', _mprChordSidebarOpen);
   if (toggle) toggle.textContent = _mprChordSidebarOpen ? '◂' : '♮';
-  // Force PR to re-render after sidebar transition (grid width changed)
+  if (_mprChordSidebarOpen) mprBuildChordPalette();
   setTimeout(function() {
     if (typeof window.prRender === 'function') window.prRender();
-  }, 220);
+    if (_mprChordSidebarOpen) mprBuildChordPalette();
+  }, 250);
 }
 
 function mprBuildChordPalette() {
   var pal = document.getElementById('mprChordPalette');
   if (!pal) return;
   var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
-  if (!song) return;
-  // Reuse the PR palette builder output
   var origPal = document.getElementById('prChordPalette');
   if (origPal && origPal !== pal) {
-    if (typeof window.prBuildPalette === 'function') window.prBuildPalette();
-    pal.innerHTML = origPal.innerHTML;
-  }
-  // Fallback: if PR palette was empty, build directly
-  if (!pal.querySelector('.pr-chord-pill')) {
-    var key = (typeof seqCurrentKey === 'function') ? seqCurrentKey() : (song.key || 'C');
-    var mode = (typeof seqCurrentMode === 'function') ? seqCurrentMode() : (song.mode || 'major');
-    var names = (typeof seqGetScaleChords === 'function') ? seqGetScaleChords(key, mode) : [];
-    if (names.length) {
-      var html = '<div class="pr-chord-palette-title">Chords</div>';
-      names.forEach(function(name, i) {
-        var display = name.replace('_viii', '⁸');
-        html += '<div class="pr-chord-pill" data-degree="' + i + '" data-chord="' + name + '">' + display + '</div>';
-      });
-      pal.innerHTML = html;
+    if (typeof window.prBuildPalette === 'function') try { window.prBuildPalette(); } catch(e){}
+    if (origPal.querySelector('.pr-chord-pill')) {
+      pal.innerHTML = origPal.innerHTML;
     }
+  }
+  if (!pal.querySelector('.pr-chord-pill')) {
+    var key = 'C', mode = 'major';
+    try { var k = seqCurrentKey(); if (k) key = k; } catch(e){}
+    try { var m = seqCurrentMode(); if (m) mode = m; } catch(e){}
+    if (!key && song) { var raw = song.key || 'C major'; key = raw.split(' ')[0].split('/')[0].trim() || 'C'; mode = raw.toLowerCase().includes('minor') ? 'minor' : 'major'; }
+    var names = [];
+    try { names = seqGetScaleChords(key, mode); } catch(e){}
+    if (!names.length) names = ['C','Dm','Em','F','G','Am','Bdim','C_viii'];
+    var html = '<div class="pr-chord-palette-title">Chords</div>';
+    names.forEach(function(name, i) {
+      var display = name.replace('_viii', '⁸');
+      html += '<div class="pr-chord-pill" data-degree="' + i + '" data-chord="' + name + '">' + display + '</div>';
+    });
+    pal.innerHTML = html;
   }
   // Rewire pill clicks to respect Preview/Compose mode
   pal.querySelectorAll('.pr-chord-pill').forEach(function(pill) {
