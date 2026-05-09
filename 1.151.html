@@ -22784,6 +22784,8 @@ function renderSequencerHtml(song) {
         </div>
       </div>
     </div>
+    <!-- ── Inline Drum Piano Roll container ── -->
+    <div id="drPrContainer" class="dr-pr-container dr-hidden" style="flex:1;min-height:0;overflow:hidden;display:none;"></div>
     <!-- Voice control popup (shared, repositioned per voice) -->
     <div class="dr-voice-popup" id="drVoicePopup"></div>
     <!-- Shared drum bank popup (one reused for all voices) -->
@@ -25701,27 +25703,59 @@ function seqBuildGrids(song) {
     }
   }
 
-  var _drPrPending = false; // deferred drum PR open (waiting for overlay)
+  var _drPrPending = false;
+  var _drPrInline = window._drPrInline || false; // true when drum PR is mounted inline
+
   function _drOpenDrumPR() {
-    // Use the existing PR in drum-only view mode
-    var overlay = document.getElementById('prOverlay');
-    if (!overlay || typeof window.prSetView !== 'function') {
-      // Defer until DOM/PR engine is ready
+    var container = document.getElementById('drPrContainer');
+    var panel = document.getElementById('prPanel');
+    if (!container || !panel || typeof window.prSetView !== 'function') {
       _drPrPending = true;
       setTimeout(function() { if (_drPrPending && _drViewMode === 'pianoroll') _drOpenDrumPR(); }, 500);
       return;
     }
     _drPrPending = false;
-    // Don't reopen if PR is already open in piano mode (user may have opened it manually)
-    if (window._prInlineActive) return;
+    if (_drPrInline) return;
+
+    // If keyboard inline PR is active, pop it out first
+    if (window._prInlineActive && typeof window.kbdStagePrPopOut === 'function') {
+      window.kbdStagePrPopOut();
+      var overlay = document.getElementById('prOverlay');
+      if (overlay) overlay.classList.remove('open');
+      window._prInlineActive = false;
+    }
+
+    // Move prPanel into the drum container
+    container.innerHTML = '';
+    container.appendChild(panel);
+    container.style.display = 'flex';
+    container.classList.remove('dr-hidden');
+
+    // Style panel for inline
+    panel.style.maxHeight = 'none';
+    panel.style.height = '100%';
+    panel.style.borderRadius = '0';
+    panel.style.border = 'none';
+    panel.style.boxShadow = 'none';
+    var resizeBar = document.getElementById('prResizeBar');
+    if (resizeBar) resizeBar.style.display = 'none';
+    var closeBtn = panel.querySelector('.pr-close-btn');
+    if (closeBtn) closeBtn.style.display = 'none';
+    var prPalette = document.getElementById('prChordPalette');
+    if (prPalette) prPalette.style.display = 'none';
+
+    _drPrInline = true;
+    window._prInlineActive = true;
     window.prOpen = true;
     if (typeof window.prSetOpen === 'function') window.prSetOpen(true);
-    overlay.classList.add('open');
     document.body.classList.add('pr-open');
     if (typeof window.prSetSyncEnabled === 'function') window.prSetSyncEnabled(false);
-    requestAnimationFrame(function() {
-      requestAnimationFrame(function() {
-        // Set view to drum mode first (this triggers prRenderKeys, prRenderGrid, etc.)
+
+    var _drPrRetries = 0;
+    function _drPrTryRender() {
+      var scroll = document.getElementById('prGridScroll');
+      var sw = scroll ? scroll.clientWidth : -1;
+      if (scroll && sw > 0) {
         if (typeof window.prSetView === 'function') window.prSetView('drum');
         if (typeof window.prLoadFromGrid === 'function') window.prLoadFromGrid();
         if (typeof window.prLoadDrumData === 'function') window.prLoadDrumData();
@@ -25729,17 +25763,42 @@ function seqBuildGrids(song) {
         setTimeout(function() {
           if (typeof window.prSetSyncEnabled === 'function') window.prSetSyncEnabled(true);
         }, 50);
-      });
-    });
+      } else if (_drPrRetries < 20) {
+        _drPrRetries++;
+        requestAnimationFrame(_drPrTryRender);
+      }
+    }
+    requestAnimationFrame(_drPrTryRender);
   }
 
-  var _drClosingPR = false; // prevent circular close
+  var _drClosingPR = false;
   function _drCloseDrumPR() {
-    // Only close if WE opened it in drum mode
-    var overlay = document.getElementById('prOverlay');
-    if (!overlay || !overlay.classList.contains('open')) return;
+    if (!_drPrInline) return;
     _drClosingPR = true;
-    if (typeof window.prClose === 'function') window.prClose();
+    var panel = document.getElementById('prPanel');
+    var overlay = document.getElementById('prOverlay');
+    var container = document.getElementById('drPrContainer');
+    if (panel && overlay) {
+      overlay.appendChild(panel);
+      panel.style.maxHeight = '';
+      panel.style.height = '';
+      panel.style.borderRadius = '';
+      panel.style.border = '';
+      panel.style.boxShadow = '';
+      var resizeBar = document.getElementById('prResizeBar');
+      if (resizeBar) resizeBar.style.display = '';
+      var closeBtn = panel.querySelector('.pr-close-btn');
+      if (closeBtn) closeBtn.style.display = '';
+      var prPalette = document.getElementById('prChordPalette');
+      if (prPalette) prPalette.style.display = '';
+    }
+    if (container) { container.style.display = 'none'; container.classList.add('dr-hidden'); }
+    _drPrInline = false;
+    window._prInlineActive = false;
+    window.prOpen = false;
+    if (typeof window.prSetOpen === 'function') window.prSetOpen(false);
+    document.body.classList.remove('pr-open');
+    overlay.classList.remove('open');
     _drClosingPR = false;
   }
 
@@ -25828,6 +25887,11 @@ function seqBuildGrids(song) {
   Object.defineProperty(window, '_drClosingPR', {
     get: function() { return _drClosingPR; },
     set: function(v) { _drClosingPR = v; },
+    configurable: true
+  });
+  Object.defineProperty(window, '_drPrInline', {
+    get: function() { return _drPrInline; },
+    set: function(v) { _drPrInline = v; },
     configurable: true
   });
   window._drPropsExposed = true;
