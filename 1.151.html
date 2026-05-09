@@ -24221,15 +24221,37 @@ function seqSaveAllToCurrent(song) {
     sd.chordContinued = slots.map(s => s.classList.contains('chord-tail'));
   }
   // Save drum lanes + velocity
-  ['kick','snare','hat','crash','clap','hitom','lotom'].forEach((lane, li) => {
-    const elId = ['seqKick','seqSnare','seqHat','seqCrash','seqClap','seqHiTom','seqLoTom'][li];
-    const el = document.getElementById(elId);
-    if (el) {
-      const drumSlots = [...el.querySelectorAll('.seq-slot')];
-      sd[lane]          = drumSlots.map(s => s.classList.contains('drum-on') ? 1 : 0);
-      sd[lane + 'Vel']  = drumSlots.map(s => s.classList.contains('drum-on') ? parseFloat(s.dataset.vel || 0.8) : 0);
-    }
-  });
+  // When drum roll view is active, drumRoll is source of truth — don't read stale strip/grid DOM
+  var _drRollIsSource = (typeof window._drViewMode !== 'undefined' && window._drViewMode === 'pianoroll' && sd.drumRoll);
+  if (_drRollIsSource) {
+    // Rebuild step grid arrays from drumRoll data (source of truth)
+    var _drTotalSteps = seqGetDrumStepCount(sd);
+    ['kick','snare','hat','crash','clap','hitom','lotom'].forEach(function(lane) {
+      var rollHits = sd.drumRoll[lane];
+      if (Array.isArray(rollHits)) {
+        var arr = new Array(_drTotalSteps);
+        for (var _si = 0; _si < arr.length; _si++) arr[_si] = 0;
+        rollHits.forEach(function(idx) { if (idx >= 0 && idx < _drTotalSteps) arr[idx] = 1; });
+        sd[lane] = arr;
+        // Preserve existing velocity data, default 0.8 for hits without vel
+        if (!sd[lane + 'Vel'] || sd[lane + 'Vel'].length < _drTotalSteps) {
+          var velArr = new Array(_drTotalSteps);
+          for (var _vi = 0; _vi < velArr.length; _vi++) velArr[_vi] = arr[_vi] ? 0.8 : 0;
+          sd[lane + 'Vel'] = velArr;
+        }
+      }
+    });
+  } else {
+    ['kick','snare','hat','crash','clap','hitom','lotom'].forEach((lane, li) => {
+      const elId = ['seqKick','seqSnare','seqHat','seqCrash','seqClap','seqHiTom','seqLoTom'][li];
+      const el = document.getElementById(elId);
+      if (el) {
+        const drumSlots = [...el.querySelectorAll('.seq-slot')];
+        sd[lane]          = drumSlots.map(s => s.classList.contains('drum-on') ? 1 : 0);
+        sd[lane + 'Vel']  = drumSlots.map(s => s.classList.contains('drum-on') ? parseFloat(s.dataset.vel || 0.8) : 0);
+      }
+    });
+  }
   // Persist unified timeline data alongside legacy data
   if (typeof TL !== 'undefined' && typeof TL.save === 'function') {
     try { TL.save(song); } catch(e) { console.warn('[TL] save error:', e); }
