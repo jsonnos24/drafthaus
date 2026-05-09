@@ -22784,7 +22784,7 @@ function renderSequencerHtml(song) {
         </div>
       </div>
     </div>
-    <!-- ── Inline Drum Piano Roll container ── -->
+    <!-- ── Standalone Drum Roll container ── -->
     <div id="drPrContainer" class="dr-pr-container dr-hidden" style="flex:1;min-height:0;overflow:hidden;display:none;"></div>
     <!-- Voice control popup (shared, repositioned per voice) -->
     <div class="dr-voice-popup" id="drVoicePopup"></div>
@@ -25684,130 +25684,317 @@ function seqBuildGrids(song) {
     var btn   = document.getElementById('drToggleBtn');
     if (_drViewMode === 'pianoroll') {
       if (stack) stack.classList.add('dr-hidden');
-      if (gridW) gridW.classList.remove('dr-active');
-      if (btn) { btn.classList.add('active'); btn.textContent = '🎹 Piano Roll'; }
-      // Open PR in drum mode
-      _drOpenDrumPR();
+      if (gridW) { gridW.classList.remove('dr-active'); gridW.style.display = 'none'; }
+      if (btn) { btn.classList.add('active'); btn.textContent = '🥁 Drum Roll'; }
+      _drOpenDrumRoll();
     } else if (_drViewMode === 'grid') {
-      _drCloseDrumPR();
+      _drCloseDrumRoll();
       if (stack) stack.classList.add('dr-hidden');
-      if (gridW) gridW.classList.add('dr-active');
+      if (gridW) { gridW.style.display = ''; gridW.classList.add('dr-active'); }
       if (btn) { btn.classList.add('active'); btn.textContent = '▦ Grid'; }
       if (song && typeof seqBuildGrids === 'function') seqBuildGrids(song);
     } else {
-      _drCloseDrumPR();
+      _drCloseDrumRoll();
       if (stack) stack.classList.remove('dr-hidden');
-      if (gridW) gridW.classList.remove('dr-active');
+      if (gridW) { gridW.style.display = ''; gridW.classList.remove('dr-active'); }
       if (btn) { btn.classList.remove('active'); btn.textContent = '☰ Strips'; }
       if (song && typeof seqBuildGrids === 'function') seqBuildGrids(song);
     }
   }
 
-  var _drPrPending = false;
-  var _drPrInline = window._drPrInline || false; // true when drum PR is mounted inline
+  // ── Standalone Drum Roll (canvas-based, fully independent of keyboard PR) ──
+  var _drRollActive = false;
+  var _drRollBuilt = false;
+  var _drRollData = {}; // { kick: Set([stepIndices]), snare: Set(...), ... }
+  var _drRollVoices = [
+    { voice: 'crash', label: 'Crash',  color: '#a855f7' },
+    { voice: 'hat',   label: 'Hi-Hat', color: '#eab308' },
+    { voice: 'hitom', label: 'Hi Tom', color: '#22c55e' },
+    { voice: 'lotom', label: 'Lo Tom', color: '#06b6d4' },
+    { voice: 'snare', label: 'Snare',  color: '#f97316' },
+    { voice: 'clap',  label: 'Clap',   color: '#ec4899' },
+    { voice: 'kick',  label: 'Kick',   color: '#ef4444' },
+  ];
+  var _drRollRowH = 36;
+  var _drRollColW = 28;
+  var _drRollLabelW = 72;
+  var _drRollDirty = false;
 
-  function _drOpenDrumPR() {
+  function _drRollGetSong() {
+    return (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+  }
+
+  function _drRollGetParams() {
+    var song = _drRollGetSong();
+    var sd = song ? (song.sequencer || {}) : {};
+    var time = parseInt(sd.time || '4') || 4;
+    var drumGrid = parseInt(sd.drumSteps || sd.grid || '4') || 4;
+    var bars = parseInt(sd.bars || '4') || 4;
+    var stepsPerBar = time * drumGrid;
+    var totalSteps = stepsPerBar * bars;
+    return { time: time, drumGrid: drumGrid, bars: bars, stepsPerBar: stepsPerBar, totalSteps: totalSteps };
+  }
+
+  function _drRollLoadData() {
+    var song = _drRollGetSong();
+    _drRollVoices.forEach(function(dv) {
+      _drRollData[dv.voice] = new Set();
+    });
+    if (song && song.drumRoll) {
+      _drRollVoices.forEach(function(dv) {
+        var arr = song.drumRoll[dv.voice];
+        if (Array.isArray(arr)) {
+          arr.forEach(function(s) { _drRollData[dv.voice].add(s); });
+        }
+      });
+    }
+  }
+
+  function _drRollSaveData() {
+    var song = _drRollGetSong();
+    if (!song) return;
+    var obj = {};
+    _drRollVoices.forEach(function(dv) {
+      obj[dv.voice] = Array.from(_drRollData[dv.voice] || []).sort(function(a,b){return a-b;});
+    });
+    song.drumRoll = obj;
+    if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
+  }
+
+  function _drRollBuildDOM() {
     var container = document.getElementById('drPrContainer');
-    var panel = document.getElementById('prPanel');
-    if (!container || !panel || typeof window.prSetView !== 'function') {
-      _drPrPending = true;
-      setTimeout(function() { if (_drPrPending && _drViewMode === 'pianoroll') _drOpenDrumPR(); }, 500);
-      return;
-    }
-    _drPrPending = false;
-    if (_drPrInline) return;
-
-    // If keyboard inline PR is active, pop it out first
-    if (window._prInlineActive && typeof window.kbdStagePrPopOut === 'function') {
-      window.kbdStagePrPopOut();
-      var overlay = document.getElementById('prOverlay');
-      if (overlay) overlay.classList.remove('open');
-      window._prInlineActive = false;
-    }
-
-    // Move prPanel into the drum container
+    if (!container) return;
     container.innerHTML = '';
-    container.appendChild(panel);
-    container.style.display = 'flex';
-    container.classList.remove('dr-hidden');
+    var wrap = document.createElement('div');
+    wrap.id = 'drRollWrap';
+    wrap.style.cssText = 'display:flex;flex-direction:row;width:100%;height:100%;overflow:hidden;background:#111120;';
 
-    // Style panel for inline
-    panel.style.maxHeight = 'none';
-    panel.style.height = '100%';
-    panel.style.borderRadius = '0';
-    panel.style.border = 'none';
-    panel.style.boxShadow = 'none';
-    var resizeBar = document.getElementById('prResizeBar');
-    if (resizeBar) resizeBar.style.display = 'none';
-    var closeBtn = panel.querySelector('.pr-close-btn');
-    if (closeBtn) closeBtn.style.display = 'none';
-    var prPalette = document.getElementById('prChordPalette');
-    if (prPalette) prPalette.style.display = 'none';
+    var labels = document.createElement('div');
+    labels.id = 'drRollLabels';
+    labels.style.cssText = 'width:' + _drRollLabelW + 'px;min-width:' + _drRollLabelW + 'px;display:flex;flex-direction:column;background:#0d0d1a;border-right:1px solid #333;';
+    _drRollVoices.forEach(function(dv) {
+      var lbl = document.createElement('div');
+      lbl.style.cssText = 'height:' + _drRollRowH + 'px;display:flex;align-items:center;padding:0 8px;font-size:11px;font-weight:600;color:' + dv.color + ';white-space:nowrap;border-bottom:1px solid #222;user-select:none;';
+      lbl.textContent = dv.label;
+      labels.appendChild(lbl);
+    });
 
-    _drPrInline = true;
-    window._prInlineActive = true;
-    window.prOpen = true;
-    if (typeof window.prSetOpen === 'function') window.prSetOpen(true);
-    document.body.classList.add('pr-open');
-    if (typeof window.prSetSyncEnabled === 'function') window.prSetSyncEnabled(false);
+    var scrollWrap = document.createElement('div');
+    scrollWrap.id = 'drRollScroll';
+    scrollWrap.style.cssText = 'flex:1;overflow-x:auto;overflow-y:hidden;position:relative;';
 
-    var _drPrRetries = 0;
-    function _drPrTryRender() {
-      var scroll = document.getElementById('prGridScroll');
-      var sw = scroll ? scroll.clientWidth : -1;
-      if (scroll && sw > 0) {
-        if (typeof window.prSetView === 'function') window.prSetView('drum');
-        if (typeof window.prLoadFromGrid === 'function') window.prLoadFromGrid();
-        if (typeof window.prLoadDrumData === 'function') window.prLoadDrumData();
-        if (typeof window.prRender === 'function') window.prRender();
-        setTimeout(function() {
-          if (typeof window.prSetSyncEnabled === 'function') window.prSetSyncEnabled(true);
-        }, 50);
-      } else if (_drPrRetries < 20) {
-        _drPrRetries++;
-        requestAnimationFrame(_drPrTryRender);
+    var canvas = document.createElement('canvas');
+    canvas.id = 'drRollCanvas';
+    canvas.style.cssText = 'display:block;cursor:crosshair;';
+    scrollWrap.appendChild(canvas);
+
+    wrap.appendChild(labels);
+    wrap.appendChild(scrollWrap);
+    container.appendChild(wrap);
+    _drRollBuilt = true;
+
+    // Mouse handling
+    var isDrawing = false;
+    var drawMode = null; // 'add' or 'remove'
+
+    function _hitTest(e) {
+      var rect = canvas.getBoundingClientRect();
+      var x = e.clientX - rect.left;
+      var y = e.clientY - rect.top;
+      var col = Math.floor(x / _drRollColW);
+      var row = Math.floor(y / _drRollRowH);
+      if (row < 0 || row >= _drRollVoices.length) return null;
+      var p = _drRollGetParams();
+      if (col < 0 || col >= p.totalSteps) return null;
+      return { col: col, row: row, voice: _drRollVoices[row].voice };
+    }
+
+    canvas.addEventListener('mousedown', function(e) {
+      if (e.button !== 0) return;
+      var hit = _hitTest(e);
+      if (!hit) return;
+      e.preventDefault();
+      var set = _drRollData[hit.voice];
+      if (_drumTool === 'pencil') {
+        if (set.has(hit.col)) { set.delete(hit.col); drawMode = 'remove'; }
+        else { set.add(hit.col); drawMode = 'add'; _drumPreviewHit(hit.voice, 0.8); }
+      } else if (_drumTool === 'eraser') {
+        set.delete(hit.col); drawMode = 'remove';
+      } else { return; }
+      isDrawing = true;
+      _drRollDirty = true;
+      _drRollRender();
+    });
+
+    canvas.addEventListener('mousemove', function(e) {
+      if (!isDrawing) return;
+      var hit = _hitTest(e);
+      if (!hit) return;
+      var set = _drRollData[hit.voice];
+      if (drawMode === 'add' && !set.has(hit.col)) {
+        set.add(hit.col);
+        _drumPreviewHit(hit.voice, 0.6);
+        _drRollRender();
+      } else if (drawMode === 'remove' && set.has(hit.col)) {
+        set.delete(hit.col);
+        _drRollRender();
+      }
+    });
+
+    window.addEventListener('mouseup', function() {
+      if (isDrawing) {
+        isDrawing = false;
+        drawMode = null;
+        if (_drRollDirty) { _drRollSaveData(); _drRollDirty = false; }
+      }
+    });
+  }
+
+  function _drRollRender() {
+    var canvas = document.getElementById('drRollCanvas');
+    if (!canvas) return;
+    var p = _drRollGetParams();
+    var gridW = p.totalSteps * _drRollColW;
+    var gridH = _drRollVoices.length * _drRollRowH;
+    var dpr = window.devicePixelRatio || 1;
+
+    canvas.width = gridW * dpr;
+    canvas.height = gridH * dpr;
+    canvas.style.width = gridW + 'px';
+    canvas.style.height = gridH + 'px';
+
+    var ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, gridW, gridH);
+
+    // Row backgrounds
+    _drRollVoices.forEach(function(dv, i) {
+      var y = i * _drRollRowH;
+      ctx.fillStyle = (i % 2 === 0) ? '#1a1a2e' : '#16162a';
+      ctx.fillRect(0, y, gridW, _drRollRowH);
+      ctx.strokeStyle = '#2a2a44';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(0, y + _drRollRowH - 0.5);
+      ctx.lineTo(gridW, y + _drRollRowH - 0.5);
+      ctx.stroke();
+    });
+
+    // Beat and bar lines
+    for (var c = 0; c < p.totalSteps; c++) {
+      var x = c * _drRollColW;
+      var isBar = (c % p.stepsPerBar === 0);
+      var isBeat = (c % p.drumGrid === 0);
+      if (isBar) {
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 1.5;
+      } else if (isBeat) {
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+      } else {
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 0.5;
+      }
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, 0);
+      ctx.lineTo(x + 0.5, gridH);
+      ctx.stroke();
+    }
+
+    // Hits
+    var pad = 3;
+    _drRollVoices.forEach(function(dv, i) {
+      var set = _drRollData[dv.voice];
+      if (!set || set.size === 0) return;
+      var y = i * _drRollRowH;
+      set.forEach(function(col) {
+        if (col < 0 || col >= p.totalSteps) return;
+        var x = col * _drRollColW;
+        ctx.fillStyle = dv.color;
+        ctx.globalAlpha = 0.9;
+        var rw = _drRollColW - pad * 2, rh = _drRollRowH - pad * 2, rx = x + pad, ry = y + pad, rr = 4;
+        ctx.beginPath();
+        ctx.moveTo(rx + rr, ry);
+        ctx.lineTo(rx + rw - rr, ry);
+        ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + rr);
+        ctx.lineTo(rx + rw, ry + rh - rr);
+        ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - rr, ry + rh);
+        ctx.lineTo(rx + rr, ry + rh);
+        ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rh - rr);
+        ctx.lineTo(rx, ry + rr);
+        ctx.quadraticCurveTo(rx, ry, rx + rr, ry);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      });
+    });
+
+    // Playhead (if playing)
+    if (typeof seqIsPlaying !== 'undefined' && seqIsPlaying) {
+      var step = (typeof _seqStepIndex !== 'undefined') ? (_seqStepIndex % p.totalSteps) : -1;
+      if (step >= 0 && step < p.totalSteps) {
+        var px = step * _drRollColW + _drRollColW * 0.5;
+        ctx.strokeStyle = '#ff5722';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, gridH);
+        ctx.stroke();
       }
     }
-    requestAnimationFrame(_drPrTryRender);
   }
 
-  var _drClosingPR = false;
-  function _drCloseDrumPR() {
-    if (!_drPrInline) return;
-    _drClosingPR = true;
-    var panel = document.getElementById('prPanel');
-    var overlay = document.getElementById('prOverlay');
-    var container = document.getElementById('drPrContainer');
-    if (panel && overlay) {
-      overlay.appendChild(panel);
-      panel.style.maxHeight = '';
-      panel.style.height = '';
-      panel.style.borderRadius = '';
-      panel.style.border = '';
-      panel.style.boxShadow = '';
-      var resizeBar = document.getElementById('prResizeBar');
-      if (resizeBar) resizeBar.style.display = '';
-      var closeBtn = panel.querySelector('.pr-close-btn');
-      if (closeBtn) closeBtn.style.display = '';
-      var prPalette = document.getElementById('prChordPalette');
-      if (prPalette) prPalette.style.display = '';
+  // Playhead RAF loop for drum roll
+  var _drRollPlayRAF = null;
+  function _drRollPlayheadTick() {
+    if (!_drRollActive) { _drRollPlayRAF = null; return; }
+    if (typeof seqIsPlaying !== 'undefined' && seqIsPlaying) {
+      _drRollRender();
     }
-    if (container) { container.style.display = 'none'; container.classList.add('dr-hidden'); }
-    _drPrInline = false;
-    window._prInlineActive = false;
-    window.prOpen = false;
-    if (typeof window.prSetOpen === 'function') window.prSetOpen(false);
-    document.body.classList.remove('pr-open');
-    overlay.classList.remove('open');
-    _drClosingPR = false;
+    _drRollPlayRAF = requestAnimationFrame(_drRollPlayheadTick);
   }
 
-  // Set tool on grid wrap too
+  function _drOpenDrumRoll() {
+    var container = document.getElementById('drPrContainer');
+    if (!container) return;
+    if (!_drRollBuilt) _drRollBuildDOM();
+    _drRollLoadData();
+    container.style.display = 'flex';
+    container.classList.remove('dr-hidden');
+    _drRollActive = true;
+    requestAnimationFrame(function() { _drRollRender(); });
+    if (!_drRollPlayRAF) _drRollPlayRAF = requestAnimationFrame(_drRollPlayheadTick);
+  }
+
+  function _drCloseDrumRoll() {
+    if (!_drRollActive) return;
+    var container = document.getElementById('drPrContainer');
+    if (container) { container.style.display = 'none'; container.classList.add('dr-hidden'); }
+    _drRollActive = false;
+    if (_drRollPlayRAF) { cancelAnimationFrame(_drRollPlayRAF); _drRollPlayRAF = null; }
+  }
+
+  // Expose for scheduler playback
+  window._drRollData = _drRollData;
+  window._drRollActive = false;
+  Object.defineProperty(window, '_drRollActive', {
+    get: function() { return _drRollActive; },
+    set: function(v) { _drRollActive = v; },
+    configurable: true
+  });
+  window._drRollRender = _drRollRender;
+  window._drRollLoadData = _drRollLoadData;
+
+  // Set tool on grid wrap + drum roll canvas cursor
   var _origDtSetTool = window._dtSetTool;
   window._dtSetTool = function(tool) {
     _origDtSetTool(tool);
     var gridW = document.getElementById('drGridWrap');
     if (gridW) gridW.dataset.tool = tool;
+    var drCanvas = document.getElementById('drRollCanvas');
+    if (drCanvas) {
+      drCanvas.style.cursor = (tool === 'pencil') ? 'crosshair' : (tool === 'eraser') ? 'not-allowed' : 'default';
+    }
   };
 
   // Voice label tap → overlay popup
@@ -25884,16 +26071,7 @@ function seqBuildGrids(song) {
     set: function(v) { _drViewMode = v; },
     configurable: true
   });
-  Object.defineProperty(window, '_drClosingPR', {
-    get: function() { return _drClosingPR; },
-    set: function(v) { _drClosingPR = v; },
-    configurable: true
-  });
-  Object.defineProperty(window, '_drPrInline', {
-    get: function() { return _drPrInline; },
-    set: function(v) { _drPrInline = v; },
-    configurable: true
-  });
+  // _drClosingPR and _drPrInline removed — drum roll is now standalone, no shared prPanel
   window._drPropsExposed = true;
   window._drSaveViewPref = _drSaveViewPref;
 
@@ -29521,6 +29699,21 @@ function seqPlay() {
     vel:   parseFloat(seq.vel   || 0.8),
     _seqIdx: seqActiveIdx,
   }];
+
+  // Merge drum roll hits into section (drumRoll overrides step grid for its voices)
+  if (song.drumRoll) {
+    var _drSec = _seqSongSections[0];
+    ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(function(v) {
+      var rollHits = song.drumRoll[v];
+      if (Array.isArray(rollHits) && rollHits.length > 0) {
+        var arr = new Array(_drSec.totalSteps);
+        for (var _ri = 0; _ri < arr.length; _ri++) arr[_ri] = 0;
+        rollHits.forEach(function(idx) { if (idx >= 0 && idx < arr.length) arr[idx] = 1; });
+        _drSec[v] = arr;
+      }
+    });
+  }
+
   _seqSongSectionIdx  = 0;
   _seqSongSectionStep = 0;
 
@@ -29672,6 +29865,21 @@ async function seqPlaySong() {
       _seqIdx: seqs.indexOf(seq),
     };
   });
+
+  // Merge drum roll hits into all song-mode sections
+  if (song.drumRoll) {
+    _seqSongSections.forEach(function(_drSec) {
+      ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(function(v) {
+        var rollHits = song.drumRoll[v];
+        if (Array.isArray(rollHits) && rollHits.length > 0) {
+          var arr = new Array(_drSec.totalSteps);
+          for (var _ri = 0; _ri < arr.length; _ri++) arr[_ri] = 0;
+          rollHits.forEach(function(idx) { if (idx >= 0 && idx < arr.length) arr[idx] = 1; });
+          _drSec[v] = arr;
+        }
+      });
+    });
+  }
 
   // ── TL multi-section takeover: load all sections into unified timeline ──
   if (typeof TL !== 'undefined' && typeof TL.loadSections === 'function') {
@@ -59892,19 +60100,7 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
     if (overlay) overlay.classList.remove('open');
     document.body.classList.remove('pr-open');
     if (typeof uiStateSave === 'function') uiStateSave();
-    // If drum PR mode was active and user closed PR directly (not via toggle), switch drum view to grid
-    if (!window._drClosingPR && typeof window._drViewMode !== 'undefined' && window._drViewMode === 'pianoroll') {
-      window._drViewMode = 'grid';
-      var stack = document.getElementById('tsDrumStack');
-      var gridW = document.getElementById('drGridWrap');
-      var btn = document.getElementById('drToggleBtn');
-      if (stack) stack.classList.add('dr-hidden');
-      if (gridW) gridW.classList.add('dr-active');
-      if (btn) { btn.classList.add('active'); btn.textContent = '▦ Grid'; }
-      if (typeof window._drSaveViewPref === 'function') window._drSaveViewPref();
-      var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
-      if (song && typeof seqBuildGrids === 'function') seqBuildGrids(song);
-    }
+    // Drum roll is now standalone — prClose only applies to keyboard's piano roll
     // If key drawer is open in desktop stage mode, return PR inline
     if (typeof kbdStageReturnPRInline === 'function') {
       setTimeout(() => kbdStageReturnPRInline(), 50);
