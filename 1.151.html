@@ -24186,6 +24186,12 @@ function seqSwitchToSequence(idx) {
 
   // Scroll piano roll to show this section's region on the timeline
   if (typeof prScrollToSection === 'function') prScrollToSection(idx);
+
+  // Reload drum roll data for the new section
+  if (typeof window._drRollLoadData === 'function' && typeof window._drRollRender === 'function') {
+    window._drRollLoadData();
+    window._drRollRender();
+  }
 }
 
 function seqSaveAllToCurrent(song) {
@@ -25735,14 +25741,22 @@ function seqBuildGrids(song) {
     return { time: time, drumGrid: drumGrid, bars: bars, stepsPerBar: stepsPerBar, totalSteps: totalSteps };
   }
 
-  function _drRollLoadData() {
+  function _drRollGetSeq() {
     var song = _drRollGetSong();
+    if (!song) return null;
+    var seqs = (typeof getSongSequences === 'function') ? getSongSequences(song) : (song.sequences || []);
+    var idx = (typeof seqActiveIdx !== 'undefined') ? seqActiveIdx : 0;
+    return seqs[idx] || song.sequencer || null;
+  }
+
+  function _drRollLoadData() {
+    var seq = _drRollGetSeq();
     _drRollVoices.forEach(function(dv) {
       _drRollData[dv.voice] = new Set();
     });
-    if (song && song.drumRoll) {
+    if (seq && seq.drumRoll) {
       _drRollVoices.forEach(function(dv) {
-        var arr = song.drumRoll[dv.voice];
+        var arr = seq.drumRoll[dv.voice];
         if (Array.isArray(arr)) {
           arr.forEach(function(s) { _drRollData[dv.voice].add(s); });
         }
@@ -25752,12 +25766,13 @@ function seqBuildGrids(song) {
 
   function _drRollSaveData() {
     var song = _drRollGetSong();
-    if (!song) return;
+    var seq = _drRollGetSeq();
+    if (!song || !seq) return;
     var obj = {};
     _drRollVoices.forEach(function(dv) {
       obj[dv.voice] = Array.from(_drRollData[dv.voice] || []).sort(function(a,b){return a-b;});
     });
-    song.drumRoll = obj;
+    seq.drumRoll = obj;
     if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
   }
 
@@ -29701,10 +29716,10 @@ function seqPlay() {
   }];
 
   // Merge drum roll hits into section (drumRoll overrides step grid for its voices)
-  if (song.drumRoll) {
+  if (seq.drumRoll) {
     var _drSec = _seqSongSections[0];
     ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(function(v) {
-      var rollHits = song.drumRoll[v];
+      var rollHits = seq.drumRoll[v];
       if (Array.isArray(rollHits) && rollHits.length > 0) {
         var arr = new Array(_drSec.totalSteps);
         for (var _ri = 0; _ri < arr.length; _ri++) arr[_ri] = 0;
@@ -29863,23 +29878,23 @@ async function seqPlaySong() {
       swing: parseFloat(seq.swing || 0),
       vel:   parseFloat(seq.vel   || 0.8),
       _seqIdx: seqs.indexOf(seq),
+      _drumRoll: seq.drumRoll || null,
     };
   });
 
-  // Merge drum roll hits into all song-mode sections
-  if (song.drumRoll) {
-    _seqSongSections.forEach(function(_drSec) {
-      ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(function(v) {
-        var rollHits = song.drumRoll[v];
-        if (Array.isArray(rollHits) && rollHits.length > 0) {
-          var arr = new Array(_drSec.totalSteps);
-          for (var _ri = 0; _ri < arr.length; _ri++) arr[_ri] = 0;
-          rollHits.forEach(function(idx) { if (idx >= 0 && idx < arr.length) arr[idx] = 1; });
-          _drSec[v] = arr;
-        }
-      });
+  // Merge drum roll hits into all song-mode sections (per-section drumRoll)
+  _seqSongSections.forEach(function(_drSec) {
+    if (!_drSec._drumRoll) return;
+    ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(function(v) {
+      var rollHits = _drSec._drumRoll[v];
+      if (Array.isArray(rollHits) && rollHits.length > 0) {
+        var arr = new Array(_drSec.totalSteps);
+        for (var _ri = 0; _ri < arr.length; _ri++) arr[_ri] = 0;
+        rollHits.forEach(function(idx) { if (idx >= 0 && idx < arr.length) arr[idx] = 1; });
+        _drSec[v] = arr;
+      }
     });
-  }
+  });
 
   // ── TL multi-section takeover: load all sections into unified timeline ──
   if (typeof TL !== 'undefined' && typeof TL.loadSections === 'function') {
@@ -41557,6 +41572,18 @@ applyDrumPattern._redrawGrids = function(song) {
     }
     _tsUpdateHits(lane, el);
   });
+
+  // Sync pattern to drum roll data (per-section)
+  var _drObj = {};
+  ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(function(v) {
+    var arr = song.sequencer[v] || [];
+    var hits = [];
+    for (var i = 0; i < arr.length; i++) { if (arr[i]) hits.push(i); }
+    _drObj[v] = hits;
+  });
+  song.sequencer.drumRoll = _drObj;
+  if (typeof window._drRollLoadData === 'function') window._drRollLoadData();
+  if (typeof window._drRollRender === 'function') window._drRollRender();
 };
 
 // ── Saved Beats Library ──────────────────────────────────────────────────────
