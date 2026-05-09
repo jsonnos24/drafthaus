@@ -25768,9 +25768,16 @@ function seqBuildGrids(song) {
     var song = _drRollGetSong();
     var seq = _drRollGetSeq();
     if (!song || !seq) return;
+    var p = _drRollGetParams();
     var obj = {};
     _drRollVoices.forEach(function(dv) {
-      obj[dv.voice] = Array.from(_drRollData[dv.voice] || []).sort(function(a,b){return a-b;});
+      var hits = Array.from(_drRollData[dv.voice] || []).sort(function(a,b){return a-b;});
+      obj[dv.voice] = hits;
+      // Sync back to step grid arrays so strips/grid/scheduler stay in sync
+      var arr = new Array(p.totalSteps);
+      for (var i = 0; i < arr.length; i++) arr[i] = 0;
+      hits.forEach(function(idx) { if (idx >= 0 && idx < arr.length) arr[idx] = 1; });
+      seq[dv.voice] = arr;
     });
     seq.drumRoll = obj;
     if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
@@ -27560,6 +27567,23 @@ function seqSaveDrumLane(lane, elId) {
   if (typeof prLoadDrumData === 'function' && typeof prRenderNotes === 'function') {
     try { prLoadDrumData(); prRenderNotes(); } catch(e) { /* piano roll may not be open */ }
   }
+  // Sync step grid edits to drumRoll
+  _syncGridToDrumRoll(song);
+}
+
+function _syncGridToDrumRoll(song) {
+  if (!song || !song.sequencer) return;
+  var sd = song.sequencer;
+  var obj = {};
+  ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(function(v) {
+    var arr = sd[v] || [];
+    var hits = [];
+    for (var i = 0; i < arr.length; i++) { if (arr[i]) hits.push(i); }
+    obj[v] = hits;
+  });
+  sd.drumRoll = obj;
+  if (typeof window._drRollLoadData === 'function') window._drRollLoadData();
+  if (typeof window._drRollRender === 'function') window._drRollRender();
 }
 
 function seqRenderChordPills(song) {
@@ -34002,6 +34026,15 @@ function launchInspoSong() {
     var _inspoKey = d.root || d.key.split(' ')[0];
     var _inspoMode = d.key.includes('minor') ? 'minor' : 'major';
     _migrateChordSlotsToPR(_seqObj, _inspoKey, _inspoMode);
+    // Sync drum grid data into drumRoll format
+    var _drObj = {};
+    ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(function(v) {
+      var arr = _seqObj[v] || [];
+      var hits = [];
+      for (var i = 0; i < arr.length; i++) { if (arr[i]) hits.push(i); }
+      _drObj[v] = hits;
+    });
+    _seqObj.drumRoll = _drObj;
     return _seqObj;
   });
 
@@ -41214,9 +41247,21 @@ function seqProbApply() {
     }
   });
 
+  // Sync to drum roll
+  var _drObj = {};
+  ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(function(v) {
+    var arr = sd[v] || [];
+    var hits = [];
+    for (var i = 0; i < arr.length; i++) { if (arr[i]) hits.push(i); }
+    _drObj[v] = hits;
+  });
+  sd.drumRoll = _drObj;
+
   save();
   scheduleSyncToSheet(song);
   seqBuildGrids({ sequencer: sd });
+  if (typeof window._drRollLoadData === 'function') window._drRollLoadData();
+  if (typeof window._drRollRender === 'function') window._drRollRender();
   showToast('Random hits applied!', 'success', 2000);
 }
 
@@ -41440,9 +41485,21 @@ function seqFillApply() {
     sd.crashVel[0] = 0.9;
   }
 
+  // Sync to drum roll
+  var _drObj2 = {};
+  ['kick','snare','hat','hitom','lotom','crash','clap'].forEach(function(v) {
+    var arr = sd[v] || [];
+    var hits = [];
+    for (var i = 0; i < arr.length; i++) { if (arr[i]) hits.push(i); }
+    _drObj2[v] = hits;
+  });
+  sd.drumRoll = _drObj2;
+
   save();
   scheduleSyncToSheet(song);
   seqBuildGrids({ sequencer: sd });
+  if (typeof window._drRollLoadData === 'function') window._drRollLoadData();
+  if (typeof window._drRollRender === 'function') window._drRollRender();
   showToast('Drum fill added!', 'success', 2000);
 }
 
