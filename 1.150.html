@@ -26921,28 +26921,50 @@ function _seqProgressionFill(progressionId) {
     }
   }
 
-  // Apply to DOM (undo already pushed above)
-  const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
-  slots.forEach((slot, i) => {
-    const val = newSlots[i] || '';
-    slot.classList.remove('filled', 'chord-tail');
-    delete slot.dataset.chordDegree;
-    slot.draggable = false;
-    _seqSlotSetText(slot, val);
-    if (val) {
-      slot.classList.add('filled');
-      if (newContinued[i]) {
-        slot.classList.add('chord-tail');
-      } else {
-        slot.draggable = true;
-      }
-      if (newDegrees[i] !== '') slot.dataset.chordDegree = newDegrees[i];
-    }
-  });
+  // ── Write directly to song.sequencer (DOM-independent) ──
+  var _seqRef = song.sequencer;
+  _seqRef.chordSlots     = newSlots.slice();
+  _seqRef.chordDegrees   = newDegrees.slice();
+  _seqRef.chordContinued = newContinued.slice();
 
-  // Save + update state
+  // Generate random velocities + flam offsets per chord slot
+  var _progVels = [], _progFlams = [];
+  for (var _vi = 0; _vi < totalSteps; _vi++) {
+    _progVels.push(newSlots[_vi] ? (0.55 + Math.random() * 0.4) : 0);
+    _progFlams.push(newSlots[_vi] ? (Math.random() < 0.4 ? Math.floor(Math.random() * 12) : 0) : 0);
+  }
+  _seqRef.chordVelocities = _progVels;
+  _seqRef.chordFlamMs     = _progFlams;
+  song.updatedAt = Date.now();
+  console.log('[PROG-FILL] wrote chordSlots directly: ' + newSlots.filter(Boolean).length + ' filled slots, partId=' + (_seqRef.partId||'?'));
+
+  // Best-effort DOM sync (works when chord grid is rendered, harmless when not)
+  var _domSlots = document.querySelectorAll('#seqChordGrid .seq-slot');
+  if (_domSlots.length) {
+    _domSlots.forEach(function(slot, i) {
+      var val = newSlots[i] || '';
+      slot.classList.remove('filled', 'chord-tail');
+      delete slot.dataset.chordDegree;
+      slot.draggable = false;
+      _seqSlotSetText(slot, val);
+      if (val) {
+        slot.classList.add('filled');
+        if (newContinued[i]) {
+          slot.classList.add('chord-tail');
+        } else {
+          slot.draggable = true;
+        }
+        if (newDegrees[i] !== '') slot.dataset.chordDegree = newDegrees[i];
+      }
+    });
+  }
+
   _activeProgressionId = progressionId;
-  seqSaveChordSlots();
+  save();
+  if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
+  if (typeof kbdPortUpdatePeek === 'function') kbdPortUpdatePeek();
+  if (typeof kbdPortUpdateBadge === 'function') kbdPortUpdateBadge();
+
   // Debug: verify which sequence got the chords
   var _dbgSeqs = song.sequences || [];
   _dbgSeqs.forEach(function(sq, si) {
@@ -26950,31 +26972,26 @@ function _seqProgressionFill(progressionId) {
     if (_ch.length) console.log('[PROG-VERIFY] seqs[' + si + '] partId=' + (sq.partId||'?') + ' chords=' + _ch.length + ' first=' + _ch[0]);
   });
 
-  // Show re-humanize button if present
-  const reHumBtn = document.getElementById('seqProgressionReHumBtn');
+  var reHumBtn = document.getElementById('seqProgressionReHumBtn');
   if (reHumBtn) reHumBtn.style.display = '';
 
-  // Keep dropdown reflecting what's applied
-  const sel = document.getElementById('seqProgressionSelect');
+  var sel = document.getElementById('seqProgressionSelect');
   if (sel) sel.value = progressionId;
-  // Sync unified control bar chord progression dropdowns
   document.querySelectorAll('#ucbChordProg, #ucbChordProg2').forEach(function(el) {
     if (el.value !== progressionId) el.value = progressionId;
   });
 
-  // ALWAYS clear saved pianoRoll so PR reads fresh chords (not stale cached data)
-  var _prSong2 = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
-  if (_prSong2 && _prSong2.sequencer && _prSong2.sequencer.pianoRoll) {
-    console.log('[PR-progression] clearing stale pianoRoll (' + _prSong2.sequencer.pianoRoll.length + ' notes) so PR reads fresh chordSlots');
-    delete _prSong2.sequencer.pianoRoll;
+  // Clear saved pianoRoll so PR reads fresh chordSlots
+  if (_seqRef.pianoRoll) {
+    console.log('[PR-progression] clearing stale pianoRoll (' + _seqRef.pianoRoll.length + ' notes)');
+    delete _seqRef.pianoRoll;
   }
 
-  // Sync progression into PR so it's visible and plays from PR
+  // Sync into PR (works whether PR is open or not — if open, reload + render)
   if (typeof window.prLoadFromGrid === 'function' && typeof window.prRender === 'function') {
     var _prIsOpen = document.body.classList.contains('pr-open');
-    console.log('[PR-progression] prIsOpen=' + _prIsOpen + ' chordSlots=' + ((_prSong2?.sequencer?.chordSlots||[]).filter(Boolean).length));
+    console.log('[PR-progression] prIsOpen=' + _prIsOpen + ' chordSlots=' + (_seqRef.chordSlots||[]).filter(Boolean).length);
     if (_prIsOpen) {
-      console.log('[PR-progression] reloading PR from grid after progression apply');
       if (typeof window.prSetSyncEnabled === 'function') window.prSetSyncEnabled(false);
       window.prLoadFromGrid();
       if (typeof window.prHumanizeNotes === 'function') window.prHumanizeNotes();
