@@ -939,7 +939,10 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   /* v1.5: chord grid uses --chord-cols for one bar per row on mobile */
   .kbd-chord-seq-wrapper .seq-grid,
-  #seqChordGrid {
+  #seqChordGrid, #seqChordGridLegacy {
+    display: none !important;
+  }
+  #seqChordGrid_DEAD {
     grid-template-columns: repeat(var(--chord-cols, 4), 1fr) !important;
     gap: 4px !important;
     width: 100% !important;
@@ -17522,7 +17525,7 @@ function renderGrid() {
       )
     );
     const hasSeqContent = Array.isArray(song.sequences) && song.sequences.some(sq => sq &&
-      ((sq.chordSlots && sq.chordSlots.some(s => s)) || (sq.kick && sq.kick.some(v => v)) || (sq.snare && sq.snare.some(v => v)) || (sq.melody && sq.melody.length > 0)));
+      ((sq.pianoRoll && sq.pianoRoll.length > 0) || (sq.chordSlots && sq.chordSlots.some(s => s)) || (sq.kick && sq.kick.some(v => v)) || (sq.snare && sq.snare.some(v => v)) || (sq.melody && sq.melody.length > 0)));
     const hasChordContent = song.chords && Object.values(song.chords).some(arr => Array.isArray(arr) && arr.length > 0);
     const hasRecordings = localStorage.getItem('dh_rec_' + song.id) === '1' ||
       (song.id === currentId && typeof _mtTracks !== 'undefined' && _mtTracks.some(t => t.takes && t.takes.length > 0));
@@ -17719,7 +17722,7 @@ function renderGrid() {
         (part?.chords||[]).length > 0 || (part?.beats||[]).length > 0
       )
     ) || (Array.isArray(song.sequences) && song.sequences.some(sq => sq &&
-        ((sq.chordSlots && sq.chordSlots.some(s => s)) || (sq.kick && sq.kick.some(v => v)) || (sq.snare && sq.snare.some(v => v)) || (sq.melody && sq.melody.length > 0))))
+        ((sq.pianoRoll && sq.pianoRoll.length > 0) || (sq.chordSlots && sq.chordSlots.some(s => s)) || (sq.kick && sq.kick.some(v => v)) || (sq.snare && sq.snare.some(v => v)) || (sq.melody && sq.melody.length > 0))))
       || (song.chords && Object.values(song.chords).some(arr => Array.isArray(arr) && arr.length > 0));
     setTimeout(() => {
       const lEl = document.getElementById(`ck-l-${song.id}`);
@@ -19705,7 +19708,7 @@ function switchInstrument(instId) {
 
     // Check if this song actually has sequencer data loaded
     const sd = freshSong?.sequencer || {};
-    const hasSeqData = (sd.chordSlots || []).some(Boolean) ||
+    const hasSeqData = (sd.pianoRoll && sd.pianoRoll.length > 0) || (sd.chordSlots || []).some(Boolean) ||
                        (sd.kick || []).some(Boolean) ||
                        (sd.snare || []).some(Boolean) ||
                        (sd.hat || []).some(Boolean) ||
@@ -22440,25 +22443,9 @@ function seqOnSongKeyChange(rawOldKey) {
     return (_semiShift !== 0) ? _chromaticTranspose(rawName) : rawName;
   }
 
-  // Transpose active sequence's DOM grid if visible
-  if (document.getElementById('seqChordGrid')) {
-    document.querySelectorAll('#seqChordGrid .seq-slot.filled').forEach(slot => {
-      const rawName = slot.dataset.seqChordRaw || slot.textContent.trim().replace('⁸','_viii');
-      const storedDeg = slot.dataset.chordDegree;
-      const transposed = _resolveAndTranspose(rawName, storedDeg);
-      if (transposed !== rawName || oldChords.indexOf(rawName) >= 0) {
-        _seqSlotSetText(slot, transposed);
-        const deg = newChords.indexOf(transposed);
-        slot.dataset.chordDegree = deg >= 0 ? String(deg) : '';
-      }
-    });
-    seqSaveChordSlots();
-  }
-
-  // Transpose ALL sequences' saved data (non-active ones have no DOM grid)
+  // Transpose ALL sequences' chord data + regenerate pianoRoll
   const seqs = song.sequences || [];
   seqs.forEach((seq, si) => {
-    if (si === seqActiveIdx && document.getElementById('seqChordGrid')) return; // already done via DOM
     if (!seq.chordSlots || !seq.chordSlots.length) return;
     const degrees = seq.chordDegrees || [];
     seq.chordSlots = seq.chordSlots.map((name, i) => {
@@ -22470,6 +22457,9 @@ function seqOnSongKeyChange(rawOldKey) {
       const deg = newChords.indexOf(name);
       return deg >= 0 ? String(deg) : '';
     });
+    // Regenerate pianoRoll from transposed chordSlots
+    delete seq.pianoRoll;
+    _migrateChordSlotsToPR(seq, newKey, newMode);
   });
 
   // Transpose keyboard trigger slots (seqKeySlots)
@@ -24376,7 +24366,7 @@ function seqDeleteSequence(idx) {
   const label  = seqGetPartLabel(partId);
 
   // Summarise what content this sequence / part contains
-  const hasChords = (seq.chordSlots || []).some(s => s);
+  const hasChords = (seq.pianoRoll && seq.pianoRoll.length > 0) || (seq.chordSlots || []).some(s => s);
   const hasDrums  = ['kick','snare','hat','crash','clap','hitom','lotom'].some(lane => (seq[lane] || []).some(v => v));
   const hasLoops  = typeof loopTracks !== 'undefined' && loopTracks.some(t => t.parts && t.parts.includes(partId));
 
@@ -25179,9 +25169,10 @@ function seqBuildGrids(song) {
   const beatsPerBar = time * drumSteps; // drum beats per bar
   const chordBeatsPerBar = time * chordSteps; // chord beats per bar
 
-  // Chord grid — uses chordSteps resolution
+  // Chord grid — DISABLED: pianoRoll is now source of truth for chords
   const chordGrid = document.getElementById('seqChordGrid');
-  if (chordGrid) {
+  if (chordGrid) { chordGrid.innerHTML = ''; }
+  if (false && chordGrid) {
     // Layout constraint: cap columns per row based on device/orientation
     const _maxChordCols = _seqMaxChordCols();
     const _effectiveCols = Math.min(chordBeatsPerBar, _maxChordCols);
@@ -26679,35 +26670,24 @@ function _tsIsVoiceSilent(voice) {
 }
 
 function seqSaveChordSlots() {
-  const song = getCurrentSong();
-  if (!song) return;
-  seqGetData(song); // ensure song.sequencer → active sequence
-  ucPushUndo(_ucCaptureState(), 'chord slots'); // snapshot BEFORE overwriting
-  const slots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
-  var _saveSlots = slots.map(s => s.dataset.seqChordRaw || s.textContent.trim().replace('⁸','_viii') || '');
-  var _seqRef = song.sequencer;
-  var _seqsArr = song.sequences || [];
-  var _matchIdx = _seqsArr.indexOf(_seqRef);
-  console.log('[CHORD-SAVE] seqActiveIdx=' + seqActiveIdx + ' song.sequencer===seqs[' + _matchIdx + '] partId=' + (_seqRef?.partId||'?') + ' slots=' + _saveSlots.filter(Boolean).join(','));
-  song.sequencer.chordSlots     = _saveSlots;
-  song.sequencer.chordDegrees   = slots.map(s => s.dataset.chordDegree ?? '');
-  song.sequencer.chordContinued = slots.map(s => s.classList.contains('chord-tail'));
-  song.updatedAt = Date.now();
-  save();
-  scheduleSyncToSheet(song);
-  // Portrait mobile: keep peek strip + badge in sync
-  if (typeof kbdPortUpdatePeek === 'function') kbdPortUpdatePeek();
-  if (typeof kbdPortUpdateBadge === 'function') kbdPortUpdateBadge();
+  // No-op: chord grid is dead. pianoRoll is source of truth, saved via prSavePianoRoll().
+  // chordSlots are now derived from pianoRoll at read-time for backward compat consumers.
 }
 
 
 function seqClearAllChordSlots() {
-  document.querySelectorAll('#seqChordGrid .seq-slot.filled').forEach(slot => {
-    _seqSlotSetText(slot, '');
-    slot.classList.remove('filled', 'chord-tail');
-    delete slot.dataset.chordDegree;
-  });
-  seqSaveChordSlots();
+  var song = getCurrentSong();
+  if (!song || !song.sequencer) return;
+  song.sequencer.pianoRoll = [];
+  song.sequencer.chordSlots = [];
+  song.sequencer.chordDegrees = [];
+  song.sequencer.chordContinued = [];
+  song.updatedAt = Date.now();
+  save();
+  if (typeof window.prLoadFromGrid === 'function' && document.body.classList.contains('pr-open')) {
+    window.prLoadFromGrid();
+    if (typeof window.prRender === 'function') window.prRender();
+  }
 }
 
 // ── Chord Progressions ────────────────────────────────────────────────────────
@@ -26921,56 +26901,60 @@ function _seqProgressionFill(progressionId) {
     }
   }
 
-  // ── Write directly to song.sequencer (DOM-independent) ──
+  // ── Generate pianoRoll directly (PR is source of truth) ──
   var _seqRef = song.sequencer;
+  var _prKey = seqCurrentKey();
+  var _prMode = seqCurrentMode();
+  var _prMidiMap = (typeof seqGenChordMidi === 'function') ? seqGenChordMidi(_prKey, _prMode) : {};
+  var _prBpm = parseFloat(_seqRef.bpm || song.bpm || 120);
+  var _prSnap = 4;
+  var _sectionBeats = bars * timeSig;
+  var _sectionCols = _sectionBeats * _prSnap;
+  var _colsPerSlot = _sectionCols / totalSteps;
+  var _beatMs = 60000 / _prBpm;
+  var _colMs = _beatMs / _prSnap;
+  var _prNotes = [];
+  var _nid = 1;
+
+  for (var _pi = 0; _pi < placements.length; _pi++) {
+    var _pStart = placements[_pi].step;
+    var _pEnd = _pi < placements.length - 1 ? placements[_pi + 1].step : totalSteps;
+    var _pChord = placements[_pi].chord;
+    var _pDeg = placements[_pi].degree;
+    if (!_pChord) continue;
+
+    var _startCol = Math.round(_pStart * _colsPerSlot);
+    var _durCols = Math.max(1, Math.round((_pEnd - _pStart) * _colsPerSlot));
+    var _vel = 0.55 + Math.random() * 0.4;
+    var _flamMs = Math.random() < 0.4 ? Math.floor(Math.random() * 12) : 0;
+    var _flamCols = Math.round(_flamMs / _colMs);
+
+    var _midiNotes = _prMidiMap[_pChord] || ((typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(_pChord) : []);
+    if (!_midiNotes.length) continue;
+
+    for (var _ni = 0; _ni < _midiNotes.length; _ni++) {
+      var _midi = _midiNotes[_ni];
+      if (_midi < 36 || _midi > 84) continue;
+      var _noteFlam = _ni * _flamCols;
+      _prNotes.push({ id: _nid++, midi: _midi, startCol: _startCol + _noteFlam, durCols: Math.max(1, _durCols - _noteFlam), chordName: _pChord, degree: _pDeg, isPencil: false, vel: _vel });
+    }
+  }
+
+  // pianoRoll is the source of truth
+  _seqRef.pianoRoll = _prNotes;
+  console.log('[PROG-FILL] generated ' + _prNotes.length + ' pianoRoll notes directly, partId=' + (_seqRef.partId||'?'));
+
+  // Derive chordSlots as secondary (for MIDI export, run-through, etc.)
   _seqRef.chordSlots     = newSlots.slice();
   _seqRef.chordDegrees   = newDegrees.slice();
   _seqRef.chordContinued = newContinued.slice();
-
-  // Generate random velocities + flam offsets per chord slot
-  var _progVels = [], _progFlams = [];
-  for (var _vi = 0; _vi < totalSteps; _vi++) {
-    _progVels.push(newSlots[_vi] ? (0.55 + Math.random() * 0.4) : 0);
-    _progFlams.push(newSlots[_vi] ? (Math.random() < 0.4 ? Math.floor(Math.random() * 12) : 0) : 0);
-  }
-  _seqRef.chordVelocities = _progVels;
-  _seqRef.chordFlamMs     = _progFlams;
   song.updatedAt = Date.now();
-  console.log('[PROG-FILL] wrote chordSlots directly: ' + newSlots.filter(Boolean).length + ' filled slots, partId=' + (_seqRef.partId||'?'));
-
-  // Best-effort DOM sync (works when chord grid is rendered, harmless when not)
-  var _domSlots = document.querySelectorAll('#seqChordGrid .seq-slot');
-  if (_domSlots.length) {
-    _domSlots.forEach(function(slot, i) {
-      var val = newSlots[i] || '';
-      slot.classList.remove('filled', 'chord-tail');
-      delete slot.dataset.chordDegree;
-      slot.draggable = false;
-      _seqSlotSetText(slot, val);
-      if (val) {
-        slot.classList.add('filled');
-        if (newContinued[i]) {
-          slot.classList.add('chord-tail');
-        } else {
-          slot.draggable = true;
-        }
-        if (newDegrees[i] !== '') slot.dataset.chordDegree = newDegrees[i];
-      }
-    });
-  }
 
   _activeProgressionId = progressionId;
   save();
   if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
   if (typeof kbdPortUpdatePeek === 'function') kbdPortUpdatePeek();
   if (typeof kbdPortUpdateBadge === 'function') kbdPortUpdateBadge();
-
-  // Debug: verify which sequence got the chords
-  var _dbgSeqs = song.sequences || [];
-  _dbgSeqs.forEach(function(sq, si) {
-    var _ch = (sq.chordSlots||[]).filter(Boolean);
-    if (_ch.length) console.log('[PROG-VERIFY] seqs[' + si + '] partId=' + (sq.partId||'?') + ' chords=' + _ch.length + ' first=' + _ch[0]);
-  });
 
   var reHumBtn = document.getElementById('seqProgressionReHumBtn');
   if (reHumBtn) reHumBtn.style.display = '';
@@ -26981,24 +26965,19 @@ function _seqProgressionFill(progressionId) {
     if (el.value !== progressionId) el.value = progressionId;
   });
 
-  // Clear saved pianoRoll so PR reads fresh chordSlots
-  if (_seqRef.pianoRoll) {
-    console.log('[PR-progression] clearing stale pianoRoll (' + _seqRef.pianoRoll.length + ' notes)');
-    delete _seqRef.pianoRoll;
-  }
-
-  // Sync into PR (works whether PR is open or not — if open, reload + render)
-  if (typeof window.prLoadFromGrid === 'function' && typeof window.prRender === 'function') {
+  // Sync live PR view if open
+  if (typeof window.prRender === 'function') {
     var _prIsOpen = document.body.classList.contains('pr-open');
-    console.log('[PR-progression] prIsOpen=' + _prIsOpen + ' chordSlots=' + (_seqRef.chordSlots||[]).filter(Boolean).length);
     if (_prIsOpen) {
       if (typeof window.prSetSyncEnabled === 'function') window.prSetSyncEnabled(false);
-      window.prLoadFromGrid();
+      // Load from the pianoRoll we just wrote
+      if (typeof window.prLoadPianoRoll === 'function') {
+        window.prLoadFromGrid();
+      }
       if (typeof window.prHumanizeNotes === 'function') window.prHumanizeNotes();
       window.prRender();
       if (typeof window.prBuildPalette === 'function') window.prBuildPalette();
       if (typeof window.prSetSyncEnabled === 'function') window.prSetSyncEnabled(true);
-      if (typeof window.prSavePianoRoll === 'function') window.prSavePianoRoll();
     }
   }
 
@@ -27011,7 +26990,7 @@ function seqApplyProgression(progressionId) {
   const song = getCurrentSong();
   if (!song) return;
   const sd        = seqGetData(song);
-  const hasChords = (sd.chordSlots || []).some(Boolean);
+  const hasChords = (sd.pianoRoll && sd.pianoRoll.length > 0) || (sd.chordSlots || []).some(Boolean);
 
   if (hasChords) {
     const modal = document.createElement('div');
@@ -29368,6 +29347,61 @@ document.addEventListener('click', function(e) {
   }
 });
 
+// ── Migrate chordSlots → pianoRoll for a sequence object ──
+// Used at playback time to ensure every section has pianoRoll data.
+// Returns the pianoRoll array (also sets seq.pianoRoll in place).
+function _migrateChordSlotsToPR(seq, songKey, songMode) {
+  if (seq.pianoRoll && seq.pianoRoll.length) return seq.pianoRoll;
+  var cs = seq.chordSlots || [];
+  if (!cs.some(Boolean)) return [];
+  var time = parseInt(seq.time || 4);
+  var bars = parseInt(seq.bars || 4);
+  var chordSteps = parseInt(seq.chordSteps || '1');
+  var snap = 4;
+  var sectionBeats = bars * time;
+  var sectionCols = sectionBeats * snap;
+  var totalChordSlots = sectionBeats * chordSteps;
+  var colsPerSlot = sectionCols / totalChordSlots;
+  var bpm = parseFloat(seq.bpm || 120);
+  var beatMs = 60000 / bpm;
+  var colMs = beatMs / snap;
+  var key = songKey || seqCurrentKey();
+  var mode = songMode || seqCurrentMode();
+  var midiMap = (typeof seqGenChordMidi === 'function') ? seqGenChordMidi(key, mode) : {};
+  var chordDegrees = seq.chordDegrees || [];
+  var chordContinued = seq.chordContinued || [];
+  var chordVelocities = seq.chordVelocities || [];
+  var chordFlamMs = seq.chordFlamMs || [];
+  var notes = [];
+  var nid = 1;
+  for (var i = 0; i < cs.length; i++) {
+    var name = cs[i];
+    if (!name || chordContinued[i]) continue;
+    var holdSlots = 1;
+    for (var j = i + 1; j < cs.length; j++) {
+      if (chordContinued[j] && cs[j]) holdSlots++;
+      else break;
+    }
+    var startCol = Math.round(i * colsPerSlot);
+    var durCols = Math.max(1, Math.round(holdSlots * colsPerSlot));
+    var degree = chordDegrees[i] || '';
+    var vel = chordVelocities[i] != null ? chordVelocities[i] : (0.55 + Math.random() * 0.4);
+    var flamMs2 = chordFlamMs[i] != null ? chordFlamMs[i] : (Math.random() < 0.4 ? Math.floor(Math.random() * 12) : 0);
+    var flamCols = Math.round(flamMs2 / colMs);
+    var midiNotes = midiMap[name] || ((typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(name) : []);
+    if (!midiNotes.length) continue;
+    for (var ni = 0; ni < midiNotes.length; ni++) {
+      var midi = midiNotes[ni];
+      if (midi < 36 || midi > 84) continue;
+      var noteFlam = ni * flamCols;
+      notes.push({ id: nid++, midi: midi, startCol: startCol + noteFlam, durCols: Math.max(1, durCols - noteFlam), chordName: name, degree: degree, isPencil: false, vel: vel });
+    }
+  }
+  seq.pianoRoll = notes;
+  console.log('[PR-MIGRATE] ' + (seq.partId||'?') + ': migrated ' + cs.filter(Boolean).length + ' chordSlots → ' + notes.length + ' pianoRoll notes');
+  return notes;
+}
+
 function seqPlay() {
   if (seqIsPlaying) return;
   // Guard: log if something is calling loop-mode play when song-mode sections exist
@@ -29394,14 +29428,14 @@ function seqPlay() {
   const stepDur    = (60 / bpm) / drumSteps;
   const totalChordSteps = time * bars * chordSteps;
 
+  // Ensure pianoRoll exists (migrate from chordSlots if needed)
+  _migrateChordSlotsToPR(seq);
+
   // Use the song-mode scheduler with a single-section array → loops automatically
   _seqPlayMode = 'song';
   _seqLastPlayMode = 'loop'; // single-section = loop semantics
   _seqSongSections = [{
     partId:      seq.partId || seq.part || null,
-    chordSlots:  seq.chordSlots  || [],
-    chordDegrees:seq.chordDegrees|| [],
-    chordContinued: seq.chordContinued || [],
     kick:  seq.kick   || [], snare: seq.snare  || [], hat:   seq.hat    || [],
     crash: seq.crash  || [], clap:  seq.clap   || [],
     hitom: seq.hitom  || [], lotom: seq.lotom  || [],
@@ -29524,6 +29558,8 @@ async function seqPlaySong() {
   const mode = seqCurrentMode();
   const _songWideBpm = parseFloat(song?.bpm || 100);
   _seqSongSections = sorted.map(seq => {
+    // Ensure pianoRoll exists (migrate from chordSlots if needed)
+    _migrateChordSlotsToPR(seq, key, mode);
     const bpm  = _songWideBpm;
     const drumSteps  = parseInt(song?.drumSteps  || seq.drumSteps  || song?.grid || seq.grid || 4);
     const chordSteps = parseInt(song?.chordSteps || seq.chordSteps || '1');
@@ -29701,54 +29737,18 @@ function seqScheduleNotes() {
     while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
       if (_seqSongSectionIdx >= _seqSongSections.length) { _seqSongSectionIdx = 0; _seqSongSectionStep = 0; }
       const sec  = _seqSongSections[_seqSongSectionIdx];
-      var _prIsSource = (typeof prSchedulePlayback === 'function' && sec.pianoRoll && sec.pianoRoll.length > 0);
       const i    = _seqSongSectionStep;
       const stepDur     = sec.stepDur;
       const beatsPerBar = sec.time * sec.grid;
       const swingOffset = (i % 2 === 1) ? stepDur * sec.swing * 0.5 : 0;
       const baseTime    = _seqNextNoteTime + swingOffset;
       const velocity    = sec.vel * (0.8 + Math.random() * 0.4);
-      // Per-element humanize jitter for song mode
       const _hj = (ms) => (Math.random() - 0.5) * ms * 0.001;
-      const chordTime = seqHumanizeChords ? Math.max(0.001, baseTime + _hj(34)) : baseTime;
       const noteTime  = baseTime;
 
-      // Chord: map drum step index → chord step index
-      // Drums tick at drumSteps resolution, chords at chordSteps resolution
-      const _chordIdx = (sec.chordSteps && sec.drumSteps && sec.chordSteps !== sec.drumSteps)
-        ? Math.floor(i * sec.chordSteps / sec.drumSteps)
-        : i;
-      // Only trigger chord when the mapped chord index changes (or first step)
-      const _prevChordIdx = (i > 0 && sec.chordSteps !== sec.drumSteps)
-        ? Math.floor((i - 1) * sec.chordSteps / sec.drumSteps)
-        : _chordIdx - 1;
-      const _chordTrigger = (_chordIdx !== _prevChordIdx);
-      const chordName = (_chordTrigger && !sec.chordContinued?.[_chordIdx]) ? (sec.chordSlots[_chordIdx] || '') : '';
       if (!_tlTakeover) {
-      // v0.85: _seqPlayFilter gates which instruments sound
-      // 'drums' = drums only, 'keys' = chords+melody only, 'all' = everything
       var _pf = typeof _seqPlayFilter !== 'undefined' ? _seqPlayFilter : 'all';
-      if (_pf !== 'drums' && chordName && !_prIsSource) {
-        const midiNotes = loopChordsMidi?.[chordName] || _chordVariantToMidi(chordName);
-        // Per-slot chord velocity + flam from inspo generator (falls back to master velocity)
-        var _cvSlot = sec.chordVelocities?.[_chordIdx];
-        var _cvVel = (_cvSlot && _cvSlot > 0) ? _cvSlot * velocity : velocity;
-        var _cvFlam = (sec.chordFlamMs?.[_chordIdx] || 0) / 1000;
-        var _cvTime = chordTime + _cvFlam;
-        if (!window._songChordDbg) { window._songChordDbg = true; console.log('[SONG-CHORD-DBG] first chord trigger: name=' + chordName + ' midi=' + JSON.stringify(midiNotes) + ' piano=' + _instrHas('piano') + '(' + _pianoLoaded + ') piano2=' + _instrHas('piano2') + '(' + _piano2Loaded + ') guitar=' + _hasGuitar + '(' + _guitarLoaded + ') synth=' + _hasSynth + ' vel=' + _cvVel.toFixed(2) + ' flam=' + _cvFlam.toFixed(3) + ' chordIdx=' + _chordIdx + '/' + sec.chordSlots.length); }
-        let samplerPlayed = false;
-        if (_instrHas('piano')  && _pianoLoaded  && midiNotes?.length) { seqPlayChordPiano(midiNotes, _cvTime, _cvVel);  samplerPlayed = true; }
-        if (_instrHas('piano2') && _piano2Loaded && midiNotes?.length) { seqPlayChordPiano2(midiNotes, _cvTime, _cvVel); samplerPlayed = true; }
-        if (_hasGuitar && _guitarLoaded && midiNotes?.length) { seqPlayChordGuitar(midiNotes, _cvTime, _cvVel); samplerPlayed = true; }
-        if (_hasSynth || !samplerPlayed) {
-          const freqs = loopChords[chordName] || (midiNotes?.length ? midiNotes.map(m => 440 * Math.pow(2, (m - 69) / 12)) : null);
-          if (freqs) seqPlayChord(freqs, _cvTime, _cvVel);
-          if (!window._songChordFallback) { window._songChordFallback = true; console.log('[SONG-CHORD-DBG] synth fallback: hasSynth=' + _hasSynth + ' samplerPlayed=' + samplerPlayed + ' freqs=' + (freqs?freqs.length:'null')); }
-        }
-      } else if (_pf !== 'drums' && i === 0 && !window._songChordSkipLog) {
-        window._songChordSkipLog = true;
-        console.log('[SONG-CHORD-DBG] chord SKIPPED at step 0: chordName="' + chordName + '" _prIsSource=' + _prIsSource + ' chordSlots[0]=' + (sec.chordSlots[0]||'(empty)') + ' _chordTrigger=' + _chordTrigger + ' chordContinued[0]=' + sec.chordContinued?.[0] + ' chordSlots.length=' + sec.chordSlots.length + ' totalChordSteps=' + sec.totalChordSteps + ' drumSteps=' + sec.drumSteps + ' chordSteps=' + sec.chordSteps);
-      }
+      // Chords: handled entirely by prSchedulePlayback at section start (below)
       // Drums — per-instrument jitter + mute/solo check + per-step velocity
       if (_pf !== 'keys') {
       if (sec.kick[i]  && !_tsIsVoiceSilent('kick'))  { const _v = (sec.kickVel?.[i]||1)*velocity; seqPlayKick(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, _v); }
@@ -29762,19 +29762,18 @@ function seqScheduleNotes() {
       // Metronome: only on beat boundaries (every sec.grid steps), not every sequencer step
       // [UNIFIED METRO] — metro clicks now handled by globalMetroStart(), removed inline seqClick
 
-      // Melody + pianoRoll chords: schedule once per section start
+      // Chords + melody: pianoRoll is sole source of truth — schedule once per section start
       if (_pf !== 'drums' && i === 0) {
         melodyScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} });
         melodyScheduledNodes = [];
         if (typeof _prChordScheduledNodes !== 'undefined') { _prChordScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} }); _prChordScheduledNodes = []; }
         const secLoopDurMs = sec.totalSteps * sec.stepDur * 1000;
         var _secPR = sec.pianoRoll && sec.pianoRoll.length ? sec.pianoRoll : null;
-        console.log('[SONG-SEC-START] secIdx=' + _seqSongSectionIdx + ' partId=' + (sec.partId||'?') + ' step=' + i + '/' + sec.totalSteps + ' bars=' + (sec.totalSteps/(parseInt(sec.time||4)*parseInt(sec.drumSteps||4))) + ' secDurMs=' + secLoopDurMs.toFixed(0) + ' hasPR=' + !!_secPR + '(' + (_secPR?_secPR.length:0) + ') _prIsSource=' + _prIsSource + ' baseTime=' + baseTime.toFixed(3));
+        console.log('[SONG-SEC-START] secIdx=' + _seqSongSectionIdx + ' partId=' + (sec.partId||'?') + ' pr=' + (_secPR?_secPR.length:0) + ' secDurMs=' + secLoopDurMs.toFixed(0));
         if (_secPR && typeof prSchedulePlayback === 'function') {
-          console.log('[SONG-PR] sec=' + _seqSongSectionIdx + ' pianoRoll notes=' + _secPR.length + ' secDurSec=' + (secLoopDurMs/1000).toFixed(2) + ' song.sequencer.bars=' + ((typeof getCurrentSong==='function'&&getCurrentSong())?getCurrentSong().sequencer?.bars:'?') + ' sec.bars(preloaded)=' + (sec.totalSteps/(parseInt(sec.time||4)*parseInt(sec.drumSteps||4))));
           prSchedulePlayback(ctx, baseTime, secLoopDurMs / 1000, _secPR);
-        } else {
-          console.log('[SONG-MELODY] sec=' + _seqSongSectionIdx + ' melodyNotes=' + (sec.melody||[]).length);
+        }
+        if (sec.melody && sec.melody.length && !_secPR) {
           seqScheduleMelody(ctx, baseTime, secLoopDurMs, sec.melody, sec.melodyInstrument);
         }
       }
@@ -29947,42 +29946,17 @@ function seqScheduleNotes() {
     const _kUseSampler = _anyPianoChordReady() || (_kHasGuitar && _guitarLoaded);
     const _kLoopChordsMidi = _kUseSampler ? seqGenChordMidi(_kLoopKey, _kLoopMode) : null;
     const _kVel = parseFloat(document.getElementById('seqVel')?.value || 0.8);
-    var _prIsSource = (typeof prSchedulePlayback === 'function' && window._prNotesCount && window._prNotesCount() > 0);
-    if (!window._prGateLoggedKbd) { console.log('[PR-gate] kbd-mode: prIsSource=' + _prIsSource); window._prGateLoggedKbd = true; }
     while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
       const i = _seqStepIndex % _kTotal;
       const baseTime = _seqNextNoteTime;
       const velocity = _kVel * (0.8 + Math.random() * 0.4);
-      // Metronome click
-      // Metronome: only on beat boundaries (every _kGrid steps), not every sequencer step
-      // [UNIFIED METRO] — metro clicks now handled by globalMetroStart(), removed inline seqClick
-      // Chord playback from chord grid slots (skipped when PR is source of truth)
+      // Chords + melody: pianoRoll is sole source of truth
       if (!_tlTakeover) {
-      if (chordSlots.length && !_prIsSource) {
-        const slot = chordSlots[i];
-        if (slot && slot.classList.contains('filled') && !slot.classList.contains('chord-tail')) {
-          const _cn = slot.textContent.trim();
-          if (_cn) {
-            const midiNotes = _kLoopChordsMidi?.[_cn] || _chordVariantToMidi(_cn);
-            let samplerPlayed = false;
-            if (_instrHas('piano')  && _pianoLoaded  && midiNotes?.length) { seqPlayChordPiano(midiNotes, baseTime, velocity);  samplerPlayed = true; }
-            if (_instrHas('piano2') && _piano2Loaded && midiNotes?.length) { seqPlayChordPiano2(midiNotes, baseTime, velocity); samplerPlayed = true; }
-            if (_kHasGuitar && _guitarLoaded && midiNotes?.length) { seqPlayChordGuitar(midiNotes, baseTime, velocity); samplerPlayed = true; }
-            if (_kHasSynth || (!samplerPlayed && !_kHasPiano && !_kHasGuitar)) {
-              const freqs = _kLoopChords[_cn] || (midiNotes?.length ? midiNotes.map(m => 440 * Math.pow(2, (m - 69) / 12)) : null);
-              if (freqs) seqPlayChord(freqs, baseTime, velocity);
-            }
-          }
-        }
-      }
-      // Melody: schedule at loop start, but not while actively recording
       if (i === 0 && !melodyIsRecording) {
         melodyScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} });
         melodyScheduledNodes = [];
         if (typeof _prChordScheduledNodes !== 'undefined') { _prChordScheduledNodes.forEach(o => { try { o.stop(); } catch(e) {} }); _prChordScheduledNodes = []; }
         clearMelodyKeyHighlights();
-        // Piano roll is the source of truth — if it has notes, play from there;
-        // otherwise fall back to the old melodyNotes array.
         var _hasPrNotes = (typeof prSchedulePlayback === 'function' && window._prNotesCount && window._prNotesCount() > 0);
         if (_hasPrNotes) {
           prSchedulePlayback(ctx, baseTime, _kLoopMs / 1000);
@@ -30011,48 +29985,16 @@ function seqScheduleNotes() {
     return;
   }
 
-  var _prIsSource = (typeof prSchedulePlayback === 'function' && window._prNotesCount && window._prNotesCount() > 0);
-  if (!window._prGateLoggedLoop) { console.log('[PR-gate] loop-mode: prIsSource=' + _prIsSource); window._prGateLoggedLoop = true; }
-
   while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
     const i = _seqStepIndex % totalSteps;
     const swingOffset = (i % 2 === 1) ? stepDur * swing * 0.5 : 0;
     const baseTime  = _seqNextNoteTime + swingOffset;
     const velocity  = vel * (0.8 + Math.random() * 0.4);
-    // Per-element humanize jitter (small random timing offsets that vary naturally)
-    const _hj = (ms) => (Math.random() - 0.5) * ms * 0.001; // convert ms to seconds
-    const chordTime = seqHumanizeChords ? Math.max(0.001, baseTime + _hj(34)) : baseTime;
-    const noteTime  = baseTime; // metro + melody stay on grid
+    const _hj = (ms) => (Math.random() - 0.5) * ms * 0.001;
+    const noteTime  = baseTime;
 
-    // ── Audio scheduling (runs on audio thread — unaffected by tab throttle) ──
-    // Chord: map drum step index → chord step index (different grid resolutions)
-    const _lChordIdx = (_loopChordSteps !== _loopDrumSteps)
-      ? Math.floor(i * _loopChordSteps / _loopDrumSteps)
-      : i;
-    const _lPrevChordIdx = (i > 0 && _loopChordSteps !== _loopDrumSteps)
-      ? Math.floor((i - 1) * _loopChordSteps / _loopDrumSteps)
-      : _lChordIdx - 1;
-    const _lChordTrigger = (_lChordIdx !== _lPrevChordIdx);
-    // Read from DOM slot if chord grid is open, else fall back to song data
-    const slot = chordSlots[_lChordIdx];
-    const _chordName = _lChordTrigger
-      ? (slot
-        ? (slot.classList.contains('filled') && !slot.classList.contains('chord-tail') ? slot.textContent.trim() : '')
-        : ((getCurrentSong()?.sequencer?.chordSlots?.[_lChordIdx] && !getCurrentSong()?.sequencer?.chordContinued?.[_lChordIdx])
-            ? (getCurrentSong()?.sequencer?.chordSlots?.[_lChordIdx]) : ''))
-      : '';
     if (!_tlTakeover) {
-    if (_chordName && !_prIsSource) {
-      const midiNotes = loopChordsMidi?.[_chordName] || _chordVariantToMidi(_chordName);
-      let samplerPlayed = false;
-      if (_instrHas('piano')  && _pianoLoaded  && midiNotes?.length) { seqPlayChordPiano(midiNotes, chordTime, velocity);  samplerPlayed = true; }
-      if (_instrHas('piano2') && _piano2Loaded && midiNotes?.length) { seqPlayChordPiano2(midiNotes, chordTime, velocity); samplerPlayed = true; }
-      if (_hasGuitar && _guitarLoaded && midiNotes?.length) { seqPlayChordGuitar(midiNotes, chordTime, velocity); samplerPlayed = true; }
-      if (_hasSynth || (!samplerPlayed && !_hasPiano && !_hasGuitar)) {
-        const freqs = loopChords[_chordName] || (midiNotes?.length ? midiNotes.map(m => 440 * Math.pow(2, (m - 69) / 12)) : null);
-        if (freqs) seqPlayChord(freqs, chordTime, velocity);
-      }
-    }
+    // Chords: handled entirely by prSchedulePlayback at loop start (below)
     // Drums — each instrument gets its own jitter for a natural, imprecise feel
     // Per-step velocity: read from data-vel attribute if available, else use global velocity
     if (kickSlots[i]?.classList.contains('drum-on') && !_tsIsVoiceSilent('kick'))   { const _v = parseFloat(kickSlots[i].dataset.vel||1)*velocity; seqPlayKick(  seqHumanizeDrums ? Math.max(0.001,baseTime+_hj(18)) : baseTime, _v); }
@@ -33748,7 +33690,7 @@ function launchInspoSong() {
     }
     var chordResult = _fillSectionChords(sectionChords, cfg.bars, d.timeSig, _songGrid);
     var drums = _buildSectionDrums(cfg.energy, cfg.bars, d.timeSig, _songGrid, sid);
-    return {
+    var _seqObj = {
       partId: sid, part: sid,
       bpm: String(d.bpm), time: d.timeSig, bars: String(cfg.bars), grid: _songGrid,
       drumSteps: _songGrid, chordSteps: _songGrid,
@@ -33764,6 +33706,11 @@ function launchInspoSong() {
       crashVel: drums.crashVel, clapVel: drums.clapVel,
       hitomVel: drums.hitomVel, lotomVel: drums.lotomVel,
     };
+    // Generate pianoRoll as source of truth
+    var _inspoKey = d.root || d.key.split(' ')[0];
+    var _inspoMode = d.key.includes('minor') ? 'minor' : 'major';
+    _migrateChordSlotsToPR(_seqObj, _inspoKey, _inspoMode);
+    return _seqObj;
   });
 
   const song = {
@@ -36488,7 +36435,7 @@ function exportPDF() {
 
   // ── Lyrics + Chords (rehearsal view style) ──
   const seqs = typeof getSongSequences === 'function' ? getSongSequences(song) : [];
-  const hasSeqChords = seqs.some(s => (s.chordSlots || []).some(Boolean));
+  const hasSeqChords = seqs.some(s => (s.pianoRoll && s.pianoRoll.length > 0) || (s.chordSlots || []).some(Boolean));
   if (hasAnyLyrics && hasSeqChords) {
     html += `<div class="section page-break-before">`;
     html += `<div class="section-title" style="font-size:16px;border-bottom:2px solid #111;margin-bottom:20px;">Lyrics &amp; Chords</div>`;
@@ -40051,7 +39998,7 @@ function openSeqDrawer() {
   if (!body) return;
 
   const sd = song.sequencer || {};
-  const hasData = (sd.chordSlots||[]).some(Boolean) ||
+  const hasData = (sd.pianoRoll && sd.pianoRoll.length > 0) || (sd.chordSlots||[]).some(Boolean) ||
                   (sd.kick||[]).some(Boolean) ||
                   (sd.snare||[]).some(Boolean) ||
                   (sd.hat||[]).some(Boolean) ||
@@ -40522,25 +40469,9 @@ function seqKeySelectChanged(triggerEl) {
     return (_shift !== 0) ? _chromatic(rawName) : rawName;
   }
 
-  // Transpose active sequence's DOM grid if visible
-  if (document.getElementById('seqChordGrid')) {
-    document.querySelectorAll('#seqChordGrid .seq-slot.filled').forEach(slot => {
-      const rawName = slot.dataset.seqChordRaw || slot.textContent.trim().replace('⁸','_viii');
-      const storedDeg = slot.dataset.chordDegree;
-      const transposed = _resolveAndTranspose(rawName, storedDeg);
-      if (transposed !== rawName || oldChords.indexOf(rawName) >= 0) {
-        _seqSlotSetText(slot, transposed);
-        const deg = newChords.indexOf(transposed);
-        slot.dataset.chordDegree = deg >= 0 ? String(deg) : '';
-      }
-    });
-    seqSaveChordSlots();
-  }
-
-  // Transpose ALL sequences' saved data (non-active ones have no DOM grid)
+  // Transpose ALL sequences' saved chord data
   const seqs = song.sequences || [];
   seqs.forEach((seq, si) => {
-    if (si === seqActiveIdx && document.getElementById('seqChordGrid')) return; // already done via DOM
     if (!seq.chordSlots || !seq.chordSlots.length) return;
     const degrees = seq.chordDegrees || [];
     seq.chordSlots = seq.chordSlots.map((name, i) => {
