@@ -25821,15 +25821,20 @@ function seqBuildGrids(song) {
     _drApplyViewMode(song);
   };
 
-  // Expose for cross-scope access (PR close handler needs these)
-  Object.defineProperty(window, '_drViewMode', {
-    get: function() { return _drViewMode; },
-    set: function(v) { _drViewMode = v; }
-  });
-  Object.defineProperty(window, '_drClosingPR', {
-    get: function() { return _drClosingPR; },
-    set: function(v) { _drClosingPR = v; }
-  });
+  // Expose for cross-scope access (PR close handler needs these) — only once
+  if (!window._drPropsExposed) {
+    Object.defineProperty(window, '_drViewMode', {
+      get: function() { return _drViewMode; },
+      set: function(v) { _drViewMode = v; },
+      configurable: true
+    });
+    Object.defineProperty(window, '_drClosingPR', {
+      get: function() { return _drClosingPR; },
+      set: function(v) { _drClosingPR = v; },
+      configurable: true
+    });
+    window._drPropsExposed = true;
+  }
   window._drSaveViewPref = _drSaveViewPref;
 
   // ── Grid-view playhead (smooth RAF sweep + auto-scroll) ──────────
@@ -29713,6 +29718,7 @@ function seqScheduleNotes() {
         var _cvVel = (_cvSlot && _cvSlot > 0) ? _cvSlot * velocity : velocity;
         var _cvFlam = (sec.chordFlamMs?.[_chordIdx] || 0) / 1000;
         var _cvTime = chordTime + _cvFlam;
+        if (!window._songChordDbg) { window._songChordDbg = true; console.log('[SONG-CHORD-DBG] first chord trigger: name=' + chordName + ' midi=' + JSON.stringify(midiNotes) + ' piano=' + _instrHas('piano') + '(' + _pianoLoaded + ') piano2=' + _instrHas('piano2') + '(' + _piano2Loaded + ') guitar=' + _hasGuitar + '(' + _guitarLoaded + ') synth=' + _hasSynth + ' vel=' + _cvVel.toFixed(2) + ' flam=' + _cvFlam.toFixed(3) + ' chordIdx=' + _chordIdx + '/' + sec.chordSlots.length); }
         let samplerPlayed = false;
         if (_instrHas('piano')  && _pianoLoaded  && midiNotes?.length) { seqPlayChordPiano(midiNotes, _cvTime, _cvVel);  samplerPlayed = true; }
         if (_instrHas('piano2') && _piano2Loaded && midiNotes?.length) { seqPlayChordPiano2(midiNotes, _cvTime, _cvVel); samplerPlayed = true; }
@@ -29720,7 +29726,11 @@ function seqScheduleNotes() {
         if (_hasSynth || !samplerPlayed) {
           const freqs = loopChords[chordName] || (midiNotes?.length ? midiNotes.map(m => 440 * Math.pow(2, (m - 69) / 12)) : null);
           if (freqs) seqPlayChord(freqs, _cvTime, _cvVel);
+          if (!window._songChordFallback) { window._songChordFallback = true; console.log('[SONG-CHORD-DBG] synth fallback: hasSynth=' + _hasSynth + ' samplerPlayed=' + samplerPlayed + ' freqs=' + (freqs?freqs.length:'null')); }
         }
+      } else if (_pf !== 'drums' && i === 0 && !window._songChordSkipLog) {
+        window._songChordSkipLog = true;
+        console.log('[SONG-CHORD-DBG] chord SKIPPED at step 0: chordName="' + chordName + '" _prIsSource=' + _prIsSource + ' chordSlots[0]=' + (sec.chordSlots[0]||'(empty)') + ' _chordTrigger=' + _chordTrigger + ' chordContinued[0]=' + sec.chordContinued?.[0] + ' chordSlots.length=' + sec.chordSlots.length + ' totalChordSteps=' + sec.totalChordSteps + ' drumSteps=' + sec.drumSteps + ' chordSteps=' + sec.chordSteps);
       }
       // Drums — per-instrument jitter + mute/solo check + per-step velocity
       if (_pf !== 'keys') {
@@ -31485,7 +31495,8 @@ function seqStop(letTracksFinish) {
       }
     } catch(e) {}
   }
-  // Reset song-play state
+  // Reset song-play state + debug flags
+  window._songChordDbg = false; window._songChordFallback = false; window._songChordSkipLog = false;
   _seqLastStopTime = Date.now();
   _seqPlayMode = 'loop';
   _seqPlayFilter = 'all';
