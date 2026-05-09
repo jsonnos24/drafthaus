@@ -24167,7 +24167,7 @@ function seqSwitchToSequence(idx) {
   // Save current DOM state before switching
   seqSaveAllToCurrent(song);
 
-  console.log('[SEQ-SWITCH] ' + seqActiveIdx + ' → ' + idx + ' partId=' + (seqs[idx]?.partId||'?') + ' chords=' + (seqs[idx]?.chordSlots||[]).filter(Boolean).length);
+  console.log('[SEQ-SWITCH] ' + seqActiveIdx + ' → ' + idx + ' partId=' + (seqs[idx]?.partId||'?') + ' pr=' + ((seqs[idx]?.pianoRoll||[]).length) + ' chords=' + (seqs[idx]?.chordSlots||[]).filter(Boolean).length);
   seqActiveIdx = idx;
   kbdMelodySeqIdx = idx; // keep keyboard melody tab in sync
   melodyNotes = (seqs[idx].melody || []).slice(); // load the new sequence's notes
@@ -24189,6 +24189,8 @@ function seqSwitchToSequence(idx) {
 function seqSaveAllToCurrent(song) {
   if (!song) return;
   seqGetData(song); // ensure song.sequencer points to active seq
+  // Flush PR engine's in-memory prNotes → song.sequencer.pianoRoll
+  if (typeof window.prSavePianoRoll === 'function') window.prSavePianoRoll();
   // Save settings from DOM
   const sd = song.sequencer;
   sd.bpm   = song.bpm || document.getElementById('seqBpm')?.value  || sd.bpm   || '120';
@@ -24274,6 +24276,11 @@ function seqLoadSequenceIntoDOM(seq, song) {
   // Rebuild grids with this sequence's data
   seqBuildGrids(song || { sequencer: seq });
   seqRenderChordPills(song);
+  // Reload PR with the new section's pianoRoll data
+  if (typeof window.prLoadFromGrid === 'function') {
+    try { window.prLoadFromGrid(); } catch(e) {}
+    if (typeof window.prRender === 'function') try { window.prRender(); } catch(e) {}
+  }
 }
 
 function seqAddSequence(partId) {
