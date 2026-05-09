@@ -25828,6 +25828,8 @@ function seqBuildGrids(song) {
   var _drRollSelected = null; // step key string 'voice:col'
   var _drRollMultiSelected = new Set(); // set of 'voice:col' strings
   var _drRollSelecting = null; // {startX, startY} during drag-select
+  var _drRollClipboard = null; // [{voice, colOffset, vel}]
+  var _drRollPasteCol = 0; // column to paste at
 
   function _drRollGetSong() {
     return (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
@@ -25839,9 +25841,12 @@ function seqBuildGrids(song) {
     var time = parseInt(sd.time || '4') || 4;
     var drumGrid = parseInt(sd.drumSteps || sd.grid || '4') || 4;
     var bars = parseInt(sd.bars || '4') || 4;
+    var bpm = parseFloat(sd.bpm || '120') || 120;
+    var secPerBar = (time / bpm) * 60;
+    var visualBars = Math.max(bars, Math.ceil(300 / secPerBar)); // 5 min like piano roll
     var stepsPerBar = time * drumGrid;
-    var totalSteps = stepsPerBar * bars;
-    return { time: time, drumGrid: drumGrid, bars: bars, stepsPerBar: stepsPerBar, totalSteps: totalSteps };
+    var totalSteps = stepsPerBar * visualBars;
+    return { time: time, drumGrid: drumGrid, bars: bars, visualBars: visualBars, stepsPerBar: stepsPerBar, totalSteps: totalSteps, sectionSteps: stepsPerBar * bars };
   }
 
   function _drRollGetSeq() {
@@ -26059,6 +26064,21 @@ function seqBuildGrids(song) {
       ctx.stroke();
     }
 
+    // Section boundary — dim area beyond section bars
+    var sectionEndX = p.sectionSteps * _drRollColW;
+    if (sectionEndX < gridW) {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(sectionEndX, 0, gridW - sectionEndX, gridH);
+      ctx.strokeStyle = 'rgba(245,166,35,0.8)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(sectionEndX + 0.5, 0);
+      ctx.lineTo(sectionEndX + 0.5, gridH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     // Horizontal row lines
     for (var r = 0; r <= _drRollVoices.length; r++) {
       ctx.strokeStyle = 'rgba(90,90,120,0.3)';
@@ -26215,6 +26235,7 @@ function seqBuildGrids(song) {
     var cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
     var col = Math.floor(cx / _drRollColW);
     var row = Math.floor(cy / _drRollRowH);
+    _drRollPasteCol = col;
     if (row < 0 || row >= _drRollVoices.length) return;
     var p = _drRollGetParams();
     if (col < 0 || col >= p.totalSteps) return;
@@ -26306,6 +26327,7 @@ function seqBuildGrids(song) {
     var x = cx - rect.left;
     var y = cy - rect.top;
 
+    _drRollPasteCol = Math.floor(x / _drRollColW);
     _drRollClearMultiSelect();
     _drRollSelected = null;
 
@@ -26392,34 +26414,61 @@ function seqBuildGrids(song) {
   }
 
   // ── Drum Roll: playhead ──
+  var _drRollLastStep = -1;
   function _drRollUpdatePlayhead() {
     var ph = document.getElementById('drRollPlayhead');
     if (!ph) return;
     if (typeof seqIsPlaying !== 'undefined' && seqIsPlaying) {
       var p = _drRollGetParams();
-      var step = (typeof _seqStepIndex !== 'undefined') ? (_seqStepIndex % p.totalSteps) : -1;
-      if (step >= 0 && step < p.totalSteps) {
-        var px = step * _drRollColW + _drRollColW * 0.5;
+      var step = (typeof _seqStepIndex !== 'undefined') ? (_seqStepIndex % p.sectionSteps) : -1;
+      if (step >= 0 && step < p.sectionSteps) {
+        var px = _drRollLabelW + step * _drRollColW + _drRollColW * 0.5;
         ph.style.left = px + 'px';
         ph.style.height = (_drRollVoices.length * _drRollRowH) + 'px';
         ph.classList.add('active');
 
+        // Highlight active column cells
+        if (step !== _drRollLastStep) {
+          // Remove old highlights
+          var oldHl = document.querySelectorAll('.dr-roll-col-hl');
+          for (var h = 0; h < oldHl.length; h++) oldHl[h].remove();
+          // Add new highlights for this step column
+          var layer = document.getElementById('drRollNotesLayer');
+          if (layer) {
+            for (var vi = 0; vi < _drRollVoices.length; vi++) {
+              var hl = document.createElement('div');
+              hl.className = 'dr-roll-col-hl';
+              hl.style.cssText = 'position:absolute;left:' + (step * _drRollColW) + 'px;top:' + (vi * _drRollRowH) + 'px;width:' + _drRollColW + 'px;height:' + _drRollRowH + 'px;background:rgba(255,87,34,0.12);pointer-events:none;z-index:1;';
+              layer.appendChild(hl);
+            }
+          }
+          _drRollLastStep = step;
+        }
+
         // Auto-scroll to keep playhead visible
         var scrollEl = document.getElementById('drRollScroll');
         if (scrollEl) {
-          var phAbs = px + _drRollLabelW;
           var viewLeft = scrollEl.scrollLeft;
           var viewRight = viewLeft + scrollEl.clientWidth;
-          if (phAbs < viewLeft + _drRollLabelW + 20 || phAbs > viewRight - 20) {
-            scrollEl.scrollLeft = Math.max(0, phAbs - _drRollLabelW - scrollEl.clientWidth * 0.3);
+          if (px < viewLeft + _drRollLabelW + 20 || px > viewRight - 20) {
+            scrollEl.scrollLeft = Math.max(0, px - _drRollLabelW - scrollEl.clientWidth * 0.3);
           }
         }
       } else {
         ph.classList.remove('active');
+        _drRollClearColHighlights();
       }
     } else {
       ph.classList.remove('active');
+      _drRollClearColHighlights();
     }
+  }
+
+  function _drRollClearColHighlights() {
+    if (_drRollLastStep < 0) return;
+    var oldHl = document.querySelectorAll('.dr-roll-col-hl');
+    for (var h = 0; h < oldHl.length; h++) oldHl[h].remove();
+    _drRollLastStep = -1;
   }
 
   var _drRollPlayRAF = null;
@@ -26655,6 +26704,51 @@ function seqBuildGrids(song) {
           if (map) map.delete(col);
         });
         _drRollClearMultiSelect();
+        _drRollDirty = true;
+        _drRollRenderNotes();
+        _drRollSaveData();
+      } else if ((ev.metaKey || ev.ctrlKey) && ev.key === 'c') {
+        // Copy selected hits
+        var toCopy = [];
+        if (_drRollMultiSelected.size > 0) {
+          _drRollMultiSelected.forEach(function(key) {
+            var parts = key.split(':');
+            var voice = parts[0], col = parseInt(parts[1]);
+            var map = _drRollData[voice];
+            if (map && map.has(col)) {
+              toCopy.push({voice: voice, col: col, vel: map.get(col).vel || 0.8});
+            }
+          });
+        } else if (_drRollSelected) {
+          var sp = _drRollSelected.split(':');
+          var sv = sp[0], sc = parseInt(sp[1]);
+          var sm = _drRollData[sv];
+          if (sm && sm.has(sc)) {
+            toCopy.push({voice: sv, col: sc, vel: sm.get(sc).vel || 0.8});
+          }
+        }
+        if (toCopy.length > 0) {
+          ev.preventDefault();
+          var minCol = Infinity;
+          toCopy.forEach(function(h) { if (h.col < minCol) minCol = h.col; });
+          _drRollClipboard = toCopy.map(function(h) { return {voice: h.voice, colOffset: h.col - minCol, vel: h.vel}; });
+        }
+      } else if ((ev.metaKey || ev.ctrlKey) && ev.key === 'v') {
+        // Paste hits at _drRollPasteCol
+        if (!_drRollClipboard || _drRollClipboard.length === 0) return;
+        ev.preventDefault();
+        var p = _drRollGetParams();
+        _drRollClearMultiSelect();
+        var newKeys = new Set();
+        _drRollClipboard.forEach(function(c) {
+          var col = _drRollPasteCol + c.colOffset;
+          if (col < 0 || col >= p.totalSteps) return;
+          var map = _drRollData[c.voice];
+          if (!map) { map = new Map(); _drRollData[c.voice] = map; }
+          map.set(col, {vel: c.vel});
+          newKeys.add(c.voice + ':' + col);
+        });
+        _drRollMultiSelected = newKeys;
         _drRollDirty = true;
         _drRollRenderNotes();
         _drRollSaveData();
@@ -62088,6 +62182,7 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
       const rect = notesLayer.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const col = xToColSnap(x);
+      _prPasteCol = col;
       // Compose cursor repositioning (any tool, compose mode active)
       if (prComposeCursor >= 0 && typeof seqChordMode !== 'undefined' && seqChordMode === 'compose') {
         prComposeCursor = col;
@@ -62211,6 +62306,8 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
   let prMultiSelected = new Set(); // set of noteIds
   let _prSelecting = null; // {startX, startY, scrollLeft, scrollTop} during drag-select
   let _prGroupDrag = null; // {startX, startY, origPositions:[{id,startCol,midi}]} during group move
+  let _prClipboard = null; // [{midi, colOffset, durCols, vel, chordName, degree, isPencil, type:'piano'|'drum', voice}]
+  let _prPasteCol = 0; // column to paste at (set by clicking grid)
 
   // Clear multi-selection
   function prClearMultiSelect() {
@@ -62304,6 +62401,9 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
       prGroupDragStart(e, x, y);
       return;
     }
+
+    // Track paste position from click
+    _prPasteCol = xToColSnap(x);
 
     // Clear previous selection
     prClearMultiSelect();
@@ -62459,14 +62559,64 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
   }
 
   // Delete/Backspace removes multi-selected (or single-selected) notes
+  // Cmd+C / Cmd+V copy/paste notes
   document.addEventListener('keydown', function(e) {
     if (!prOpen) return;
-    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-    // Don't interfere with input fields
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+    var isMod = e.metaKey || e.ctrlKey;
+
+    // ── Copy ──
+    if (isMod && e.key === 'c') {
+      var toCopy = [];
+      if (prMultiSelected.size > 0) {
+        prNotes.forEach(function(n) { if (prMultiSelected.has(n.id)) toCopy.push({type:'piano', midi:n.midi, startCol:n.startCol, durCols:n.durCols, vel:n.vel||0.8, chordName:n.chordName||'', degree:n.degree, isPencil:!!n.isPencil}); });
+        prDrumNotes.forEach(function(n) { if (prMultiSelected.has(n.id)) toCopy.push({type:'drum', voice:n.voice, startCol:n.startCol, durCols:n.durCols, vel:n.vel||0.8}); });
+      } else if (prSelected !== null) {
+        var sn = prNotes.find(function(n){return n.id===prSelected;});
+        if (sn) toCopy.push({type:'piano', midi:sn.midi, startCol:sn.startCol, durCols:sn.durCols, vel:sn.vel||0.8, chordName:sn.chordName||'', degree:sn.degree, isPencil:!!sn.isPencil});
+        var sd2 = prDrumNotes.find(function(n){return n.id===prSelected;});
+        if (sd2) toCopy.push({type:'drum', voice:sd2.voice, startCol:sd2.startCol, durCols:sd2.durCols, vel:sd2.vel||0.8});
+      }
+      if (toCopy.length > 0) {
+        e.preventDefault();
+        var minCol = Infinity;
+        toCopy.forEach(function(n) { if (n.startCol < minCol) minCol = n.startCol; });
+        _prClipboard = toCopy.map(function(n) { return Object.assign({}, n, {colOffset: n.startCol - minCol}); });
+      }
+      return;
+    }
+
+    // ── Paste ──
+    if (isMod && e.key === 'v') {
+      if (!_prClipboard || _prClipboard.length === 0) return;
+      e.preventDefault();
+      var baseCol = _prPasteCol;
+      prClearMultiSelect();
+      var newIds = new Set();
+      _prClipboard.forEach(function(c) {
+        var col = baseCol + c.colOffset;
+        if (col < 0 || col >= prTotalCols) return;
+        if (c.type === 'piano') {
+          var nn = {id: prNextId++, midi: c.midi, startCol: col, durCols: c.durCols, chordName: c.chordName||'', degree: c.degree != null ? c.degree : -1, isPencil: true, vel: c.vel||0.8};
+          prNotes.push(nn);
+          newIds.add(nn.id);
+        } else if (c.type === 'drum') {
+          var dn = {id: prNextId++, voice: c.voice, startCol: col, durCols: c.durCols, vel: c.vel||0.8};
+          prDrumNotes.push(dn);
+          newIds.add(dn.id);
+        }
+      });
+      prMultiSelected = newIds;
+      prRenderNotes();
+      prApplyMultiSelectVisual();
+      prAutoSync();
+      return;
+    }
+
+    // ── Delete / Backspace ──
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
     if (prMultiSelected.size > 0) {
       e.preventDefault();
-      console.log('[PR-delete] multi-select: removing ' + prMultiSelected.size + ' notes');
       prNotes = prNotes.filter(function(n) { return !prMultiSelected.has(n.id); });
       prDrumNotes = prDrumNotes.filter(function(n) { return !prMultiSelected.has(n.id); });
       prClearMultiSelect();
@@ -62475,7 +62625,6 @@ setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebu
       prAutoSync();
     } else if (prSelected !== null) {
       e.preventDefault();
-      console.log('[PR-delete] single: removing id=' + prSelected);
       prNotes = prNotes.filter(function(n) { return n.id !== prSelected; });
       prDrumNotes = prDrumNotes.filter(function(n) { return n.id !== prSelected; });
       prSelected = null;
