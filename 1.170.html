@@ -4340,14 +4340,7 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   .keyboard-drawer-overlay.open { display: block; }
   .keyboard-drawer-tab {
-    position: fixed; top: 50%; right: 0;
-    transform: translateY(-50%);
-    background: #ffd166;
-    border-radius: 6px 0 0 6px;
-    padding: 14px 8px; cursor: pointer;
-    z-index: 961;
-    display: flex; flex-direction: column; align-items: center; gap: 6px;
-    box-shadow: -2px 0 10px rgba(0,0,0,0.3);
+    display: none !important;
   }
   .keyboard-drawer-tab.tab-active {
     outline: 2px solid #ffd166;
@@ -7230,6 +7223,13 @@ body:has(#landingOverlay:not(.hidden)) #headerTransport {
 .sl-checks { display: inline-flex; gap: 4px; align-items: center; margin-left: 6px; flex-shrink: 0; vertical-align: middle; }
 .sl-check { font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 3px; border: 1px solid; line-height: 1.4; }
 .sl-check-lyr { color: #4ade80; border-color: rgba(74,222,128,0.4); background: rgba(74,222,128,0.08); }
+.sl-loaded-badge {
+  display: inline-block; font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--gold, #f5a623); border: 1px solid rgba(245,166,35,0.4);
+  background: rgba(245,166,35,0.08); border-radius: 4px; padding: 1px 6px;
+  margin-left: 6px; vertical-align: middle;
+}
 .sl-check-mus { color: #34d399; border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.08); }
 
 /* ── Welcome Screen (empty state) ────────────────────────────── */
@@ -15859,7 +15859,18 @@ body.split-pr-active .pr-overlay { display: none !important; }
 .tut-walk-body { padding: 12px 14px; font-size: 12px; line-height: 1.6; }
 .tut-walk-step { color: #ccc; }
 .tut-walk-step .tut-walk-arrow { color: var(--teal, #64dcb4); font-weight: 700; margin-right: 6px; }
-.tut-walk-progress { font-size: 10px; color: var(--faint, #888); padding: 0 14px 8px; }
+.tut-walk-progress {
+  font-size: 10px; color: var(--faint, #888); padding: 0 14px 8px;
+  display: flex; align-items: center; gap: 8px;
+}
+.tut-walk-nav-btn {
+  width: 24px; height: 24px; padding: 0; line-height: 22px; text-align: center;
+  background: transparent; border: 1px solid #444; border-radius: 4px;
+  color: #ccc; font-size: 13px; cursor: pointer; font-family: 'IBM Plex Mono', monospace;
+  flex-shrink: 0;
+}
+.tut-walk-nav-btn:hover { border-color: var(--teal, #64dcb4); color: var(--teal, #64dcb4); }
+.tut-walk-nav-btn:disabled { opacity: 0.3; cursor: default; border-color: #333; color: #555; }
 
 /* ── Walkthrough completion overlay ── */
 .tut-walk-complete {
@@ -17867,6 +17878,7 @@ function renderGrid() {
       (song.id === currentId && typeof _mtTracks !== 'undefined' && _mtTracks.some(t => t.takes && t.takes.length > 0));
     const hasMusic = hasInstContent || hasSeqContent || hasChordContent || hasRecordings;
     const checkBadges = (hasLyrics || hasMusic) ? `<span class="sl-checks">${hasLyrics ? '<span class="sl-check sl-check-lyr" title="Has lyrics">✓ Lyr</span>' : ''}${hasMusic ? '<span class="sl-check sl-check-mus" title="Has music/recordings">✓ Mus</span>' : ''}</span>` : '';
+    const loadedBadge = isActive ? '<span class="sl-loaded-badge" title="Currently loaded">Loaded</span>' : '';
     const draggable = (!isShared && !isViewOnly) ? `draggable="true" ondragstart="_slDragStart('${song.id}',event)" ondragend="_slDragEnd('${song.id}')" ondragover="_slRowDragOver(this,event)" ondragleave="_slRowDragLeave(this,event)" ondrop="_slRowDrop(this,event)"` : '';
     const projKey = (song.project||'').trim();
     const projColor = isActive ? (userProjColors[projKey] || null) : null;
@@ -17874,7 +17886,7 @@ function renderGrid() {
     return `<div class="song-list-row${isActive?' active-row':''}${(isShared||isViewOnly)?' shared-row':''}" id="row-${song.id}" data-song-id="${song.id}"
       style="cursor:pointer;${activeColorStyle}" ${draggable} onclick="rowLoadSong('${song.id}')"
       onmouseenter="_slHoverEnter('${song.id}',this)" onmouseleave="_slHoverLeave()">
-      <div class="song-list-title">${titleHtml}${sharedBadge}${viewOnlyBadge}${sharingIndicator}${checkBadges}</div>
+      <div class="song-list-title">${titleHtml}${loadedBadge}${sharedBadge}${viewOnlyBadge}${sharingIndicator}${checkBadges}</div>
       ${statusCell}${actionsHtml}
     </div>`;
   }
@@ -18742,11 +18754,63 @@ function _loadExpandedProjs() {
 let _rowTimerInterval = null;
 
 function rowLoadSong(id) {
+  // If clicking the already-loaded song, show rename overlay
+  if (id === currentId) {
+    var song = songs.find(function(s) { return s.id === id; });
+    if (song) _showRenameSongOverlay(song);
+    return;
+  }
   openSong(id);
   // Defer grid re-render so the detail view paints first — calling it synchronously
   // causes both DOM operations to compete in the same frame, stalling the transition.
   requestAnimationFrame(() => renderGrid());
   _setWorkLayout();
+}
+
+function _showRenameSongOverlay(song) {
+  var existing = document.getElementById('renameSongOverlay');
+  if (existing) existing.remove();
+  var ov = document.createElement('div');
+  ov.id = 'renameSongOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10100;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;padding:20px;animation:welcomeFadeIn 0.4s ease forwards;';
+  ov.innerHTML =
+    '<div style="background:linear-gradient(180deg,#1a1a2e 0%,#0d0d18 100%);border:2px solid var(--gold,#f5a623);border-radius:14px;padding:32px 28px;max-width:420px;width:100%;box-shadow:0 12px 48px rgba(0,0,0,0.5);">' +
+      '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:14px;font-weight:700;color:var(--gold,#f5a623);margin-bottom:16px;letter-spacing:0.04em;">Rename Song</div>' +
+      '<input id="renameSongInput" type="text" value="' + (song.title||song.workingTitle||'').replace(/"/g, '&quot;') + '" ' +
+        'style="width:100%;box-sizing:border-box;font-family:\'IBM Plex Mono\',monospace;font-size:14px;padding:10px 12px;background:#0a0a12;border:1.5px solid var(--border2,#333);border-radius:8px;color:#eee;outline:none;margin-bottom:20px;" ' +
+        'onfocus="this.select()" />' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
+        '<button id="renameSongCancelBtn" style="font-family:\'IBM Plex Mono\',monospace;font-size:12px;padding:8px 20px;background:transparent;border:1px solid #444;border-radius:8px;color:#ccc;cursor:pointer;">Cancel</button>' +
+        '<button id="renameSongOkBtn" style="font-family:\'IBM Plex Mono\',monospace;font-size:12px;font-weight:600;padding:8px 20px;background:var(--gold,#f5a623);border:none;border-radius:8px;color:#0a0a0c;cursor:pointer;">OK</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+
+  var input = document.getElementById('renameSongInput');
+  setTimeout(function() { input.focus(); input.select(); }, 100);
+
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('renameSongOkBtn').click(); }
+    if (e.key === 'Escape') { e.preventDefault(); document.getElementById('renameSongCancelBtn').click(); }
+  });
+
+  document.getElementById('renameSongCancelBtn').addEventListener('click', function() {
+    ov.remove();
+  });
+
+  document.getElementById('renameSongOkBtn').addEventListener('click', function() {
+    var newTitle = input.value.trim();
+    if (newTitle && newTitle !== song.title) {
+      song.title = newTitle;
+      song.updatedAt = Date.now();
+      save();
+      renderGrid();
+      if (typeof populateSongFields === 'function') populateSongFields(song);
+    }
+    ov.remove();
+  });
+
+  ov.addEventListener('click', function(e) { if (e.target === ov) ov.remove(); });
 }
 
 function getProjectList() {
@@ -18810,7 +18874,6 @@ function newSong() {
     showUpgradeModal(`You've reached your ${limits.songs}-song limit on the free plan. Upgrade to create unlimited songs.`);
     return;
   }
-  const _defSeq = { id: 'seq_' + Date.now(), bpm:'120', time:'4', bars:'4', grid:'4', swing:'0', vel:'0.8', wave:'triangle', instrument:'piano+synth', chordSlots:[], chordDegrees:[], kick:[], snare:[], hat:[], crash:[], clap:[], hitom:[], lotom:[], melody:[] };
   /* Auto-generate title as DD/MM/YY HH:MM */
   const _now = new Date();
   const _dd = String(_now.getDate()).padStart(2,'0');
@@ -18819,15 +18882,66 @@ function newSong() {
   const _hh = String(_now.getHours()).padStart(2,'0');
   const _min = String(_now.getMinutes()).padStart(2,'0');
   const _autoTitle = _dd + '/' + _mm + '/' + _yy + ' ' + _hh + ':' + _min;
+
+  // Show rename overlay instead of immediately opening
+  _showNewSongOverlay(_autoTitle);
+}
+
+function _showNewSongOverlay(defaultTitle) {
+  var existing = document.getElementById('newSongOverlay');
+  if (existing) existing.remove();
+  var ov = document.createElement('div');
+  ov.id = 'newSongOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10100;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;padding:20px;animation:welcomeFadeIn 0.4s ease forwards;';
+  ov.innerHTML =
+    '<div style="background:linear-gradient(180deg,#1a1a2e 0%,#0d0d18 100%);border:2px solid var(--gold,#f5a623);border-radius:14px;padding:32px 28px;max-width:420px;width:100%;box-shadow:0 12px 48px rgba(0,0,0,0.5);">' +
+      '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:14px;font-weight:700;color:var(--gold,#f5a623);margin-bottom:16px;letter-spacing:0.04em;">Name Your Song</div>' +
+      '<input id="newSongNameInput" type="text" value="' + defaultTitle.replace(/"/g, '&quot;') + '" ' +
+        'style="width:100%;box-sizing:border-box;font-family:\'IBM Plex Mono\',monospace;font-size:14px;padding:10px 12px;background:#0a0a12;border:1.5px solid var(--border2,#333);border-radius:8px;color:#eee;outline:none;margin-bottom:20px;" ' +
+        'onfocus="this.select()" />' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
+        '<button id="newSongCancelBtn" style="font-family:\'IBM Plex Mono\',monospace;font-size:12px;padding:8px 20px;background:transparent;border:1px solid #444;border-radius:8px;color:#ccc;cursor:pointer;">Cancel</button>' +
+        '<button id="newSongOkBtn" style="font-family:\'IBM Plex Mono\',monospace;font-size:12px;font-weight:600;padding:8px 20px;background:var(--gold,#f5a623);border:none;border-radius:8px;color:#0a0a0c;cursor:pointer;">OK</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+
+  var input = document.getElementById('newSongNameInput');
+  setTimeout(function() { input.focus(); input.select(); }, 100);
+
+  // Enter key = OK
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('newSongOkBtn').click(); }
+    if (e.key === 'Escape') { e.preventDefault(); document.getElementById('newSongCancelBtn').click(); }
+  });
+
+  document.getElementById('newSongCancelBtn').addEventListener('click', function() {
+    ov.remove();
+  });
+
+  document.getElementById('newSongOkBtn').addEventListener('click', function() {
+    var title = input.value.trim() || defaultTitle;
+    ov.remove();
+    _createAndLoadSong(title);
+  });
+
+  // Click backdrop to cancel
+  ov.addEventListener('click', function(e) { if (e.target === ov) ov.remove(); });
+}
+
+function _createAndLoadSong(title) {
+  const _defSeq = { id: 'seq_' + Date.now(), bpm:'120', time:'4', bars:'4', grid:'4', swing:'0', vel:'0.8', wave:'triangle', instrument:'piano+synth', chordSlots:[], chordDegrees:[], kick:[], snare:[], hat:[], crash:[], clap:[], hitom:[], lotom:[], melody:[] };
   const song = {
-    id: genId(), workingTitle:'', title: _autoTitle, bpm:'120', key:'C major', tuning:'',
+    id: genId(), workingTitle:'', title: title, bpm:'120', key:'C major', tuning:'',
     project:'', status:'idea', structure:{}, sectionOrder:[], chords:{}, instruments:{}, sequencer: _defSeq, sequences: [_defSeq], notes:'', moods:[],
     createdAt: Date.now(), updatedAt: Date.now()
   };
   songs.unshift(song);
   save();
   openSong(song.id);
-  _setWorkLayout();
+  // Stay on songlist so user can see their song card with [Loaded] badge
+  showList();
+  renderGrid();
 }
 
 // ── Drawer-safe background song operations ────────────────────────
@@ -21870,15 +21984,22 @@ async function initMidi(silent) {
     _midiEnabled    = true;
     _midiPermission = 'granted';
 
-    // Restore saved MIDI device by name or id, fall back to first input
+    // Restore saved MIDI device by id, name, or partial name match
     const _allInputs = [..._midiAccess.inputs.values()];
     const _savedMidiState = window._lastStateFromFirestore || {};
     const _savedMidiName = _savedMidiState.midiInputName;
     const _savedMidiId   = _savedMidiState.midiInputId;
+    const _savedMidiMfr  = _savedMidiState.midiInputManufacturer;
     if (!_midiInputId && (_savedMidiName || _savedMidiId)) {
+      // Priority: exact id → exact name → partial name match → manufacturer + partial name
       const _match = _allInputs.find(inp => inp.id === _savedMidiId) ||
-                     _allInputs.find(inp => inp.name === _savedMidiName);
-      if (_match) { _midiInputId = _match.id; }
+                     _allInputs.find(inp => inp.name === _savedMidiName) ||
+                     _allInputs.find(inp => _savedMidiName && inp.name && inp.name.toLowerCase().includes(_savedMidiName.toLowerCase().split(' ')[0])) ||
+                     (_savedMidiMfr ? _allInputs.find(inp => inp.manufacturer === _savedMidiMfr) : null);
+      if (_match) {
+        _midiInputId = _match.id;
+        console.log('[MIDI] Auto-reconnected to saved device:', _match.name, '(id:', _match.id + ')');
+      }
     }
     if (!_midiInputId && _allInputs[0]) _midiInputId = _allInputs[0].id;
 
@@ -21893,7 +22014,8 @@ async function initMidi(silent) {
           // Auto-select if saved device reconnects, or if nothing selected
           var _st = window._lastStateFromFirestore || {};
           var _isSaved = (_st.midiInputId && e.port.id === _st.midiInputId) ||
-                         (_st.midiInputName && e.port.name === _st.midiInputName);
+                         (_st.midiInputName && e.port.name === _st.midiInputName) ||
+                         (_st.midiInputName && e.port.name && e.port.name.toLowerCase().includes(_st.midiInputName.toLowerCase().split(' ')[0]));
           if (!_midiInputId || _isSaved) _midiInputId = e.port.id;
           e.port.onmidimessage = (e.port.id === _midiInputId) ? _midiHandleMessage : null;
         }
@@ -22331,10 +22453,12 @@ function _midiSelectInput(deviceId) {
     if (uid) {
       db.collection('users').doc(uid).update({
         'lastState.midiInputName': sel2.name,
-        'lastState.midiInputId': sel2.id
+        'lastState.midiInputId': sel2.id,
+        'lastState.midiInputManufacturer': sel2.manufacturer || ''
       }).catch(function(e) {
         console.warn('[MIDI] failed to save device pref:', e.message);
       });
+      console.log('[MIDI] Saved device pref — name:', sel2.name, 'id:', sel2.id, 'manufacturer:', sel2.manufacturer);
     }
   }
 }
@@ -23660,7 +23784,7 @@ function seqRenderSequenceTabs() {
   const _stripHint = seqs.length < 3 ? '<span class="seq-strip-hint">Tap part · double-tap to manage</span>' : '';
   const _stripIsPlaying = (typeof _seqStripPlaying !== 'undefined' && _seqStripPlaying && seqIsPlaying);
   const _stripPlayClass = _stripIsPlaying ? ' seq-strip-playing' : '';
-  const _stripPlayLabel = _stripIsPlaying ? '■ Stop' : '▶ Play';
+  const _stripPlayLabel = _stripIsPlaying ? '■ Stop' : '▶ Play Sequence';
   const _stripPlayTitle = _stripIsPlaying ? 'Stop full sequence playback' : 'Play everything — all sections in order, looping';
   strip.innerHTML = `
     <button class="seq-strip-play-btn${_stripPlayClass}" id="seqStripPlayBtn" onclick="seqStripPlayToggle()" title="${_stripPlayTitle}">${_stripPlayLabel}</button>
@@ -65991,8 +66115,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
   var _walkSteps = [
     { msg: 'Tap the <strong>+</strong> button in the header to create a new song.', detect: 'song_created' },
-    { msg: 'Choose a stage for your song — <strong>Idea</strong>, <strong>Drafting</strong>, or <strong>Song</strong>.', detect: 'stage_changed' },
-    { msg: 'Open the <strong>Sequencer</strong> from the bottom toolbar.', detect: 'seq_opened' },
+    { msg: 'A naming overlay just appeared — give your song a name and click <strong>OK</strong>.', detect: 'song_named' },
+    { msg: 'Open the <strong>Drum Sequencer</strong> from the bottom toolbar.', detect: 'seq_opened' },
     { msg: 'Tap some cells in the drum grid to lay down a beat.', detect: 'drum_toggled' },
     { msg: 'Open the <strong>Piano Roll</strong> and add a chord.', detect: 'pr_chord_added' },
     { msg: 'Now add a chord to a <strong>keyboard chord slot</strong> (finger key 1–9).', detect: 'finger_chord_set' },
@@ -66000,7 +66124,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     { msg: 'Press <span class="tut-key">Space</span> to start playback.', detect: 'playback_started' },
     { msg: 'Press <span class="tut-key">Space</span> again to stop.', detect: 'playback_stopped_1' },
     { msg: 'Now try <span class="tut-key">Shift + Space</span> to play everything in this section.', detect: 'shift_space_play' },
-    { msg: 'Press <span class="tut-key">Space</span> to stop.', detect: 'playback_stopped_2' }
+    { msg: 'Press <span class="tut-key">Space</span> to stop.', detect: 'playback_stopped_2' },
+    { msg: 'See the <strong>Sequence Strip</strong> at the top? That\'s where your song sections live. Click the <strong>≡</strong> icon to open the <strong>Sequence Manager</strong> — try adding a new section or rearranging them by dragging.', detect: 'seq_mgr_used' }
   ];
 
   function _tutBuildWalkMini() {
@@ -66014,11 +66139,21 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         '<button class="tut-walk-close" id="tutWalkClose" title="Close walkthrough">✕</button>' +
       '</div>' +
       '<div class="tut-walk-body"><div class="tut-walk-step" id="tutWalkStepText"></div></div>' +
-      '<div class="tut-walk-progress" id="tutWalkProgress"></div>';
+      '<div class="tut-walk-progress" id="tutWalkProgress">' +
+        '<button class="tut-walk-nav-btn" id="tutWalkPrev" title="Previous step">←</button>' +
+        '<span id="tutWalkProgressText"></span>' +
+        '<button class="tut-walk-nav-btn" id="tutWalkNext" title="Next step">→</button>' +
+      '</div>';
     document.body.appendChild(el);
     _tutWalkEl = el;
 
     document.getElementById('tutWalkClose').addEventListener('click', _tutEndWalkthrough);
+    document.getElementById('tutWalkPrev').addEventListener('click', function() {
+      if (_tutWalkStep > 0) { _tutWalkStep--; _tutWalkRenderStep(); }
+    });
+    document.getElementById('tutWalkNext').addEventListener('click', function() {
+      if (_tutWalkStep < _walkSteps.length - 1) { _tutWalkStep++; _tutWalkRenderStep(); }
+    });
     _tutMakeDraggable(el, document.getElementById('tutWalkHeader'));
   }
 
@@ -66037,9 +66172,13 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     if (_tutWalkStep >= _walkSteps.length) { _tutWalkComplete(); return; }
     var step = _walkSteps[_tutWalkStep];
     var text = document.getElementById('tutWalkStepText');
-    var prog = document.getElementById('tutWalkProgress');
+    var progText = document.getElementById('tutWalkProgressText');
+    var prevBtn = document.getElementById('tutWalkPrev');
+    var nextBtn = document.getElementById('tutWalkNext');
     if (text) text.innerHTML = '<span class="tut-walk-arrow">→</span> ' + step.msg;
-    if (prog) prog.textContent = 'Step ' + (_tutWalkStep + 1) + ' of ' + _walkSteps.length;
+    if (progText) progText.textContent = 'Step ' + (_tutWalkStep + 1) + ' of ' + _walkSteps.length;
+    if (prevBtn) prevBtn.disabled = (_tutWalkStep === 0);
+    if (nextBtn) nextBtn.disabled = (_tutWalkStep >= _walkSteps.length - 1);
   }
 
   function _tutWalkAdvance(detectId) {
@@ -66105,17 +66244,17 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       };
     }
 
-    // 2. Stage changed — listen for clicks on status selectors
-    var _stageListener = function(e) {
-      var t = e.target;
-      if (t && (t.classList.contains('status-option') || t.dataset?.field === 'status' || (t.closest && t.closest('[data-status]')))) {
-        _tutWalkAdvance('stage_changed');
+    // 2. Song named — detect when the new song naming overlay closes (OK clicked)
+    var _songNamedInterval = setInterval(function() {
+      // If the overlay was showing and is now gone, and a song exists, they named it
+      if (!document.getElementById('newSongOverlay') && typeof songs !== 'undefined' && songs.length > 0) {
+        _tutWalkAdvance('song_named');
       }
-    };
-    document.addEventListener('click', _stageListener, true);
-    _tutWalkListeners.push({ type: 'click', fn: _stageListener, capture: true });
+      if (!_tutWalkActive) clearInterval(_songNamedInterval);
+    }, 400);
+    _tutWalkListeners.push({ type: 'interval', fn: _songNamedInterval });
 
-    // 4. Sequencer opened
+    // 3. Sequencer opened
     var _seqOpenListener = function() {
       if (document.getElementById('seqDrawer')?.classList.contains('open') ||
           document.getElementById('keyboardDrawer')?.classList.contains('open')) {
@@ -66203,6 +66342,15 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     };
     document.addEventListener('keydown', _spaceListener, true);
     _tutWalkListeners.push({ type: 'keydown', fn: _spaceListener, capture: true });
+
+    // 12. Sequence manager used — detect overlay open or sequence add/duplicate
+    var _seqMgrInterval = setInterval(function() {
+      if (document.getElementById('seqMgrOverlay')) {
+        _tutWalkAdvance('seq_mgr_used');
+      }
+      if (!_tutWalkActive) clearInterval(_seqMgrInterval);
+    }, 500);
+    _tutWalkListeners.push({ type: 'interval', fn: _seqMgrInterval });
   }
 
   function _tutWalkUnbindDetectors() {
@@ -66282,10 +66430,19 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     var interval = setInterval(function() {
       checkCount++;
       if (checkCount > 30) { clearInterval(interval); return; }
+      // Wait for Firestore state AND songs array to be populated
       if (!window._lastStateFromFirestore && checkCount < 20) return;
+      if (typeof songs === 'undefined') return;
       clearInterval(interval);
-      if (!_tutHasSeenTutorial()) {
+      // Only show for brand-new accounts (no tutorialSeen flag AND zero songs)
+      if (!_tutHasSeenTutorial() && songs.length === 0) {
         setTimeout(function() { _tutShowWelcomeOverlay(); }, 1500);
+      } else if (!_tutHasSeenTutorial() && songs.length > 0) {
+        // Existing user who predates the tutorial — silently mark as seen
+        if (typeof db !== 'undefined' && typeof auth !== 'undefined' && auth.currentUser) {
+          var uid = auth.currentUser.uid;
+          if (uid) db.collection('users').doc(uid).update({ 'lastState.tutorialSeen': true }).catch(function() {});
+        }
       }
     }, 500);
   }
