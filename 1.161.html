@@ -21723,54 +21723,24 @@ async function initMidi(silent) {
     const _savedMidiName = (window._lastStateFromFirestore || {}).midiInputName;
     if (_savedMidiName && !_midiInputId) {
       const _match = _allInputs.find(inp => inp.name === _savedMidiName);
-      if (_match) { _midiInputId = _match.id; console.log('[MIDI-DBG] Restored saved device: "' + _savedMidiName + '"'); }
+      if (_match) { _midiInputId = _match.id; }
     }
     if (!_midiInputId && _allInputs[0]) _midiInputId = _allInputs[0].id;
-
-    // ── MIDI DEBUG: device enumeration ──
-    console.log('%c[MIDI-DBG] ═══ DEVICE ENUMERATION ═══', 'color:#0ff;font-weight:bold');
-    console.log('[MIDI-DBG] _midiInputId selected:', _midiInputId);
-    _allInputs.forEach((inp, i) => {
-      const willBind = (!_midiInputId || inp.id === _midiInputId);
-      console.log('[MIDI-DBG] Input[' + i + '] id:"' + inp.id + '" name:"' + inp.name + '" state:' + inp.state + ' → handler=' + (willBind ? 'YES ✓' : 'NO ✗'));
-    });
-    const _allOutputs = [..._midiAccess.outputs.values()];
-    _allOutputs.forEach((out, i) => {
-      console.log('[MIDI-DBG] Output[' + i + '] id:"' + out.id + '" name:"' + out.name + '" state:' + out.state);
-    });
 
     // Bind handler to selected device only (original logic)
     _midiAccess.inputs.forEach(inp => {
       inp.onmidimessage = (!_midiInputId || inp.id === _midiInputId) ? _midiHandleMessage : null;
     });
 
-    // ── MIDI DEBUG: sniff ALL inputs so we catch messages on unbound devices ──
-    _midiAccess.inputs.forEach(inp => {
-      const origHandler = inp.onmidimessage;
-      inp.onmidimessage = function(msg) {
-        const [status, note, vel] = msg.data;
-        const cmd = status & 0xf0;
-        if (cmd === 0x90 || cmd === 0x80) {
-          const isBound = (inp.id === _midiInputId);
-          console.log('%c[MIDI-DBG] RAW "' + inp.name + '" cmd:0x' + cmd.toString(16) + ' note:' + note + ' vel:' + vel + ' routed=' + isBound, isBound ? 'color:#0f0' : 'color:#f55;font-weight:bold');
-          if (!isBound) console.warn('[MIDI-DBG] ⚠ NOTE ON UNBOUND DEVICE "' + inp.name + '" — being IGNORED. Select this device to fix.');
-        }
-        if (origHandler) origHandler(msg);
-        else if (inp.id === _midiInputId) _midiHandleMessage(msg);
-      };
-    });
-
     _midiAccess.onstatechange = e => {
-      console.log('[MIDI-DBG] statechange — "' + e.port.name + '" type:' + e.port.type + ' state:' + e.port.state);
       if (e.port.type === 'input') {
         if (e.port.state === 'connected') {
           if (!_midiInputId) _midiInputId = e.port.id;
-          console.log('[MIDI-DBG] bind "' + e.port.name + '"? ' + (e.port.id === _midiInputId ? 'YES' : 'NO') + ' _midiInputId=' + _midiInputId);
           e.port.onmidimessage = (e.port.id === _midiInputId) ? _midiHandleMessage : null;
         }
         if (e.port.state === 'disconnected') {
           e.port.onmidimessage = null;
-          if (_midiInputId === e.port.id) { _midiInputId = null; console.log('[MIDI-DBG] active device disconnected, _midiInputId → null'); }
+          if (_midiInputId === e.port.id) { _midiInputId = null; }
         }
       }
       _midiUpdateUI();
@@ -21800,17 +21770,6 @@ async function initMidi(silent) {
     } else if (inputs.length > 0) {
       console.log('[MIDI] Auto-reconnected — ' + inputs.length + ' device(s)');
     }
-    // ── MIDI DEBUG: startup summary ──
-    console.log('%c[MIDI-DBG] ═══ STARTUP SUMMARY ═══', 'color:#0ff;font-weight:bold');
-    console.log('[MIDI-DBG] Total inputs: ' + inputs.length + ' | Total outputs: ' + [..._midiAccess.outputs.values()].length);
-    console.log('[MIDI-DBG] Active input id: ' + _midiInputId);
-    var activeDevice = inputs.find(d => d.id === _midiInputId);
-    console.log('[MIDI-DBG] Active input name: "' + (activeDevice ? activeDevice.name : 'NONE') + '"');
-    console.log('[MIDI-DBG] _midiMelodyChannel: ' + _midiMelodyChannel + ' (-1=all)');
-    console.log('[MIDI-DBG] melodyInstr: ' + _kbdMelodyInstrument + ' | chordInstr: ' + _activeInstrument);
-    console.log('[MIDI-DBG] pianoLoaded:' + _pianoLoaded + ' piano2Loaded:' + _piano2Loaded + ' guitarLoaded:' + _guitarLoaded);
-    console.log('%c[MIDI-DBG] ⬆ If your keyboard is NOT the "Active input name" above, click the MIDI pill in the header to switch devices.', 'color:#f5a623;font-weight:bold');
-
   } catch(e) {
     console.warn('MIDI access error:', e);
     _midiEnabled    = false;
@@ -22194,14 +22153,12 @@ function _midiShowDeviceList(evt) {
 
 function _midiSelectInput(deviceId) {
   _midiInputId = deviceId;
-  console.log('[MIDI-DBG] User switched active input to:', deviceId);
   if (_midiAccess) {
     _midiAccess.inputs.forEach(inp => {
       inp.onmidimessage = (inp.id === _midiInputId) ? _midiHandleMessage : null;
     });
     var sel = null;
     _midiAccess.inputs.forEach(inp => { if (inp.id === deviceId) sel = inp; });
-    console.log('[MIDI-DBG] Now listening on: "' + (sel ? sel.name : '?') + '"');
   }
   _midiUpdateUI();
   var dd = document.getElementById('midiDeviceDropdown');
@@ -23038,13 +22995,6 @@ function initSequencer(song) {
   // Migrate + redirect song.sequencer to active sequence
   getSongSequences(fresh);
   const sd = fresh.sequencer || {};
-  // Debug: log what data is available on init
-  const _dbgSeqs = fresh.sequences || [];
-  console.log('[DRUM-DEBUG] initSequencer — songId:', fresh.id, '| sequences.length:', _dbgSeqs.length, '| seqActiveIdx:', seqActiveIdx);
-  console.log('[DRUM-DEBUG] initSequencer — sd keys:', Object.keys(sd).filter(k=>Array.isArray(sd[k])&&sd[k].some(Boolean)).join(','));
-  console.log('[DRUM-DEBUG] initSequencer — sd.kick:', JSON.stringify((sd.kick||[]).slice(0,16)), '| sd.snare:', JSON.stringify((sd.snare||[]).slice(0,16)));
-  if (_dbgSeqs[0]) console.log('[DRUM-DEBUG] initSequencer — seq[0].kick:', JSON.stringify((_dbgSeqs[0].kick||[]).slice(0,16)));
-
   // Sync key dropdown in sequencer
   const seqKD = document.getElementById('seqKeySelect');
   if (seqKD) seqKD.value = fresh.key || '';
@@ -27524,13 +27474,11 @@ function seqBuildGrids(song) {
     }
   }
 
-  console.log('[DRUM-DEBUG] seqBuildGrids — sd keys:', Object.keys(sd), '| sd.kick:', JSON.stringify(sd.kick?.slice(0,8)), '| sd.snare:', JSON.stringify(sd.snare?.slice(0,8)), '| sd.hat:', JSON.stringify(sd.hat?.slice(0,8)), '| totalSteps:', totalDrumSteps);
   [['seqKick','kick'],['seqSnare','snare'],['seqHat','hat'],['seqHiTom','hitom'],['seqLoTom','lotom'],['seqCrash','crash'],['seqClap','clap']].forEach(([elId, lane]) => {
     const el = document.getElementById(elId);
     if (!el) return;
     const savedLane = sd[lane] || [];
     const savedVel  = sd[lane + 'Vel'] || [];
-    if (savedLane.some(Boolean)) console.log('[DRUM-DEBUG] lane:', lane, '| hits:', savedLane.filter(Boolean).length, '| totalSteps:', totalSteps, '| arrLen:', savedLane.length);
     el.innerHTML = '';
     el.style.touchAction = 'auto';
     el.style.gridTemplateColumns = 'repeat(' + totalSteps + ', 1fr)';
@@ -28781,7 +28729,6 @@ function seqSaveDrumLane(lane, elId) {
   song.sequencer[lane]          = slots.map(s => s.classList.contains('drum-on') ? 1 : 0);
   song.sequencer[lane + 'Vel']  = slots.map(s => s.classList.contains('drum-on') ? parseFloat(s.dataset.vel || 0.8) : 0);
   const _dbgHits = song.sequencer[lane].filter(Boolean).length;
-  console.log('[DRUM-DEBUG] seqSaveDrumLane:', lane, '| hits:', _dbgHits, '| arrLen:', song.sequencer[lane].length, '| seq===seq[0]:', song.sequencer === (song.sequences||[])[0]);
   song.updatedAt = Date.now();
   save();
   scheduleSyncToSheet(song);
@@ -29235,9 +29182,7 @@ window._prInlineActive = false;
 window.kbdStageInitInlinePR = function() {
   const col = document.getElementById('kbdStagePrCol');
   const panel = document.getElementById('prPanel');
-  console.log('[KBD-DEBUG] kbdStageInitInlinePR — col:', !!col, 'panel:', !!panel);
-  if (col) console.log('[KBD-DEBUG] col dims:', col.offsetWidth, 'x', col.offsetHeight, '| col parent:', col.parentElement?.className);
-  if (!col || !panel) { console.warn('[KBD-DEBUG] kbdStageInitInlinePR ABORTED — missing element'); return; }
+  if (!col || !panel) { return; }
   // Move prPanel from overlay into the inline column
   col.innerHTML = '';
   col.appendChild(panel);
@@ -29269,9 +29214,7 @@ window.kbdStageInitInlinePR = function() {
   function _prInlineTryRender() {
     var scroll = document.getElementById('prGridScroll');
     var sw = scroll ? scroll.clientWidth : -1;
-    console.log('[KBD-DEBUG] _prInlineTryRender attempt', _prInlineRetries, '| scroll:', !!scroll, '| clientWidth:', sw);
     if (scroll && sw > 0) {
-      console.log('[KBD-DEBUG] PR inline render GO — clientWidth:', sw, 'clientHeight:', scroll.clientHeight);
       if (typeof prLoadFromGrid === 'function') prLoadFromGrid();
       if (typeof prRender === 'function') prRender();
       if (typeof prBuildPalette === 'function') prBuildPalette();
@@ -29279,12 +29222,10 @@ window.kbdStageInitInlinePR = function() {
       var c4row = (84 - 60);
       scroll.scrollTop = Math.max(0, c4row * rowH - scroll.clientHeight / 2);
       if (typeof prSetSyncEnabled === 'function') setTimeout(function() { prSetSyncEnabled(true); }, 50);
-      console.log('[KBD-DEBUG] PR inline render DONE');
     } else if (_prInlineRetries < 20) {
       _prInlineRetries++;
       requestAnimationFrame(_prInlineTryRender);
     } else {
-      console.error('[KBD-DEBUG] PR inline render GAVE UP after 20 retries — clientWidth still 0');
     }
   }
   requestAnimationFrame(_prInlineTryRender);
@@ -33941,25 +33882,6 @@ function decodeInstrumentsFromFirestore(raw) {
 // Normalise a song object freshly loaded from Firestore
 function normalizeLoadedSong(s) {
   s.instruments = decodeInstrumentsFromFirestore(s.instruments);
-  // Clean up bloated pianoRoll arrays (from prior cross-contamination bug)
-  if (Array.isArray(s.sequences)) {
-    var _prSnap = (typeof prSnap !== 'undefined') ? prSnap : 4;
-    s.sequences.forEach(function(seq) {
-      if (seq && Array.isArray(seq.pianoRoll) && seq.pianoRoll.length > _PR_MAX_NOTES_PER_SEQ) {
-        console.warn('[NORMALIZE] Stripping bloated pianoRoll (' + seq.pianoRoll.length + ' notes) from part=' + (seq.partId || '?'));
-        delete seq.pianoRoll;
-      }
-      // Strip out-of-bounds notes (cross-contamination artifacts)
-      if (seq && Array.isArray(seq.pianoRoll) && seq.pianoRoll.length) {
-        var _maxCol = parseInt(seq.time || 4) * parseInt(seq.bars || 4) * _prSnap;
-        var _before = seq.pianoRoll.length;
-        seq.pianoRoll = seq.pianoRoll.filter(function(n) { return n && n.startCol < _maxCol; });
-        if (seq.pianoRoll.length !== _before) {
-          console.warn('[NORMALIZE] Stripped ' + (_before - seq.pianoRoll.length) + ' out-of-bounds notes from part=' + (seq.partId || '?') + ' (maxCol=' + _maxCol + ')');
-        }
-      }
-    });
-  }
   return s;
 }
 
@@ -34006,13 +33928,6 @@ async function syncToSheet(song) {
   try {
     const uid = auth.currentUser?.uid;
     markPendingSync(song.id);
-    // Debug: check drum data in sequences before sync
-    const _dbgSeq0 = (song.sequences||[])[0] || {};
-    const _dbgKickHits = (_dbgSeq0.kick||[]).filter(Boolean).length;
-    const _dbgSnareHits = (_dbgSeq0.snare||[]).filter(Boolean).length;
-    const _dbgHatHits = (_dbgSeq0.hat||[]).filter(Boolean).length;
-    const _dbgTopKick = (song.sequencer?.kick||[]).filter(Boolean).length;
-    console.log('[DRUM-DEBUG] syncToSheet — sequences[0] kick:', _dbgKickHits, 'snare:', _dbgSnareHits, 'hat:', _dbgHatHits, '| top-level sequencer kick:', _dbgTopKick, '| seq===seq[0]:', song.sequencer === _dbgSeq0);
     let payload = sanitizeForFirestore({
       id:             song.id,
       ownerId:        song.ownerId        || uid,
@@ -34423,7 +34338,6 @@ auth.onAuthStateChanged(user => {
 
 function initApp() {
   preloadSongsFromSheet(true);
-  startSyncPolling();
 
   document.getElementById('seqDrawerTab')?.classList.remove('tab-loading');
 
@@ -36604,6 +36518,7 @@ function _uiDismissLoadingScreen() {
     _ls.style.transition = 'opacity 0.3s';
     setTimeout(function() { _ls.remove(); }, 350);
   }
+  setTimeout(function() { startSyncPolling(); }, 500);
 }
 
 function _uiRestoreFromState(state, song) {
@@ -36816,7 +36731,8 @@ function initApp() {
   } else {
     preloadSongsFromSheet(true);
   }
-  startSyncPolling();
+  // startSyncPolling deferred to _uiDismissLoadingScreen to avoid
+  // onSnapshot listeners competing with boot fetch on long-polling connection
 
   document.getElementById('seqDrawerTab')?.classList.remove('tab-loading');
 
@@ -39502,15 +39418,13 @@ function setSplitRightTool(tool) {
     if (!cfg) return;
     var drawer = document.getElementById(cfg.drawerId);
     if (!drawer) return;
-    console.log('[KBD-DEBUG] setSplitRightTool generic path — tool:', tool, '| drawer:', cfg.drawerId, '| drawer dims:', drawer.offsetWidth, 'x', drawer.offsetHeight, '| splitRightContent dims:', content.offsetWidth, 'x', content.offsetHeight);
     if (!_splitOrigParents[tool]) {
       _splitOrigParents[tool] = drawer.parentNode;
     }
     content.appendChild(drawer);
     drawer.classList.add('open');
-    console.log('[KBD-DEBUG] drawer reparented into splitRightContent, calling openFn:', !!cfg.openFn);
     if (typeof cfg.openFn === 'function') {
-      try { cfg.openFn(); } catch(e) { console.error('[KBD-DEBUG] openFn ERROR:', e.message, e.stack); }
+      try { cfg.openFn(); } catch(e) { console.error('openFn ERROR:', e.message, e.stack); }
     }
   }
   // Sync dropdown
@@ -39952,7 +39866,6 @@ function _loopShowPicker(show) {
 }
 
 function renderKeyboardDrawerHtml(song) {
-  console.log('[KBD-DEBUG] renderKeyboardDrawerHtml — song:', song ? song.id : 'NULL');
   const sd = song?.sequencer || {};
   const melodyInstrument = sd.melodyInstrument || 'piano';
   const melodyQuantize = sd.melodyQuantize !== false;
@@ -39961,7 +39874,6 @@ function renderKeyboardDrawerHtml(song) {
   _kbdMelodyInstrument = melodyInstrument;
 
   if (!song) {
-    console.warn('[KBD-DEBUG] renderKeyboardDrawerHtml — NO SONG, returning picker HTML');
     // No song — show picker
     return `
       <div style="padding:10px 0 16px;">
@@ -41045,8 +40957,6 @@ function kbdGridChanged(callerVal) {
 }
 
 function openKeyboardDrawer() {
-  console.log('[KBD-DEBUG] openKeyboardDrawer called');
-  console.log('[KBD-DEBUG] innerWidth:', window.innerWidth, 'innerHeight:', window.innerHeight);
   // ── Perf mode: only one tool panel at a time ──
   if (window._ilPerfMode && document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
     vrClose();
@@ -41072,7 +40982,6 @@ function openKeyboardDrawer() {
   _drawerMobileHeaderHide();
 
   const song = getCurrentSong();
-  console.log('[KBD-DEBUG] getCurrentSong:', song ? song.id : 'NULL', '| title:', song?.title || song?.workingTitle || 'none');
   const nameEl = document.getElementById('keyboardDrawerSongName');
   if (nameEl) nameEl.textContent = song ? (song.title || song.workingTitle || 'Untitled') : 'Select a song';
 
@@ -41097,13 +41006,11 @@ function openKeyboardDrawer() {
   }
 
   const body = document.getElementById('keyboardDrawerBody');
-  if (!body) { console.error('[KBD-DEBUG] keyboardDrawerBody NOT FOUND — aborting'); return; }
-  console.log('[KBD-DEBUG] body found, offsetWidth:', body.offsetWidth, 'offsetHeight:', body.offsetHeight);
+  if (!body) { return; }
   // Rescue prPanel before innerHTML wipe — it may be inside kbdStagePrCol
   var _prPanelRescue = document.getElementById('prPanel');
   var _prOverlayRescue = document.getElementById('prOverlay');
   if (_prPanelRescue && _prOverlayRescue && body.contains(_prPanelRescue)) {
-    console.log('[KBD-DEBUG] rescuing prPanel back to overlay before innerHTML wipe');
     _prOverlayRescue.appendChild(_prPanelRescue);
     _prPanelRescue.style.maxHeight = '';
     _prPanelRescue.style.height = '';
@@ -41113,9 +41020,7 @@ function openKeyboardDrawer() {
     window._prInlineActive = false;
   }
   var _kbdHtml = renderKeyboardDrawerHtml(song);
-  console.log('[KBD-DEBUG] renderKeyboardDrawerHtml returned', _kbdHtml ? _kbdHtml.length + ' chars' : 'EMPTY/NULL');
   body.innerHTML = _kbdHtml;
-  console.log('[KBD-DEBUG] body.innerHTML set, childElementCount:', body.childElementCount);
 
   // Settings controls are static in #sharedDrawerHeader; remove dynamic copy from body
   const _kbdStripCopy = body.querySelector('.kbd-settings-strip');
@@ -41141,15 +41046,9 @@ function openKeyboardDrawer() {
     && window.matchMedia('(orientation: landscape)').matches;
   const _kbdPortMobile = window.innerWidth < 768 && !_kbdLandMobile;
   const _kbdMobileCompact = _kbdLandMobile || _kbdPortMobile;
-  console.log('[KBD-DEBUG] _kbdMobileCompact:', _kbdMobileCompact, '| _kbdLandMobile:', _kbdLandMobile, '| _kbdPortMobile:', _kbdPortMobile);
 
   // Render keyboard, melody roll, tabs, MIDI status, chord grid + pills
   requestAnimationFrame(() => {
-    console.log('[KBD-DEBUG] RAF fired — rendering grids');
-    var _kbdDrawerEl = document.getElementById('keyboardDrawer');
-    var _kbdBodyEl = document.getElementById('keyboardDrawerBody');
-    console.log('[KBD-DEBUG] drawer.open:', _kbdDrawerEl?.classList.contains('open'), '| drawer dims:', _kbdDrawerEl?.offsetWidth, 'x', _kbdDrawerEl?.offsetHeight, '| body dims:', _kbdBodyEl?.offsetWidth, 'x', _kbdBodyEl?.offsetHeight);
-    console.log('[KBD-DEBUG] drawer parent:', _kbdDrawerEl?.parentElement?.id || _kbdDrawerEl?.parentElement?.className);
     // Mobile: init mobile Piano Roll instead of old keyboard grids
     if (_kbdMobileCompact && typeof mprInit === 'function' && document.getElementById('mprWrap')) {
       mprInit();
@@ -41157,7 +41056,6 @@ function openKeyboardDrawer() {
       seqBuildGrids(song);
       seqRenderChordPills(song);
       if (_kbdPortMobile && typeof kbdPortUpdatePeek === 'function') { kbdPortUpdatePeek(); kbdPortUpdateBadge(); }
-      console.log('[KBD-DEBUG] mobile PR initialized');
     } else if (!_kbdMobileCompact) {
       seqRenderKeyboard();
       seqRenderMelodyRoll();
@@ -41172,7 +41070,6 @@ function openKeyboardDrawer() {
       if (sweepBtn) sweepBtn.style.display = '';
       // Unified pagination: init bar nav for keys (fixes first-load bug)
       setTimeout(_seqBarPaginateAll, 50);
-      console.log('[KBD-DEBUG] grid render done — stage-grid visible:', !!document.querySelector('.kbd-stage-grid'));
       // Desktop stage: init inline piano roll (no delay — polling retry handles layout)
       if (typeof kbdStageInitInlinePR === 'function') {
         kbdStageInitInlinePR();
@@ -50146,7 +50043,6 @@ function _mixMeterRAF() {
   }
 
   } catch(rafErr) {
-    console.warn('[MIX][METER] RAF error (loop continues):', rafErr.message);
   }
   _mixMeterRafId = requestAnimationFrame(_mixMeterRAF);
 }
@@ -61391,49 +61287,6 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 </div>
 
 <script>
-/* ── PR-BG-DEBUG v3: canvas GPU limit test ── */
-window._prBgDebug = function() {
-  console.log('%c[PR-BG-DEBUG] ══ v3 — Canvas GPU Limit Test ══', 'color:#ff5f5f;font-weight:bold');
-  var canvas = document.getElementById('prGridCanvas');
-  if (!canvas) { console.log('[PR-BG-DEBUG] prGridCanvas not found'); return; }
-  console.log('[PR-BG-DEBUG] canvas.width:', canvas.width, '| canvas.height:', canvas.height);
-  console.log('[PR-BG-DEBUG] style:', canvas.style.width, 'x', canvas.style.height);
-  var ctx = canvas.getContext('2d');
-  if (!ctx) { console.log('%c[PR-BG-DEBUG] ⚠️ getContext returned null!', 'color:#ff5f5f;font-weight:bold'); return; }
-  // Test: draw red pixel at (5,5) and read it back
-  ctx.fillStyle = '#ff0000';
-  ctx.fillRect(5, 5, 1, 1);
-  try {
-    var px = ctx.getImageData(5, 5, 1, 1).data;
-    var working = (px[0] === 255 && px[1] === 0 && px[2] === 0);
-    console.log(
-      '%c[PR-BG-DEBUG] Canvas render test: ' + (working ? '✅ WORKING' : '❌ BROKEN — GPU limit exceeded!') +
-      ' (readback: r=' + px[0] + ' g=' + px[1] + ' b=' + px[2] + ' a=' + px[3] + ')',
-      working ? 'color:#64dcb4;font-weight:bold' : 'color:#ff5f5f;font-weight:bold;font-size:14px'
-    );
-  } catch(e) {
-    console.log('%c[PR-BG-DEBUG] ⚠️ getImageData failed:', e.message, 'color:#ff5f5f;font-weight:bold');
-  }
-  // Check max canvas size
-  var testC = document.createElement('canvas');
-  testC.width = 1; testC.height = 1;
-  var testCtx = testC.getContext('2d');
-  // Binary search for max width
-  var lo = 1024, hi = 200000;
-  while (lo < hi - 1) {
-    var mid = Math.floor((lo + hi) / 2);
-    testC.width = mid; testC.height = 1;
-    testCtx.fillStyle = '#ff0000';
-    testCtx.fillRect(0, 0, 1, 1);
-    var d = testCtx.getImageData(0, 0, 1, 1).data;
-    if (d[0] === 255) lo = mid; else hi = mid;
-  }
-  console.log('[PR-BG-DEBUG] GPU max canvas width: ~' + lo + 'px | current grid: ' + canvas.width + 'px' +
-    (canvas.width > lo ? ' ⚠️ EXCEEDS LIMIT!' : ''));
-};
-window.prBgDebug = window._prBgDebug;
-setTimeout(function() { if (document.getElementById('prPanel')) window._prBgDebug(); }, 3000);
-
 /* ════════════════════════════════════════════════════════════════════
    PIANO ROLL ENGINE
    ════════════════════════════════════════════════════════════════════ */
