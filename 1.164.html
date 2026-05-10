@@ -9897,11 +9897,12 @@ body.songlist-active.split-active #viewList {
   flex: 0 0 auto;
   display: flex; flex-direction: row; gap: 0;
   overflow-x: auto; overflow-y: hidden; padding: 0;
-  background: #141420;
-  border-top: 1px solid var(--border, #28283a);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(245,166,35,0.3) transparent;
+  background: rgba(10,10,12,0.97);
+  border-bottom: 1px solid var(--border2, #28283a);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.dr-stage-left-col::-webkit-scrollbar { display: none; }
 .dr-stage-tools-col, .dr-stage-settings-col {
   display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; align-items: center;
   padding: 6px 10px;
@@ -22800,64 +22801,11 @@ function renderSequencerHtml(song) {
     <!-- ── Grid pane ── -->
     <div class="seq-grid-pane">
 
-    <!-- ═══ DRUM LAYOUT: Roll on top, Tools+Settings bar below ═══ -->
+    <!-- ═══ DRUM LAYOUT: Tools+Settings bar on top, Roll below ═══ -->
     <div class="dr-stage-grid" id="drStageGrid">
 
-      <!-- ── TOP: Drum Roll ── -->
-      <div class="dr-stage-roll-col">
-        <!-- Hidden legacy toolbar -->
-        <div class="ts-toolbar" id="tsToolbar" style="display:none!important">
-          <button class="ts-tool-btn" id="dtToolPointer" onclick="_dtSetTool('pointer')" title="Select & drag beats">▸ Pointer</button>
-          <button class="ts-tool-btn active" id="dtToolPencil" onclick="_dtSetTool('pencil')" title="Draw beats">✎ Pencil</button>
-          <button class="ts-tool-btn" id="dtToolEraser" onclick="_dtSetTool('eraser')" title="Erase beats">✕ Eraser</button>
-          <button class="dr-toggle-btn active" id="drToggleBtn" onclick="_drToggleView()" title="Toggle: Piano Roll / Grid / Strips" style="display:none">🎹 Piano Roll</button>
-        </div>
-        <!-- Tape Stack -->
-        <div class="ts-stack dr-hidden" id="tsDrumStack" style="position:relative;" data-tool="pencil">
-          <div class="seq-select-rect" id="seqSelectRect"></div>
-          ${[['Kick','seqKick','kick','#e8304a'],['Snare','seqSnare','snare','#87ceeb'],['Hi Hat','seqHat','hat','#f5a623'],['Hi Tom','seqHiTom','hitom','#ff9940'],['Lo Tom','seqLoTom','lotom','#cc7733'],['Crash','seqCrash','crash','#cc88ff'],['Claps','seqClap','clap','#00d26e']].map(([label,id,row,color])=>`
-          <div class="ts-strip" data-voice="${row}" id="tsStrip_${row}">
-            <div class="ts-strip-head" onclick="_tsToggleCollapse('${row}',event)">
-              <span class="ts-dot" style="background:${color}"></span>
-              <span class="ts-name" style="color:${color}">${label}</span>
-              <button class="ts-sample-btn" onclick="event.stopPropagation();_drumLabelClick(event,'${row}')" title="Change ${label} sample">${label} ▾</button>
-              <div class="ts-ctrls">
-                <span class="ts-ctrl ts-m" onclick="event.stopPropagation();_tsMute('${row}')" title="Mute">M</span>
-                <span class="ts-ctrl ts-s" onclick="event.stopPropagation();_tsSolo('${row}')" title="Solo">S</span>
-              </div>
-              <span class="ts-chev">▾</span>
-            </div>
-            <div class="ts-strip-body">
-              <span class="ts-hits" id="tsHits_${row}">—</span>
-              <div class="ts-lane seq-grid" id="${id}" data-row="${row}"></div>
-            </div>
-          </div>`).join('')}
-        </div>
-        <!-- Grid View -->
-        <div class="dr-grid-wrap" id="drGridWrap" data-tool="pencil">
-          <div class="dr-labels" id="drLabels">
-            ${[['Crash','crash','#cc88ff'],['Hi Hat','hat','#f5a623'],['Hi Tom','hitom','#ff9940'],['Lo Tom','lotom','#cc7733'],['Snare','snare','#87ceeb'],['Claps','clap','#00d26e'],['Kick','kick','#e8304a']].map(([label,voice,color])=>`
-            <div class="dr-label" data-voice="${voice}" onclick="_drLabelTap(event,'${voice}')" style="color:${color}">
-              <span class="dr-dot" style="background:${color}"></span>
-              <span class="dr-name">${label}</span>
-            </div>`).join('')}
-          </div>
-          <div class="dr-grid-scroll" id="drGridScroll">
-            <div class="dr-grid" id="drGrid">
-              <div class="dr-grid-lines" id="drGridLines"></div>
-              ${[['crash','drCrash'],['hat','drHat'],['hitom','drHiTom'],['lotom','drLoTom'],['snare','drSnare'],['clap','drClap'],['kick','drKick']].map(([voice,drId])=>`
-              <div class="dr-lane" data-voice="${voice}" id="${drId}"></div>`).join('')}
-              <div class="dr-playhead" id="drPlayhead"></div>
-              <div class="dr-select-rect" id="drSelectRect"></div>
-            </div>
-          </div>
-        </div>
-        <!-- Standalone Drum Roll container -->
-        <div id="drPrContainer" class="dr-pr-container dr-hidden" style="flex:1;min-height:0;overflow:hidden;display:none;"></div>
-      </div>
-
-      <!-- ── BOTTOM BAR: Tools + Settings side by side ── -->
-      <div class="dr-stage-left-col">
+      <!-- ── TOP BAR: Tools + Settings flush below global-seq-strip ── -->
+      <div class="dr-stage-left-col" id="drToolsBar">
         <div class="dr-stage-tools-col">
           <div class="dr-stage-col-header">Tools</div>
           <select class="seq-select" id="seqDrumPatternSel" name="drum-pattern-sel" onchange="if(this.value){applyDrumPattern(this.value)}" style="font-size:10px;min-width:90px;">
@@ -22963,7 +22911,60 @@ function renderSequencerHtml(song) {
           <button class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--gold,#f5a623);color:var(--gold,#f5a623);border-radius:4px;cursor:pointer;" onclick="seqDupPattern()" title="Duplicate pattern">+Dup</button>
           <button class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="applyDrumPattern('clear')">Clear</button>
         </div><!-- end dr-stage-settings-col -->
-      </div><!-- end dr-stage-left-col -->
+      </div><!-- end dr-stage-left-col / drToolsBar -->
+
+      <!-- ── MAIN: Drum Roll ── -->
+      <div class="dr-stage-roll-col">
+        <!-- Hidden legacy toolbar -->
+        <div class="ts-toolbar" id="tsToolbar" style="display:none!important">
+          <button class="ts-tool-btn" id="dtToolPointer" onclick="_dtSetTool('pointer')" title="Select & drag beats">▸ Pointer</button>
+          <button class="ts-tool-btn active" id="dtToolPencil" onclick="_dtSetTool('pencil')" title="Draw beats">✎ Pencil</button>
+          <button class="ts-tool-btn" id="dtToolEraser" onclick="_dtSetTool('eraser')" title="Erase beats">✕ Eraser</button>
+          <button class="dr-toggle-btn active" id="drToggleBtn" onclick="_drToggleView()" title="Toggle: Piano Roll / Grid / Strips" style="display:none">🎹 Piano Roll</button>
+        </div>
+        <!-- Tape Stack -->
+        <div class="ts-stack dr-hidden" id="tsDrumStack" style="position:relative;" data-tool="pencil">
+          <div class="seq-select-rect" id="seqSelectRect"></div>
+          ${[['Kick','seqKick','kick','#e8304a'],['Snare','seqSnare','snare','#87ceeb'],['Hi Hat','seqHat','hat','#f5a623'],['Hi Tom','seqHiTom','hitom','#ff9940'],['Lo Tom','seqLoTom','lotom','#cc7733'],['Crash','seqCrash','crash','#cc88ff'],['Claps','seqClap','clap','#00d26e']].map(([label,id,row,color])=>`
+          <div class="ts-strip" data-voice="${row}" id="tsStrip_${row}">
+            <div class="ts-strip-head" onclick="_tsToggleCollapse('${row}',event)">
+              <span class="ts-dot" style="background:${color}"></span>
+              <span class="ts-name" style="color:${color}">${label}</span>
+              <button class="ts-sample-btn" onclick="event.stopPropagation();_drumLabelClick(event,'${row}')" title="Change ${label} sample">${label} ▾</button>
+              <div class="ts-ctrls">
+                <span class="ts-ctrl ts-m" onclick="event.stopPropagation();_tsMute('${row}')" title="Mute">M</span>
+                <span class="ts-ctrl ts-s" onclick="event.stopPropagation();_tsSolo('${row}')" title="Solo">S</span>
+              </div>
+              <span class="ts-chev">▾</span>
+            </div>
+            <div class="ts-strip-body">
+              <span class="ts-hits" id="tsHits_${row}">—</span>
+              <div class="ts-lane seq-grid" id="${id}" data-row="${row}"></div>
+            </div>
+          </div>`).join('')}
+        </div>
+        <!-- Grid View -->
+        <div class="dr-grid-wrap" id="drGridWrap" data-tool="pencil">
+          <div class="dr-labels" id="drLabels">
+            ${[['Crash','crash','#cc88ff'],['Hi Hat','hat','#f5a623'],['Hi Tom','hitom','#ff9940'],['Lo Tom','lotom','#cc7733'],['Snare','snare','#87ceeb'],['Claps','clap','#00d26e'],['Kick','kick','#e8304a']].map(([label,voice,color])=>`
+            <div class="dr-label" data-voice="${voice}" onclick="_drLabelTap(event,'${voice}')" style="color:${color}">
+              <span class="dr-dot" style="background:${color}"></span>
+              <span class="dr-name">${label}</span>
+            </div>`).join('')}
+          </div>
+          <div class="dr-grid-scroll" id="drGridScroll">
+            <div class="dr-grid" id="drGrid">
+              <div class="dr-grid-lines" id="drGridLines"></div>
+              ${[['crash','drCrash'],['hat','drHat'],['hitom','drHiTom'],['lotom','drLoTom'],['snare','drSnare'],['clap','drClap'],['kick','drKick']].map(([voice,drId])=>`
+              <div class="dr-lane" data-voice="${voice}" id="${drId}"></div>`).join('')}
+              <div class="dr-playhead" id="drPlayhead"></div>
+              <div class="dr-select-rect" id="drSelectRect"></div>
+            </div>
+          </div>
+        </div>
+        <!-- Standalone Drum Roll container -->
+        <div id="drPrContainer" class="dr-pr-container dr-hidden" style="flex:1;min-height:0;overflow:hidden;display:none;"></div>
+      </div>
 
     </div><!-- end dr-stage-grid -->
     <!-- Voice control popup (shared, repositioned per voice) -->
