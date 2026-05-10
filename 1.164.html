@@ -9883,69 +9883,67 @@ body.songlist-active.split-active #viewList {
    DRUM DRAWER 3-COLUMN LAYOUT
    ═══════════════════════════════════════════════════════════════════════════ */
 .dr-stage-grid {
-  display: grid;
-  grid-template-columns: 140px 1fr;
-  grid-template-rows: 1fr;
-  gap: 0;
+  display: flex;
+  flex-direction: column;
   flex: 1; min-height: 0; height: 0;
   overflow: hidden;
 }
 .dr-stage-roll-col {
-  grid-column: 2; grid-row: 1;
-  min-width: 0; display: flex; flex-direction: column;
-  overflow: hidden; min-height: 0; background: #111120;
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden; background: #111120;
 }
 .dr-stage-left-col {
-  grid-column: 1; grid-row: 1;
-  display: flex; flex-direction: column; gap: 0;
-  overflow-x: hidden; overflow-y: auto; padding: 0;
+  flex: 0 0 auto;
+  display: flex; flex-direction: row; gap: 0;
+  overflow-x: auto; overflow-y: hidden; padding: 0;
   background: #141420;
-  min-height: 0;
-  border-right: 1px solid var(--border, #28283a);
+  border-top: 1px solid var(--border, #28283a);
   scrollbar-width: thin;
   scrollbar-color: rgba(245,166,35,0.3) transparent;
 }
 .dr-stage-tools-col, .dr-stage-settings-col {
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 8px 8px;
+  display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; align-items: center;
+  padding: 6px 10px;
   background: transparent;
   min-height: 0;
 }
 .dr-stage-tools-col {
-  border-bottom: 1px solid var(--border, #28283a);
-  border-right: none;
+  border-right: 1px solid var(--border, #28283a);
 }
 .dr-stage-settings-col {
 }
 .dr-stage-col-header {
   font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint);
-  padding-bottom: 6px; margin-bottom: 2px;
-  border-bottom: 1px solid var(--border, #28283a);
+  margin-right: 4px;
 }
 .dr-stage-btn {
   font-family: 'IBM Plex Mono', monospace; font-size: 9px;
-  padding: 5px 6px; border-radius: 4px; cursor: pointer;
-  width: 100%; text-align: left; box-sizing: border-box;
+  padding: 4px 8px; border-radius: 4px; cursor: pointer;
+  white-space: nowrap; box-sizing: border-box;
 }
 .dr-stage-ctrl {
-  display: flex; flex-direction: column; gap: 2px;
+  display: flex; flex-direction: row; align-items: center; gap: 4px;
 }
-.dr-stage-ctrl .seq-label { font-size: 8px; }
+.dr-stage-ctrl .seq-label { font-size: 8px; white-space: nowrap; }
 .dr-stage-swing-row {
-  display: flex; flex-direction: column; gap: 2px; margin-top: 2px;
+  display: flex; flex-direction: row; align-items: center; gap: 4px;
+  min-width: 100px;
 }
 .dr-stage-part-label {
   font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
-  color: var(--gold, #f5a623); text-align: center;
-  padding: 6px 4px; margin-top: auto;
-  border-top: 1px solid var(--border, #28283a);
+  color: var(--gold, #f5a623);
+  padding: 4px 8px;
 }
-/* Popovers inside columns need position context */
+/* Popovers inside tools — use fixed positioning */
 .dr-stage-tools-col .seq-gen-popover {
-  position: relative; left: 0; right: 0;
-  margin: 4px -8px; padding: 10px 8px;
-  border-radius: 0;
+  position: fixed; z-index: 9999;
+  margin: 0; padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--card2, #1c1c2e);
+  border: 1px solid var(--border, #28283a);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.6);
 }
 /* When drum drawer is open, lock parent so flex height chain works */
 body.seq-drawer-open .seq-panel {
@@ -10092,9 +10090,6 @@ body.seq-drawer-open .seq-drum-controls { display: none !important; }
 }
 /* Mobile adjustments for drum roll */
 @media (max-width:700px){
-  .dr-stage-grid{grid-template-columns:1fr;grid-template-rows:1fr auto}
-  .dr-stage-roll-col{grid-column:1;grid-row:1}
-  .dr-stage-left-col{grid-column:1;grid-row:2;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-top:1px solid var(--border,#28283a)}
   .dr-roll-toolbar{padding:4px 6px 2px;gap:4px;min-height:28px}
   .dr-roll-tools{padding:2px 6px 2px;gap:3px}
   .dr-roll-label{font-size:8px;padding:0 2px}
@@ -22805,125 +22800,10 @@ function renderSequencerHtml(song) {
     <!-- ── Grid pane ── -->
     <div class="seq-grid-pane">
 
-    <!-- ═══ DRUM 2-COLUMN LAYOUT: [Tools+Settings] | Drum Roll ═══ -->
+    <!-- ═══ DRUM LAYOUT: Roll on top, Tools+Settings bar below ═══ -->
     <div class="dr-stage-grid" id="drStageGrid">
 
-      <!-- ── LEFT COL: Tools + Settings stacked ── -->
-      <div class="dr-stage-left-col">
-      <div class="dr-stage-tools-col">
-        <div class="dr-stage-col-header">Tools</div>
-        <select class="seq-select" id="seqDrumPatternSel" name="drum-pattern-sel" onchange="if(this.value){applyDrumPattern(this.value)}" style="width:100%;font-size:10px;">
-          <option value="">Pattern…</option>
-          <option value="rock1">Rock 1</option>
-          <option value="rock2">Rock 2</option>
-          <option value="waltz">Waltz</option>
-          <option value="hiphop">Hip Hop</option>
-          <option value="pop">Pop</option>
-          <option value="country">Country</option>
-          <option value="jazz">Jazz</option>
-          <option value="shoegaze">Shoegaze</option>
-          <option value="motown">Motown</option>
-          <option value="hardrock">Hard Rock</option>
-          <option value="punk">Punk</option>
-          <option value="altrock">Alt Rock</option>
-          <option value="rnb">R&amp;B</option>
-          <option value="edm">EDM</option>
-          <option value="blues">Blues</option>
-          <option value="classical">Ballad</option>
-          <option disabled>── 6/8 ──</option>
-          <option value="six8">6/8 Groove</option>
-          <option value="six8_rock">6/8 Rock</option>
-          <option value="six8_folk">6/8 Folk</option>
-          <option value="six8_ballad">6/8 Ballad</option>
-          <option disabled>── 5/4 ──</option>
-          <option value="five4">5/4</option>
-          <option value="five4_jazz">5/4 Jazz</option>
-          <option value="five4_rock">5/4 Rock</option>
-          <option value="random">🎲 Random</option>
-        </select>
-        <button class="seq-gen-btn dr-stage-btn" id="seqProbBtn" onclick="seqProbToggle()" title="Add random hits based on probability">🎲 Probability</button>
-        <button class="seq-gen-btn dr-stage-btn" id="seqFillBtn" onclick="seqFillToggle()" title="Add a drum fill">🥁 Add Fill</button>
-        <button class="seq-humanize-btn dr-stage-btn" id="seqHumanizeDrumsBtn" onclick="seqToggleHumanize('drums')" title="Randomize velocity">〜 Rnd Vel</button>
-        <div class="dr-stage-swing-row">
-          <span class="seq-label" style="font-size:8px;">Swing</span>
-          <input type="range" id="drStageSwing" min="0" max="1" step="0.01" value="0" style="width:100%;accent-color:var(--gold);cursor:pointer;" oninput="var s=document.getElementById('seqSwing');if(s){s.value=this.value;s.dispatchEvent(new Event('input'));}" title="Swing amount">
-        </div>
-
-        <!-- Probability popover -->
-        <div class="seq-gen-popover" id="seqProbPopover" style="display:none;">
-          <div class="seq-gen-pop-title">Probability — Random Hits</div>
-          <div class="seq-gen-pop-desc">Adjust density per voice, then roll.</div>
-          <div class="seq-prob-lanes" id="seqProbLanes"></div>
-          <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;align-items:center;">
-            <button class="seq-gen-action" onclick="seqProbApply()">🎲 Roll the Dice</button>
-            <button class="seq-gen-action seq-gen-secondary" onclick="seqProbToggle()">Close</button>
-          </div>
-        </div>
-        <!-- Fill popover -->
-        <div class="seq-gen-popover" id="seqFillPopover" style="display:none;">
-          <div class="seq-gen-pop-title">Add Drum Fill</div>
-          <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
-            <div style="display:flex;gap:4px;align-items:center;">
-              <label style="font-size:9px;color:var(--muted);font-weight:700;">WHERE</label>
-              <select class="seq-gen-select" id="seqFillWhere" style="font-size:10px;">
-                <option value="1" selected>Last bar</option>
-                <option value="2">Last 2 bars</option>
-              </select>
-            </div>
-            <div style="display:flex;gap:4px;align-items:center;">
-              <label style="font-size:9px;color:var(--muted);font-weight:700;">STYLE</label>
-              <select class="seq-gen-select" id="seqFillGenre" style="font-size:10px;">
-                <option value="general" selected>General</option>
-                <option value="rock">Rock</option>
-                <option value="hiphop">Hip-Hop</option>
-                <option value="jazz">Jazz</option>
-                <option value="latin">Latin</option>
-              </select>
-            </div>
-          </div>
-          <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;">
-            <button class="seq-gen-action" onclick="seqFillApply()">🥁 Apply</button>
-            <button class="seq-gen-action seq-gen-secondary" onclick="seqFillToggle()">Close</button>
-          </div>
-        </div>
-      </div>
-
-      </div><!-- end dr-stage-tools-col -->
-      <!-- ── Settings (below Tools) ── -->
-      <div class="dr-stage-settings-col">
-        <div class="dr-stage-col-header">Settings</div>
-        <div class="dr-stage-ctrl">
-          <span class="seq-label">Time</span>
-          <select class="seq-select" id="seqTime" onchange="seqRebuild(); kbdTimeSigChanged(this.value);" style="width:100%;">
-            <option value="4"${time==='4'?' selected':''}>4/4</option>
-            <option value="3"${time==='3'?' selected':''}>3/4</option>
-            <option value="2"${time==='2'?' selected':''}>2/4</option>
-            <option value="6"${time==='6'?' selected':''}>6/8</option>
-            <option value="5"${time==='5'?' selected':''}>5/4</option>
-          </select>
-        </div>
-        <div class="dr-stage-ctrl">
-          <span class="seq-label">Grid</span>
-          <select class="seq-select" id="seqDrumSteps" onchange="drumStepsChanged(this.value)" title="Drum grid resolution" style="width:100%;">
-            <option value="1"${grid==='1'?' selected':''}>1/4</option>
-            <option value="2"${grid==='2'?' selected':''}>1/8</option>
-            <option value="4"${grid==='4'?' selected':''}>1/16</option>
-            <option value="8"${grid==='8'?' selected':''}>1/32</option>
-            <option value="3"${grid==='3'?' selected':''}>Triplets</option>
-          </select>
-        </div>
-        <select class="seq-select" id="myBeatsDropdown" onchange="if(this.value)loadBeatFromLibrary(this.value)" style="width:100%;font-size:10px;">
-          <option value="">My Beats</option>
-        </select>
-        <button class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--gold);color:var(--gold);border-radius:4px;cursor:pointer;width:100%;text-align:center;" onclick="openSaveBeatModal()" title="Save this drum beat to your library">Save Beat</button>
-        <div style="display:flex;gap:4px;">
-          <button class="dr-stage-btn" style="flex:1;font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--gold,#f5a623);color:var(--gold,#f5a623);border-radius:4px;cursor:pointer;text-align:center;" onclick="seqDupPattern()" title="Duplicate pattern — double bars and repeat beats">+Dup</button>
-          <button class="dr-stage-btn" style="flex:1;font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;text-align:center;" onclick="applyDrumPattern('clear')">Clear</button>
-        </div>
-      </div><!-- end dr-stage-settings-col -->
-      </div><!-- end dr-stage-left-col -->
-
-      <!-- ── RIGHT COL: Drum Roll ── -->
+      <!-- ── TOP: Drum Roll ── -->
       <div class="dr-stage-roll-col">
         <!-- Hidden legacy toolbar -->
         <div class="ts-toolbar" id="tsToolbar" style="display:none!important">
@@ -22975,6 +22855,115 @@ function renderSequencerHtml(song) {
         <!-- Standalone Drum Roll container -->
         <div id="drPrContainer" class="dr-pr-container dr-hidden" style="flex:1;min-height:0;overflow:hidden;display:none;"></div>
       </div>
+
+      <!-- ── BOTTOM BAR: Tools + Settings side by side ── -->
+      <div class="dr-stage-left-col">
+        <div class="dr-stage-tools-col">
+          <div class="dr-stage-col-header">Tools</div>
+          <select class="seq-select" id="seqDrumPatternSel" name="drum-pattern-sel" onchange="if(this.value){applyDrumPattern(this.value)}" style="font-size:10px;min-width:90px;">
+            <option value="">Pattern…</option>
+            <option value="rock1">Rock 1</option>
+            <option value="rock2">Rock 2</option>
+            <option value="waltz">Waltz</option>
+            <option value="hiphop">Hip Hop</option>
+            <option value="pop">Pop</option>
+            <option value="country">Country</option>
+            <option value="jazz">Jazz</option>
+            <option value="shoegaze">Shoegaze</option>
+            <option value="motown">Motown</option>
+            <option value="hardrock">Hard Rock</option>
+            <option value="punk">Punk</option>
+            <option value="altrock">Alt Rock</option>
+            <option value="rnb">R&amp;B</option>
+            <option value="edm">EDM</option>
+            <option value="blues">Blues</option>
+            <option value="classical">Ballad</option>
+            <option disabled>── 6/8 ──</option>
+            <option value="six8">6/8 Groove</option>
+            <option value="six8_rock">6/8 Rock</option>
+            <option value="six8_folk">6/8 Folk</option>
+            <option value="six8_ballad">6/8 Ballad</option>
+            <option disabled>── 5/4 ──</option>
+            <option value="five4">5/4</option>
+            <option value="five4_jazz">5/4 Jazz</option>
+            <option value="five4_rock">5/4 Rock</option>
+            <option value="random">🎲 Random</option>
+          </select>
+          <button class="seq-gen-btn dr-stage-btn" id="seqProbBtn" onclick="seqProbToggle()" title="Add random hits based on probability">🎲 Prob</button>
+          <button class="seq-gen-btn dr-stage-btn" id="seqFillBtn" onclick="seqFillToggle()" title="Add a drum fill">🥁 Fill</button>
+          <button class="seq-humanize-btn dr-stage-btn" id="seqHumanizeDrumsBtn" onclick="seqToggleHumanize('drums')" title="Randomize velocity">〜 Vel</button>
+          <div class="dr-stage-swing-row">
+            <span class="seq-label" style="font-size:8px;">Swing</span>
+            <input type="range" id="drStageSwing" min="0" max="1" step="0.01" value="0" style="width:80px;accent-color:var(--gold);cursor:pointer;" oninput="var s=document.getElementById('seqSwing');if(s){s.value=this.value;s.dispatchEvent(new Event('input'));}" title="Swing amount">
+          </div>
+          <!-- Probability popover -->
+          <div class="seq-gen-popover" id="seqProbPopover" style="display:none;">
+            <div class="seq-gen-pop-title">Probability — Random Hits</div>
+            <div class="seq-gen-pop-desc">Adjust density per voice, then roll.</div>
+            <div class="seq-prob-lanes" id="seqProbLanes"></div>
+            <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;align-items:center;">
+              <button class="seq-gen-action" onclick="seqProbApply()">🎲 Roll the Dice</button>
+              <button class="seq-gen-action seq-gen-secondary" onclick="seqProbToggle()">Close</button>
+            </div>
+          </div>
+          <!-- Fill popover -->
+          <div class="seq-gen-popover" id="seqFillPopover" style="display:none;">
+            <div class="seq-gen-pop-title">Add Drum Fill</div>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
+              <div style="display:flex;gap:4px;align-items:center;">
+                <label style="font-size:9px;color:var(--muted);font-weight:700;">WHERE</label>
+                <select class="seq-gen-select" id="seqFillWhere" style="font-size:10px;">
+                  <option value="1" selected>Last bar</option>
+                  <option value="2">Last 2 bars</option>
+                </select>
+              </div>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <label style="font-size:9px;color:var(--muted);font-weight:700;">STYLE</label>
+                <select class="seq-gen-select" id="seqFillGenre" style="font-size:10px;">
+                  <option value="general" selected>General</option>
+                  <option value="rock">Rock</option>
+                  <option value="hiphop">Hip-Hop</option>
+                  <option value="jazz">Jazz</option>
+                  <option value="latin">Latin</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;">
+              <button class="seq-gen-action" onclick="seqFillApply()">🥁 Apply</button>
+              <button class="seq-gen-action seq-gen-secondary" onclick="seqFillToggle()">Close</button>
+            </div>
+          </div>
+        </div><!-- end dr-stage-tools-col -->
+        <div class="dr-stage-settings-col">
+          <div class="dr-stage-col-header">Settings</div>
+          <div class="dr-stage-ctrl">
+            <span class="seq-label">Time</span>
+            <select class="seq-select" id="seqTime" onchange="seqRebuild(); kbdTimeSigChanged(this.value);">
+              <option value="4"${time==='4'?' selected':''}>4/4</option>
+              <option value="3"${time==='3'?' selected':''}>3/4</option>
+              <option value="2"${time==='2'?' selected':''}>2/4</option>
+              <option value="6"${time==='6'?' selected':''}>6/8</option>
+              <option value="5"${time==='5'?' selected':''}>5/4</option>
+            </select>
+          </div>
+          <div class="dr-stage-ctrl">
+            <span class="seq-label">Grid</span>
+            <select class="seq-select" id="seqDrumSteps" onchange="drumStepsChanged(this.value)" title="Drum grid resolution">
+              <option value="1"${grid==='1'?' selected':''}>1/4</option>
+              <option value="2"${grid==='2'?' selected':''}>1/8</option>
+              <option value="4"${grid==='4'?' selected':''}>1/16</option>
+              <option value="8"${grid==='8'?' selected':''}>1/32</option>
+              <option value="3"${grid==='3'?' selected':''}>Triplets</option>
+            </select>
+          </div>
+          <select class="seq-select" id="myBeatsDropdown" onchange="if(this.value)loadBeatFromLibrary(this.value)" style="font-size:10px;min-width:80px;">
+            <option value="">My Beats</option>
+          </select>
+          <button class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--gold);color:var(--gold);border-radius:4px;cursor:pointer;" onclick="openSaveBeatModal()" title="Save this drum beat to your library">Save</button>
+          <button class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--gold,#f5a623);color:var(--gold,#f5a623);border-radius:4px;cursor:pointer;" onclick="seqDupPattern()" title="Duplicate pattern">+Dup</button>
+          <button class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="applyDrumPattern('clear')">Clear</button>
+        </div><!-- end dr-stage-settings-col -->
+      </div><!-- end dr-stage-left-col -->
 
     </div><!-- end dr-stage-grid -->
     <!-- Voice control popup (shared, repositioned per voice) -->
