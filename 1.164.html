@@ -9952,11 +9952,23 @@ body.seq-drawer-open .seq-panel {
   overflow-y: hidden !important;
   padding-bottom: 0 !important;
 }
-/* When drum drawer is open, seq-grid-pane must grow to fill available space */
+/* When drum drawer is open, seq-grid-pane must grow and become positioning context */
 body.seq-drawer-open .seq-grid-pane {
   flex: 1 1 0% !important;
   overflow: hidden !important;
   min-height: 0 !important;
+  position: relative !important;
+  height: 100% !important;
+}
+/* Absolute-position dr-stage-grid to bypass flex height chain entirely */
+body.seq-drawer-open .dr-stage-grid {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  height: auto !important;
+  flex: none !important;
 }
 /* Hide old single-row drum controls when 3-column layout is active */
 body.seq-drawer-open .seq-drum-controls { display: none !important; }
@@ -63543,9 +63555,12 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   }); // bubble phase — runs after inline ondragstart
 
   // ── Sync back to chord grid (two-way) ──
+  var _prSyncInProgress = false;
   window.prSyncToGrid = function() {
+    if (_prSyncInProgress) return;
     const song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
     if (!song || !song.sequencer) return;
+    _prSyncInProgress = true;
     console.log('[PR-sync] prSyncToGrid: prNotes=' + prNotes.length + ' chordNotes=' + prNotes.filter(function(n){return !n.isPencil && n.chordName;}).length + ' pencilNotes=' + prNotes.filter(function(n){return n.isPencil;}).length);
     const sd = song.sequencer;
 
@@ -63594,14 +63609,15 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     // Also persist the full piano roll (recorded notes + edits)
     prSavePianoRoll();
 
-    // Re-render the sequencer chord grid
-    if (typeof seqLoadSequenceIntoDOM === 'function') {
-      const _prSong = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
-      if (_prSong) seqLoadSequenceIntoDOM(_prSong.sequencer, _prSong);
+    // Re-render chord pills without full DOM reload (avoids prLoadFromGrid loop)
+    if (typeof seqRenderChordPills === 'function') {
+      var _prSong = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+      if (_prSong) seqRenderChordPills(_prSong);
     }
 
     // Mark dirty for batched Firestore write (flushes every 30s)
     _prMarkDirty();
+    _prSyncInProgress = false;
   };
 
   // ── Two-way drum sync: piano roll → sequencer arrays + drum drawer DOM ──
