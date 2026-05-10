@@ -1987,6 +1987,17 @@ button, select, input, textarea { touch-action: manipulation; }
     border-radius: 4px; padding: 2px 6px; cursor: pointer; transition: all 0.15s;
   }
   .hdr-midi-pill #hdrMidiConnectBtn:hover { border-color: var(--purple); color: var(--purple); }
+  /* ── Header Tutorial button ── */
+  .hdr-tutorial-btn {
+    display: flex; align-items: center;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    background: rgba(100,220,180,0.08); border: 1px solid rgba(100,220,180,0.3);
+    color: var(--teal, #64dcb4); border-radius: 7px;
+    padding: 3px 10px; cursor: pointer; white-space: nowrap;
+    transition: all 0.15s; flex-shrink: 0;
+  }
+  .hdr-tutorial-btn:hover { background: rgba(100,220,180,0.15); border-color: rgba(100,220,180,0.5); }
   /* Loading spinner text */
   #seqInstrumentLoading {
     font-family: 'IBM Plex Mono', monospace; font-size: 9px;
@@ -15882,7 +15893,7 @@ body.split-pr-active .pr-overlay { display: none !important; }
 @media (max-width: 767px) {
   .tut-overlay { width: 92vw; left: 4vw; transform: none; top: 60px; }
   .tut-walk-mini { width: 92vw; left: 4vw; transform: none; }
-  #hdrTutorialBtn { display: none !important; }
+  .hdr-tutorial-btn { display: none !important; }
 }
 
 </style>
@@ -16297,8 +16308,8 @@ setTimeout(function() {
 
   <!-- Centre: Transport bar (desktop only — header-center hidden on mobile) -->
   <div class="header-center" id="headerTransportCenter" onclick="mobileDockTap(event)">
-    <!-- Song title — always shown when a song is open -->
-    <div id="headerSongTitle" class="header-song-title" contenteditable="true" spellcheck="false" style="display:none;"></div>
+    <!-- Song title — removed from header per design update -->
+    <div id="headerSongTitle" class="header-song-title" style="display:none !important;"></div>
     <!-- Keep legacy JS ref alive -->
     <div id="headerListActions" style="display:none;"></div>
     <!-- Mobile-only compact dock summary (desktop hides via CSS) -->
@@ -16384,7 +16395,7 @@ setTimeout(function() {
     <button title="Connect a MIDI device. Enables input from your MIDI keyboard or controller." id="midiBarConnectBtn" style="display:none;" onclick="initMidi()"></button>
     <span id="headerQuota" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#f5c842;letter-spacing:0.04em;white-space:nowrap;opacity:1;"></span>
     <!-- Tutorial button -->
-    <button class="split-btn" id="hdrTutorialBtn" onclick="_tutOpenOverlay()" title="Open the Tutorial" style="font-size:10px;">Tutorial</button>
+    <button class="hdr-tutorial-btn" id="hdrTutorialBtn" onclick="_tutOpenOverlay()" title="Open the Tutorial">Tutorial</button>
     <!-- MIDI status pill -->
     <div class="hdr-midi-pill" id="hdrMidiPill" title="Click to see MIDI devices" style="cursor:pointer;" onclick="_midiShowDeviceList(event)">
       <div id="hdrMidiDot"></div>
@@ -16453,7 +16464,6 @@ setTimeout(function() {
         <button title="View all keyboard shortcuts for Drafthaus. Learn hotkeys for faster workflow." class="mobile-menu-item desktop-only-menu" onclick="closeMobileMenu();setTimeout(()=>toggleKsPanel(document.getElementById('mobileMenuWrap')),50)">⌨ Keyboard Shortcuts</button>
         <button title="Connect a MIDI controller to play the keyboard sampler. Requires a USB or Bluetooth MIDI device." class="mobile-menu-item" onclick="initMidi();closeMobileMenu()">🎹 MIDI Connect</button>
 
-        <button title="Step-by-step tutorials for getting started with Drafthaus." class="mobile-menu-item" onclick="openTutorial();closeMobileMenu()">📖 Tutorial</button>
         <button title="Learn about Drafthaus — what it is and who made it. See version info and credits." class="mobile-menu-item" onclick="openAbout();closeMobileMenu()">ℹ About</button>
         <button title="Read the Terms of Use agreement. Covers your rights and responsibilities as a user." class="mobile-menu-item" onclick="showEulaModal();closeMobileMenu()">📄 Terms of Use</button>
         <button title="Read the Privacy Policy. Learn how your data is stored and protected." class="mobile-menu-item" onclick="showPrivacyModal();closeMobileMenu()">🔒 Privacy Policy</button>
@@ -21880,7 +21890,11 @@ async function initMidi(silent) {
     _midiAccess.onstatechange = e => {
       if (e.port.type === 'input') {
         if (e.port.state === 'connected') {
-          if (!_midiInputId) _midiInputId = e.port.id;
+          // Auto-select if saved device reconnects, or if nothing selected
+          var _st = window._lastStateFromFirestore || {};
+          var _isSaved = (_st.midiInputId && e.port.id === _st.midiInputId) ||
+                         (_st.midiInputName && e.port.name === _st.midiInputName);
+          if (!_midiInputId || _isSaved) _midiInputId = e.port.id;
           e.port.onmidimessage = (e.port.id === _midiInputId) ? _midiHandleMessage : null;
         }
         if (e.port.state === 'disconnected') {
@@ -65977,7 +65991,6 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
   var _walkSteps = [
     { msg: 'Tap the <strong>+</strong> button in the header to create a new song.', detect: 'song_created' },
-    { msg: 'Give your song a name — type something in the title field.', detect: 'title_changed' },
     { msg: 'Choose a stage for your song — <strong>Idea</strong>, <strong>Drafting</strong>, or <strong>Song</strong>.', detect: 'stage_changed' },
     { msg: 'Open the <strong>Sequencer</strong> from the bottom toolbar.', detect: 'seq_opened' },
     { msg: 'Tap some cells in the drum grid to lay down a beat.', detect: 'drum_toggled' },
@@ -66092,17 +66105,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       };
     }
 
-    // 2. Title changed — listen for input on title fields
-    var _titleListener = function(e) {
-      var t = e.target;
-      if (t && (t.id === 'songTitle' || t.id === 'songWorkingTitle' || t.dataset?.field === 'title' || t.dataset?.field === 'workingTitle')) {
-        if (t.value && t.value.trim().length > 0) _tutWalkAdvance('title_changed');
-      }
-    };
-    document.addEventListener('input', _titleListener, true);
-    _tutWalkListeners.push({ type: 'input', fn: _titleListener, capture: true });
-
-    // 3. Stage changed — listen for clicks on status selectors
+    // 2. Stage changed — listen for clicks on status selectors
     var _stageListener = function(e) {
       var t = e.target;
       if (t && (t.classList.contains('status-option') || t.dataset?.field === 'status' || (t.closest && t.closest('[data-status]')))) {
@@ -66249,9 +66252,32 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     };
   }
 
-  // ── Auto-open on first login ──────────────────────────────────
+  // ── New user welcome overlay → launches walkthrough ──────────
+  function _tutShowWelcomeOverlay() {
+    if (document.getElementById('tutWelcomeOverlay')) return;
+    var overlay = document.createElement('div');
+    overlay.id = 'tutWelcomeOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:10100;background:rgba(0,0,0,0.88);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;animation:welcomeFadeIn 0.5s ease forwards;';
+    overlay.innerHTML =
+      '<div style="background:linear-gradient(180deg,#1a1a2e 0%,#0d0d18 100%);border:2px solid var(--gold,#f5a623);border-radius:16px;padding:48px 40px;text-align:center;max-width:460px;box-shadow:0 12px 48px rgba(245,166,35,0.2);">' +
+        '<div style="font-size:42px;margin-bottom:16px;">🎵</div>' +
+        '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:22px;font-weight:700;color:var(--gold,#f5a623);margin-bottom:12px;letter-spacing:0.04em;">Welcome to Drafthaus</div>' +
+        '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:13px;color:#ccc;line-height:1.7;margin-bottom:28px;">Let\'s take a quick walkthrough to create your first song — we\'ll guide you step by step.</div>' +
+        '<button id="tutWelcomeGoBtn" style="font-family:\'IBM Plex Mono\',monospace;font-size:14px;font-weight:700;padding:12px 32px;background:var(--gold,#f5a623);color:#0a0a0c;border:none;border-radius:10px;cursor:pointer;letter-spacing:0.04em;transition:background 0.15s,transform 0.1s;box-shadow:0 4px 16px rgba(245,166,35,0.25);">Let\'s Go!</button>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    document.getElementById('tutWelcomeGoBtn').addEventListener('click', function() {
+      overlay.remove();
+      // Mark as seen so it doesn't show again
+      if (typeof db !== 'undefined' && typeof auth !== 'undefined' && auth.currentUser) {
+        var uid = auth.currentUser.uid;
+        if (uid) db.collection('users').doc(uid).update({ 'lastState.tutorialSeen': true }).catch(function() {});
+      }
+      _tutStartWalkthrough();
+    });
+  }
+
   function _tutCheckFirstLogin() {
-    // Wait for lastState to be available
     var checkCount = 0;
     var interval = setInterval(function() {
       checkCount++;
@@ -66259,7 +66285,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       if (!window._lastStateFromFirestore && checkCount < 20) return;
       clearInterval(interval);
       if (!_tutHasSeenTutorial()) {
-        setTimeout(function() { _tutOpen(); }, 1500);
+        setTimeout(function() { _tutShowWelcomeOverlay(); }, 1500);
       }
     }, 500);
   }
