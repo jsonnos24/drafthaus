@@ -16723,8 +16723,8 @@ const db   = firebase.firestore();
 // Force long polling to use standard HTTP request/response instead of streaming,
 // which avoids both IndexedDB cache issues (QuotaExceededError / code 22)
 // and WebKit's incomplete ReadableStream support.
-db.settings({ experimentalAutoDetectLongPolling: true });
-console.log('[BOOT] Firestore initialized with experimentalAutoDetectLongPolling — build 1.161');
+db.settings({ experimentalForceLongPolling: true });
+console.log('[BOOT] Firestore initialized with experimentalForceLongPolling — build 1.161');
 
 // ── Toast notification system ──────────────────────────────────
 (function() {
@@ -34055,6 +34055,14 @@ async function syncToSheet(song) {
     await db.collection('songs').doc(song.id).set(payload, { merge: true });
     clearPendingSync(song.id);
     setSyncStatus('saved', 'Saved ✓');
+    try {
+      var _cachePayload = JSON.parse(JSON.stringify(payload));
+      if (_cachePayload.sequences) _cachePayload.sequences = _cachePayload.sequences.map(function(sq) {
+        if (!sq || !sq.pianoRoll || sq.pianoRoll.length <= 50) return sq;
+        var sc = Object.assign({}, sq); delete sc.pianoRoll; return sc;
+      });
+      localStorage.setItem('dh-fast-cache', JSON.stringify({ id: song.id, ts: Date.now(), song: _cachePayload }));
+    } catch(_ce) { /* quota exceeded — non-critical */ }
       } catch(e) {
     if (!auth.currentUser) {
       setSyncStatus('idle', 'Local only');
@@ -36151,6 +36159,53 @@ var _bootSongsFullyLoaded = false;
 async function _bootFastRestore(songId) {
   setSyncStatus('syncing', 'Loading…');
   _dhMark('firestore-fetch-start');
+
+  // ── Try localStorage cache first for instant render ──
+  var _cached = null;
+  try {
+    var _raw = localStorage.getItem('dh-fast-cache');
+    if (_raw) {
+      var _parsed = JSON.parse(_raw);
+      if (_parsed && _parsed.id === songId && _parsed.song) _cached = _parsed;
+    }
+  } catch(_ce) {}
+
+  if (_cached) {
+    _dhMark('cache-hit');
+    console.log('[BOOT-FAST] Cache hit — rendering instantly');
+    var s = normalizeLoadedSong({ ..._cached.song, _fromSheet: false });
+    var idx = songs.findIndex(function(x) { return x.id === s.id; });
+    if (idx >= 0) songs[idx] = s; else songs.push(s);
+    renderGrid();
+    setSyncStatus('saved', 'Loaded ✓');
+    currentId = s.id;
+
+    var _globalState = window._lastStateFromFirestore || {};
+    var lastView = _globalState.lastView || 'detail';
+    if (lastView === 'detail') {
+      var uiState = _cached.song.uiState || null;
+      _uiRestoreFromState(uiState, s);
+    } else {
+      populateSongFields(s);
+      setSongViewMode('runthrough');
+      if (typeof ilInitAndRender === 'function') ilInitAndRender(s);
+      if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+      setTimeout(function() {
+        if (typeof mtPreloadForSong === 'function') mtPreloadForSong(s.id);
+        if (typeof loopPreloadForSong === 'function') loopPreloadForSong(s.id);
+      }, 100);
+      if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
+      document.body.classList.add('songlist-active');
+      _uiDismissLoadingScreen();
+    }
+    _bootFastRestored = true;
+
+    // ── Background verify against Firestore ──
+    _bootBackgroundVerify(songId, _cached.ts);
+    return;
+  }
+
+  // ── No cache — fall through to Firestore fetch ──
   try {
     const uid = auth.currentUser?.uid;
     if (!uid) { loadSongsFromSheet(); return; }
@@ -36189,6 +36244,30 @@ async function _bootFastRestore(songId) {
     console.warn('[BOOT-FAST] Failed, falling back to full load:', e.message);
     _bootFastRestored = false;
     loadSongsFromSheet();
+  }
+}
+
+async function _bootBackgroundVerify(songId, cacheTs) {
+  try {
+    var doc = await db.collection('songs').doc(songId).get({ source: 'server' });
+    if (!doc.exists) return;
+    var serverData = doc.data();
+    var serverTs = serverData.updatedAt || 0;
+    if (serverTs > cacheTs) {
+      console.log('[BOOT-VERIFY] Server version newer — updating in memory');
+      var s = normalizeLoadedSong({ ...serverData, _fromSheet: false });
+      var idx = songs.findIndex(function(x) { return x.id === s.id; });
+      if (idx >= 0) songs[idx] = s; else songs.push(s);
+      if (currentId === s.id) {
+        populateSongFields(s);
+        if (typeof ftSyncAllStrips === 'function') ftSyncAllStrips();
+      }
+      localStorage.setItem('dh-fast-cache', JSON.stringify({ id: songId, ts: Date.now(), song: serverData }));
+    } else {
+      console.log('[BOOT-VERIFY] Cache is current');
+    }
+  } catch(e) {
+    console.warn('[BOOT-VERIFY] Background verify failed:', e.message);
   }
 }
 
