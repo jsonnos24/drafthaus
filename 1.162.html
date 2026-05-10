@@ -36085,6 +36085,7 @@ async function _bootFastRestore(songId) {
   if (_cached) {
     _dhMark('cache-hit');
     console.log('[BOOT-FAST] Cache hit — rendering instantly');
+    _restoreSongListFromCache();
     var s = normalizeLoadedSong({ ..._cached.song, _fromSheet: false });
     var idx = songs.findIndex(function(x) { return x.id === s.id; });
     if (idx >= 0) songs[idx] = s; else songs.push(s);
@@ -36199,6 +36200,57 @@ async function _bootBackgroundVerify(songId, cacheTs) {
   }
 }
 
+// ── Songlist metadata cache (instant list on boot) ──────────────
+function _cacheSongListMeta() {
+  try {
+    var slim = songs.map(function(s) {
+      var hasLyrics = Object.values(s.lyrics || {}).some(function(v) { return v && String(v).trim().length > 0; });
+      var hasInst = Object.values(s.instruments || {}).some(function(inst) {
+        return Object.values(inst || {}).some(function(part) {
+          return (part?.beats?.length > 0) || (part?.chords?.length > 0) || (part?.tab && String(part.tab).trim().length > 0);
+        });
+      });
+      var hasSeq = Array.isArray(s.sequences) && s.sequences.some(function(sq) {
+        return sq && ((sq.pianoRoll && sq.pianoRoll.length > 0) || (sq.chordSlots && sq.chordSlots.some(function(x){return x;})) || (sq.kick && sq.kick.some(function(v){return v;})) || (sq.snare && sq.snare.some(function(v){return v;})) || (sq.melody && sq.melody.length > 0));
+      });
+      var hasChords = s.chords && Object.values(s.chords).some(function(arr) { return Array.isArray(arr) && arr.length > 0; });
+      return {
+        id: s.id, title: s.title, workingTitle: s.workingTitle, status: s.status,
+        project: s.project, ownerId: s.ownerId, updatedAt: s.updatedAt,
+        sharedWith: s.sharedWith || [], sharedReadOnly: s.sharedReadOnly || [],
+        _viewOnly: !!s._viewOnly, _hasLyrics: hasLyrics, _hasMusic: hasInst || hasSeq || hasChords
+      };
+    });
+    localStorage.setItem('dh-songlist-cache', JSON.stringify({ ts: Date.now(), songs: slim }));
+  } catch(e) {}
+}
+
+function _restoreSongListFromCache() {
+  try {
+    var raw = localStorage.getItem('dh-songlist-cache');
+    if (!raw) return false;
+    var parsed = JSON.parse(raw);
+    if (!parsed || !parsed.songs || !parsed.songs.length) return false;
+    parsed.songs.forEach(function(sm) {
+      var idx = songs.findIndex(function(x) { return x.id === sm.id; });
+      if (idx < 0) {
+        songs.push({
+          id: sm.id, title: sm.title, workingTitle: sm.workingTitle, status: sm.status,
+          project: sm.project, ownerId: sm.ownerId, updatedAt: sm.updatedAt,
+          sharedWith: sm.sharedWith, sharedReadOnly: sm.sharedReadOnly,
+          _viewOnly: sm._viewOnly, _cachedMeta: true,
+          lyrics: sm._hasLyrics ? { _cached: 'y' } : {},
+          instruments: {}, sequences: sm._hasMusic ? [{ _cached: true, kick: [1] }] : [],
+          chords: {}
+        });
+      }
+    });
+    console.log('[BOOT] Restored ' + parsed.songs.length + ' songs from songlist cache');
+    renderGrid();
+    return true;
+  } catch(e) { return false; }
+}
+
 // ── Load from Firestore ──────────────────────────────────────────
 async function loadSongsFromSheet() {
   var _isBackground = _bootFastRestored;
@@ -36270,6 +36322,9 @@ async function loadSongsFromSheet() {
     renderGrid();
     _dhMark('grid-rendered');
     setSyncStatus('saved', 'Loaded ✓');
+
+    // ── Cache slim song metadata for instant list on next boot ──
+    _cacheSongListMeta();
 
     if (_isBackground) {
       // Fast-restore already handled UI — just update grid, done
