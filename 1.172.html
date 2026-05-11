@@ -17806,7 +17806,9 @@ function showList() {
   var uid = auth.currentUser?.uid;
   if (uid) {
     db.collection('users').doc(uid).update({
-      lastState: { lastSongId: currentId || null, lastView: 'list', timestamp: Date.now() }
+      'lastState.lastSongId': currentId || null,
+      'lastState.lastView': 'list',
+      'lastState.timestamp': Date.now()
     }).catch(function() {});
   }
 }
@@ -18857,7 +18859,9 @@ function _slLoadSong(id) {
   var uid = auth.currentUser?.uid;
   if (uid) {
     db.collection('users').doc(uid).update({
-      lastState: { lastSongId: id, lastView: 'list', timestamp: Date.now() }
+      'lastState.lastSongId': id,
+      'lastState.lastView': 'list',
+      'lastState.timestamp': Date.now()
     }).catch(function() {});
   }
   renderGrid();
@@ -22086,6 +22090,7 @@ async function initMidi(silent) {
     const _savedMidiName = _savedMidiState.midiInputName;
     const _savedMidiId   = _savedMidiState.midiInputId;
     const _savedMidiMfr  = _savedMidiState.midiInputManufacturer;
+    console.log('[MIDI] Restore check — _lastStateFromFirestore:', JSON.stringify(_savedMidiState), '| _midiInputId:', _midiInputId, '| inputs:', _allInputs.map(i => i.name + '(' + i.id + ')').join(', '));
     if (!_midiInputId && (_savedMidiName || _savedMidiId)) {
       // Priority: exact id → exact name → partial name match → manufacturer + partial name
       const _match = _allInputs.find(inp => inp.id === _savedMidiId) ||
@@ -36985,10 +36990,13 @@ function uiStateSave() {
         console.error('[UI-STATE] ✗ song uiState set/merge ALSO FAILED:', e2.message, e2.code);
       });
     });
-    // Save global last state
+    // Save global last state (dot notation to preserve midiInput* fields)
     var lastView = state.onSongList ? 'list' : 'detail';
-    var lastState = { lastSongId: currentId, lastView: lastView, timestamp: Date.now() };
-    db.collection('users').doc(uid).update({ lastState: lastState }).then(function() {
+    db.collection('users').doc(uid).update({
+      'lastState.lastSongId': currentId,
+      'lastState.lastView': lastView,
+      'lastState.timestamp': Date.now()
+    }).then(function() {
       console.log('[UI-STATE] ✓ user lastState saved');
     }).catch(function(e) {
       console.error('[UI-STATE] ✗ user lastState save FAILED:', e.message, e.code);
