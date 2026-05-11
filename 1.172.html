@@ -36518,28 +36518,11 @@ async function _bootFastRestore(songId) {
     if (idx >= 0) songs[idx] = s; else songs.push(s);
     renderGrid();
     setSyncStatus('saved', 'Loaded ✓');
-    currentId = s.id;
 
-    var _globalState = window._lastStateFromFirestore || {};
-    var lastView = _globalState.lastView || 'detail';
-    if (lastView === 'detail') {
-      var uiState = _cached.song.uiState || null;
-      _uiRestoreFromState(uiState, s);
-    } else {
-      populateSongFields(s);
-      setSongViewMode('runthrough');
-      if (typeof ilInitAndRender === 'function') ilInitAndRender(s);
-      var _cachePreloadDelay = window.innerWidth < 900 ? 2000 : 100;
-      if (window.innerWidth >= 900 && typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
-      setTimeout(function() {
-        if (window.innerWidth < 900 && typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
-        if (typeof mtPreloadForSong === 'function') mtPreloadForSong(s.id);
-        if (typeof loopPreloadForSong === 'function') loopPreloadForSong(s.id);
-      }, _cachePreloadDelay);
-      if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
-      document.body.classList.add('songlist-active');
-      _uiDismissLoadingScreen();
-    }
+    // Boot to song list only — no song loaded until user clicks Load
+    if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
+    document.body.classList.add('songlist-active');
+    _uiDismissLoadingScreen();
     _bootFastRestored = true;
 
     // ── Background verify against Firestore ──
@@ -36568,26 +36551,10 @@ async function _bootFastRestore(songId) {
     renderGrid();
     setSyncStatus('saved', 'Loaded ✓');
 
-    currentId = s.id;
-    const _globalState = window._lastStateFromFirestore || {};
-    const lastView = _globalState.lastView || 'detail';
-
-    if (lastView === 'detail') {
-      const uiState = doc.data()?.uiState || null;
-      _uiRestoreFromState(uiState, s);
-    } else {
-      populateSongFields(s);
-      setSongViewMode('runthrough');
-      if (typeof ilInitAndRender === 'function') ilInitAndRender(s);
-      if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
-      setTimeout(function() {
-        if (typeof mtPreloadForSong === 'function') mtPreloadForSong(s.id);
-        if (typeof loopPreloadForSong === 'function') loopPreloadForSong(s.id);
-      }, 100);
-      if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
-      document.body.classList.add('songlist-active');
-      _uiDismissLoadingScreen();
-    }
+    // Boot to song list only — no song loaded until user clicks Load
+    if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
+    document.body.classList.add('songlist-active');
+    _uiDismissLoadingScreen();
 
     _bootFastRestored = true;
 
@@ -36760,71 +36727,10 @@ async function loadSongsFromSheet() {
       return;
     }
 
-    // ── Restore last session state from Firestore ──
-    // Loading screen stays up until restore completes (no flashes)
-    let _restoredToDetail = false;
-    console.log('[UI-STATE] Restore check — currentId:', currentId, '_lastStateFromFirestore:', JSON.stringify(window._lastStateFromFirestore));
-    if (!currentId) {
-      const _globalState = window._lastStateFromFirestore || {};
-      const lastId = _globalState.lastSongId || _lastSongIdFromFirestore || localStorage.getItem('drafthaus-last-song');
-      const lastView = _globalState.lastView || 'detail'; // default to detail for existing users
-      console.log('[UI-STATE] globalState:', JSON.stringify(_globalState), 'lastId:', lastId, 'lastView:', lastView);
-      const uid    = auth.currentUser?.uid;
-      let restoreSong = lastId ? songs.find(s => s.id === lastId) : null;
-      if (!restoreSong && songs.length > 0) {
-        const ownedSongs = songs.filter(s => !uid || s.ownerId === uid);
-        const pool = ownedSongs.length > 0 ? ownedSongs : songs;
-        restoreSong = [...pool].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
-      }
-      if (restoreSong && lastView === 'detail') {
-        // Read per-song uiState from Firestore, then restore atomically behind loading screen
-        currentId = restoreSong.id;
-        _restoredToDetail = true;
-        console.log('[UI-STATE] Restoring to detail view, songId:', restoreSong.id);
-        const _songRef = db.collection('songs').doc(restoreSong.id);
-        _songRef.get().then(function(doc) {
-          var uiState = doc.exists ? doc.data()?.uiState : null;
-          console.log('[UI-STATE] Firestore uiState read:', uiState ? JSON.stringify(uiState) : 'NULL');
-          // If stub, fetch full data first
-          if (restoreSong._fromSheet) {
-            fetchFullSongFromSheet(restoreSong.id).then(function(full) {
-              var songToRestore = full || restoreSong;
-              if (currentId === restoreSong.id) {
-                _uiRestoreFromState(uiState, songToRestore);
-              } else {
-                _uiDismissLoadingScreen();
-              }
-            }).catch(function() {
-              _uiRestoreFromState(uiState, restoreSong);
-            });
-          } else {
-            _uiRestoreFromState(uiState, restoreSong);
-          }
-        }).catch(function(e) {
-          console.warn('[UI-STATE] Failed to read uiState, falling back to openSong:', e.message);
-          openSong(restoreSong.id);
-          _uiDismissLoadingScreen();
-        });
-      } else if (restoreSong && lastView === 'list') {
-        // User was on the song list — preload song data silently, stay on list
-        currentId = restoreSong.id;
-        populateSongFields(restoreSong);
-        setSongViewMode('runthrough');
-        if (typeof ilInitAndRender === 'function') ilInitAndRender(restoreSong);
-        if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
-        setTimeout(function() {
-          if (typeof mtPreloadForSong === 'function') mtPreloadForSong(restoreSong.id);
-          if (typeof loopPreloadForSong === 'function') loopPreloadForSong(restoreSong.id);
-        }, 100);
-      }
-    }
-
-    if (!_restoredToDetail) {
-      // Show song list and dismiss loading screen
-      if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
-      document.body.classList.add('songlist-active');
-      _uiDismissLoadingScreen();
-    }
+    // Boot to song list only — no song loaded until user clicks Load
+    if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
+    document.body.classList.add('songlist-active');
+    _uiDismissLoadingScreen();
 
   } catch(e) {
     if (!_isBackground) stopFunnyMessages();
@@ -37079,106 +36985,20 @@ function _uiRestoreFromState(state, song) {
       }, 2000);
       return;
     } else {
-      // ── Desktop restore ──
-      console.log('[UI-STATE] Desktop restore path — isMobile:', isMobile, 'innerWidth:', window.innerWidth);
-
-      // Clean slate — remove any stale split/expand classes before applying state
-      document.body.classList.remove('split-active', 'split-expanded-left', 'split-expanded-right', 'split-tool-left', 'split-4track-active', 'seq-drawer-open', 'keyboard-drawer-open');
-      _splitExpandedSide = null;
-      _splitActive = false;
-
-      // If split was not active (no drawer open), fall back to song list
-      if (state.splitActive === false) {
-        console.log('[UI-STATE] Desktop — splitActive false → falling back to song list');
-        if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
-        _uiRestoring = false;
-        showList();
-        _uiDismissLoadingScreen();
-        return;
-      } else {
-        // Split was active — show detail and restore drawer
-        showDetail();
-        var rightTool = state.splitRight || state.drawerOpen || 'keyboard';
-        if (rightTool === 'none') rightTool = 'keyboard';
-        _splitActive = true;
-        document.body.classList.add('split-active');
-        var splitBtn = document.getElementById('splitBtn');
-        if (splitBtn) splitBtn.classList.add('active');
-
-        // Set left pane
-        var leftSel = document.getElementById('splitLeftSelect');
-        if (leftSel) leftSel.value = state.splitLeft || 'lyrics';
-
-        // Set right tool (this opens the drawer into the right pane)
-        console.log('[UI-STATE] Calling setSplitRightTool:', rightTool);
-        if (typeof setSplitRightTool === 'function') setSplitRightTool(rightTool);
-        _splitCurrentTool = rightTool;
-        var rightSel = document.getElementById('splitRightSelect');
-        if (rightSel) rightSel.value = rightTool;
-
-        // Restore expanded state — drawer-only (expanded-right) vs lyrics split (no expand)
-        if (state.splitExpanded && state.splitExpanded !== 'null') {
-          _splitExpandedSide = state.splitExpanded;
-          document.body.classList.add('split-expanded-' + state.splitExpanded);
-          // If expanded-right (drawer only), no perf mode needed
-          if (state.splitExpanded === 'right') {
-            if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
-          } else {
-            // Lyrics split — restore perf mode
-            if (state.perfMode && typeof ilSetPerfMode === 'function') ilSetPerfMode(true);
-            else if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
-          }
-        } else {
-          // No expand state saved — default to drawer at 100% (expanded right)
-          _splitExpandedSide = 'right';
-          document.body.classList.remove('split-expanded-left');
-          document.body.classList.add('split-expanded-right');
-          if (typeof ilSetPerfMode === 'function') ilSetPerfMode(false);
-        }
-        if (typeof _syncExpandBtns === 'function') _syncExpandBtns();
-
-        // If lyrics split is active (no expand), set 20/80 ratio
-        if (!_splitExpandedSide) {
-          var _lsRatio = '20%';
-          document.documentElement.style.setProperty('--split-left', _lsRatio);
-          var _lsDiv = document.getElementById('splitDivider');
-          var _lsRp  = document.getElementById('splitRightPanel');
-          if (_lsDiv) _lsDiv.style.left = 'calc(' + _lsRatio + ' - 3px)';
-          if (_lsRp)  _lsRp.style.left = _lsRatio;
-        }
-      }
-
-      console.log('[UI-STATE] Desktop restore done. body classes:', document.body.className);
-
-      // Piano roll — inline PR in keys drawer handles this now; skip overlay open
-
-      // Armed track
-      if (state.armedTrack >= 0 && typeof _mtArmTrack === 'function') {
-        setTimeout(function() { _mtArmTrack(state.armedTrack); }, 200);
-      }
-
+      // ── Desktop restore — stay on song list, song loaded in background ──
+      console.log('[UI-STATE] Desktop — loading song in background, staying on song list');
       _uiRestoring = false;
-      // Unhide runthrough now that drawer is in place
-      var _rtEl2 = document.getElementById('songViewRunthrough');
-      if (_rtEl2) _rtEl2.style.visibility = '';
-      // Brief delay for DOM to settle before revealing
-      setTimeout(function() { _uiDismissLoadingScreen(); }, 111);
+      showList();
+      _uiDismissLoadingScreen();
+      // Preload audio in background so drawers open fast when user opens one
+      setTimeout(function() {
+        if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+        if (typeof mtPreloadForSong === 'function') mtPreloadForSong(song.id);
+        if (typeof loopPreloadForSong === 'function') loopPreloadForSong(song.id);
+      }, 300);
+      return;
+
     }
-
-    // Warm up audio contexts (skip on mobile — needs user gesture, causes memory spike)
-    if (window.innerWidth >= 900 && typeof _warmUpAllAudioContexts === 'function') _warmUpAllAudioContexts();
-
-    // Preload audio in background (defer longer on mobile to avoid memory spike)
-    var _preloadDelay = window.innerWidth < 900 ? 2000 : 200;
-    if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
-    setTimeout(function() {
-      if (typeof mtPreloadForSong === 'function') mtPreloadForSong(song.id);
-      if (typeof loopPreloadForSong === 'function') loopPreloadForSong(song.id);
-    }, _preloadDelay);
-
-    // 4-track sync
-    if (typeof _vr4TrackSyncToSong === 'function') _vr4TrackSyncToSong(song.id);
-
   } catch(e) {
     console.error('[UI-STATE] restore error:', e);
     _uiRestoring = false;
