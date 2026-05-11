@@ -7268,6 +7268,15 @@ body:has(#landingOverlay:not(.hidden)) #headerTransport {
   background: rgba(245,166,35,0.08); border-radius: 4px; padding: 1px 6px;
   margin-left: 6px; vertical-align: middle;
 }
+.sl-load-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--teal, #64dcb4); border: 1.5px solid rgba(100,220,180,0.5);
+  background: rgba(100,220,180,0.08); border-radius: 6px; padding: 4px 12px;
+  cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: all 0.15s;
+}
+.sl-load-btn:hover { background: rgba(100,220,180,0.18); border-color: rgba(100,220,180,0.7); }
+.sl-load-btn:active { transform: scale(0.95); }
 .sl-check-mus { color: #34d399; border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.08); }
 
 /* ── Welcome Screen (empty state) ────────────────────────────── */
@@ -17947,6 +17956,7 @@ function renderGrid() {
     const hasMusic = hasInstContent || hasSeqContent || hasChordContent || hasRecordings;
     const checkBadges = (hasLyrics || hasMusic) ? `<span class="sl-checks">${hasLyrics ? '<span class="sl-check sl-check-lyr" title="Has lyrics">✓ Lyr</span>' : ''}${hasMusic ? '<span class="sl-check sl-check-mus" title="Has music/recordings">✓ Mus</span>' : ''}</span>` : '';
     const loadedBadge = isActive ? '<span class="sl-loaded-badge" title="Currently loaded">Loaded</span>' : '';
+    const loadBtn = isActive ? '' : `<button class="sl-load-btn" onclick="event.stopPropagation();_slLoadSong('${song.id}')" title="Load this song">Load</button>`;
     const draggable = (!isShared && !isViewOnly) ? `draggable="true" ondragstart="_slDragStart('${song.id}',event)" ondragend="_slDragEnd('${song.id}')" ondragover="_slRowDragOver(this,event)" ondragleave="_slRowDragLeave(this,event)" ondrop="_slRowDrop(this,event)"` : '';
     const projKey = (song.project||'').trim();
     const projColor = isActive ? (userProjColors[projKey] || null) : null;
@@ -17955,7 +17965,7 @@ function renderGrid() {
       style="cursor:pointer;${activeColorStyle}" ${draggable} onclick="rowLoadSong('${song.id}')"
       onmouseenter="_slHoverEnter('${song.id}',this)" onmouseleave="_slHoverLeave()">
       <div class="song-list-title">${titleHtml}${loadedBadge}${sharedBadge}${viewOnlyBadge}${sharingIndicator}${checkBadges}</div>
-      ${statusCell}${actionsHtml}
+      ${statusCell}${loadBtn}${actionsHtml}
     </div>`;
   }
 
@@ -18822,17 +18832,35 @@ function _loadExpandedProjs() {
 let _rowTimerInterval = null;
 
 function rowLoadSong(id) {
-  // If clicking the already-loaded song, show rename overlay
-  if (id === currentId) {
-    var song = songs.find(function(s) { return s.id === id; });
-    if (song) _showRenameSongOverlay(song);
-    return;
+  var song = songs.find(function(s) { return s.id === id; });
+  if (song) _showRenameSongOverlay(song);
+}
+
+function _slLoadSong(id) {
+  if (id === currentId) return;
+  var song = songs.find(function(s) { return s.id === id; });
+  if (!song) return;
+  currentId = id;
+  populateSongFields(song);
+  setSongViewMode('runthrough');
+  if (typeof ilInitAndRender === 'function') ilInitAndRender(song);
+  if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
+  if (typeof loopOnSongChange === 'function') loopOnSongChange(song);
+  if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+  setTimeout(function() {
+    if (typeof mtPreloadForSong === 'function') mtPreloadForSong(id);
+    if (typeof loopPreloadForSong === 'function') loopPreloadForSong(id);
+  }, 200);
+  if (typeof _vr4TrackSyncToSong === 'function') _vr4TrackSyncToSong(id);
+  // Persist last song ID
+  localStorage.setItem('drafthaus-last-song', id);
+  var uid = auth.currentUser?.uid;
+  if (uid) {
+    db.collection('users').doc(uid).update({
+      lastState: { lastSongId: id, lastView: 'list', timestamp: Date.now() }
+    }).catch(function() {});
   }
-  openSong(id);
-  // Defer grid re-render so the detail view paints first — calling it synchronously
-  // causes both DOM operations to compete in the same frame, stalling the transition.
-  requestAnimationFrame(() => renderGrid());
-  _setWorkLayout();
+  renderGrid();
 }
 
 function _showRenameSongOverlay(song) {
@@ -36338,13 +36366,28 @@ function renderPracticeDrawer() {
 var _lastKnownTimestamps = {};
 var _firestoreUnsubscribe = null;
 
+var _syncRenderTimer = null;
+function _syncRenderDebounce() {
+  if (_syncRenderTimer) clearTimeout(_syncRenderTimer);
+  _syncRenderTimer = setTimeout(function() { _syncRenderTimer = null; renderGrid(); }, 300);
+}
+
 function startSyncPolling() {
   if (_firestoreUnsubscribe) return;
   const uid = auth.currentUser?.uid;
   if (!uid) return;
+  var _syncFirstFire = { owned: true, shared: true, readOnly: true };
 
-  const handleSnapshot = snapshot => {
-    console.log('[CRASH-DEBUG] ★ handleSnapshot fired, changes:', snapshot.docChanges().length);
+  const handleSnapshot = (snapshot, _listenerKey) => {
+    console.log('[CRASH-DEBUG] ★ handleSnapshot fired, changes:', snapshot.docChanges().length, 'key:', _listenerKey);
+    // Skip the initial bulk snapshot on mobile if we already loaded songs
+    // (first onSnapshot always fires with ALL existing docs — redundant after boot)
+    if (_syncFirstFire[_listenerKey] && window.innerWidth < 900 && songs.length > 0) {
+      _syncFirstFire[_listenerKey] = false;
+      console.log('[CRASH-DEBUG] ★ Skipping initial bulk snapshot on mobile (already loaded)');
+      return;
+    }
+    _syncFirstFire[_listenerKey] = false;
     try {
     snapshot.docChanges().forEach(change => {
       const s = normalizeLoadedSong({ ...change.doc.data(), _fromSheet: false });
@@ -36380,9 +36423,9 @@ function startSyncPolling() {
         songs = songs.filter(x => x.id !== change.doc.id);
       }
     });
-    console.log('[CRASH-DEBUG] ★ handleSnapshot processed, calling save+renderGrid');
-    save();
-    renderGrid();
+    console.log('[CRASH-DEBUG] ★ handleSnapshot processed, calling renderGrid (debounced)');
+    if (window.innerWidth >= 900) save();
+    _syncRenderDebounce();
     console.log('[CRASH-DEBUG] ★ handleSnapshot complete');
     } catch(e) { console.error('[CRASH-DEBUG] handleSnapshot THREW:', e.message, e.stack); }
   };
@@ -36394,7 +36437,12 @@ function startSyncPolling() {
     }
   };
 
-  const handleSnapshotViewOnly = snapshot => {
+  const handleSnapshotViewOnly = (snapshot, _listenerKey) => {
+    if (_syncFirstFire[_listenerKey] && window.innerWidth < 900 && songs.length > 0) {
+      _syncFirstFire[_listenerKey] = false;
+      return;
+    }
+    _syncFirstFire[_listenerKey] = false;
     snapshot.docChanges().forEach(change => {
       const s = normalizeLoadedSong({ ...change.doc.data(), _fromSheet: false, _viewOnly: true });
       if (change.type === 'added' || change.type === 'modified') {
@@ -36422,13 +36470,13 @@ function startSyncPolling() {
         songs = songs.filter(x => x.id !== change.doc.id);
       }
     });
-    save();
-    renderGrid();
+    if (window.innerWidth >= 900) save();
+    _syncRenderDebounce();
   };
 
-  const unsubOwned    = db.collection('songs').where('ownerId', '==', uid).onSnapshot(handleSnapshot, errHandler);
-  const unsubShared   = db.collection('songs').where('sharedWith', 'array-contains', uid).onSnapshot(handleSnapshot, errHandler);
-  const unsubReadOnly = db.collection('songs').where('sharedReadOnly', 'array-contains', uid).onSnapshot(handleSnapshotViewOnly, errHandler);
+  const unsubOwned    = db.collection('songs').where('ownerId', '==', uid).onSnapshot(snap => handleSnapshot(snap, 'owned'), errHandler);
+  const unsubShared   = db.collection('songs').where('sharedWith', 'array-contains', uid).onSnapshot(snap => handleSnapshot(snap, 'shared'), errHandler);
+  const unsubReadOnly = db.collection('songs').where('sharedReadOnly', 'array-contains', uid).onSnapshot(snap => handleSnapshotViewOnly(snap, 'readOnly'), errHandler);
 
   _firestoreUnsubscribe = () => { unsubOwned(); unsubShared(); unsubReadOnly(); };
 }
@@ -36476,11 +36524,13 @@ async function _bootFastRestore(songId) {
       populateSongFields(s);
       setSongViewMode('runthrough');
       if (typeof ilInitAndRender === 'function') ilInitAndRender(s);
-      if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+      var _cachePreloadDelay = window.innerWidth < 900 ? 2000 : 100;
+      if (window.innerWidth >= 900 && typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
       setTimeout(function() {
+        if (window.innerWidth < 900 && typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
         if (typeof mtPreloadForSong === 'function') mtPreloadForSong(s.id);
         if (typeof loopPreloadForSong === 'function') loopPreloadForSong(s.id);
-      }, 100);
+      }, _cachePreloadDelay);
       if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
       document.body.classList.add('songlist-active');
       _uiDismissLoadingScreen();
@@ -36692,7 +36742,7 @@ async function loadSongsFromSheet() {
     songs = songs.filter(s => !s._fromSheet || fsIds.has(s.id));
     _dhMark('firestore-fetch-done (' + songs.length + ' songs)');
 
-    save();
+    if (window.innerWidth >= 900) save();
     renderGrid();
     _dhMark('grid-rendered');
     setSyncStatus('saved', 'Loaded ✓');
@@ -37008,40 +37058,18 @@ function _uiRestoreFromState(state, song) {
     if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
 
     if (isMobile) {
-      // ── Mobile restore ──
-      showDetail();
-      var mDrawer = state.mobileDrawer || state.drawerOpen || null;
-      if (!mDrawer || mDrawer === 'none') {
-        console.log('[UI-STATE] Mobile — no active drawer → falling back to song list');
-        _uiRestoring = false;
-        showList();
-        _uiDismissLoadingScreen();
-        return;
-      }
-      console.log('[UI-STATE] Mobile — resolved mDrawer:', mDrawer);
+      // ── Mobile restore — always stay on song list, song is loaded in background ──
+      console.log('[UI-STATE] Mobile — loading song in background, staying on song list');
+      _uiRestoring = false;
+      showList();
+      _uiDismissLoadingScreen();
+      // Preload audio in background so drawers open fast when user taps one
       setTimeout(function() {
-        if (mDrawer === '4track' && typeof ftOpen === 'function') ftOpen();
-        else if (mDrawer === 'keyboard' && typeof openKeyboardDrawer === 'function') openKeyboardDrawer();
-        else if (mDrawer === 'sequencer' && typeof openSeqDrawer === 'function') openSeqDrawer();
-        else if (mDrawer === 'looper' && typeof openLooperDrawer === 'function') openLooperDrawer();
-        else if (mDrawer === 'mixer' && typeof openMixDrawer === 'function') openMixDrawer();
-        else { console.log('[UI-STATE] Mobile — no drawer match → song list'); _uiRestoring = false; showList(); _uiDismissLoadingScreen(); return; }
-        _uiRestoring = false;
-        var _rtEl2 = document.getElementById('songViewRunthrough');
-        if (_rtEl2) _rtEl2.style.visibility = '';
-        _uiDismissLoadingScreen();
-        // Log final state for verification
-        setTimeout(function() {
-          var openDrawers = [];
-          if (document.getElementById('ftDrawer')?.classList.contains('open')) openDrawers.push('4track');
-          if (document.getElementById('keyboardDrawer')?.classList.contains('open')) openDrawers.push('keyboard');
-          if (document.getElementById('seqDrawer')?.classList.contains('open')) openDrawers.push('sequencer');
-          if (document.getElementById('looperDrawer')?.classList.contains('open')) openDrawers.push('looper');
-          if (document.getElementById('mixDrawer')?.classList.contains('open')) openDrawers.push('mixer');
-          console.log('[UI-STATE] DEBUG Mobile — FINAL open drawers:', openDrawers.length ? openDrawers.join(', ') : 'NONE (Edit Lyrics showing)');
-          console.log('[UI-STATE] DEBUG Mobile — body classes:', document.body.className);
-        }, 200);
-      }, 50);
+        if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+        if (typeof mtPreloadForSong === 'function') mtPreloadForSong(song.id);
+        if (typeof loopPreloadForSong === 'function') loopPreloadForSong(song.id);
+      }, 2000);
+      return;
     } else {
       // ── Desktop restore ──
       console.log('[UI-STATE] Desktop restore path — isMobile:', isMobile, 'innerWidth:', window.innerWidth);
@@ -37129,15 +37157,16 @@ function _uiRestoreFromState(state, song) {
       setTimeout(function() { _uiDismissLoadingScreen(); }, 111);
     }
 
-    // Warm up audio contexts (normally done in openSong from user gesture)
-    if (typeof _warmUpAllAudioContexts === 'function') _warmUpAllAudioContexts();
+    // Warm up audio contexts (skip on mobile — needs user gesture, causes memory spike)
+    if (window.innerWidth >= 900 && typeof _warmUpAllAudioContexts === 'function') _warmUpAllAudioContexts();
 
-    // Preload audio in background
+    // Preload audio in background (defer longer on mobile to avoid memory spike)
+    var _preloadDelay = window.innerWidth < 900 ? 2000 : 200;
     if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
     setTimeout(function() {
       if (typeof mtPreloadForSong === 'function') mtPreloadForSong(song.id);
       if (typeof loopPreloadForSong === 'function') loopPreloadForSong(song.id);
-    }, 200);
+    }, _preloadDelay);
 
     // 4-track sync
     if (typeof _vr4TrackSyncToSong === 'function') _vr4TrackSyncToSong(song.id);
