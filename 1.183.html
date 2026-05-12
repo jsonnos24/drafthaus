@@ -816,7 +816,7 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ── Header: mobile layout ── */
   /* Row 1: show Drafthaus wordmark (compact) + New + Roll + right controls */
   #headerDimGroup > div:first-child { display: flex !important; flex-direction: row !important; align-items: center !important; gap: 0 !important; }
-  #headerDimGroup > div:first-child > span:last-child { display: none !important; } /* hide "Beta Build 0.88" sub-line */
+  #headerDimGroup > div:first-child > span:last-child { display: none !important; } /* hide "Beta Build 1.183" sub-line */
   .header-logo { font-size: 14px !important; }
   .header-version {
     display: inline !important;
@@ -16344,8 +16344,8 @@ setTimeout(function() {
     <!-- Logo + New Idea + Roll — grouped for idle-dim effect -->
     <div id="headerDimGroup" style="display:flex;align-items:center;gap:10px;">
     <div style="display:flex;flex-direction:column;gap:1px;cursor:pointer;" onclick="showList()" title="Back to drafts">
-      <span class="header-logo">Drafthaus<span class="header-version">v0.88</span></span>
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 0.88</span>
+      <span class="header-logo">Drafthaus<span class="header-version">v1.183</span></span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.183</span>
     </div>
     <!-- New Idea + Roll (moved from center; hidden on mobile by CSS class rules) -->
     <button title="Create a new blank song draft. Start fresh with an empty canvas for your next idea." class="hla-newdraft-btn" onclick="newSong()"
@@ -19062,7 +19062,7 @@ function _createAndLoadSong(title) {
   };
   songs.unshift(song);
   save();
-  openSong(song.id);
+  currentId = song.id;
   renderGrid();
   _showPickYourFighter();
 }
@@ -19093,13 +19093,13 @@ function _showPickYourFighter() {
   row.style.cssText = 'display:flex;gap:12px;justify-content:center;flex-wrap:wrap;';
 
   var tools = [
-    { label: 'Write Lyrics', fn: function() { _pyfDismiss(); navLyricsToggleTap(); },
+    { label: 'Write Lyrics', fn: function() { _pyfDismiss(); openSong(currentId); navLyricsToggleTap(); },
       icon: '<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' },
-    { label: 'Make a Recording', fn: function() { _pyfDismiss(); navToolTap('4track'); },
+    { label: 'Make a Recording', fn: function() { _pyfDismiss(); openSong(currentId); navToolTap('4track'); },
       icon: '<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ffb8d8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>' },
-    { label: 'Quick Chords', fn: function() { _pyfDismiss(); navToolTap('keyboard'); },
+    { label: 'Quick Chords', fn: function() { _pyfDismiss(); openSong(currentId); navToolTap('keyboard'); },
       icon: '<span style="font-size:40px;line-height:1;">🎹</span>' },
-    { label: 'Quick Beats', fn: function() { _pyfDismiss(); navToolTap('sequencer'); },
+    { label: 'Quick Beats', fn: function() { _pyfDismiss(); openSong(currentId); navToolTap('sequencer'); },
       icon: '<svg width="44" height="44" viewBox="0 0 100 100" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><ellipse cx="50" cy="62" rx="38" ry="12" fill="none" stroke="currentColor" stroke-width="5"/><ellipse cx="50" cy="38" rx="38" ry="12" fill="none" stroke="currentColor" stroke-width="5"/><line x1="12" y1="38" x2="12" y2="62" stroke="currentColor" stroke-width="5"/><line x1="88" y1="38" x2="88" y2="62" stroke="currentColor" stroke-width="5"/><line x1="26" y1="62" x2="74" y2="62" stroke="currentColor" stroke-width="2.5" stroke-dasharray="4 3"/><line x1="28" y1="10" x2="44" y2="36" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><circle cx="28" cy="9" r="4" fill="currentColor"/><line x1="72" y1="10" x2="56" y2="36" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><circle cx="72" cy="9" r="4" fill="currentColor"/></svg>' }
   ];
 
@@ -31536,11 +31536,16 @@ function seqPlay() {
     try {
       var _tlExisting = TL.getSections();
       var _tlSecStart = 0;
+      var _tlSecEnd = 0;
       if (_tlExisting && _tlExisting.length) {
         var _tlMatch = _tlExisting.find(function(s) { return s._seqIdx === seqActiveIdx; });
-        if (_tlMatch) _tlSecStart = _tlMatch.beatStart || 0;
+        if (_tlMatch) {
+          _tlSecStart = _tlMatch.beatStart || 0;
+          _tlSecEnd = _tlMatch.beatEnd || 0;
+        }
       }
       TL.setBpm(bpm);
+      if (_tlSecEnd > _tlSecStart) TL.setLoop(_tlSecStart, _tlSecEnd);
       TL.play(_tlSecStart);
     } catch(e) { console.warn('[TL] play sync error:', e); }
   }
