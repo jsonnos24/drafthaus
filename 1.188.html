@@ -9668,14 +9668,14 @@ body.songlist-active.split-active #viewList {
   border-bottom:1px solid var(--border2);
 }
 .ts-tool-btn{
-  height:26px;border-radius:5px;padding:0 8px;
-  border:1px solid var(--border2);background:var(--card);
-  color:var(--muted);font-size:10px;font-weight:600;
+  height:26px;border-radius:5px;padding:4px 10px;
+  border:1px solid var(--border2);background:transparent;
+  color:var(--text,#eee);font-size:11px;font-weight:400;
   display:inline-flex;align-items:center;gap:3px;
-  cursor:pointer;transition:all .12s;font-family:inherit;
+  cursor:pointer;transition:all .15s;font-family:'IBM Plex Mono',monospace;
 }
-.ts-tool-btn:hover{border-color:var(--muted);color:var(--text)}
-.ts-tool-btn.active{background:rgba(167,139,250,0.25);color:#c4b5fd;border-color:rgba(167,139,250,0.5)}
+.ts-tool-btn:hover{background:rgba(245,166,35,0.12)}
+.ts-tool-btn.active{background:rgba(245,166,35,0.2);border-color:var(--gold,#f5a623);color:var(--gold,#f5a623)}
 .ts-drumroll-btn{
   margin-left:auto;
   height:26px;border-radius:5px;padding:0 10px;
@@ -10098,14 +10098,15 @@ body.seq-drawer-open .seq-drum-controls { display: none !important; }
 }
 .dr-roll-zoom-wrap input[type="range"]{width:60px;accent-color:var(--gold);cursor:pointer;}
 .dr-roll-tool-btn{
-  width:28px;height:24px;border-radius:4px;
-  border:1px solid var(--border2);background:var(--card);
-  color:var(--muted);font-size:10px;font-weight:700;
-  display:flex;align-items:center;justify-content:center;
-  cursor:pointer;transition:all .12s;font-family:inherit;
+  height:24px;border-radius:5px;padding:4px 10px;
+  border:1px solid var(--border2);background:transparent;
+  color:var(--text,#eee);font-size:11px;font-weight:400;
+  display:flex;align-items:center;justify-content:center;gap:2px;
+  cursor:pointer;transition:all .15s;font-family:'IBM Plex Mono',monospace;
+  white-space:nowrap;
 }
-.dr-roll-tool-btn:hover{border-color:var(--muted);color:var(--text)}
-.dr-roll-tool-btn.active{background:rgba(167,139,250,0.25);color:#c4b5fd;border-color:rgba(167,139,250,0.5)}
+.dr-roll-tool-btn:hover{background:rgba(245,166,35,0.12)}
+.dr-roll-tool-btn.active{background:rgba(245,166,35,0.2);border-color:var(--gold,#f5a623);color:var(--gold,#f5a623)}
 .dr-roll-wrap{
   flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;
   background:#111120;position:relative;
@@ -26330,14 +26331,22 @@ function seqBuildGrids(song) {
 
   window._dtSetTool = function(tool) {
     _drumTool = tool;
-    // Update button active states
+    // Update strip button active states
     ['dtToolPointer','dtToolPencil','dtToolEraser'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.classList.toggle('active', id === 'dtTool' + tool.charAt(0).toUpperCase() + tool.slice(1));
     });
+    // Update drum roll button active states
+    ['drRollToolPointer','drRollToolPencil','drRollToolEraser'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('active', id === 'drRollTool' + tool.charAt(0).toUpperCase() + tool.slice(1));
+    });
     // Update cursor via data attribute
     const stack = document.getElementById('tsDrumStack');
     if (stack) stack.dataset.tool = tool;
+    // Update cursor on drum roll notes layer
+    var nl = document.getElementById('drRollNotesLayer');
+    if (nl) nl.style.cursor = tool === 'pencil' ? 'crosshair' : tool === 'eraser' ? 'not-allowed' : 'default';
     // Clear selection when switching away from pointer
     if (tool !== 'pointer') _dtClearSelection();
   };
@@ -27180,11 +27189,11 @@ function seqBuildGrids(song) {
     var layer = document.getElementById('drRollNotesLayer');
     if (!layer || e.target !== layer) return;
     if (e.touches && _drumTool === 'pencil') return;
-    if (_drumTool === 'pointer') {
+    if (_drumTool === 'pointer' || _drumTool === 'eraser') {
       _drRollSelectionStart(e);
       return;
     }
-    if (_drumTool !== 'pencil' && _drumTool !== 'eraser') return;
+    if (_drumTool !== 'pencil') return;
     e.preventDefault();
     var rect = layer.getBoundingClientRect();
     var cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
@@ -27323,9 +27332,10 @@ function seqBuildGrids(song) {
     });
   }
 
-  // ── Drum Roll: pointer drag-select ──
+  // ── Drum Roll: pointer/eraser drag-select ──
   function _drRollSelectionStart(e) {
-    if (_drumTool !== 'pointer') return;
+    if (_drumTool !== 'pointer' && _drumTool !== 'eraser') return;
+    var _drSelIsEraser = (_drumTool === 'eraser');
     e.preventDefault();
     var layer = document.getElementById('drRollNotesLayer');
     if (!layer) return;
@@ -27348,6 +27358,15 @@ function seqBuildGrids(song) {
       selectRect.style.top = y + 'px';
       selectRect.style.width = '0px';
       selectRect.style.height = '0px';
+      if (_drSelIsEraser) {
+        selectRect.style.borderColor = 'rgba(255,80,80,0.7)';
+        selectRect.style.background = 'rgba(255,60,60,0.12)';
+        selectRect.style.boxShadow = '0 0 12px rgba(255,80,80,0.25)';
+      } else {
+        selectRect.style.borderColor = '';
+        selectRect.style.background = '';
+        selectRect.style.boxShadow = '';
+      }
     }
 
     var onMove = function(ev) {
@@ -27372,7 +27391,29 @@ function seqBuildGrids(song) {
     };
 
     var onUp = function() {
-      if (selectRect) selectRect.style.display = 'none';
+      if (selectRect) {
+        selectRect.style.display = 'none';
+        selectRect.style.borderColor = '';
+        selectRect.style.background = '';
+        selectRect.style.boxShadow = '';
+      }
+      if (_drSelIsEraser && _drRollMultiSelected.size > 0) {
+        _drRollMultiSelected.forEach(function(key) {
+          var parts = key.split(':');
+          var voice = parts[0];
+          var step = parseInt(parts[1]);
+          var seqObj = _drRollGetSeq();
+          if (seqObj && seqObj[voice]) {
+            seqObj[voice][step] = 0;
+            if (seqObj[voice + 'Vel']) seqObj[voice + 'Vel'][step] = 0;
+          }
+        });
+        _drRollMultiSelected = new Set();
+        save();
+        _drRollLoadData();
+        _drRollRenderNotes();
+        seqBuildGrids((typeof getCurrentSong === 'function') ? getCurrentSong() : null);
+      }
       _drRollSelecting = null;
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
@@ -27535,9 +27576,9 @@ function seqBuildGrids(song) {
     tools.className = 'dr-roll-tools';
     tools.id = 'drRollTools';
     var toolBtns = [
-      { id: 'drRollToolPointer', label: '⇢', tool: 'pointer', title: 'Pointer — select & velocity drag' },
-      { id: 'drRollToolPencil',  label: '✎', tool: 'pencil',  title: 'Pencil — add/remove hits' },
-      { id: 'drRollToolEraser',  label: '✕', tool: 'eraser',  title: 'Eraser — remove hits' },
+      { id: 'drRollToolPointer', label: '▸ Pointer', tool: 'pointer', title: 'Pointer — select & velocity drag' },
+      { id: 'drRollToolPencil',  label: '✎ Pencil',  tool: 'pencil',  title: 'Pencil — add/remove hits' },
+      { id: 'drRollToolEraser',  label: '✕ Eraser',  tool: 'eraser',  title: 'Eraser — remove hits' },
     ];
     toolBtns.forEach(function(tb) {
       var btn = document.createElement('button');
