@@ -26778,7 +26778,22 @@ function seqBuildGrids(song) {
     // Keep song.sequencer in sync with active sequence
     var activeIdx = (typeof seqActiveIdx !== 'undefined') ? seqActiveIdx : 0;
     if (seqs[activeIdx]) song.sequencer = seqs[activeIdx];
-    if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
+    save();
+    // Live-update the playing scheduler cache so edits take effect immediately
+    if (typeof _seqSongSections !== 'undefined' && _seqSongSections && _seqSongSections.length) {
+      _drRollAllSections.forEach(function(sec) {
+        var sched = _seqSongSections.find(function(ss) { return ss._seqIdx === sec.seqIdx; });
+        if (!sched) return;
+        var seq2 = seqs[sec.seqIdx];
+        if (!seq2) return;
+        _drRollVoices.forEach(function(dv) {
+          sched[dv.voice] = seq2[dv.voice] || [];
+          sched[dv.voice + 'Vel'] = seq2[dv.voice + 'Vel'] || [];
+        });
+      });
+    }
+    // Sync strip grid DOM so strip view stays accurate
+    if (typeof seqBuildGrids === 'function') seqBuildGrids(song);
   }
 
   // ── Drum Roll: zoom helpers ──
@@ -27171,8 +27186,99 @@ function seqBuildGrids(song) {
         document.addEventListener('touchend', onVelUp);
         return;
       }
+      // Start drag-move for pointer tool
+      var isMulti = _drRollMultiSelected.has(voice + ':' + col);
+      if (!isMulti) {
+        _drRollClearMultiSelect();
+        _drRollMultiSelected.add(voice + ':' + col);
+        _drRollApplyMultiSelectVisual();
+      }
       _drRollSelected = voice + ':' + col;
       _drRollRenderNotes();
+      var dragStartX = e.touches ? e.touches[0].clientX : e.clientX;
+      var dragMoved = false;
+      var dragDelta = 0;
+      var onDragMove = function(ev) {
+        if (ev.cancelable) ev.preventDefault();
+        var cx2 = ev.touches ? ev.touches[0].clientX : ev.clientX;
+        var dx = cx2 - dragStartX;
+        dragDelta = Math.round(dx / _drRollColW);
+        if (dragDelta !== 0) dragMoved = true;
+        // ghost visual — render temporary ghost elements
+        var ghostLayer = document.getElementById('drRollNotesLayer');
+        document.querySelectorAll('.dr-roll-ghost-move').forEach(function(g) { g.remove(); });
+        if (dragMoved && dragDelta !== 0 && ghostLayer) {
+          _drRollMultiSelected.forEach(function(key) {
+            var kp = key.split(':');
+            var ri = _drRollVoices.findIndex(function(v) { return v.voice === kp[0]; });
+            if (ri < 0) return;
+            var tgtCol = parseInt(kp[1]) + dragDelta;
+            if (tgtCol < 0) return;
+            var gEl = document.createElement('div');
+            gEl.className = 'dr-roll-ghost-move';
+            gEl.style.cssText = 'position:absolute;left:' + (tgtCol * _drRollColW) + 'px;top:' + (ri * _drRollRowH) + 'px;width:' + Math.max(18, _drRollColW - 2) + 'px;height:' + _drRollRowH + 'px;outline:2px dashed #f5a623;outline-offset:-1px;background:rgba(245,166,35,0.2);border-radius:3px;pointer-events:none;z-index:5;';
+            ghostLayer.appendChild(gEl);
+          });
+        }
+      };
+      var onDragUp = function() {
+        document.removeEventListener('mousemove', onDragMove);
+        document.removeEventListener('mouseup', onDragUp);
+        document.removeEventListener('touchmove', onDragMove);
+        document.removeEventListener('touchend', onDragUp);
+        document.querySelectorAll('.dr-roll-ghost-move').forEach(function(g) { g.remove(); });
+        if (!dragMoved || dragDelta === 0) return;
+        var p2 = _drRollGetParams();
+        // Validate all targets in bounds and not occupied by non-selected
+        var moves = [];
+        var srcKeys = new Set(_drRollMultiSelected);
+        var valid = true;
+        srcKeys.forEach(function(key) {
+          var kp = key.split(':');
+          var sv = kp[0];
+          var sc = parseInt(kp[1]);
+          var tc = sc + dragDelta;
+          if (tc < 0 || tc >= p2.totalSteps) { valid = false; return; }
+          var tKey = sv + ':' + tc;
+          if (!srcKeys.has(tKey)) {
+            // Check target is empty
+            var tsi = _drRollGetSectionData(tc, sv);
+            var tm = tsi ? tsi.map : _drRollData[sv];
+            var tlc = tsi ? tsi.localStep : tc;
+            if (tm && tm.has(tlc)) { valid = false; return; }
+          }
+          moves.push({ voice: sv, srcCol: sc, dstCol: tc });
+        });
+        if (!valid || moves.length === 0) return;
+        // Remove sources first
+        moves.forEach(function(m) {
+          var si = _drRollGetSectionData(m.srcCol, m.voice);
+          var mp = si ? si.map : _drRollData[m.voice];
+          var lc = si ? si.localStep : m.srcCol;
+          if (mp) {
+            m._savedData = mp.get(lc);
+            mp.delete(lc);
+          }
+        });
+        // Place at destinations
+        moves.forEach(function(m) {
+          if (!m._savedData) return;
+          var si = _drRollGetSectionData(m.dstCol, m.voice);
+          var mp = si ? si.map : _drRollData[m.voice];
+          var lc = si ? si.localStep : m.dstCol;
+          if (mp) mp.set(lc, m._savedData);
+        });
+        // Update selection
+        _drRollMultiSelected = new Set();
+        moves.forEach(function(m) { _drRollMultiSelected.add(m.voice + ':' + m.dstCol); });
+        _drRollSaveData();
+        _drRollRenderNotes();
+        _drRollApplyMultiSelectVisual();
+      };
+      document.addEventListener('mousemove', onDragMove);
+      document.addEventListener('mouseup', onDragUp);
+      document.addEventListener('touchmove', onDragMove, {passive: false});
+      document.addEventListener('touchend', onDragUp);
       return;
     }
 
@@ -27410,6 +27516,21 @@ function seqBuildGrids(song) {
         });
         _drRollMultiSelected = new Set();
         save();
+        // Live-update scheduler cache so eraser takes effect during playback
+        if (typeof _seqSongSections !== 'undefined' && _seqSongSections && _seqSongSections.length) {
+          var song2 = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+          var seqs2 = song2 ? ((typeof getSongSequences === 'function') ? getSongSequences(song2) : (song2.sequences || [])) : [];
+          _drRollAllSections.forEach(function(sec) {
+            var sched = _seqSongSections.find(function(ss) { return ss._seqIdx === sec.seqIdx; });
+            if (!sched) return;
+            var seq2 = seqs2[sec.seqIdx];
+            if (!seq2) return;
+            _drRollVoices.forEach(function(dv) {
+              sched[dv.voice] = seq2[dv.voice] || [];
+              sched[dv.voice + 'Vel'] = seq2[dv.voice + 'Vel'] || [];
+            });
+          });
+        }
         _drRollLoadData();
         _drRollRenderNotes();
         seqBuildGrids((typeof getCurrentSong === 'function') ? getCurrentSong() : null);
@@ -64799,6 +64920,15 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     // Also keep song.sequencer.pianoRoll in sync with active seq
     var activeIdx = (typeof seqActiveIdx !== 'undefined') ? seqActiveIdx : 0;
     if (seqs[activeIdx]) song.sequencer.pianoRoll = seqs[activeIdx].pianoRoll;
+    save();
+    // Live-update the playing scheduler cache so edits take effect immediately
+    if (typeof _seqSongSections !== 'undefined' && _seqSongSections && _seqSongSections.length) {
+      Object.keys(grouped).forEach(function(siStr) {
+        var si2 = parseInt(siStr);
+        var sched = _seqSongSections.find(function(ss) { return ss._seqIdx === si2; });
+        if (sched && seqs[si2]) sched.pianoRoll = seqs[si2].pianoRoll;
+      });
+    }
     _prMarkDirty();
   };
 
