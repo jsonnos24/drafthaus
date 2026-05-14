@@ -38362,8 +38362,8 @@ function renderSharePublicLink(song) {
 }
 
 function _getPublicUrl(song) {
-  const base = window.location.href.split('?')[0].split('#')[0];
-  return base + '?view=' + song.id + '&token=' + song.publicToken;
+  // Clean /s/ path for dynamic OG meta tags via Cloud Function
+  return 'https://drafthaus.ca/s/' + song.id + '/' + song.publicToken;
 }
 
 async function generatePublicLink() {
@@ -38530,8 +38530,13 @@ let _pendingCollabJoin = null;
 
 async function checkPublicViewMode() {
   const params = new URLSearchParams(window.location.search);
-  const viewId = params.get('view');
-  const token  = params.get('token');
+  let viewId = params.get('view');
+  let token  = params.get('token');
+  // Fallback: parse /s/{songId}/{token} path in case Cloud Function redirect didn't fire
+  if (!viewId || !token) {
+    const pathMatch = window.location.pathname.match(/\/s\/([^/]+)\/([^/]+)/);
+    if (pathMatch) { viewId = pathMatch[1]; token = pathMatch[2]; }
+  }
   if (!viewId || !token) return false;
 
   // Store for post-signup collab join
