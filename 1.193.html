@@ -38873,19 +38873,19 @@ async function _handleCollabJoinAfterAuth(user) {
     const doc = await db.collection('songs').doc(songId).get();
     if (!doc.exists) { console.warn('[CollabJoin] song not found'); return; }
     const song = doc.data();
+    const songTitle = song.title || song.workingTitle || 'Untitled Draft';
     if (!song.publicToken || song.publicToken !== token) {
       console.warn('[CollabJoin] token mismatch');
       return;
     }
     // Don't add if this is the owner
-    if (song.ownerId === user.uid) return;
+    if (song.ownerId === user.uid) {
+      if (typeof showToast === 'function') showToast('Welcome back — this is your song!', 'success', 4000);
+      return;
+    }
     // Don't add if already a collaborator
     if ((song.sharedWith || []).includes(user.uid)) {
-      // Already a collaborator — just dismiss the public view and let app load
-      const pv = document.getElementById('publicViewOverlay');
-      if (pv) pv.style.display = 'none';
-      const gs = document.getElementById('globalSeqStrip');
-      if (gs) gs.style.display = '';
+      if (typeof showToast === 'function') showToast('"' + songTitle + '" is already in your songlist', 'success', 4000);
       return;
     }
     // Check if collabPaused — add as view-only instead
@@ -38894,7 +38894,6 @@ async function _handleCollabJoinAfterAuth(user) {
         sharedReadOnly: firebase.firestore.FieldValue.arrayUnion(user.uid)
       });
     } else {
-      // Add as edit collaborator
       await db.collection('songs').doc(songId).update({
         sharedWith: firebase.firestore.FieldValue.arrayUnion(user.uid)
       });
@@ -38904,13 +38903,10 @@ async function _handleCollabJoinAfterAuth(user) {
       const baseline = _buildOwnerBaseline(song);
       await db.collection('songs').doc(songId).update({ ownerBaseline: baseline });
     }
-    // Dismiss public view overlay — app will load via onAuthStateChanged
-    const pv = document.getElementById('publicViewOverlay');
-    if (pv) pv.style.display = 'none';
-    const gs = document.getElementById('globalSeqStrip');
-    if (gs) gs.style.display = '';
-    // Clean URL
-    history.replaceState(null, '', window.location.pathname);
+    // Show success message
+    if (typeof showToast === 'function') {
+      showToast('"' + songTitle + '" added to your songlist — now you can collaborate!', 'success', 6000);
+    }
   } catch(e) {
     console.error('[CollabJoin] error:', e);
   }
@@ -38934,8 +38930,17 @@ function _buildOwnerBaseline(song) {
 // Hook into auth state for collab join — separate handler, does NOT modify the locked auth lifecycle
 auth.onAuthStateChanged(user => {
   if (user && !user.isAnonymous && _pendingCollabJoin) {
-    // Small delay to let the main auth handler set up first
-    setTimeout(() => _handleCollabJoinAfterAuth(user), 1500);
+    // Immediately dismiss public view + signup overlays so the app is visible
+    const pv = document.getElementById('publicViewOverlay');
+    if (pv) pv.style.display = 'none';
+    const pvSignup = document.getElementById('pvSignupOverlay');
+    if (pvSignup) pvSignup.style.display = 'none';
+    const gs = document.getElementById('globalSeqStrip');
+    if (gs) gs.style.display = '';
+    // Clean URL so the app doesn't re-enter public view mode
+    history.replaceState(null, '', window.location.pathname);
+    // Process collab join after main auth handler has initialized
+    setTimeout(() => _handleCollabJoinAfterAuth(user), 2000);
   }
 });
 
