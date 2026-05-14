@@ -38540,6 +38540,7 @@ async function checkPublicViewMode() {
 
   // Store for post-signup collab join
   _pendingCollabJoin = { songId: viewId, token: token };
+  console.log('[CollabDebug] _pendingCollabJoin SET:', viewId, token);
 
   // If user is already signed in, auto-join as collaborator and skip public view
   if (auth.currentUser && !auth.currentUser.isAnonymous) {
@@ -38866,49 +38867,32 @@ async function _pvSignupEmail() {
 // ── Post-Signup Collaborator Join ─────────────────────────────────
 
 async function _handleCollabJoinAfterAuth(user) {
+  console.log('[CollabDebug] _handleCollabJoinAfterAuth called. pending:', _pendingCollabJoin, 'user:', user?.uid, 'anon:', user?.isAnonymous);
   if (!_pendingCollabJoin || !user || user.isAnonymous) return;
   const { songId, token } = _pendingCollabJoin;
   _pendingCollabJoin = null; // consume it
   try {
-    const doc = await db.collection('songs').doc(songId).get();
-    if (!doc.exists) { console.warn('[CollabJoin] song not found'); return; }
-    const song = doc.data();
-    const songTitle = song.title || song.workingTitle || 'Untitled Draft';
-    if (!song.publicToken || song.publicToken !== token) {
-      console.warn('[CollabJoin] token mismatch');
-      return;
-    }
-    // Don't add if this is the owner
-    if (song.ownerId === user.uid) {
-      if (typeof showToast === 'function') showToast('Welcome back — this is your song!', 'success', 4000);
-      return;
-    }
-    // Don't add if already a collaborator
-    if ((song.sharedWith || []).includes(user.uid)) {
-      if (typeof showToast === 'function') showToast('"' + songTitle + '" is already in your songlist', 'success', 4000);
-      return;
-    }
-    // Check if collabPaused — add as view-only instead
-    if (song.collabPaused) {
-      await db.collection('songs').doc(songId).update({
-        sharedReadOnly: firebase.firestore.FieldValue.arrayUnion(user.uid)
-      });
-    } else {
-      await db.collection('songs').doc(songId).update({
-        sharedWith: firebase.firestore.FieldValue.arrayUnion(user.uid)
-      });
-    }
-    // Save owner baseline snapshot if not already saved
-    if (!song.ownerBaseline) {
-      const baseline = _buildOwnerBaseline(song);
-      await db.collection('songs').doc(songId).update({ ownerBaseline: baseline });
-    }
-    // Show success message
-    if (typeof showToast === 'function') {
-      showToast('"' + songTitle + '" added to your songlist — now you can collaborate!', 'success', 6000);
+    const joinCollab = firebase.functions().httpsCallable('joinCollab');
+    const result = await joinCollab({ songId: songId, token: token });
+    const data = result.data;
+    if (data.status === 'ok') {
+      if (typeof showToast === 'function') {
+        showToast('"' + (data.songTitle || 'Song') + '" added to your songlist — now you can collaborate!', 'success', 6000);
+      }
+    } else if (data.status === 'already') {
+      if (typeof showToast === 'function') {
+        showToast('"' + (data.songTitle || 'Song') + '" is already in your songlist', 'success', 4000);
+      }
+    } else if (data.status === 'owner') {
+      if (typeof showToast === 'function') {
+        showToast('Welcome back — this is your song!', 'success', 4000);
+      }
     }
   } catch(e) {
     console.error('[CollabJoin] error:', e);
+    if (typeof showToast === 'function') {
+      showToast('Could not join collaboration — try again later', 'error', 5000);
+    }
   }
 }
 
@@ -38929,6 +38913,7 @@ function _buildOwnerBaseline(song) {
 
 // Hook into auth state for collab join — separate handler, does NOT modify the locked auth lifecycle
 auth.onAuthStateChanged(user => {
+  console.log('[CollabDebug] onAuthStateChanged fired. user:', user?.uid, 'anon:', user?.isAnonymous, 'pending:', _pendingCollabJoin);
   if (user && !user.isAnonymous && _pendingCollabJoin) {
     // Immediately dismiss public view + signup overlays so the app is visible
     const pv = document.getElementById('publicViewOverlay');
