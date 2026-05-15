@@ -38041,6 +38041,7 @@ function _showGuestExpiryWarning(daysLeft) {
 }
 
 function _showGuestUpgradeBanner() {
+  if (window._publicViewMode) return; // suppress in public share view
   if (document.getElementById('guestUpgradeBanner')) return; // already shown
   const banner = document.createElement('div');
   banner.id = 'guestUpgradeBanner';
@@ -38586,13 +38587,15 @@ async function _pvFetchAndInject(viewId, token) {
 // Inject the pre-fetched song into the app after guest boot completes
 function _pvInjectAfterBoot() {
   if (!window._publicViewSongData) return;
+  // Immediately hide welcome prompt so it doesn't flash
+  const wp = document.getElementById('v4WelcomePrompt');
+  if (wp) wp.style.display = 'none';
   const _pvPoll = setInterval(() => {
     const lo = document.getElementById('landingOverlay');
-    if (lo && !lo.classList.contains('hidden')) return; // app not ready yet
+    if (lo && !lo.classList.contains('hidden')) return;
     clearInterval(_pvPoll);
-    setTimeout(_pvInjectSong, 300);
-  }, 150);
-  // Safety timeout — stop polling after 10s
+    _pvInjectSong();
+  }, 100);
   setTimeout(() => clearInterval(_pvPoll), 10000);
 }
 
@@ -38603,14 +38606,17 @@ function _pvInjectSong() {
   const song = typeof normalizeLoadedSong === 'function' ? normalizeLoadedSong({ ...raw, _fromSheet: false }) : raw;
   song._viewOnly = true;
   song.id = raw.id;
-  // Add to songs array if not already there
   const idx = songs.findIndex(s => s.id === song.id);
   if (idx >= 0) { songs[idx] = song; } else { songs.push(song); }
   currentId = song.id;
+  // Hide guest banner + welcome greeting — not relevant in public view
+  const gb = document.getElementById('guestUpgradeBanner');
+  if (gb) gb.remove();
+  const wg = document.getElementById('v4WelcomeGreeting');
+  if (wg) wg.style.display = 'none';
+  // Open directly into song detail
   if (typeof populateSongFields === 'function') populateSongFields(song);
   if (typeof renderGrid === 'function') renderGrid();
-  // Show floating signup CTA
-  _pvShowSignupCTA();
 }
 
 function _pvShowSignupCTA() {
