@@ -9442,7 +9442,7 @@ body.looper-drawer-open #songViewRunthrough {
 /* ── Song list active: hide seq strip + split header + right pane, full-width ── */
 /* Hide seq strip on song list ONLY when no drawer is open — :not() excludes all drawer states */
 body.songlist-active:not(.keyboard-drawer-open):not(.seq-drawer-open):not(.looper-drawer-open):not(.ft-drawer-open) .global-seq-strip { display: none !important; }
-body.songlist-active #headerTransport { display: none !important; }
+body.songlist-active:not(.song-loaded) #headerTransport { display: none !important; }
 body.split-4track-active #headerTransport { display: none !important; }
 body.songlist-active #splitLeftHeader { display: none !important; }
 body.songlist-active #splitRightPanel { display: none !important; }
@@ -19589,6 +19589,7 @@ function updateHeaderSongTitle(song) {
 }
 
 function populateSongFields(song) {
+  document.body.classList.add('song-loaded');
   // Clean up bloated pianoRoll from prior cross-contamination bug
   var _prCap = (typeof _PR_MAX_NOTES_PER_SEQ !== 'undefined') ? _PR_MAX_NOTES_PER_SEQ : 200;
   var _prSnap2 = (typeof prSnap !== 'undefined') ? prSnap : 4;
@@ -19681,13 +19682,6 @@ function populateSongFields(song) {
   // Show/hide view-only banner
   const vob = document.getElementById('viewOnlyBanner');
   if (vob) vob.style.display = song._viewOnly ? 'flex' : 'none';
-  // Auto-open keyboard drawer with piano roll on song load
-  setTimeout(() => {
-    if (typeof openKeyboardDrawer === 'function') {
-      const kd = document.getElementById('keyboardDrawer');
-      if (!kd || !kd.classList.contains('open')) openKeyboardDrawer();
-    }
-  }, 200);
 }
 
 function _updateSiStats(song) {
@@ -38618,8 +38612,11 @@ function _pvInjectSong() {
   if (gb) gb.remove();
   const wg = document.getElementById('v4WelcomeGreeting');
   if (wg) wg.style.display = 'none';
-  // Open directly into song detail
+  // Load the song (sets up sequencer, etc.) then return to songlist with UCB visible
   if (typeof populateSongFields === 'function') populateSongFields(song);
+  if (typeof showList === 'function') showList();
+  // Re-add song-loaded so UCB stays visible on songlist
+  document.body.classList.add('song-loaded');
   if (typeof renderGrid === 'function') renderGrid();
   // Show floating view-only panel
   _pvShowViewOnlyPanel();
@@ -38629,10 +38626,7 @@ function _pvShowViewOnlyPanel() {
   if (document.getElementById('pvViewOnlyPanel')) return;
   const panel = document.createElement('div');
   panel.id = 'pvViewOnlyPanel';
-  // Position centered above the UCB transport bar
-  const ht = document.getElementById('headerTransport');
-  const htTop = ht ? ht.getBoundingClientRect().top : (window.innerHeight - 100);
-  panel.style.cssText = 'position:fixed;bottom:' + (window.innerHeight - htTop + 6) + 'px;left:50%;transform:translateX(-50%);z-index:99998;background:#1a1a2e;border:1px solid rgba(0,200,160,0.4);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.5);font-family:"IBM Plex Mono",monospace;min-width:280px;max-width:420px;cursor:default;user-select:none;';
+  panel.style.cssText = 'position:fixed;bottom:110px;left:50%;transform:translateX(-50%);z-index:99998;background:#1a1a2e;border:1px solid rgba(0,200,160,0.4);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.5);font-family:"IBM Plex Mono",monospace;min-width:280px;max-width:420px;cursor:default;user-select:none;';
   panel.innerHTML = `
     <div id="pvPanelHeader" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;cursor:grab;border-bottom:1px solid rgba(255,255,255,0.06);border-radius:10px 10px 0 0;background:rgba(0,200,160,0.08);">
       <span style="font-size:11px;font-weight:700;color:var(--teal);letter-spacing:0.06em;">👁 VIEW ONLY</span>
