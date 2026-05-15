@@ -16804,11 +16804,8 @@ setTimeout(function() {
 <!-- ── Detail View ───────────────── -->
 <div class="view" id="viewDetail">
   <div class="container">
-    <!-- View-only banner (shown when song._viewOnly = true) -->
-    <div id="viewOnlyBanner" style="display:none;background:rgba(0,200,160,0.1);border:1px solid rgba(0,200,160,0.3);border-radius:8px;padding:8px 16px;margin-bottom:12px;align-items:center;gap:10px;">
-      <span style="font-size:16px;">👁</span>
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--teal);">You have <strong>view-only</strong> access to this draft. Changes won't be saved or shared. <a onclick="_pvShowSignupOverlay()" style="color:var(--purple);cursor:pointer;text-decoration:underline;">Create a free account</a> and <a onclick="_pvShowSignupOverlay();setTimeout(()=>{_pvSigninMode=true;_pvToggleSignin();},100)" style="color:var(--purple);cursor:pointer;text-decoration:underline;">sign in</a> to save and collaborate.</div>
-    </div>
+    <!-- View-only banner — hidden, replaced by floating panel _pvViewOnlyPanel -->
+    <div id="viewOnlyBanner" style="display:none;"></div>
     <div id="stickySongBar" class="sticky-song-bar" style="display:none;">
       <button title="Go back to the song list. Return to browsing and managing all your drafts." onclick="showList()" style="padding:9px 20px;font-size:13px;font-family:'IBM Plex Mono',monospace;font-weight:700;letter-spacing:0.08em;background:transparent;border:2px solid var(--gold);color:var(--gold);border-radius:8px;cursor:pointer;flex-shrink:0;transition:all 0.15s;" onmouseover="this.style.background='rgba(245,166,35,0.15)'" onmouseout="this.style.background='transparent'">← Back to Draft List</button>
     </div>
@@ -38617,10 +38614,70 @@ function _pvInjectSong() {
   // Open directly into song detail
   if (typeof populateSongFields === 'function') populateSongFields(song);
   if (typeof renderGrid === 'function') renderGrid();
+  // Show floating view-only panel
+  _pvShowViewOnlyPanel();
 }
 
-function _pvShowSignupCTA() {
-  // No floating bar — the view-only banner handles the CTA inline
+function _pvShowViewOnlyPanel() {
+  if (document.getElementById('pvViewOnlyPanel')) return;
+  const panel = document.createElement('div');
+  panel.id = 'pvViewOnlyPanel';
+  panel.style.cssText = 'position:fixed;top:52px;left:50%;transform:translateX(-50%);z-index:99998;background:#1a1a2e;border:1px solid rgba(0,200,160,0.4);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.5);font-family:"IBM Plex Mono",monospace;min-width:280px;max-width:420px;cursor:default;user-select:none;transition:width 0.2s,height 0.2s;';
+  panel.innerHTML = `
+    <div id="pvPanelHeader" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;cursor:grab;border-bottom:1px solid rgba(255,255,255,0.06);border-radius:10px 10px 0 0;background:rgba(0,200,160,0.08);">
+      <span style="font-size:11px;font-weight:700;color:var(--teal);letter-spacing:0.06em;">👁 VIEW ONLY</span>
+      <button id="pvPanelToggle" onclick="_pvTogglePanel()" style="background:none;border:none;color:var(--faint);font-size:14px;cursor:pointer;padding:0 2px;line-height:1;" title="Collapse">▾</button>
+    </div>
+    <div id="pvPanelBody" style="padding:10px 14px 12px;font-size:11px;color:var(--teal);line-height:1.6;">
+      Changes won't be saved or shared.<br>
+      <a onclick="_pvShowSignupOverlay()" style="color:var(--purple);cursor:pointer;text-decoration:underline;font-weight:600;">Create a free account</a> or <a onclick="_pvShowSignupOverlay();setTimeout(()=>{_pvSigninMode=true;_pvToggleSignin();},100)" style="color:var(--purple);cursor:pointer;text-decoration:underline;font-weight:600;">sign in</a> to collaborate.
+    </div>`;
+  document.body.appendChild(panel);
+  // Drag logic
+  const hdr = document.getElementById('pvPanelHeader');
+  let _dx = 0, _dy = 0, _px = 0, _py = 0, _dragging = false;
+  hdr.addEventListener('pointerdown', e => {
+    if (e.target.tagName === 'BUTTON') return;
+    _dragging = true;
+    _px = e.clientX; _py = e.clientY;
+    panel.style.transition = 'none';
+    hdr.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+  document.addEventListener('pointermove', e => {
+    if (!_dragging) return;
+    _dx = e.clientX - _px; _dy = e.clientY - _py;
+    _px = e.clientX; _py = e.clientY;
+    // Switch from centered to absolute positioning on first drag
+    if (panel.style.transform) {
+      const rect = panel.getBoundingClientRect();
+      panel.style.left = rect.left + 'px';
+      panel.style.top = rect.top + 'px';
+      panel.style.transform = 'none';
+    }
+    panel.style.left = (panel.offsetLeft + _dx) + 'px';
+    panel.style.top = (panel.offsetTop + _dy) + 'px';
+  });
+  document.addEventListener('pointerup', () => {
+    if (!_dragging) return;
+    _dragging = false;
+    hdr.style.cursor = 'grab';
+  });
+}
+
+function _pvTogglePanel() {
+  const body = document.getElementById('pvPanelBody');
+  const btn = document.getElementById('pvPanelToggle');
+  if (!body || !btn) return;
+  if (body.style.display === 'none') {
+    body.style.display = '';
+    btn.textContent = '▾';
+    btn.title = 'Collapse';
+  } else {
+    body.style.display = 'none';
+    btn.textContent = '▸';
+    btn.title = 'Expand';
+  }
 }
 
 // Hook: after anonymous auth boots the app, inject the song
@@ -38976,6 +39033,8 @@ auth.onAuthStateChanged(user => {
     if (pvSignup) pvSignup.style.display = 'none';
     const pvCTA = document.getElementById('pvSignupCTA');
     if (pvCTA) pvCTA.remove();
+    const pvPanel = document.getElementById('pvViewOnlyPanel');
+    if (pvPanel) pvPanel.remove();
     const gs = document.getElementById('globalSeqStrip');
     if (gs) gs.style.display = '';
     window._publicViewMode = false;
