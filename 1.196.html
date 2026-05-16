@@ -4426,10 +4426,15 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   /* ═══ Stage layout — desktop two-column grid ═══ */
   .kbd-stage-toolbar {
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    padding: 10px 20px; border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 0;
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0; background: #141420;
   }
+  .kbd-stage-toolbar-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 20px;
+    flex-wrap: nowrap; overflow-x: auto;
+  }
+  .kbd-stage-toolbar-row + .kbd-stage-toolbar-row { border-top: 1px solid rgba(255,255,255,0.06); }
   .kbd-stage-toolbar .spacer { flex: 1; }
   .kbd-stage-toolbar .right-cluster { display: flex; gap: 8px; align-items: center; }
   .kbd-stage-grid {
@@ -41507,34 +41512,24 @@ function renderKeyboardDrawerHtml(song) {
     const _mprSustain = (typeof _kbdSustain !== 'undefined' && _kbdSustain) ? ' active' : '';
     return `
       <div class="mpr-wrap" id="mprWrap">
-        <!-- ═══ TWO-ROW TOOLBAR ═══ -->
+        <!-- ═══ THREE-ROW TOOLBAR ═══ -->
         <div class="mpr-toolbar" id="mprToolbar">
-          <!-- Row 1: Key, Time Sig, Instruments, Mode toggle -->
+          <!-- Row 1: Mode + Key + Time Sig + Bars -->
           <div class="mpr-toolbar-row">
-            <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="border:1.5px solid var(--gold,#f5a623);max-width:110px;">
+            <button class="mpr-tool-btn${seqChordMode==='preview'?' mpr-mode-preview active':' mpr-mode-compose active'}" id="mprModeBtn" onclick="mprToggleMode()" title="Toggle Preview / Compose">
+              ${seqChordMode==='compose' ? '✏ Compose' : '▶ Preview'}
+            </button>
+            <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="border:1.5px solid var(--gold,#f5a623);max-width:110px;" title="Key">
               ${_keyOptions}
             </select>
-            <select class="seq-select" id="kbdKeysTimeSig" onchange="seqTimeSigChanged(this.value)" style="width:auto;" title="Time signature">
+            <select class="seq-select" id="kbdKeysTimeSig" onchange="seqTimeSigChanged(this.value)" style="width:48px;" title="Time Sig">
               <option value="4"${timeSig==='4'?' selected':''}>4/4</option>
               <option value="3"${timeSig==='3'?' selected':''}>3/4</option>
               <option value="2"${timeSig==='2'?' selected':''}>2/4</option>
               <option value="6"${timeSig==='6'?' selected':''}>6/8</option>
               <option value="5"${timeSig==='5'?' selected':''}>5/4</option>
             </select>
-            <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged(this.value)" style="max-width:90px;" title="Chord instrument">
-              ${_chordInstrumentOptions}
-            </select>
-            <select class="seq-select" id="melodyInstrumentSelect" onchange="melodyInstrumentChanged(this.value)" style="max-width:90px;" title="Keys instrument">
-              ${_melodyInstrumentOptions}
-            </select>
-            <span style="flex:1"></span>
-            <button class="mpr-tool-btn${seqChordMode==='preview'?' mpr-mode-preview active':' mpr-mode-compose active'}" id="mprModeBtn" onclick="mprToggleMode()" title="Toggle Preview / Compose">
-              ${seqChordMode==='compose' ? '✏ Compose' : '▶ Preview'}
-            </button>
-          </div>
-          <!-- Row 2: Bars, Resolution, Duration, Progression, Vel/Qz, tools -->
-          <div class="mpr-toolbar-row">
-            <select class="seq-select" id="kbdBars" onchange="kbdBarsChanged(this.value)" style="width:auto;" title="Bars">
+            <select class="seq-select" id="kbdBars" onchange="kbdBarsChanged(this.value)" style="width:48px;" title="Bars">
               <option value="1"${songBars==='1'?' selected':''}>1</option>
               <option value="2"${songBars==='2'?' selected':''}>2</option>
               <option value="4"${songBars==='4'?' selected':''}>4</option>
@@ -41544,30 +41539,46 @@ function renderKeyboardDrawerHtml(song) {
               <option value="16"${songBars==='16'?' selected':''}>16</option>
               <option value="32"${songBars==='32'?' selected':''}>32</option>
             </select>
-            <select class="seq-select" id="seqChordSteps" onchange="seqChordStepsChanged(this.value)" title="Resolution">
-              <option value="1"${String(sd.chordSteps||'1')==='1'?' selected':''}>1/4</option>
-              <option value="2"${String(sd.chordSteps||'1')==='2'?' selected':''}>1/8</option>
-              <option value="4"${String(sd.chordSteps||'1')==='4'?' selected':''}>1/16</option>
+            <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="max-width:120px;" title="Progression">
+              ${_progressionOptions}
             </select>
-            <select class="seq-select" id="kbdPortNoteDur" onchange="kbdNoteDurationChanged(this.value)" title="Note duration" style="border:1.5px solid #e8749a;">
+            <button title="Re-shuffle rhythm" id="seqProgressionReHumBtn" onclick="seqRehumanizeProgression()" class="mpr-tool-btn"
+              style="${_activeProgressionId ? '' : 'display:none;'}font-weight:700;">↺</button>
+          </div>
+          <!-- Row 2: Duration + Chord Steps + Instruments + Humanize + Quantize -->
+          <div class="mpr-toolbar-row">
+            <select class="seq-select" id="kbdPortNoteDur" onchange="kbdNoteDurationChanged(this.value)" title="Note duration" style="width:64px;border:1.5px solid #e8749a;box-shadow:0 0 4px rgba(232,116,154,0.25);">
               <option value="1"${_mprNoteDur===1?' selected':''}>𝅝 Whole</option>
               <option value="0.5"${_mprNoteDur===0.5?' selected':''}>𝅗𝅥 Half</option>
               <option value="0.25"${_mprNoteDur===0.25?' selected':''}>♩ Qtr</option>
               <option value="0.125"${_mprNoteDur===0.125?' selected':''}>♪ 8th</option>
               <option value="0.0625"${_mprNoteDur===0.0625?' selected':''}>𝅘𝅥𝅯 16th</option>
             </select>
-            <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="max-width:120px;">
-              ${_progressionOptions}
+            <select class="seq-select" id="seqChordSteps" onchange="seqChordStepsChanged(this.value)" style="width:48px;" title="Chord grid">
+              <option value="1"${String(sd.chordSteps||'1')==='1'?' selected':''}>1/4</option>
+              <option value="2"${String(sd.chordSteps||'1')==='2'?' selected':''}>1/8</option>
+              <option value="4"${String(sd.chordSteps||'1')==='4'?' selected':''}>1/16</option>
             </select>
-            <button title="Re-humanize the chord voicings for a more natural sound. Adds subtle timing and velocity variation." id="seqProgressionReHumBtn" onclick="seqRehumanizeProgression()" class="seq-btn"
-              title="Re-shuffle rhythm" style="${_activeProgressionId ? '' : 'display:none;'}font-size:10px;padding:3px 6px;font-weight:700;">↺</button>
-            <button class="mpr-tool-btn" onclick="if(typeof prRandomizeVelocity==='function')prRandomizeVelocity()" title="Randomize velocities">🎲</button>
-            <button class="mpr-tool-btn${melodyQuantize?' active':''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()" title="Quantize melody">Qz</button>
-            <span style="flex:1"></span>
+            <span style="width:1px;height:16px;background:var(--border2,#333);flex-shrink:0;"></span>
+            <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged(this.value)" style="max-width:80px;" title="Chord instrument">
+              ${_chordInstrumentOptions}
+            </select>
+            <select class="seq-select" id="melodyInstrumentSelect" onchange="melodyInstrumentChanged(this.value)" style="max-width:80px;" title="Keys instrument">
+              ${_melodyInstrumentOptions}
+            </select>
+            <button class="mpr-tool-btn" style="border-color:var(--teal,#2dd4bf);color:var(--teal,#2dd4bf);${seqHumanizeChords?'background:var(--teal,#2dd4bf);color:#0d0e13;':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords">〜</button>
+            <button class="mpr-tool-btn${melodyQuantize?' active':''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()" title="Quantize">Qz</button>
+          </div>
+          <!-- Row 3: Drawing tools + Vel randomize -->
+          <div class="mpr-toolbar-row">
             <button class="mpr-tool-btn" id="mprToolPointer" onclick="mprSetTool('pointer')" title="Pointer — scroll / zoom">▸</button>
             <button class="mpr-tool-btn active" id="mprToolPencil" onclick="mprSetTool('pencil')" title="Pencil — place notes">✎</button>
             <button class="mpr-tool-btn" id="mprToolEraser" onclick="mprSetTool('eraser')" title="Eraser — remove notes">✕</button>
             <button class="mpr-tool-btn" id="mprToolPiano" onclick="mprSetTool('piano')" title="Piano — live play / compose" style="border-color:var(--purple,#c8a0ff);color:var(--purple,#c8a0ff);">♫</button>
+            <span style="flex:1"></span>
+            <button class="mpr-tool-btn" onclick="if(typeof prRandomizeVelocity==='function')prRandomizeVelocity()" title="Randomize velocities">🎲 Vel</button>
+            <button class="mpr-tool-btn" onclick="seqDupPattern()" title="Duplicate pattern" style="border-color:var(--gold,#f5a623);color:var(--gold,#f5a623);">+Dup</button>
+            <button class="mpr-tool-btn" onclick="seqClearAllChordSlots()" title="Clear all" style="color:#ff5f5f;">Clear ×</button>
           </div>
         </div>
         <!-- ═══ BODY: Chord sidebar + PR panel ═══ -->
@@ -41720,67 +41731,82 @@ function renderKeyboardDrawerHtml(song) {
       <!-- Settings strip — rendered into body, removed by openKeyboardDrawer() -->
       <div class="kbd-settings-strip" style="display:none;"></div>
 
-      <!-- ═══ STAGE TOOLBAR ═══ -->
+      <!-- ═══ STAGE TOOLBAR — 3 rows ═══ -->
       <div class="kbd-stage-toolbar">
-        <button class="seq-chord-mode-btn${seqChordMode==='preview'?' active':''}" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Preview — clicking a chord just plays it">▶ Preview</button>
-        <button class="seq-chord-mode-btn" id="seqSweepBtn" onclick="seqToggleSweepMode()" title="Sweep — hover over chord pills to auto-play">⟿ Sweep</button>
-        <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;max-width:140px;border:1.5px solid var(--gold, #f5a623);box-shadow:0 0 4px rgba(245,166,35,0.25);">
-          ${_keyOptions}
-        </select>
-        <select class="seq-select" id="kbdKeysTimeSig" onchange="kbdTimeSigChanged(this.value)" style="font-size:10px;width:52px;" title="Time Signature">
-          <option value="4"${timeSig==='4'?' selected':''}>4/4</option>
-          <option value="3"${timeSig==='3'?' selected':''}>3/4</option>
-          <option value="2"${timeSig==='2'?' selected':''}>2/4</option>
-          <option value="6"${timeSig==='6'?' selected':''}>6/8</option>
-          <option value="5"${timeSig==='5'?' selected':''}>5/4</option>
-        </select>
-        <select class="seq-select" id="kbdBars" onchange="kbdBarsChanged(this.value)" style="font-size:10px;width:52px;" title="Bars per loop">
-          <option value="1"${songBars==='1'?' selected':''}>1 Bar</option>
-          <option value="2"${songBars==='2'?' selected':''}>2 Bars</option>
-          <option value="4"${songBars==='4'?' selected':''}>4 Bars</option>
-          <option value="6"${songBars==='6'?' selected':''}>6 Bars</option>
-          <option value="8"${songBars==='8'?' selected':''}>8 Bars</option>
-          <option value="12"${songBars==='12'?' selected':''}>12 Bars</option>
-          <option value="16"${songBars==='16'?' selected':''}>16 Bars</option>
-          <option value="32"${songBars==='32'?' selected':''}>32 Bars</option>
-        </select>
-        <select class="seq-select" id="kbdKeysSteps" onchange="chordStepsChanged(this.value)" style="font-size:10px;width:52px;" title="Chord steps per beat">
-          <option value="1"${songGrid==='1'?' selected':''}>1/4</option>
-          <option value="2"${songGrid==='2'?' selected':''}>1/8</option>
-          <option value="4"${songGrid==='4'?' selected':''}>1/16</option>
-          <option value="8"${songGrid==='8'?' selected':''}>1/32</option>
-          <option value="3"${songGrid==='3'?' selected':''}>Triplets</option>
-        </select>
-        <select class="seq-select" id="kbdDesktopNoteDur" onchange="kbdNoteDurationChanged(this.value)" style="font-size:10px;width:80px;border:1.5px solid #e8749a;box-shadow:0 0 4px rgba(232,116,154,0.25);" title="Note duration (compose pen size)">
-          <option value="1">𝅝 Whole</option>
-          <option value="0.5">𝅗𝅥 Half</option>
-          <option value="0.25" selected>♩ Quarter</option>
-          <option value="0.125">♪ Eighth</option>
-          <option value="0.0625">𝅘𝅥𝅯 16th</option>
-        </select>
-        <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="font-size:10px;max-width:200px;">
-          ${_progressionOptions}
-        </select>
-        <button title="Re-humanize the chord voicings for a more natural sound. Adds subtle timing and velocity variation." id="seqProgressionReHumBtn" onclick="seqRehumanizeProgression()" class="seq-btn"
-          title="Re-shuffle rhythm" style="${_activeProgressionId ? '' : 'display:none;'}font-size:10px;padding:3px 10px;font-weight:700;letter-spacing:0.04em;">
-          ↺ Shuffle
-        </button>
-        <span style="width:1px;height:20px;background:var(--border2,#333);flex-shrink:0;margin:0 4px;"></span>
-        <span class="seq-label" style="font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold);">Chords</span>
-        <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()" style="font-size:10px;max-width:120px;">
-          ${_chordInstrumentOptions}
-        </select>
-        <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
-        <span class="seq-label" style="font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold);margin-left:4px;">Keys</span>
-        <select class="seq-select" id="melodyInstrumentSelect" onchange="melodyInstrumentChanged()" style="font-size:10px;max-width:120px;">
-          ${_melodyInstrumentOptions}
-        </select>
-        <span id="melodyInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
-        <button title="Toggle melody quantization on or off. When active, notes snap to the nearest beat division." class="melody-quant-btn${melodyQuantize ? ' active' : ''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()">Qz</button>
-        <span class="spacer"></span>
-        <div class="right-cluster">
-          <!-- Undo/Redo now handled globally by UCB -->
+        <!-- Row 1: Mode + Key + Time Sig + Bars + Progression -->
+        <div class="kbd-stage-toolbar-row">
+          <button class="seq-chord-mode-btn${seqChordMode==='preview'?' active':''}" id="seqChordModeBtn" onclick="seqToggleChordMode()" title="Preview — clicking a chord just plays it">▶ Preview</button>
+          <button class="seq-chord-mode-btn" id="seqSweepBtn" onclick="seqToggleSweepMode()" title="Sweep — hover over chord pills to auto-play">⟿ Sweep</button>
+          <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;max-width:140px;border:1.5px solid var(--gold, #f5a623);box-shadow:0 0 4px rgba(245,166,35,0.25);">
+            ${_keyOptions}
+          </select>
+          <select class="seq-select" id="kbdKeysTimeSig" onchange="kbdTimeSigChanged(this.value)" style="font-size:10px;width:52px;" title="Time Signature">
+            <option value="4"${timeSig==='4'?' selected':''}>4/4</option>
+            <option value="3"${timeSig==='3'?' selected':''}>3/4</option>
+            <option value="2"${timeSig==='2'?' selected':''}>2/4</option>
+            <option value="6"${timeSig==='6'?' selected':''}>6/8</option>
+            <option value="5"${timeSig==='5'?' selected':''}>5/4</option>
+          </select>
+          <select class="seq-select" id="kbdBars" onchange="kbdBarsChanged(this.value)" style="font-size:10px;width:52px;" title="Bars per loop">
+            <option value="1"${songBars==='1'?' selected':''}>1 Bar</option>
+            <option value="2"${songBars==='2'?' selected':''}>2 Bars</option>
+            <option value="4"${songBars==='4'?' selected':''}>4 Bars</option>
+            <option value="6"${songBars==='6'?' selected':''}>6 Bars</option>
+            <option value="8"${songBars==='8'?' selected':''}>8 Bars</option>
+            <option value="12"${songBars==='12'?' selected':''}>12 Bars</option>
+            <option value="16"${songBars==='16'?' selected':''}>16 Bars</option>
+            <option value="32"${songBars==='32'?' selected':''}>32 Bars</option>
+          </select>
+          <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="font-size:10px;max-width:200px;">
+            ${_progressionOptions}
+          </select>
+          <button id="seqProgressionReHumBtn" onclick="seqRehumanizeProgression()" class="seq-btn"
+            title="Re-shuffle rhythm" style="${_activeProgressionId ? '' : 'display:none;'}font-size:10px;padding:3px 10px;font-weight:700;letter-spacing:0.04em;">
+            ↺ Shuffle
+          </button>
+        </div>
+        <!-- Row 2: Duration + Chord Steps + Instruments + Humanize + Quantize -->
+        <div class="kbd-stage-toolbar-row">
+          <select class="seq-select" id="kbdDesktopNoteDur" onchange="kbdNoteDurationChanged(this.value)" style="font-size:10px;width:80px;border:1.5px solid #e8749a;box-shadow:0 0 4px rgba(232,116,154,0.25);" title="Note duration (compose pen size)">
+            <option value="1">𝅝 Whole</option>
+            <option value="0.5">𝅗𝅥 Half</option>
+            <option value="0.25" selected>♩ Quarter</option>
+            <option value="0.125">♪ Eighth</option>
+            <option value="0.0625">𝅘𝅥𝅯 16th</option>
+          </select>
+          <select class="seq-select" id="kbdKeysSteps" onchange="chordStepsChanged(this.value)" style="font-size:10px;width:52px;" title="Chord steps per beat">
+            <option value="1"${songGrid==='1'?' selected':''}>1/4</option>
+            <option value="2"${songGrid==='2'?' selected':''}>1/8</option>
+            <option value="4"${songGrid==='4'?' selected':''}>1/16</option>
+            <option value="8"${songGrid==='8'?' selected':''}>1/32</option>
+            <option value="3"${songGrid==='3'?' selected':''}>Triplets</option>
+          </select>
+          <span style="width:1px;height:20px;background:var(--border2,#333);flex-shrink:0;"></span>
+          <span class="seq-label" style="font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold);">Chords</span>
+          <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged()" style="font-size:10px;max-width:120px;">
+            ${_chordInstrumentOptions}
+          </select>
+          <span id="seqInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
+          <span class="seq-label" style="font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold);margin-left:4px;">Keys</span>
+          <select class="seq-select" id="melodyInstrumentSelect" onchange="melodyInstrumentChanged()" style="font-size:10px;max-width:120px;">
+            ${_melodyInstrumentOptions}
+          </select>
+          <span id="melodyInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
+          <span class="spacer"></span>
           <button class="seq-humanize-btn${seqHumanizeChords?' active':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords" style="border-color:var(--teal,#2dd4bf);color:var(--teal,#2dd4bf);">〜 Humanize</button>
+          <button title="Toggle melody quantization on or off" class="melody-quant-btn${melodyQuantize ? ' active' : ''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()">Qz</button>
+        </div>
+        <!-- Row 3: Drawing tools + Dup + Clear -->
+        <div class="kbd-stage-toolbar-row">
+          <button class="mpr-tool-btn" id="dskToolPointer" onclick="mprSetTool('pointer')" title="Pointer — scroll / zoom" style="padding:4px 8px;border:1.5px solid var(--border2,#333);border-radius:6px;background:transparent;color:var(--text,#e0e0e0);font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;cursor:pointer;">▸</button>
+          <button class="mpr-tool-btn active" id="dskToolPencil" onclick="mprSetTool('pencil')" title="Pencil — place notes" style="padding:4px 8px;border:1.5px solid var(--border2,#333);border-radius:6px;background:var(--text,#e0e0e0);color:#0d0e13;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;cursor:pointer;">✎</button>
+          <button class="mpr-tool-btn" id="dskToolEraser" onclick="mprSetTool('eraser')" title="Eraser — remove notes" style="padding:4px 8px;border:1.5px solid var(--border2,#333);border-radius:6px;background:transparent;color:var(--text,#e0e0e0);font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;cursor:pointer;">✕</button>
+          <button class="mpr-tool-btn" id="dskToolPiano" onclick="mprSetTool('piano')" title="Piano — live play / compose" style="padding:4px 8px;border:1.5px solid var(--purple,#c8a0ff);border-radius:6px;background:transparent;color:var(--purple,#c8a0ff);font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;cursor:pointer;">♫</button>
+          <span style="width:1px;height:20px;background:var(--border2,#333);flex-shrink:0;"></span>
+          <button class="seq-btn" onclick="if(typeof prRandomizeVelocity==='function')prRandomizeVelocity()" title="Randomize velocities" style="font-size:10px;padding:3px 10px;">🎲 Vel</button>
+          <span class="spacer"></span>
+          <button class="seq-btn" onclick="seqDupPattern()" title="Duplicate pattern" style="font-size:10px;padding:3px 10px;border-color:var(--gold,#f5a623);color:var(--gold,#f5a623);">+Dup</button>
+          <button class="seq-btn" onclick="seqClearAllChordSlots()" title="Clear all" style="font-size:10px;padding:3px 10px;color:#ff5f5f;">Clear ×</button>
         </div>
       </div>
 
