@@ -7880,8 +7880,15 @@ body.split-active #splitTransportDock { display: flex; }
 /* v1.199: Triangle controls strip + header on ALL screen sizes */
 body.ucb-state-3 .global-seq-strip,
 body.ucb-state-4 .global-seq-strip { display: none !important; }
+body.ucb-state-3 .site-header,
+body.ucb-state-4 .site-header { display: none !important; }
 body.ucb-state-3 .seq-strip-toggle-btn,
 body.ucb-state-4 .seq-strip-toggle-btn { display: none !important; }
+/* State 4: hide keyboard drawer toolbar rows (3) + drum drawer tools/settings rows (4) */
+body.ucb-state-4 .kbd-stage-toolbar { display: none !important; }
+body.ucb-state-4 .dr-stage-left-col { display: none !important; }
+body.ucb-state-4 .dr-roll-toolbar { display: none !important; }
+body.ucb-state-4 .dr-roll-tools { display: none !important; }
 /* Purple border on triangle toggle — always visible */
 .ucb-toggle-btn { border: 2px solid #9b59b6 !important; border-radius: 50% !important; }
 
@@ -16985,7 +16992,10 @@ window._isSeqStripLandscapeHidden = function() {
 window._seqStripShow = function() {
   var s = document.getElementById('globalSeqStrip');
   if (!s) return;
-  if (document.body.classList.contains('seq-strip-collapsed')) return;
+  // v1.199: triangle states 3-4 hide strip — don't override
+  var bc = document.body.classList;
+  if (bc.contains('ucb-state-3') || bc.contains('ucb-state-4')) return;
+  if (bc.contains('seq-strip-collapsed')) return;
   if (_isSeqStripLandscapeHidden()) {
     s.style.setProperty('display', 'none', 'important');
     return;
@@ -31494,11 +31504,22 @@ function _ucbApplyState(s) {
   if (nTop) nTop.setAttribute('fill', colors.top);
   if (nRight) nRight.setAttribute('fill', colors.right);
   if (nLeft) nLeft.setAttribute('fill', colors.left);
-  // v1.199: triangle controls strip visibility
-  // States 1-2: strip visible (remove seq-strip-collapsed)
-  // States 3-4: strip hidden (via CSS .ucb-state-3/4 .global-seq-strip display:none)
+  // v1.199: triangle controls strip + header visibility
+  // States 1-2: strip visible; States 3-4: strip + header hidden
+  var strip = document.getElementById('globalSeqStrip');
   if (s <= 2) {
     body.classList.remove('seq-strip-collapsed');
+  } else if (strip) {
+    // Clear inline styles so CSS display:none takes effect
+    strip.style.removeProperty('display');
+    strip.style.removeProperty('visibility');
+    strip.style.removeProperty('opacity');
+    strip.style.removeProperty('z-index');
+    strip.style.removeProperty('top');
+    strip.style.removeProperty('left');
+    strip.style.removeProperty('right');
+    strip.style.removeProperty('pointer-events');
+    strip.style.removeProperty('position');
   }
   setTimeout(function(){
     var b = document.body.classList;
