@@ -4887,6 +4887,59 @@ button, select, input, textarea { touch-action: manipulation; }
   .mpr-inline-pr .pr-chord-palette { display: none !important; }
   .mpr-inline-pr .pr-body { height: 100% !important; flex: 1; min-height: 0; }
   .mpr-inline-pr .pr-grid-wrap { height: 100% !important; }
+  /* v1.199: When PR is open, inline-pr takes top half (flex:1) */
+  .mpr-inline-pr.open { height: auto !important; flex: 1 !important; min-height: 0 !important; }
+
+  /* v1.199: Chord overlay — bottom sheet over keyboard drawer */
+  .mpr-chord-overlay {
+    position: fixed; left: 0; right: 0; z-index: 100001;
+    background: #0d0e13; border-top: 2px solid var(--gold, #f5a623);
+    display: flex; flex-direction: column;
+    transition: height 0.25s cubic-bezier(0.34,1.56,0.64,1), bottom 0.25s ease;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.7);
+    overflow: hidden;
+  }
+  /* Expanded: ~50% screen */
+  .mpr-chord-overlay.mco-expanded { height: 50vh; }
+  /* Collapsed: single diatonic row (~52px) + handle (28px) */
+  .mpr-chord-overlay.mco-collapsed { height: 80px; }
+  /* Positioning: above UCB bar by default */
+  .mpr-chord-overlay { bottom: calc(140px + env(safe-area-inset-bottom, 0px)); }
+  /* State 3-4: UCB hidden, flush to bottom */
+  body.ucb-state-3 .mpr-chord-overlay,
+  body.ucb-state-4 .mpr-chord-overlay { bottom: env(safe-area-inset-bottom, 0px); }
+  /* State 4: no bottom nav either */
+  body.ucb-state-4 .mpr-chord-overlay { bottom: env(safe-area-inset-bottom, 0px); }
+  /* State 1-2 with bottom nav: above nav(54px) + UCB(~86px) */
+  body.ucb-state-1 .mpr-chord-overlay,
+  body.ucb-state-2 .mpr-chord-overlay { bottom: calc(140px + env(safe-area-inset-bottom, 0px)); }
+
+  /* Drag handle + tap toggle bar */
+  .mco-handle {
+    flex-shrink: 0; height: 28px; display: flex; align-items: center; justify-content: center;
+    cursor: grab; -webkit-tap-highlight-color: transparent;
+    background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .mco-handle:active { cursor: grabbing; }
+  .mco-handle-bar {
+    width: 40px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.25);
+  }
+  .mco-handle-arrow {
+    position: absolute; right: 12px; font-size: 12px; color: var(--muted);
+    font-family: system-ui, sans-serif;
+  }
+  /* Chord content area */
+  .mco-body {
+    flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
+    padding: 0; min-height: 0;
+  }
+  /* In collapsed state, only show first qc row (diatonic top pills) */
+  .mpr-chord-overlay.mco-collapsed .mco-body { overflow: hidden; }
+  .mpr-chord-overlay.mco-collapsed .qc-borrowed-row,
+  .mpr-chord-overlay.mco-collapsed .qc-row-label-borrowed { display: none !important; }
+  /* Hide variant rows in collapsed — only show first pill per column */
+  .mpr-chord-overlay.mco-collapsed .qc-col .qc-pill-variation { display: none !important; }
+
   /* ═══════════════════ END MOBILE PIANO ROLL ═══════════════════ */
 
   /* ═══════════════════ KEYBOARD DRAWER — MOBILE PORTRAIT (Tabbed) ═══════════════════ */
@@ -43101,6 +43154,8 @@ function _mprAutoScrollToCursor(cursorCol) {
 function mprCleanup() {
   if (!_mprActive) return;
   _mprActive = false;
+  // v1.199: destroy chord overlay if open
+  if (typeof _mcoDestroy === 'function') _mcoDestroy();
   // Save mobile zoom to uiState
   var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
   if (song) {
@@ -43129,6 +43184,14 @@ function mprCleanup() {
     if (closeBtn) closeBtn.style.display = '';
     var prPal = document.getElementById('prChordPalette');
     if (prPal) prPal.style.display = '';
+    // v1.199: restore QC view state
+    var prInner = document.getElementById('prBodyInner');
+    var qcEl = document.getElementById('qcContainer');
+    if (prInner) prInner.style.display = 'none';
+    if (qcEl) qcEl.style.display = '';
+    // Restore inline chord area
+    var chordArea = document.querySelector('.mpr-chord-area');
+    if (chordArea) chordArea.style.display = '';
     window._prInlineActive = false;
   }
   document.body.classList.remove('pr-open');
@@ -43178,6 +43241,10 @@ function mprToggleChordSidebar() {
 }
 
 var _mprInlinePrOpen = false;
+var _mcoOverlay = null;
+var _mcoDragging = false;
+var _mcoDragStartY = 0;
+var _mcoDragStartH = 0;
 
 function mprToggleInlinePR() {
   _mprInlinePrOpen = !_mprInlinePrOpen;
@@ -43193,16 +43260,195 @@ function mprToggleInlinePR() {
   if (arrow) arrow.textContent = _mprInlinePrOpen ? '▲' : '▼';
   if (_mprInlinePrOpen && panel && inlineSlot) {
     inlineSlot.appendChild(panel);
+    // v1.199: force piano roll view, hide QC inline, show chord overlay
+    var prInner = document.getElementById('prBodyInner');
+    var qcEl = document.getElementById('qcContainer');
+    if (prInner) prInner.style.display = 'flex';
+    if (qcEl) qcEl.style.display = 'none';
+    // Hide the inline chord area (sidebar + pr-slot wrapper)
+    var chordArea = document.querySelector('.mpr-chord-area');
+    if (chordArea) chordArea.style.display = 'none';
+    // Create chord overlay at bottom of screen
+    _mcoCreate();
     _mprApplyInlinePrZoom();
     setTimeout(function() {
+      if (typeof window.prLoadFromGrid === 'function') try { window.prLoadFromGrid(); } catch(e) {}
       if (typeof window.prRender === 'function') window.prRender();
       _mprScrollToChordRange();
     }, 280);
   } else if (!_mprInlinePrOpen && panel && mainSlot) {
     mainSlot.appendChild(panel);
+    // v1.199: restore QC inline, destroy chord overlay
+    var prInner = document.getElementById('prBodyInner');
+    var qcEl = document.getElementById('qcContainer');
+    if (prInner) prInner.style.display = 'none';
+    if (qcEl) qcEl.style.display = '';
+    // Restore inline chord area
+    var chordArea = document.querySelector('.mpr-chord-area');
+    if (chordArea) chordArea.style.display = '';
+    _mcoDestroy();
     setTimeout(function() {
       if (typeof window.prRender === 'function') window.prRender();
     }, 50);
+  }
+}
+
+// ── v1.199: Chord Overlay — bottom sheet with QC chords ──
+function _mcoCreate() {
+  _mcoDestroy();
+  var overlay = document.createElement('div');
+  overlay.className = 'mpr-chord-overlay mco-expanded';
+  overlay.id = 'mprChordOverlay';
+  // Handle bar (tap + drag)
+  var handle = document.createElement('div');
+  handle.className = 'mco-handle';
+  handle.innerHTML = '<div class="mco-handle-bar"></div><span class="mco-handle-arrow">▼</span>';
+  handle.addEventListener('click', _mcoToggle);
+  handle.addEventListener('touchstart', _mcoDragStart, { passive: false });
+  handle.addEventListener('mousedown', _mcoDragStart);
+  overlay.appendChild(handle);
+  // Body — clone QC content
+  var body = document.createElement('div');
+  body.className = 'mco-body';
+  body.id = 'mcoBody';
+  // Build fresh QC chord content
+  var key = 'C', mode = 'major';
+  try { key = seqCurrentKey() || 'C'; } catch(e){}
+  try { mode = seqCurrentMode() || 'major'; } catch(e){}
+  var names = [];
+  try { names = seqGetScaleChords(key, mode); } catch(e){}
+  var borrowed = [];
+  try { borrowed = getBorrowedChords(key, mode); } catch(e){}
+  if (!names.length) names = ['C','Dm','Em','F','G','Am','Bdim','C'];
+  // Build diatonic columns (same structure as QC)
+  var html = '<div style="display:flex;gap:2px;padding:4px 4px 2px;overflow-x:auto;">';
+  names.forEach(function(name, i) {
+    var display = name.replace('_viii', '');
+    var parsed = (typeof _qcParseChord === 'function') ? _qcParseChord(name) : { root: name, qual: '' };
+    var variants = ((typeof QC_QUAL_VARIANTS !== 'undefined' ? QC_QUAL_VARIANTS[parsed.qual] : null) || []).map(function(sfx) { return parsed.root + sfx; });
+    html += '<div class="qc-col" style="flex:1;display:flex;flex-direction:column;gap:2px;min-width:0;">';
+    html += _mcoPillHtml(name, i, display);
+    variants.forEach(function(vname) {
+      html += _mcoPillHtml(vname, -1, vname, 'qc-pill-variation');
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+  // Borrowed row
+  if (borrowed.length) {
+    html += '<div class="qc-row-label qc-row-label-borrowed" style="font-size:9px;color:var(--faint);padding:6px 6px 2px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">Borrowed / Chromatic</div>';
+    html += '<div class="qc-borrowed-row" style="display:flex;flex-wrap:wrap;gap:2px;padding:2px 4px;">';
+    borrowed.forEach(function(b) {
+      html += _mcoPillHtml(b.name, -1, b.name, 'qc-pill-borrowed');
+    });
+    html += '</div>';
+  }
+  body.innerHTML = html;
+  overlay.appendChild(body);
+  document.body.appendChild(overlay);
+  _mcoOverlay = overlay;
+  // Wire pill clicks
+  overlay.querySelectorAll('.mco-pill').forEach(function(pill) {
+    pill.addEventListener('click', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      var chord = pill.dataset.chord;
+      var degree = parseInt(pill.dataset.degree || '-1');
+      var isCompose = (typeof seqChordMode !== 'undefined' && seqChordMode === 'compose');
+      if (isCompose && typeof window.prComposeStepChord === 'function') {
+        var cursor = (typeof window.prGetComposeCursor === 'function') ? window.prGetComposeCursor() : -1;
+        if (cursor < 0) { cursor = (typeof _mprSnapToBar === 'function') ? _mprSnapToBar() : 0; if (typeof window.prSetComposeCursor === 'function') window.prSetComposeCursor(cursor); }
+        window.prComposeStepChord(chord, degree);
+        var newCursor = (typeof window.prGetComposeCursor === 'function') ? window.prGetComposeCursor() : 0;
+        if (typeof _mprAutoScrollToCursor === 'function') _mprAutoScrollToCursor(newCursor);
+      } else {
+        if (typeof window.prPalPreview === 'function') window.prPalPreview(chord);
+      }
+    });
+  });
+}
+
+function _mcoPillHtml(chord, degree, display, extraClass) {
+  var cls = 'mco-pill' + (extraClass ? ' ' + extraClass : '');
+  var degAttr = degree >= 0 ? ' data-degree="' + degree + '"' : '';
+  var style = 'font-size:12px;padding:8px 2px;border-radius:6px;text-align:center;cursor:pointer;';
+  style += 'background:var(--card2,#1a1b22);color:var(--text,#e0e0e0);border:1px solid var(--border2,#333);';
+  style += 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+  if (degree >= 0) {
+    var colors = [
+      ['#1a0833','#3a1060','#c084fc'],['#200d3e','#4a1878','#c48dff'],
+      ['#271249','#5a2090','#cd97ff'],['#2e1854','#6a28a8','#d6a0ff'],
+      ['#361e60','#7a30c0','#deaaff'],['#3d246c','#8a38d8','#e6b4ff'],
+      ['#452a78','#9a44e8','#edbeff'],['#4d3084','#aa52f0','#f3c8ff']
+    ];
+    var c = colors[degree % colors.length];
+    style = 'font-size:13px;padding:10px 2px;border-radius:6px;text-align:center;cursor:pointer;font-weight:700;';
+    style += 'background:' + c[0] + ';color:' + c[2] + ';border:1.5px solid ' + c[1] + ';';
+    style += 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+  }
+  return '<div class="' + cls + '" data-chord="' + chord + '"' + degAttr + ' style="' + style + '">' + display + '</div>';
+}
+
+function _mcoToggle() {
+  if (!_mcoOverlay) return;
+  var isExpanded = _mcoOverlay.classList.contains('mco-expanded');
+  _mcoOverlay.classList.toggle('mco-expanded', !isExpanded);
+  _mcoOverlay.classList.toggle('mco-collapsed', isExpanded);
+  var arrow = _mcoOverlay.querySelector('.mco-handle-arrow');
+  if (arrow) arrow.textContent = isExpanded ? '▲' : '▼';
+}
+
+function _mcoDestroy() {
+  if (_mcoOverlay && _mcoOverlay.parentNode) {
+    _mcoOverlay.parentNode.removeChild(_mcoOverlay);
+  }
+  _mcoOverlay = null;
+}
+
+// Drag to resize
+function _mcoDragStart(e) {
+  if (!_mcoOverlay) return;
+  e.preventDefault();
+  _mcoDragging = true;
+  var t = e.touches ? e.touches[0] : e;
+  _mcoDragStartY = t.clientY;
+  _mcoDragStartH = _mcoOverlay.offsetHeight;
+  _mcoOverlay.style.transition = 'none';
+  document.addEventListener('touchmove', _mcoDragMove, { passive: false });
+  document.addEventListener('touchend', _mcoDragEnd);
+  document.addEventListener('mousemove', _mcoDragMove);
+  document.addEventListener('mouseup', _mcoDragEnd);
+}
+function _mcoDragMove(e) {
+  if (!_mcoDragging || !_mcoOverlay) return;
+  e.preventDefault();
+  var t = e.touches ? e.touches[0] : e;
+  var dy = _mcoDragStartY - t.clientY;
+  var newH = Math.max(80, Math.min(window.innerHeight * 0.7, _mcoDragStartH + dy));
+  _mcoOverlay.style.height = newH + 'px';
+}
+function _mcoDragEnd() {
+  if (!_mcoDragging || !_mcoOverlay) return;
+  _mcoDragging = false;
+  document.removeEventListener('touchmove', _mcoDragMove);
+  document.removeEventListener('touchend', _mcoDragEnd);
+  document.removeEventListener('mousemove', _mcoDragMove);
+  document.removeEventListener('mouseup', _mcoDragEnd);
+  _mcoOverlay.style.transition = '';
+  // Snap to expanded or collapsed based on current height
+  var h = _mcoOverlay.offsetHeight;
+  var threshold = window.innerHeight * 0.25;
+  if (h < threshold) {
+    _mcoOverlay.classList.remove('mco-expanded');
+    _mcoOverlay.classList.add('mco-collapsed');
+    _mcoOverlay.style.height = '';
+    var arrow = _mcoOverlay.querySelector('.mco-handle-arrow');
+    if (arrow) arrow.textContent = '▲';
+  } else {
+    _mcoOverlay.classList.remove('mco-collapsed');
+    _mcoOverlay.classList.add('mco-expanded');
+    _mcoOverlay.style.height = '';
+    var arrow = _mcoOverlay.querySelector('.mco-handle-arrow');
+    if (arrow) arrow.textContent = '▼';
   }
 }
 
