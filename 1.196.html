@@ -43210,13 +43210,18 @@ function _mprAttachPinchZoom() {
 
 // Orientation change: auto-zoom PR — landscape fits up to 4 bars, portrait restores saved
 var _mprPortraitZoomH = null;
-window.addEventListener('orientationchange', function() {
+var _mprLastOrientation = window.matchMedia('(orientation: landscape)').matches ? 'land' : 'port';
+
+function _mprHandleOrientationZoom() {
   if (!_mprActive) return;
+  var isLand = window.matchMedia('(orientation: landscape)').matches;
+  var tag = isLand ? 'land' : 'port';
+  if (tag === _mprLastOrientation) return;
+  _mprLastOrientation = tag;
   setTimeout(function() {
     var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
     var sd = song?.sequencer || {};
     var ui = song?.uiState;
-    var isLand = window.matchMedia('(orientation: landscape)').matches;
     var timeSig = parseInt(sd.time || song?.time || '4', 10);
     var bars = parseInt(sd.bars || '4', 10);
     var snap = 4;
@@ -43242,7 +43247,10 @@ window.addEventListener('orientationchange', function() {
     }
     if (typeof window.prRender === 'function') window.prRender();
   }, 350);
-});
+}
+window.addEventListener('orientationchange', _mprHandleOrientationZoom);
+window.addEventListener('resize', _mprHandleOrientationZoom);
+if (screen.orientation) screen.orientation.addEventListener('change', _mprHandleOrientationZoom);
 
 function openSeqDrawer() {
   // ── Perf mode: only one tool panel at a time ──
