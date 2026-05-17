@@ -4931,6 +4931,7 @@ button, select, input, textarea { touch-action: manipulation; }
   .mco-body {
     flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
     padding: 0; min-height: 0;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   }
   /* In collapsed state, only show first qc row (diatonic top pills) */
   .mpr-chord-overlay.mco-collapsed .mco-body { overflow: hidden; }
@@ -15738,7 +15739,9 @@ body.split-4track-active .ft-overlay { display: none !important; }
 /* ── Shared pill base ── */
 .qc-pill {
   font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600;
-  padding: 10px 6px; text-align: center; cursor: pointer; user-select: none;
+  padding: 10px 6px; text-align: center; cursor: pointer;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent; touch-action: none;
   transition: background 0.1s, transform 0.08s, box-shadow 0.1s;
   width: 100%; box-sizing: border-box; position: relative;
   border: 1px solid transparent;
@@ -41772,48 +41775,42 @@ function renderKeyboardDrawerHtml(song) {
               </div>
             </div>
           </div>
-          <!-- Piano Roll collapsible toggle -->
-          <div class="kbd-port-pr-toggle" id="kbdPortPrToggle" onclick="kbdPortTogglePrTools()" style="display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 0;cursor:pointer;background:rgba(200,160,255,0.06);border-top:1px solid rgba(255,255,255,0.06);font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:var(--purple,#c8a0ff);letter-spacing:0.04em;">
-            <span class="pr-arrow" style="font-size:9px;transition:transform 0.2s;display:inline-block;">▼</span> Piano Roll
+          <!-- v1.203: PR tools shown when orange Piano Roll strip is expanded -->
+          <!-- Row 2: Compose/Preview + Chord Steps + Keys inst + Humanize + Reshuffle -->
+          <div class="mpr-toolbar-row">
+            <button class="mpr-tool-btn${seqChordMode==='preview'?' mpr-mode-preview active':' mpr-mode-compose active'}" id="mprModeBtn" onclick="mprToggleMode()" title="Toggle Preview / Compose">
+              ${seqChordMode==='compose' ? '✏ Compose' : '▶ Preview'}
+            </button>
+            <select class="seq-select" id="seqChordSteps" onchange="seqChordStepsChanged(this.value)" style="width:48px;" title="Chord grid">
+              <option value="1"${String(sd.chordSteps||'1')==='1'?' selected':''}>1/4</option>
+              <option value="2"${String(sd.chordSteps||'1')==='2'?' selected':''}>1/8</option>
+              <option value="4"${String(sd.chordSteps||'1')==='4'?' selected':''}>1/16</option>
+            </select>
+            <span class="seq-label" style="font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold);flex-shrink:0;">Keys</span>
+            <select class="seq-select" id="melodyInstrumentSelect" onchange="melodyInstrumentChanged(this.value)" style="max-width:80px;" title="Keys instrument">
+              ${_melodyInstrumentOptions}
+            </select>
+            <button class="mpr-tool-btn" style="border-color:var(--teal,#2dd4bf);color:var(--teal,#2dd4bf);${seqHumanizeChords?'background:var(--teal,#2dd4bf);color:#0d0e13;':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords">〜</button>
+            <button title="Re-shuffle rhythm" id="seqProgressionReHumBtn" onclick="seqRehumanizeProgression()" class="mpr-tool-btn"
+              style="${_activeProgressionId ? '' : 'display:none;'}font-weight:700;">↺</button>
           </div>
-          <!-- Collapsible PR tools -->
-          <div class="kbd-port-pr-collapse" id="kbdPortPrCollapse" style="display:none;flex-direction:column;gap:0;">
-            <!-- PR Row 1: Compose/Preview + Chord Steps + Keys inst + Humanize + Reshuffle -->
-            <div class="mpr-toolbar-row">
-              <button class="mpr-tool-btn${seqChordMode==='preview'?' mpr-mode-preview active':' mpr-mode-compose active'}" id="mprModeBtn" onclick="mprToggleMode()" title="Toggle Preview / Compose">
-                ${seqChordMode==='compose' ? '✏ Compose' : '▶ Preview'}
-              </button>
-              <select class="seq-select" id="seqChordSteps" onchange="seqChordStepsChanged(this.value)" style="width:48px;" title="Chord grid">
-                <option value="1"${String(sd.chordSteps||'1')==='1'?' selected':''}>1/4</option>
-                <option value="2"${String(sd.chordSteps||'1')==='2'?' selected':''}>1/8</option>
-                <option value="4"${String(sd.chordSteps||'1')==='4'?' selected':''}>1/16</option>
-              </select>
-              <span class="seq-label" style="font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold);flex-shrink:0;">Keys</span>
-              <select class="seq-select" id="melodyInstrumentSelect" onchange="melodyInstrumentChanged(this.value)" style="max-width:80px;" title="Keys instrument">
-                ${_melodyInstrumentOptions}
-              </select>
-              <button class="mpr-tool-btn" style="border-color:var(--teal,#2dd4bf);color:var(--teal,#2dd4bf);${seqHumanizeChords?'background:var(--teal,#2dd4bf);color:#0d0e13;':''}" id="seqHumanizeChordsBtn" onclick="seqToggleHumanize('chords')" title="Humanize chords">〜</button>
-              <button title="Re-shuffle rhythm" id="seqProgressionReHumBtn" onclick="seqRehumanizeProgression()" class="mpr-tool-btn"
-                style="${_activeProgressionId ? '' : 'display:none;'}font-weight:700;">↺</button>
-            </div>
-            <!-- PR Row 2: Generate Progression -->
-            <div class="mpr-toolbar-row">
-              <span class="seq-label" style="font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold);flex-shrink:0;">Progression</span>
-              <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="flex:1;" title="Progression">
-                ${_progressionOptions}
-              </select>
-            </div>
-            <!-- PR Row 3: Drawing tools -->
-            <div class="mpr-toolbar-row">
-              <button class="mpr-tool-btn" id="mprToolPointer" onclick="mprSetTool('pointer')" title="Pointer">▸</button>
-              <button class="mpr-tool-btn active" id="mprToolPencil" onclick="mprSetTool('pencil')" title="Pencil">✎</button>
-              <button class="mpr-tool-btn" id="mprToolEraser" onclick="mprSetTool('eraser')" title="Delete">✕</button>
-              <button class="mpr-tool-btn" id="mprToolPiano" onclick="mprSetTool('piano')" title="Piano" style="border-color:var(--purple,#c8a0ff);color:var(--purple,#c8a0ff);">♫</button>
-              <span style="flex:1"></span>
-              <button class="mpr-tool-btn" onclick="if(typeof prRandomizeVelocity==='function')prRandomizeVelocity()" title="Randomize velocities">🎲 Vel</button>
-              <button class="mpr-tool-btn" onclick="seqDupPattern()" title="Duplicate pattern" style="border-color:var(--gold,#f5a623);color:var(--gold,#f5a623);">+Dup</button>
-              <button class="mpr-tool-btn" onclick="seqClearAllChordSlots()" title="Clear all" style="color:#ff5f5f;">Clear ×</button>
-            </div>
+          <!-- Row 3: Generate Progression -->
+          <div class="mpr-toolbar-row">
+            <span class="seq-label" style="font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold);flex-shrink:0;">Progression</span>
+            <select class="seq-select" id="seqProgressionSelect" onchange="seqApplyProgression(this.value)" style="flex:1;" title="Progression">
+              ${_progressionOptions}
+            </select>
+          </div>
+          <!-- Row 4: Drawing tools -->
+          <div class="mpr-toolbar-row">
+            <button class="mpr-tool-btn" id="mprToolPointer" onclick="mprSetTool('pointer')" title="Pointer">▸</button>
+            <button class="mpr-tool-btn active" id="mprToolPencil" onclick="mprSetTool('pencil')" title="Pencil">✎</button>
+            <button class="mpr-tool-btn" id="mprToolEraser" onclick="mprSetTool('eraser')" title="Delete">✕</button>
+            <button class="mpr-tool-btn" id="mprToolPiano" onclick="mprSetTool('piano')" title="Piano" style="border-color:var(--purple,#c8a0ff);color:var(--purple,#c8a0ff);">♫</button>
+            <span style="flex:1"></span>
+            <button class="mpr-tool-btn" onclick="if(typeof prRandomizeVelocity==='function')prRandomizeVelocity()" title="Randomize velocities">🎲 Vel</button>
+            <button class="mpr-tool-btn" onclick="seqDupPattern()" title="Duplicate pattern" style="border-color:var(--gold,#f5a623);color:var(--gold,#f5a623);">+Dup</button>
+            <button class="mpr-tool-btn" onclick="seqClearAllChordSlots()" title="Clear all" style="color:#ff5f5f;">Clear ×</button>
           </div>
         </div>
         <!-- ═══ BODY: Toggle strip + Collapsible PR + Chord pills (always visible) ═══ -->
@@ -42274,32 +42271,43 @@ function renderKeyboardDrawerHtml(song) {
 
 /* ═══ COMPOSE MODE TOGGLE ═══ */
 /* ═══ v1.203: Settings Wheel Popover Toggle ═══ */
+var _kbdSettingsOpen = false;
 function kbdPortToggleSettings(btn) {
   var pop = document.getElementById('kbdPortSettingsPop');
   if (!pop) return;
-  var isOpen = pop.classList.toggle('open');
-  if (btn) btn.classList.toggle('open', isOpen);
-  if (isOpen) {
+  _kbdSettingsOpen = !_kbdSettingsOpen;
+  if (_kbdSettingsOpen) {
     var rect = btn.getBoundingClientRect();
+    pop.style.display = 'flex';
+    pop.style.flexDirection = 'column';
+    pop.style.gap = '8px';
     pop.style.top = (rect.bottom + 6) + 'px';
     pop.style.right = (window.innerWidth - rect.right) + 'px';
     pop.style.left = 'auto';
+    if (btn) btn.style.borderColor = 'var(--gold,#f5a623)';
+    if (btn) btn.style.color = 'var(--gold,#f5a623)';
     setTimeout(function() {
       document.addEventListener('click', _kbdPortSettingsOutside, { once: true, capture: true });
     }, 0);
+  } else {
+    pop.style.display = 'none';
+    if (btn) btn.style.borderColor = '';
+    if (btn) btn.style.color = '';
   }
 }
 function _kbdPortSettingsOutside(e) {
   var pop = document.getElementById('kbdPortSettingsPop');
   var btn = document.getElementById('kbdPortSettingsBtn');
-  if (pop && !pop.contains(e.target) && btn && !btn.contains(e.target)) {
-    pop.classList.remove('open');
-    if (btn) btn.classList.remove('open');
-  } else if (pop && pop.classList.contains('open')) {
+  if (!pop) return;
+  if (pop.contains(e.target) || (btn && btn.contains(e.target))) {
     setTimeout(function() {
       document.addEventListener('click', _kbdPortSettingsOutside, { once: true, capture: true });
     }, 0);
+    return;
   }
+  pop.style.display = 'none';
+  _kbdSettingsOpen = false;
+  if (btn) { btn.style.borderColor = ''; btn.style.color = ''; }
 }
 
 /* ═══ v1.203: Collapsible Piano Roll Tools Toggle ═══ */
@@ -62812,7 +62820,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
       drawer.addEventListener('touchstart', function(e) {
         // Don't intercept touches on interactive elements that use their own gestures
-        if (e.target.closest('.seq-key, .seq-chord-pill, .seq-chord-var-pill, .pr-chord-pill, .pr-chord-pill-var, .seq-slot, .seq-grid, .seq-chords-row, .kbd-chord-group, input, select, button, [contenteditable], .mt-waveform-wrap, .mt-vol-slider, .mt-pan-slider, .mix-fader-wrap, .mix-fader-cap, .mix-fader-classic, .mix-pan-knob, .mix-row-strips, .mix-strip, .mix-meter, .mix-tiny-btn, .mix-btn-primary, .mix-btn-ghost, .mix-chip')) return;
+        if (e.target.closest('.seq-key, .seq-chord-pill, .seq-chord-var-pill, .pr-chord-pill, .pr-chord-pill-var, .qc-pill, .mco-pill, .mco-body, .mco-handle, .mpr-chord-overlay, .seq-slot, .seq-grid, .seq-chords-row, .kbd-chord-group, input, select, button, [contenteditable], .mt-waveform-wrap, .mt-vol-slider, .mt-pan-slider, .mix-fader-wrap, .mix-fader-cap, .mix-fader-classic, .mix-pan-knob, .mix-row-strips, .mix-strip, .mix-meter, .mix-tiny-btn, .mix-btn-primary, .mix-btn-ghost, .mix-chip')) return;
         var t = e.touches[0];
         x0 = x1 = t.clientX;
         y0 = y1 = t.clientY;
