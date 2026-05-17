@@ -117,6 +117,9 @@ html.slate-mode {
   --muted:    #bebedd;
   --faint:    #f5a623;
 }
+/* v1.208: bottom nav hidden on desktop — replaced by side tabs */
+.bottom-nav { display: none; }
+
 /* Hardcoded rgba overrides for slate mode */
 html.slate-mode .site-header            { background: rgba(28,31,46,0.94); }
 html.slate-mode .song-load-overlay      { background: rgba(28,31,46,0.72); }
@@ -9619,6 +9622,106 @@ body.looper-drawer-open #songViewRunthrough {
 
 /* ── Backend drawer — disabled ── */
 #backendDrawer { display: none !important; }
+
+/* ══════════════════════════════════════════════════════════
+   v1.208: Desktop Side Tabs — replaces bottom nav on desktop
+   ══════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .side-tabs { display: none !important; }
+}
+@media (min-width: 769px) {
+  /* Hide individual drawer tabs — unified side tabs replace them */
+  .seq-drawer-tab,
+  .practice-tab,
+  .looper-tab,
+  .inspo-tab,
+  .mix-edge-tab { display: none !important; }
+
+  .side-tabs {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 9950;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: rgba(10,10,12,0.92);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-right: none;
+    border-radius: 10px 0 0 10px;
+    overflow: hidden;
+    box-shadow: -2px 0 16px rgba(0,0,0,0.4);
+  }
+  .side-tab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 8px;
+    cursor: pointer;
+    border: none;
+    background: none;
+    transition: background 0.15s, color 0.15s;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    position: relative;
+  }
+  .side-tab:last-child { border-bottom: none; }
+  .side-tab:hover { background: rgba(255,255,255,0.06); }
+  .side-tab-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    white-space: nowrap;
+    transition: color 0.15s;
+  }
+  .side-tab:hover .side-tab-label { color: rgba(255,255,255,0.8); }
+  .side-tab-key {
+    font-weight: 800;
+    opacity: 0.55;
+  }
+  /* Active state — tool-colored left edge + bright text */
+  .side-tab.st-active { background: rgba(255,255,255,0.05); }
+  .side-tab.st-active::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--st-color);
+  }
+  .side-tab.st-active .side-tab-label { color: var(--st-color); }
+  .side-tab.st-active .side-tab-key { opacity: 1; }
+  /* Per-tab colors */
+  .side-tab[data-tool="lyrics"]   { --st-color: #ff9900; }
+  .side-tab[data-tool="4track"]   { --st-color: #ffb8d8; }
+  .side-tab[data-tool="keyboard"] { --st-color: #c8a0ff; }
+  .side-tab[data-tool="sequencer"]{ --st-color: #4a9eff; }
+  .side-tab[data-tool="looper"]   { --st-color: #00ccff; }
+  .side-tab[data-tool="mixer"]    { --st-color: #c8a0ff; }
+  .side-tab[data-tool="songs"]    { --st-color: #f5a623; }
+  /* Collapsed state — when any drawer is open, shrink to key-only */
+  body.seq-drawer-open .side-tabs .st-rest,
+  body.keyboard-drawer-open .side-tabs .st-rest,
+  body.ft-drawer-open .side-tabs .st-rest,
+  body.looper-drawer-open .side-tabs .st-rest,
+  body.mix-drawer-open .side-tabs .st-rest { display: none; }
+  body.seq-drawer-open .side-tab,
+  body.keyboard-drawer-open .side-tab,
+  body.ft-drawer-open .side-tab,
+  body.looper-drawer-open .side-tab,
+  body.mix-drawer-open .side-tab { padding: 10px 7px; }
+  /* Hide side tabs on song list */
+  body.songlist-active .side-tabs { display: none; }
+  /* Hide side tabs in perf mode */
+  body.il-perf-active .side-tabs { display: none; }
+}
 
 /* ── Lyrics toggle button — orange in lyrics edit mode, white in perform mode ── */
 .bottom-nav-item.nav-lyrics-toggle { border-right: 1px solid var(--border); }
@@ -48399,6 +48502,37 @@ function navSongsTap() {
   }
 }
 
+// ══ v1.208: Desktop Side Tabs handler ══
+function sideTabTap(tool) {
+  if (tool === 'lyrics')   { navLyricsToggleTap(); _syncSideTabs(); return; }
+  if (tool === 'mixer')    { navMixTap(); _syncSideTabs(); return; }
+  if (tool === 'songs')    { navSongsTap(); _syncSideTabs(); return; }
+  // 4track, keyboard, sequencer, looper
+  navToolTap(tool);
+  _syncSideTabs();
+}
+function _syncSideTabs() {
+  var tabs = document.querySelectorAll('#sideTabs .side-tab');
+  if (!tabs.length) return;
+  var bc = document.body.classList;
+  tabs.forEach(function(t) { t.classList.remove('st-active'); });
+  // Determine which tool is active
+  if (bc.contains('ft-drawer-open') || (typeof _splitCurrentTool !== 'undefined' && _splitActive && _splitCurrentTool === '4track'))
+    document.querySelector('.side-tab[data-tool="4track"]')?.classList.add('st-active');
+  else if (bc.contains('keyboard-drawer-open') || (typeof _splitCurrentTool !== 'undefined' && _splitActive && _splitCurrentTool === 'keyboard'))
+    document.querySelector('.side-tab[data-tool="keyboard"]')?.classList.add('st-active');
+  else if (bc.contains('seq-drawer-open') || (typeof _splitCurrentTool !== 'undefined' && _splitActive && _splitCurrentTool === 'sequencer'))
+    document.querySelector('.side-tab[data-tool="sequencer"]')?.classList.add('st-active');
+  else if (bc.contains('looper-drawer-open') || (typeof _splitCurrentTool !== 'undefined' && _splitActive && _splitCurrentTool === 'looper'))
+    document.querySelector('.side-tab[data-tool="looper"]')?.classList.add('st-active');
+  else if (document.getElementById('mixDrawer')?.classList.contains('open'))
+    document.querySelector('.side-tab[data-tool="mixer"]')?.classList.add('st-active');
+  else if (!bc.contains('songlist-active'))
+    document.querySelector('.side-tab[data-tool="lyrics"]')?.classList.add('st-active');
+}
+// Hook into existing nav sync
+var _origSyncBottomNav = typeof _syncBottomNav === 'function' ? _syncBottomNav : null;
+
 // Sync active state on all nav buttons (bottom nav group: Lyrics | Backend)
 // ── Clear active state from ALL bottom nav buttons ──
 function _clearAllNavActive() {
@@ -48412,7 +48546,7 @@ function _clearAllNavActive() {
   }
 }
 
-// ── Sync bottom nav to current state ──
+// ── Sync bottom nav + side tabs to current state ──
 function _syncBottomNav() {
   var btn = document.getElementById('navLyricsToggleBtn');
   var lbl = btn ? btn.querySelector('.bottom-nav-label') : null;
@@ -48422,6 +48556,7 @@ function _syncBottomNav() {
     btn.classList.remove('perf-perform');
     if (lbl) lbl.textContent = inLyrics ? 'Lyrics' : 'Lyrics';
   }
+  if (typeof _syncSideTabs === 'function') _syncSideTabs();
 }
 
 // Legacy alias
@@ -52184,6 +52319,7 @@ function openMixDrawer() {
   _mixDrawerOpen = true;
   document.getElementById('mixDrawer').classList.add('open');
   document.getElementById('mixDrawerOverlay').classList.add('open');
+  document.body.classList.add('mix-drawer-open');
   _seqStripShow();
   // Ensure 4-track AudioContext exists so mixer analysers can be created
   // (take decode creates it, but belt-and-suspenders for metering)
@@ -52229,6 +52365,7 @@ function closeMixDrawer() {
   _setNavOpen('nav-mix', false);
   document.getElementById('mixDrawer').classList.remove('open');
   document.getElementById('mixDrawerOverlay').classList.remove('open');
+  document.body.classList.remove('mix-drawer-open');
   if (typeof _seqStripHideIfNoDrawer === 'function') _seqStripHideIfNoDrawer();
 }
 
@@ -53281,6 +53418,7 @@ function closeAllDrawers(exceptId) {
   // Reset z-counter when no drawers remain open (prevents runaway z-index)
   const anyOpen = document.querySelector('.seq-drawer.open, #inspoDrawer.open, #runThroughDrawer.open, #keyboardDrawer.open, #looperDrawer.open, #mixDrawer.open');
   if (!anyOpen) _drawerZCounter = 980;
+  if (typeof _syncSideTabs === 'function') _syncSideTabs();
 }
 
 var _drawerZCounter = 980; // starts above all base drawer z-indexes (940-970), capped below piano roll (8000)
@@ -53308,6 +53446,7 @@ function toggleDrawer(drawerId, openFn, closeFn) {
       if (perfCtrl) perfCtrl.style.display = 'none';
     }
   }
+  if (typeof _syncSideTabs === 'function') _syncSideTabs();
 }
 
 // Show/hide the auto-scroll overlay based on whether any drawer is open in perf mode
@@ -62366,6 +62505,31 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       </svg>
     </span>
     <span class="bottom-nav-label">Songs</span>
+  </button>
+</nav>
+
+<!-- ── v1.208: Desktop Side Tabs — replaces bottom nav on desktop ── -->
+<nav class="side-tabs" id="sideTabs">
+  <button class="side-tab" data-tool="lyrics" onclick="sideTabTap('lyrics')" title="Lyrics (L)">
+    <span class="side-tab-label"><span class="side-tab-key">L</span><span class="st-rest">YRICS</span></span>
+  </button>
+  <button class="side-tab" data-tool="4track" onclick="sideTabTap('4track')" title="4-Track (T)">
+    <span class="side-tab-label"><span class="side-tab-key">T</span><span class="st-rest">RACK</span></span>
+  </button>
+  <button class="side-tab" data-tool="keyboard" onclick="sideTabTap('keyboard')" title="Keys (K)">
+    <span class="side-tab-label"><span class="side-tab-key">K</span><span class="st-rest">EYS</span></span>
+  </button>
+  <button class="side-tab" data-tool="sequencer" onclick="sideTabTap('sequencer')" title="Drums (D)">
+    <span class="side-tab-label"><span class="side-tab-key">D</span><span class="st-rest">RUMS</span></span>
+  </button>
+  <button class="side-tab" data-tool="looper" onclick="sideTabTap('looper')" title="Looper">
+    <span class="side-tab-label"><span class="st-rest">LOOP</span></span>
+  </button>
+  <button class="side-tab" data-tool="mixer" onclick="sideTabTap('mixer')" title="Mixer (M)">
+    <span class="side-tab-label"><span class="side-tab-key">M</span><span class="st-rest">IXER</span></span>
+  </button>
+  <button class="side-tab" data-tool="songs" onclick="sideTabTap('songs')" title="Songs (S)">
+    <span class="side-tab-label"><span class="side-tab-key">S</span><span class="st-rest">ONGS</span></span>
   </button>
 </nav>
 
