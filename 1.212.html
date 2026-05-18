@@ -4785,6 +4785,8 @@ button, select, input, textarea { touch-action: manipulation; }
   .mpr-toolbar .mpr-tool-btn.active {
     background: var(--text, #e0e0e0); color: #0d0e13; border-color: var(--text, #e0e0e0);
   }
+  .pr-keylock-btn { border-color: var(--teal, #2dd4bf) !important; color: var(--teal, #2dd4bf) !important; background: transparent !important; }
+  .pr-keylock-btn.active { background: var(--teal, #2dd4bf) !important; color: #0d0e13 !important; border-color: var(--teal, #2dd4bf) !important; }
   .mpr-toolbar .mpr-tool-btn.mpr-mode-compose {
     border-color: #e8749a; color: #e8749a;
   }
@@ -42023,6 +42025,7 @@ function renderKeyboardDrawerHtml(song) {
             <button class="mpr-tool-btn active" id="mprToolPencil" onclick="mprSetTool('pencil')" title="Pencil">✎</button>
             <button class="mpr-tool-btn" id="mprToolEraser" onclick="mprSetTool('eraser')" title="Delete">✕</button>
             <button class="mpr-tool-btn" id="mprToolPiano" onclick="mprSetTool('piano')" title="Piano" style="border-color:var(--purple,#c8a0ff);color:var(--purple,#c8a0ff);">♫</button>
+            <button class="mpr-tool-btn pr-keylock-btn active" onclick="_prKeyLockToggle()" title="Key Lock — When ON, the pencil tool snaps notes to the current key/scale so everything you draw stays in key. Turn OFF for chromatic free draw.">🔒 Key</button>
             <span style="flex:1"></span>
             <button class="mpr-tool-btn" onclick="if(typeof prRandomizeVelocity==='function')prRandomizeVelocity()" title="Randomize velocities">🎲 Vel</button>
             <button class="mpr-tool-btn" onclick="seqDupPattern()" title="Duplicate pattern" style="border-color:var(--gold,#f5a623);color:var(--gold,#f5a623);">+Dup</button>
@@ -42411,6 +42414,7 @@ function renderKeyboardDrawerHtml(song) {
             <button class="kbd-port-tbtn" id="kbdPrToolPointer" onclick="mprSetTool('pointer')" title="Pointer">▸</button>
             <button class="kbd-port-tbtn active" id="kbdPrToolPencil" onclick="mprSetTool('pencil')" title="Pencil">✎</button>
             <button class="kbd-port-tbtn" id="kbdPrToolEraser" onclick="mprSetTool('eraser')" title="Delete">✕</button>
+            <button class="kbd-port-tbtn pr-keylock-btn active" onclick="_prKeyLockToggle()" title="Key Lock — When ON, the pencil tool snaps notes to the current key/scale so everything you draw stays in key. Turn OFF for chromatic free draw.">🔒 Key</button>
             <button class="kbd-port-tbtn" onclick="if(typeof prRandomizeVelocity==='function')prRandomizeVelocity()" title="Randomize velocities">🎲 Vel</button>
             <button class="kbd-port-tbtn" onclick="seqDupPattern()" title="Duplicate pattern" style="border-color:var(--gold,#f5a623);color:var(--gold,#f5a623);">+Dup</button>
             <button class="kbd-port-tbtn" onclick="seqClearAllChordSlots()" title="Clear all" style="color:#ff5f5f;">Clear ×</button>
@@ -43407,6 +43411,42 @@ var _mprActive = false;
 var _mprTool = 'pencil'; // pointer | pencil | eraser | piano
 var _mprChordSidebarOpen = false;
 
+// ── Key Lock: snap pencil notes to current scale ──
+var _prKeyLock = true; // on by default
+
+function _prKeyLockSnap(midi) {
+  if (!_prKeyLock) return midi;
+  var key = 'C', mode = 'major';
+  try { key = seqCurrentKey() || 'C'; } catch(e){}
+  try { mode = seqCurrentMode() || 'major'; } catch(e){}
+  var rootIdx = SEQ_NOTES.indexOf(key);
+  if (rootIdx < 0) return midi;
+  var scale = SEQ_SCALES[mode] || SEQ_SCALES.major;
+  var steps = scale.steps.slice(0, 7); // [0,2,4,5,7,9,11]
+  // Build set of in-key pitch classes
+  var inKey = steps.map(function(s) { return (rootIdx + s) % 12; });
+  var pc = ((midi % 12) + 12) % 12;
+  if (inKey.indexOf(pc) >= 0) return midi; // already in key
+  // Find nearest in-key pitch class
+  var bestDist = 99, bestMidi = midi;
+  for (var d = 1; d <= 2; d++) {
+    var up = ((pc + d) % 12 + 12) % 12;
+    var dn = ((pc - d) % 12 + 12) % 12;
+    if (inKey.indexOf(up) >= 0 && d < bestDist) { bestDist = d; bestMidi = midi + d; }
+    if (inKey.indexOf(dn) >= 0 && d < bestDist) { bestDist = d; bestMidi = midi - d; }
+  }
+  return bestMidi;
+}
+
+function _prKeyLockToggle() {
+  _prKeyLock = !_prKeyLock;
+  document.querySelectorAll('.pr-keylock-btn').forEach(function(btn) {
+    btn.classList.toggle('active', _prKeyLock);
+  });
+  if (typeof showToast === 'function') showToast(_prKeyLock ? 'Key Lock ON — pencil snaps to scale' : 'Key Lock OFF — free draw', 'info', 1800);
+}
+window._prKeyLockToggle = _prKeyLockToggle;
+
 function mprInit() {
   var slot = document.getElementById('mprPrSlot');
   var panel = document.getElementById('prPanel');
@@ -43525,6 +43565,7 @@ function _mprAttachPianoHandlers() {
     var minMidi = (typeof window.prGetMinMidi === 'function') ? window.prGetMinMidi() : 36;
     var maxMidi = (typeof window.prGetMaxMidi === 'function') ? window.prGetMaxMidi() : 84;
     if (midi < minMidi || midi > maxMidi) return;
+    if (typeof _prKeyLockSnap === 'function') midi = _prKeyLockSnap(midi);
     // Visual feedback: flash the tapped key row
     var keyRows = keys.querySelectorAll('.pr-key-row');
     if (keyRows[row]) {
@@ -64029,6 +64070,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       <button class="pr-tool-btn active" id="prToolPointer" onclick="prSetTool('pointer')" title="Select / Move">▸ Pointer</button>
       <button class="pr-tool-btn" id="prToolPencil" onclick="prSetTool('pencil')" title="Draw Notes">✎ Pencil</button>
       <button class="pr-tool-btn" id="prToolEraser" onclick="prSetTool('eraser')" title="Erase Notes">✕ Eraser</button>
+      <button class="pr-tool-btn pr-keylock-btn active" onclick="_prKeyLockToggle()" title="Key Lock — When ON, the pencil tool snaps notes to the current key/scale so everything you draw stays in key. Turn OFF for chromatic free draw.">🔒 Key Lock</button>
       <button class="pr-tool-btn" id="prZoomFitBtn" onclick="prZoomToNotes()" title="Centre view on notes">⊕ Centre</button>
       <span style="flex:1"></span>
       <button class="pr-tool-btn" onclick="prRandomizeVelocity()" title="Randomize velocities (selected or all)">🎲 Vel</button>
@@ -65666,8 +65708,10 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       e.preventDefault();
       const y = e.clientY - rect.top;
       const row = Math.floor(y / PR_ROW_H);
-      const midi = rowToMidi(row);
+      var midi = rowToMidi(row);
       if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
+      // v1.212: Key Lock — snap to scale
+      if (typeof _prKeyLockSnap === 'function') midi = _prKeyLockSnap(midi);
 
       const assignedSeqIdx = _prAutoCreateSectionIfNeeded(col);
       if (assignedSeqIdx === -1) return;
