@@ -42034,7 +42034,7 @@ function renderKeyboardDrawerHtml(song) {
         <div class="mpr-body">
           <div class="mpr-pr-toggle-strip" id="mprPrToggleStrip" onclick="mprToggleInlinePR()">
             <span class="mpr-pr-toggle-arrow" id="mprPrToggleArrow">▼</span>
-            <span class="mpr-pr-toggle-label">Piano Roll</span>
+            <span class="mpr-pr-toggle-label">Quick Chords</span>
           </div>
           <div class="mpr-inline-pr" id="mprInlinePr">
             <div id="mprInlinePrSlot" style="width:100%;height:100%;overflow:hidden;"></div>
@@ -43764,16 +43764,17 @@ function mprToggleInlinePR() {
     }, 280);
   } else if (!_mprInlinePrOpen && panel && mainSlot) {
     mainSlot.appendChild(panel);
-    // v1.199: restore QC inline, destroy chord overlay
+    // v1.211: keep piano roll visible when collapsed (don't hide prBodyInner)
     var prInner = document.getElementById('prBodyInner');
     var qcEl = document.getElementById('qcContainer');
-    if (prInner) prInner.style.display = 'none';
-    if (qcEl) qcEl.style.display = '';
+    if (prInner) prInner.style.display = 'flex';
+    if (qcEl) qcEl.style.display = 'none';
     // Restore inline chord area
     var chordArea = document.querySelector('.mpr-chord-area');
     if (chordArea) chordArea.style.display = '';
     _mcoDestroy();
     setTimeout(function() {
+      if (typeof window.prLoadFromGrid === 'function') try { window.prLoadFromGrid(); } catch(e) {}
       if (typeof window.prRender === 'function') window.prRender();
     }, 50);
   }
@@ -43791,8 +43792,7 @@ function _mcoCreate() {
   overlay.id = 'mprChordOverlay';
   var handle = document.createElement('div');
   handle.className = 'mco-handle';
-  handle.innerHTML = '<div class="mco-handle-bar"></div><span class="mco-handle-arrow">▼</span>';
-  handle.addEventListener('click', _mcoToggle);
+  handle.innerHTML = '<div class="mco-handle-bar"></div>';
   handle.addEventListener('touchstart', _mcoDragStart, { passive: false });
   handle.addEventListener('mousedown', _mcoDragStart);
   overlay.appendChild(handle);
@@ -43903,12 +43903,12 @@ function _mcoPillTouchStart(e) {
     // Clean up ghost
     if (_mcoDragGhost && _mcoDragGhost.parentNode) _mcoDragGhost.parentNode.removeChild(_mcoDragGhost);
     _mcoDragGhost = null;
-    // Check if drop landed on piano roll grid
-    var scrollEl = document.getElementById('prGridScroll');
-    if (!scrollEl) { _mcoDragChord = null; return; }
-    var rect = scrollEl.getBoundingClientRect();
+    // Check if drop landed on piano roll grid (use prNotesLayer to exclude 44px key column)
+    var notesLayer = document.getElementById('prNotesLayer');
+    if (!notesLayer) { _mcoDragChord = null; return; }
+    var rect = notesLayer.getBoundingClientRect();
     if (t.clientX >= rect.left && t.clientX <= rect.right && t.clientY >= rect.top && t.clientY <= rect.bottom) {
-      _mcoDropOnPR(chord, degree, t.clientX - rect.left + scrollEl.scrollLeft, t.clientY - rect.top + scrollEl.scrollTop);
+      _mcoDropOnPR(chord, degree, t.clientX - rect.left, t.clientY - rect.top);
     }
     setTimeout(function() { _mcoDragChord = null; }, 100);
   }
