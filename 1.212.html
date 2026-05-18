@@ -43865,6 +43865,64 @@ function _mcoCreate() {
 }
 
 // v1.202: Touch drag handlers for chord pills → piano roll
+var _mcoGhostNotes = []; // v1.212: preview note elements on PR grid
+
+function _mcoGhostsClear() {
+  _mcoGhostNotes.forEach(function(el) { if (el.parentNode) el.parentNode.removeChild(el); });
+  _mcoGhostNotes = [];
+}
+
+function _mcoGhostsUpdate(chord, degree, scrollEl) {
+  _mcoGhostsClear();
+  var notesLayer = document.getElementById('prNotesLayer');
+  if (!notesLayer || !scrollEl) return;
+  var rect = scrollEl.getBoundingClientRect();
+  var lastTouch = _mcoDragLastTouch;
+  if (!lastTouch) return;
+  // Check if finger is over the PR grid
+  if (lastTouch.x < rect.left || lastTouch.x > rect.right || lastTouch.y < rect.top || lastTouch.y > rect.bottom) return;
+  var localX = lastTouch.x - rect.left + scrollEl.scrollLeft - 44;
+  var localY = lastTouch.y - rect.top + scrollEl.scrollTop;
+  var colW = (typeof window.prGetColW === 'function') ? window.prGetColW() : 28;
+  var rowH = (typeof window.prGetRowH === 'function') ? window.prGetRowH() : 22;
+  var maxMidi = (typeof window.prGetMaxMidi === 'function') ? window.prGetMaxMidi() : 84;
+  var col = (typeof window.prXToColSnap === 'function') ? window.prXToColSnap(localX) : Math.round(localX / colW);
+  var durCols = (typeof window.prDurToCols === 'function') ? window.prDurToCols() : 4;
+  // Resolve chord MIDI
+  var key = 'C', mode = 'major';
+  try { key = seqCurrentKey() || 'C'; } catch(e){}
+  try { mode = seqCurrentMode() || 'major'; } catch(e){}
+  var midiMap = (typeof seqGenChordMidi === 'function') ? seqGenChordMidi(key, mode) : {};
+  var midiNotes = midiMap[chord] || ((typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(chord) : null);
+  if (!midiNotes || !midiNotes.length) return;
+  midiNotes = midiNotes.slice().sort(function(a, b) { return a - b; });
+  // Shift chord root to drop row
+  var dropRow = Math.floor(localY / rowH);
+  var dropMidi = maxMidi - dropRow;
+  var shift = dropMidi - midiNotes[0];
+  var degColors = [
+    'rgba(80,30,140,0.45)', 'rgba(90,35,155,0.45)', 'rgba(100,40,170,0.45)',
+    'rgba(110,45,180,0.45)', 'rgba(120,50,190,0.45)', 'rgba(130,55,200,0.45)',
+    'rgba(140,60,210,0.45)', 'rgba(150,65,220,0.45)'
+  ];
+  var bg = (degree >= 0 && degColors[degree]) ? degColors[degree] : 'rgba(192,132,252,0.35)';
+  midiNotes.forEach(function(m) {
+    var midi = m + shift;
+    var noteRow = maxMidi - midi;
+    var el = document.createElement('div');
+    el.style.cssText = 'position:absolute;pointer-events:none;border-radius:3px;border:1.5px dashed rgba(192,132,252,0.7);box-sizing:border-box;z-index:6;transition:left 0.06s,top 0.06s;';
+    el.style.background = bg;
+    el.style.left = (col * colW) + 'px';
+    el.style.top = (noteRow * rowH) + 'px';
+    el.style.width = (durCols * colW) + 'px';
+    el.style.height = rowH + 'px';
+    notesLayer.appendChild(el);
+    _mcoGhostNotes.push(el);
+  });
+}
+
+var _mcoDragLastTouch = null;
+
 function _mcoPillTouchStart(e) {
   var pill = e.currentTarget;
   var touch = e.touches[0];
@@ -43872,6 +43930,7 @@ function _mcoPillTouchStart(e) {
   var moved = false;
   var chord = pill.dataset.chord;
   var degree = parseInt(pill.dataset.degree || '-1');
+  _mcoDragLastTouch = null;
 
   function onMove(ev) {
     var t = ev.touches[0];
@@ -43897,6 +43956,10 @@ function _mcoPillTouchStart(e) {
     ev.preventDefault();
     _mcoDragGhost.style.left = (t.clientX - 30) + 'px';
     _mcoDragGhost.style.top = (t.clientY - 20) + 'px';
+    // v1.212: update ghost note previews on PR grid
+    _mcoDragLastTouch = { x: t.clientX, y: t.clientY };
+    var scrollEl = document.getElementById('prGridScroll');
+    if (scrollEl) _mcoGhostsUpdate(chord, degree, scrollEl);
   }
 
   function onEnd(ev) {
@@ -43904,6 +43967,9 @@ function _mcoPillTouchStart(e) {
     document.removeEventListener('touchend', onEnd);
     document.removeEventListener('touchcancel', onEnd);
     pill.style.opacity = '';
+    _mcoDragLastTouch = null;
+    // v1.212: remove ghost previews
+    _mcoGhostsClear();
     // v1.211: restore overlay
     if (_mcoOverlay) {
       _mcoOverlay.style.transition = 'opacity 0.2s';
@@ -64022,7 +64088,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <div class="pr-canvas-layer" id="prCanvasLayer">
               <canvas id="prGridCanvas"></canvas>
             </div>
-            <div id="prNotesLayer" style="position:absolute;top:0;left:44px;right:0;bottom:0;z-index:3;"></div>
+            <div id="prNotesLayer" style="position:absolute;top:0;left:44px;right:0;bottom:0;z-index:3;touch-action:none;"></div>
             <div class="pr-select-rect" id="prSelectRect"></div>
             <div class="pr-playhead" id="prPlayhead"></div>
             <div class="pr-drop-indicator" id="prDropIndicator"></div>
