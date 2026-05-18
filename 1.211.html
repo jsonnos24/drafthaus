@@ -67502,6 +67502,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       handles.forEach(function(h) { h.style.display = ''; });
       if (btn) btn.classList.add('qc-active');
       qcBuild(); // refresh chords for current key
+      // Ensure drag/resize handlers are bound
+      _qcInitDrag();
+      _qcInitResize();
     }
   }
 
@@ -67528,86 +67531,108 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   }
 
   // ── Drag to move ──
+  // ── Drag to move (uses document-level listeners for reliability) ──
+  var _qcDrag = { active: false, startX: 0, startY: 0, origLeft: 0, origTop: 0 };
+
   function _qcInitDrag() {
     var header = document.getElementById('qcFloatHeader');
-    if (!header) return;
-    var dragging = false, startX, startY, origLeft, origTop;
+    if (!header || header._qcDragBound) return;
+    header._qcDragBound = true;
 
     header.addEventListener('mousedown', function(e) {
       if (e.target.closest('button')) return;
       e.preventDefault();
-      dragging = true;
+      e.stopPropagation();
       var container = document.getElementById('qcContainer');
-      startX = e.clientX; startY = e.clientY;
-      origLeft = parseInt(container.style.left) || 0;
-      origTop = parseInt(container.style.top) || 0;
+      if (!container) return;
+      _qcDrag.active = true;
+      _qcDrag.startX = e.clientX;
+      _qcDrag.startY = e.clientY;
+      _qcDrag.origLeft = container.offsetLeft;
+      _qcDrag.origTop = container.offsetTop;
       document.body.style.userSelect = 'none';
-    });
-
-    document.addEventListener('mousemove', function(e) {
-      if (!dragging) return;
-      var container = document.getElementById('qcContainer');
-      var parent = container.parentElement;
-      var dx = e.clientX - startX, dy = e.clientY - startY;
-      var newLeft = Math.max(0, Math.min(origLeft + dx, parent.offsetWidth - 60));
-      var newTop = Math.max(0, Math.min(origTop + dy, parent.offsetHeight - 30));
-      container.style.left = newLeft + 'px';
-      container.style.top = newTop + 'px';
-    });
-
-    document.addEventListener('mouseup', function() {
-      if (dragging) { dragging = false; document.body.style.userSelect = ''; _qcSaveState(); }
+      document.body.style.cursor = 'grabbing';
     });
   }
 
+  document.addEventListener('mousemove', function(e) {
+    if (!_qcDrag.active) return;
+    e.preventDefault();
+    var container = document.getElementById('qcContainer');
+    if (!container) return;
+    var parent = container.parentElement;
+    if (!parent) return;
+    var dx = e.clientX - _qcDrag.startX;
+    var dy = e.clientY - _qcDrag.startY;
+    var newLeft = Math.max(0, Math.min(_qcDrag.origLeft + dx, parent.offsetWidth - 60));
+    var newTop = Math.max(0, Math.min(_qcDrag.origTop + dy, parent.offsetHeight - 30));
+    container.style.left = newLeft + 'px';
+    container.style.top = newTop + 'px';
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (_qcDrag.active) {
+      _qcDrag.active = false;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      _qcSaveState();
+    }
+  });
+
   // ── Resize handles ──
+  var _qcResize = { active: false, dir: '', startX: 0, startY: 0, origRect: null };
+
   function _qcInitResize() {
     var handles = document.querySelectorAll('.qc-resize-handle');
     handles.forEach(function(handle) {
-      var dir = handle.dataset.dir;
-      var resizing = false, startX, startY, origRect;
+      if (handle._qcResizeBound) return;
+      handle._qcResizeBound = true;
 
       handle.addEventListener('mousedown', function(e) {
         e.preventDefault(); e.stopPropagation();
-        resizing = true;
-        startX = e.clientX; startY = e.clientY;
         var container = document.getElementById('qcContainer');
-        origRect = {
-          left: parseInt(container.style.left) || 0,
-          top: parseInt(container.style.top) || 0,
+        if (!container) return;
+        _qcResize.active = true;
+        _qcResize.dir = handle.dataset.dir;
+        _qcResize.startX = e.clientX;
+        _qcResize.startY = e.clientY;
+        _qcResize.origRect = {
+          left: container.offsetLeft,
+          top: container.offsetTop,
           width: container.offsetWidth,
           height: container.offsetHeight
         };
         document.body.style.userSelect = 'none';
-
-        function onMove(e2) {
-          if (!resizing) return;
-          var container = document.getElementById('qcContainer');
-          var dx = e2.clientX - startX, dy = e2.clientY - startY;
-          var nw = origRect.width, nh = origRect.height, nl = origRect.left, nt = origRect.top;
-
-          if (dir.includes('e')) nw = Math.max(200, origRect.width + dx);
-          if (dir.includes('w')) { nw = Math.max(200, origRect.width - dx); nl = origRect.left + (origRect.width - nw); }
-          if (dir.includes('s')) nh = Math.max(100, origRect.height + dy);
-
-          container.style.width = nw + 'px';
-          container.style.height = nh + 'px';
-          container.style.left = nl + 'px';
-        }
-
-        function onUp() {
-          resizing = false;
-          document.body.style.userSelect = '';
-          document.removeEventListener('mousemove', onMove);
-          document.removeEventListener('mouseup', onUp);
-          _qcSaveState();
-        }
-
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
       });
     });
   }
+
+  document.addEventListener('mousemove', function(e) {
+    if (!_qcResize.active) return;
+    e.preventDefault();
+    var container = document.getElementById('qcContainer');
+    if (!container) return;
+    var dx = e.clientX - _qcResize.startX;
+    var dy = e.clientY - _qcResize.startY;
+    var o = _qcResize.origRect;
+    var nw = o.width, nh = o.height, nl = o.left;
+
+    if (_qcResize.dir.includes('e')) nw = Math.max(200, o.width + dx);
+    if (_qcResize.dir.includes('w')) { nw = Math.max(200, o.width - dx); nl = o.left + (o.width - nw); }
+    if (_qcResize.dir.includes('s')) nh = Math.max(100, o.height + dy);
+
+    container.style.width = nw + 'px';
+    container.style.height = nh + 'px';
+    container.style.left = nl + 'px';
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (_qcResize.active) {
+      _qcResize.active = false;
+      document.body.style.userSelect = '';
+      _qcSaveState();
+    }
+  });
 
   // ── Key change refresh ──
   var _qcLastKey = '', _qcLastMode = '';
