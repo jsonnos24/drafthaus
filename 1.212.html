@@ -23809,17 +23809,44 @@ function renderSequencerHtml(song) {
     <!-- ═══ DRUM LAYOUT: Tools+Settings bar on top, Roll below ═══ -->
     <div class="dr-stage-grid" id="drStageGrid">
 
-      <!-- ── Mobile toggle for Tools/Settings ── -->
-      <div class="dr-tools-toggle-tab tools-open" id="drToolsToggleTab" onclick="_drToggleToolsPanel()" title="Show/hide Tools &amp; Settings">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-      </div>
-
-      <!-- ── TOP BAR: Tools + Settings flush below global-seq-strip ── -->
+      <!-- ── TOP BAR: Always-visible primary controls ── -->
       <div class="dr-stage-left-col" id="drToolsBar">
-        <div class="dr-stage-tools-col">
-          <div class="dr-stage-col-header">Tools</div>
+        <div class="dr-mob-top-row">
+          <div class="dr-stage-ctrl">
+            <span class="seq-label">Bars</span>
+            <select class="seq-select" id="seqBars" onchange="kbdBarsChanged(this.value)" title="Bars per loop">
+              <option value="1"${bars==='1'?' selected':''}>1</option>
+              <option value="2"${bars==='2'?' selected':''}>2</option>
+              <option value="4"${bars==='4'?' selected':''}>4</option>
+              <option value="6"${bars==='6'?' selected':''}>6</option>
+              <option value="8"${bars==='8'?' selected':''}>8</option>
+              <option value="12"${bars==='12'?' selected':''}>12</option>
+              <option value="16"${bars==='16'?' selected':''}>16</option>
+              <option value="32"${bars==='32'?' selected':''}>32</option>
+            </select>
+          </div>
+          <div class="dr-stage-swing-row">
+            <span class="seq-label" style="font-size:8px;">Swing</span>
+            <input type="range" id="drStageSwing" min="0" max="1" step="0.01" value="0" style="width:70px;accent-color:var(--gold);cursor:pointer;" oninput="var s=document.getElementById('seqSwing');if(s){s.value=this.value;s.dispatchEvent(new Event('input'));}" title="Swing amount">
+          </div>
+          <div class="dr-stage-ctrl">
+            <span class="seq-label">Grid</span>
+            <select class="seq-select" id="seqDrumSteps" onchange="drumStepsChanged(this.value)" title="Drum grid resolution">
+              <option value="1"${grid==='1'?' selected':''}>1/4</option>
+              <option value="2"${grid==='2'?' selected':''}>1/8</option>
+              <option value="4"${grid==='4'?' selected':''}>1/16</option>
+              <option value="8"${grid==='8'?' selected':''}>1/32</option>
+              <option value="3"${grid==='3'?' selected':''}>Triplets</option>
+            </select>
+          </div>
+          <button class="seq-gen-btn dr-stage-btn" id="seqProbBtn" onclick="seqProbToggle()" title="Add random hits based on probability">🎲 Prob</button>
+          <button class="seq-gen-btn dr-stage-btn" id="seqFillBtn" onclick="seqFillToggle()" title="Add a drum fill">🥁 Fill</button>
+          <button class="dr-mob-more-btn" id="drMobMoreBtn" onclick="_drToggleMobMore()" title="More options">&#8943;</button>
+        </div>
+        <!-- ── Collapsible secondary controls ── -->
+        <div class="dr-mob-more-panel" id="drMobMorePanel" style="display:none;">
           <select class="seq-select" id="seqDrumPatternSel" name="drum-pattern-sel" onchange="if(this.value){applyDrumPattern(this.value)}" style="font-size:10px;min-width:90px;">
-            <option value="">Pattern…</option>
+            <option value="">Pattern...</option>
             <option value="rock1">Rock 1</option>
             <option value="rock2">Rock 2</option>
             <option value="waltz">Waltz</option>
@@ -23847,66 +23874,11 @@ function renderSequencerHtml(song) {
             <option value="five4_rock">5/4 Rock</option>
             <option value="random">🎲 Random</option>
           </select>
-          <button class="seq-gen-btn dr-stage-btn" id="seqProbBtn" onclick="seqProbToggle()" title="Add random hits based on probability">🎲 Prob</button>
-          <button class="seq-gen-btn dr-stage-btn" id="seqFillBtn" onclick="seqFillToggle()" title="Add a drum fill">🥁 Fill</button>
-          <button class="seq-humanize-btn dr-stage-btn" id="seqHumanizeDrumsBtn" onclick="seqToggleHumanize('drums')" title="Randomize velocity">〜 Vel</button>
-          <div class="dr-stage-swing-row">
-            <span class="seq-label" style="font-size:8px;">Swing</span>
-            <input type="range" id="drStageSwing" min="0" max="1" step="0.01" value="0" style="width:80px;accent-color:var(--gold);cursor:pointer;" oninput="var s=document.getElementById('seqSwing');if(s){s.value=this.value;s.dispatchEvent(new Event('input'));}" title="Swing amount">
-          </div>
-          <!-- Probability popover -->
-          <div class="seq-gen-popover" id="seqProbPopover" style="display:none;">
-            <div class="seq-gen-pop-title">Probability — Random Hits</div>
-            <div class="seq-gen-pop-desc">Adjust density per voice, then roll.</div>
-            <div class="seq-prob-lanes" id="seqProbLanes"></div>
-            <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;align-items:center;">
-              <button title="Randomly generate a drum pattern using probability. Each hit has a chance of being placed based on your settings." class="seq-gen-action" onclick="seqProbApply()">🎲 Roll the Dice</button>
-              <button title="Close the probability generator panel. Your current pattern is unchanged." class="seq-gen-action seq-gen-secondary" onclick="seqProbToggle()">Close</button>
-            </div>
-          </div>
-          <!-- Fill popover -->
-          <div class="seq-gen-popover" id="seqFillPopover" style="display:none;">
-            <div class="seq-gen-pop-title">Add Drum Fill</div>
-            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
-              <div style="display:flex;gap:4px;align-items:center;">
-                <label style="font-size:9px;color:var(--muted);font-weight:700;">WHERE</label>
-                <select class="seq-gen-select" id="seqFillWhere" style="font-size:10px;">
-                  <option value="1" selected>Last bar</option>
-                  <option value="2">Last 2 bars</option>
-                </select>
-              </div>
-              <div style="display:flex;gap:4px;align-items:center;">
-                <label style="font-size:9px;color:var(--muted);font-weight:700;">STYLE</label>
-                <select class="seq-gen-select" id="seqFillGenre" style="font-size:10px;">
-                  <option value="general" selected>General</option>
-                  <option value="rock">Rock</option>
-                  <option value="hiphop">Hip-Hop</option>
-                  <option value="jazz">Jazz</option>
-                  <option value="latin">Latin</option>
-                </select>
-              </div>
-            </div>
-            <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;">
-              <button title="Apply the selected drum fill pattern. Fills the current bar with the chosen rhythm." class="seq-gen-action" onclick="seqFillApply()">🥁 Apply</button>
-              <button title="Close the fill generator panel. Your current pattern is unchanged." class="seq-gen-action seq-gen-secondary" onclick="seqFillToggle()">Close</button>
-            </div>
-          </div>
-        </div><!-- end dr-stage-tools-col -->
-        <div class="dr-stage-settings-col">
-          <div class="dr-stage-col-header">Settings</div>
-          <div class="dr-stage-ctrl">
-            <span class="seq-label">Bars</span>
-            <select class="seq-select" id="seqBars" onchange="kbdBarsChanged(this.value)" title="Bars per loop">
-              <option value="1"${bars==='1'?' selected':''}>1</option>
-              <option value="2"${bars==='2'?' selected':''}>2</option>
-              <option value="4"${bars==='4'?' selected':''}>4</option>
-              <option value="6"${bars==='6'?' selected':''}>6</option>
-              <option value="8"${bars==='8'?' selected':''}>8</option>
-              <option value="12"${bars==='12'?' selected':''}>12</option>
-              <option value="16"${bars==='16'?' selected':''}>16</option>
-              <option value="32"${bars==='32'?' selected':''}>32</option>
-            </select>
-          </div>
+          <button class="seq-humanize-btn dr-stage-btn" id="seqHumanizeDrumsBtn" onclick="seqToggleHumanize('drums')" title="Randomize velocity">~ Vel</button>
+          <select class="seq-select" id="myBeatsDropdown" onchange="if(this.value)loadBeatFromLibrary(this.value)" style="font-size:10px;min-width:80px;">
+            <option value="">My Beats</option>
+          </select>
+          <button class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--gold);color:var(--gold);border-radius:4px;cursor:pointer;" onclick="openSaveBeatModal()" title="Save this drum beat to your library">Save</button>
           <div class="dr-stage-ctrl">
             <span class="seq-label">Time</span>
             <select class="seq-select" id="seqTime" onchange="seqRebuild(); kbdTimeSigChanged(this.value);">
@@ -23917,23 +23889,46 @@ function renderSequencerHtml(song) {
               <option value="5"${time==='5'?' selected':''}>5/4</option>
             </select>
           </div>
-          <div class="dr-stage-ctrl">
-            <span class="seq-label">Grid</span>
-            <select class="seq-select" id="seqDrumSteps" onchange="drumStepsChanged(this.value)" title="Drum grid resolution">
-              <option value="1"${grid==='1'?' selected':''}>1/4</option>
-              <option value="2"${grid==='2'?' selected':''}>1/8</option>
-              <option value="4"${grid==='4'?' selected':''}>1/16</option>
-              <option value="8"${grid==='8'?' selected':''}>1/32</option>
-              <option value="3"${grid==='3'?' selected':''}>Triplets</option>
-            </select>
-          </div>
-          <select class="seq-select" id="myBeatsDropdown" onchange="if(this.value)loadBeatFromLibrary(this.value)" style="font-size:10px;min-width:80px;">
-            <option value="">My Beats</option>
-          </select>
-          <button class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--gold);color:var(--gold);border-radius:4px;cursor:pointer;" onclick="openSaveBeatModal()" title="Save this drum beat to your library">Save</button>
           <button class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--gold,#f5a623);color:var(--gold,#f5a623);border-radius:4px;cursor:pointer;" onclick="seqDupPattern()" title="Duplicate pattern">+Dup</button>
           <button title="Clear all hits from the drum grid. Resets every step to empty so you can start fresh." class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="applyDrumPattern('clear')">Clear</button>
-        </div><!-- end dr-stage-settings-col -->
+        </div>
+        <!-- Probability popover -->
+        <div class="seq-gen-popover" id="seqProbPopover" style="display:none;">
+          <div class="seq-gen-pop-title">Probability — Random Hits</div>
+          <div class="seq-gen-pop-desc">Adjust density per voice, then roll.</div>
+          <div class="seq-prob-lanes" id="seqProbLanes"></div>
+          <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;align-items:center;">
+            <button title="Randomly generate a drum pattern using probability. Each hit has a chance of being placed based on your settings." class="seq-gen-action" onclick="seqProbApply()">🎲 Roll the Dice</button>
+            <button title="Close the probability generator panel. Your current pattern is unchanged." class="seq-gen-action seq-gen-secondary" onclick="seqProbToggle()">Close</button>
+          </div>
+        </div>
+        <!-- Fill popover -->
+        <div class="seq-gen-popover" id="seqFillPopover" style="display:none;">
+          <div class="seq-gen-pop-title">Add Drum Fill</div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
+            <div style="display:flex;gap:4px;align-items:center;">
+              <label style="font-size:9px;color:var(--muted);font-weight:700;">WHERE</label>
+              <select class="seq-gen-select" id="seqFillWhere" style="font-size:10px;">
+                <option value="1" selected>Last bar</option>
+                <option value="2">Last 2 bars</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:4px;align-items:center;">
+              <label style="font-size:9px;color:var(--muted);font-weight:700;">STYLE</label>
+              <select class="seq-gen-select" id="seqFillGenre" style="font-size:10px;">
+                <option value="general" selected>General</option>
+                <option value="rock">Rock</option>
+                <option value="hiphop">Hip-Hop</option>
+                <option value="jazz">Jazz</option>
+                <option value="latin">Latin</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;">
+            <button title="Apply the selected drum fill pattern. Fills the current bar with the chosen rhythm." class="seq-gen-action" onclick="seqFillApply()">🥁 Apply</button>
+            <button title="Close the fill generator panel. Your current pattern is unchanged." class="seq-gen-action seq-gen-secondary" onclick="seqFillToggle()">Close</button>
+          </div>
+        </div>
       </div><!-- end dr-stage-left-col / drToolsBar -->
 
       <!-- ── MAIN: Drum Roll ── -->
