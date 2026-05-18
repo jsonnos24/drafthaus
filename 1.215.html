@@ -4785,6 +4785,8 @@ button, select, input, textarea { touch-action: manipulation; }
   .mpr-toolbar .mpr-tool-btn.active {
     background: var(--text, #e0e0e0); color: #0d0e13; border-color: var(--text, #e0e0e0);
   }
+  .pr-keylock-btn { border-color: var(--teal, #2dd4bf) !important; color: var(--teal, #2dd4bf) !important; background: transparent !important; }
+  .pr-keylock-btn.active { background: var(--teal, #2dd4bf) !important; color: #0d0e13 !important; border-color: var(--teal, #2dd4bf) !important; }
   .mpr-toolbar .mpr-tool-btn.mpr-mode-compose {
     border-color: #e8749a; color: #e8749a;
   }
@@ -9675,15 +9677,16 @@ body.looper-drawer-open #songViewRunthrough {
     text-orientation: mixed;
     transform: rotate(180deg);
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: rgba(255,255,255,0.45);
+    color: var(--st-color);
+    opacity: 0.7;
     white-space: nowrap;
-    transition: color 0.15s;
+    transition: color 0.15s, opacity 0.15s;
   }
-  .side-tab:hover .side-tab-label { color: rgba(255,255,255,0.8); }
+  .side-tab:hover .side-tab-label { color: var(--st-color); opacity: 1; }
   .side-tab-key {
     font-weight: 800;
     opacity: 0.55;
@@ -9697,7 +9700,7 @@ body.looper-drawer-open #songViewRunthrough {
     width: 3px;
     background: var(--st-color);
   }
-  .side-tab.st-active .side-tab-label { color: var(--st-color); }
+  .side-tab.st-active .side-tab-label { color: var(--st-color); opacity: 1; }
   .side-tab.st-active .side-tab-key { opacity: 1; }
   /* Per-tab colors */
   .side-tab[data-tool="lyrics"]   { --st-color: #ff9900; }
@@ -10318,6 +10321,7 @@ body.songlist-active.split-active #viewList {
   padding: 4px 8px;
 }
 /* Popovers inside tools — use fixed positioning */
+.dr-stage-left-col .seq-gen-popover,
 .dr-stage-tools-col .seq-gen-popover {
   position: fixed; z-index: 9999;
   margin: 0; padding: 10px 12px;
@@ -10352,31 +10356,31 @@ body.seq-drawer-open .dr-stage-grid {
 /* Hide old single-row drum controls when 3-column layout is active */
 body.seq-drawer-open .seq-drum-controls { display: none !important; }
 
-/* ── Mobile: Collapsible Tools/Settings in Drum Drawer ── */
-@media (max-width: 768px) {
-  .dr-tools-toggle-tab {
-    position: absolute; left: 0; top: 50%; transform: translateY(-50%);
-    z-index: 10; width: 28px; height: 56px;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(20,22,28,0.95); border: 1px solid rgba(100,220,130,0.4);
-    border-left: none; border-radius: 0 8px 8px 0;
-    cursor: pointer; color: #7cff9b; font-size: 16px;
-    box-shadow: 2px 0 8px rgba(0,0,0,0.4);
-    transition: background 0.2s, box-shadow 0.2s;
-  }
-  .dr-tools-toggle-tab:active { background: rgba(100,220,130,0.15); }
-  .dr-tools-toggle-tab.tools-open {
-    background: rgba(100,220,130,0.12);
-    box-shadow: 2px 0 12px rgba(100,220,130,0.3);
-  }
-  .dr-stage-grid { position: relative; }
-  .dr-stage-left-col.dr-tools-collapsed {
-    display: none !important;
-  }
+/* ── Drum Drawer Mobile: Top Row + Collapsible More ── */
+.dr-mob-top-row {
+  display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; align-items: center;
+  padding: 6px 10px; width: 100%; box-sizing: border-box;
 }
-@media (min-width: 769px) {
-  .dr-tools-toggle-tab { display: none !important; }
+.dr-mob-more-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 700;
+  padding: 2px 8px; border-radius: 4px; cursor: pointer;
+  background: var(--card2, #1c1c2e); border: 1px solid var(--border2, #28283a);
+  color: var(--gold, #f5a623); line-height: 1;
+  transition: background 0.15s, border-color 0.15s;
 }
+.dr-mob-more-btn:active { background: rgba(245,166,35,0.15); }
+.dr-mob-more-btn.open { background: rgba(245,166,35,0.12); border-color: var(--gold, #f5a623); }
+.dr-mob-more-panel {
+  display: none; flex-direction: row; flex-wrap: wrap; gap: 6px; align-items: center;
+  padding: 6px 10px; width: 100%; box-sizing: border-box;
+  border-top: 1px solid var(--border2, #28283a);
+  background: rgba(15,15,22,0.95);
+}
+.dr-mob-more-panel.open { display: flex; }
+/* Hide old mobile toggle tab — replaced by inline More button */
+.dr-tools-toggle-tab { display: none !important; }
+/* Old mobile collapse class no longer needed */
+.dr-stage-left-col.dr-tools-collapsed { }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    STANDALONE DRUM ROLL (piano-roll style)
@@ -23807,17 +23811,44 @@ function renderSequencerHtml(song) {
     <!-- ═══ DRUM LAYOUT: Tools+Settings bar on top, Roll below ═══ -->
     <div class="dr-stage-grid" id="drStageGrid">
 
-      <!-- ── Mobile toggle for Tools/Settings ── -->
-      <div class="dr-tools-toggle-tab tools-open" id="drToolsToggleTab" onclick="_drToggleToolsPanel()" title="Show/hide Tools &amp; Settings">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-      </div>
-
-      <!-- ── TOP BAR: Tools + Settings flush below global-seq-strip ── -->
+      <!-- ── TOP BAR: Always-visible primary controls ── -->
       <div class="dr-stage-left-col" id="drToolsBar">
-        <div class="dr-stage-tools-col">
-          <div class="dr-stage-col-header">Tools</div>
+        <div class="dr-mob-top-row">
+          <div class="dr-stage-ctrl">
+            <span class="seq-label">Bars</span>
+            <select class="seq-select" id="seqBars" onchange="kbdBarsChanged(this.value)" title="Bars per loop">
+              <option value="1"${bars==='1'?' selected':''}>1</option>
+              <option value="2"${bars==='2'?' selected':''}>2</option>
+              <option value="4"${bars==='4'?' selected':''}>4</option>
+              <option value="6"${bars==='6'?' selected':''}>6</option>
+              <option value="8"${bars==='8'?' selected':''}>8</option>
+              <option value="12"${bars==='12'?' selected':''}>12</option>
+              <option value="16"${bars==='16'?' selected':''}>16</option>
+              <option value="32"${bars==='32'?' selected':''}>32</option>
+            </select>
+          </div>
+          <div class="dr-stage-swing-row">
+            <span class="seq-label" style="font-size:8px;">Swing</span>
+            <input type="range" id="drStageSwing" min="0" max="1" step="0.01" value="0" style="width:70px;accent-color:var(--gold);cursor:pointer;" oninput="var s=document.getElementById('seqSwing');if(s){s.value=this.value;s.dispatchEvent(new Event('input'));}" title="Swing amount">
+          </div>
+          <div class="dr-stage-ctrl">
+            <span class="seq-label">Grid</span>
+            <select class="seq-select" id="seqDrumSteps" onchange="drumStepsChanged(this.value)" title="Drum grid resolution">
+              <option value="1"${grid==='1'?' selected':''}>1/4</option>
+              <option value="2"${grid==='2'?' selected':''}>1/8</option>
+              <option value="4"${grid==='4'?' selected':''}>1/16</option>
+              <option value="8"${grid==='8'?' selected':''}>1/32</option>
+              <option value="3"${grid==='3'?' selected':''}>Triplets</option>
+            </select>
+          </div>
+          <button class="seq-gen-btn dr-stage-btn" id="seqProbBtn" onclick="seqProbToggle()" title="Add random hits based on probability">🎲 Prob</button>
+          <button class="seq-gen-btn dr-stage-btn" id="seqFillBtn" onclick="seqFillToggle()" title="Add a drum fill">🥁 Fill</button>
+          <button class="dr-mob-more-btn" id="drMobMoreBtn" onclick="_drToggleMobMore()" title="More options">&#8943;</button>
+        </div>
+        <!-- ── Collapsible secondary controls ── -->
+        <div class="dr-mob-more-panel" id="drMobMorePanel" style="display:none;">
           <select class="seq-select" id="seqDrumPatternSel" name="drum-pattern-sel" onchange="if(this.value){applyDrumPattern(this.value)}" style="font-size:10px;min-width:90px;">
-            <option value="">Pattern…</option>
+            <option value="">Pattern...</option>
             <option value="rock1">Rock 1</option>
             <option value="rock2">Rock 2</option>
             <option value="waltz">Waltz</option>
@@ -23845,66 +23876,11 @@ function renderSequencerHtml(song) {
             <option value="five4_rock">5/4 Rock</option>
             <option value="random">🎲 Random</option>
           </select>
-          <button class="seq-gen-btn dr-stage-btn" id="seqProbBtn" onclick="seqProbToggle()" title="Add random hits based on probability">🎲 Prob</button>
-          <button class="seq-gen-btn dr-stage-btn" id="seqFillBtn" onclick="seqFillToggle()" title="Add a drum fill">🥁 Fill</button>
-          <button class="seq-humanize-btn dr-stage-btn" id="seqHumanizeDrumsBtn" onclick="seqToggleHumanize('drums')" title="Randomize velocity">〜 Vel</button>
-          <div class="dr-stage-swing-row">
-            <span class="seq-label" style="font-size:8px;">Swing</span>
-            <input type="range" id="drStageSwing" min="0" max="1" step="0.01" value="0" style="width:80px;accent-color:var(--gold);cursor:pointer;" oninput="var s=document.getElementById('seqSwing');if(s){s.value=this.value;s.dispatchEvent(new Event('input'));}" title="Swing amount">
-          </div>
-          <!-- Probability popover -->
-          <div class="seq-gen-popover" id="seqProbPopover" style="display:none;">
-            <div class="seq-gen-pop-title">Probability — Random Hits</div>
-            <div class="seq-gen-pop-desc">Adjust density per voice, then roll.</div>
-            <div class="seq-prob-lanes" id="seqProbLanes"></div>
-            <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;align-items:center;">
-              <button title="Randomly generate a drum pattern using probability. Each hit has a chance of being placed based on your settings." class="seq-gen-action" onclick="seqProbApply()">🎲 Roll the Dice</button>
-              <button title="Close the probability generator panel. Your current pattern is unchanged." class="seq-gen-action seq-gen-secondary" onclick="seqProbToggle()">Close</button>
-            </div>
-          </div>
-          <!-- Fill popover -->
-          <div class="seq-gen-popover" id="seqFillPopover" style="display:none;">
-            <div class="seq-gen-pop-title">Add Drum Fill</div>
-            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
-              <div style="display:flex;gap:4px;align-items:center;">
-                <label style="font-size:9px;color:var(--muted);font-weight:700;">WHERE</label>
-                <select class="seq-gen-select" id="seqFillWhere" style="font-size:10px;">
-                  <option value="1" selected>Last bar</option>
-                  <option value="2">Last 2 bars</option>
-                </select>
-              </div>
-              <div style="display:flex;gap:4px;align-items:center;">
-                <label style="font-size:9px;color:var(--muted);font-weight:700;">STYLE</label>
-                <select class="seq-gen-select" id="seqFillGenre" style="font-size:10px;">
-                  <option value="general" selected>General</option>
-                  <option value="rock">Rock</option>
-                  <option value="hiphop">Hip-Hop</option>
-                  <option value="jazz">Jazz</option>
-                  <option value="latin">Latin</option>
-                </select>
-              </div>
-            </div>
-            <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;">
-              <button title="Apply the selected drum fill pattern. Fills the current bar with the chosen rhythm." class="seq-gen-action" onclick="seqFillApply()">🥁 Apply</button>
-              <button title="Close the fill generator panel. Your current pattern is unchanged." class="seq-gen-action seq-gen-secondary" onclick="seqFillToggle()">Close</button>
-            </div>
-          </div>
-        </div><!-- end dr-stage-tools-col -->
-        <div class="dr-stage-settings-col">
-          <div class="dr-stage-col-header">Settings</div>
-          <div class="dr-stage-ctrl">
-            <span class="seq-label">Bars</span>
-            <select class="seq-select" id="seqBars" onchange="kbdBarsChanged(this.value)" title="Bars per loop">
-              <option value="1"${bars==='1'?' selected':''}>1</option>
-              <option value="2"${bars==='2'?' selected':''}>2</option>
-              <option value="4"${bars==='4'?' selected':''}>4</option>
-              <option value="6"${bars==='6'?' selected':''}>6</option>
-              <option value="8"${bars==='8'?' selected':''}>8</option>
-              <option value="12"${bars==='12'?' selected':''}>12</option>
-              <option value="16"${bars==='16'?' selected':''}>16</option>
-              <option value="32"${bars==='32'?' selected':''}>32</option>
-            </select>
-          </div>
+          <button class="seq-humanize-btn dr-stage-btn" id="seqHumanizeDrumsBtn" onclick="seqToggleHumanize('drums')" title="Randomize velocity">~ Vel</button>
+          <select class="seq-select" id="myBeatsDropdown" onchange="if(this.value)loadBeatFromLibrary(this.value)" style="font-size:10px;min-width:80px;">
+            <option value="">My Beats</option>
+          </select>
+          <button class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--gold);color:var(--gold);border-radius:4px;cursor:pointer;" onclick="openSaveBeatModal()" title="Save this drum beat to your library">Save</button>
           <div class="dr-stage-ctrl">
             <span class="seq-label">Time</span>
             <select class="seq-select" id="seqTime" onchange="seqRebuild(); kbdTimeSigChanged(this.value);">
@@ -23915,23 +23891,46 @@ function renderSequencerHtml(song) {
               <option value="5"${time==='5'?' selected':''}>5/4</option>
             </select>
           </div>
-          <div class="dr-stage-ctrl">
-            <span class="seq-label">Grid</span>
-            <select class="seq-select" id="seqDrumSteps" onchange="drumStepsChanged(this.value)" title="Drum grid resolution">
-              <option value="1"${grid==='1'?' selected':''}>1/4</option>
-              <option value="2"${grid==='2'?' selected':''}>1/8</option>
-              <option value="4"${grid==='4'?' selected':''}>1/16</option>
-              <option value="8"${grid==='8'?' selected':''}>1/32</option>
-              <option value="3"${grid==='3'?' selected':''}>Triplets</option>
-            </select>
-          </div>
-          <select class="seq-select" id="myBeatsDropdown" onchange="if(this.value)loadBeatFromLibrary(this.value)" style="font-size:10px;min-width:80px;">
-            <option value="">My Beats</option>
-          </select>
-          <button class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--gold);color:var(--gold);border-radius:4px;cursor:pointer;" onclick="openSaveBeatModal()" title="Save this drum beat to your library">Save</button>
           <button class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--gold,#f5a623);color:var(--gold,#f5a623);border-radius:4px;cursor:pointer;" onclick="seqDupPattern()" title="Duplicate pattern">+Dup</button>
           <button title="Clear all hits from the drum grid. Resets every step to empty so you can start fresh." class="dr-stage-btn" style="font-size:9px;padding:4px 6px;background:var(--card2);border:1px solid var(--border2);color:#ff5f5f;border-radius:4px;cursor:pointer;" onclick="applyDrumPattern('clear')">Clear</button>
-        </div><!-- end dr-stage-settings-col -->
+        </div>
+        <!-- Probability popover -->
+        <div class="seq-gen-popover" id="seqProbPopover" style="display:none;">
+          <div class="seq-gen-pop-title">Probability — Random Hits</div>
+          <div class="seq-gen-pop-desc">Adjust density per voice, then roll.</div>
+          <div class="seq-prob-lanes" id="seqProbLanes"></div>
+          <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;align-items:center;">
+            <button title="Randomly generate a drum pattern using probability. Each hit has a chance of being placed based on your settings." class="seq-gen-action" onclick="seqProbApply()">🎲 Roll the Dice</button>
+            <button title="Close the probability generator panel. Your current pattern is unchanged." class="seq-gen-action seq-gen-secondary" onclick="seqProbToggle()">Close</button>
+          </div>
+        </div>
+        <!-- Fill popover -->
+        <div class="seq-gen-popover" id="seqFillPopover" style="display:none;">
+          <div class="seq-gen-pop-title">Add Drum Fill</div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
+            <div style="display:flex;gap:4px;align-items:center;">
+              <label style="font-size:9px;color:var(--muted);font-weight:700;">WHERE</label>
+              <select class="seq-gen-select" id="seqFillWhere" style="font-size:10px;">
+                <option value="1" selected>Last bar</option>
+                <option value="2">Last 2 bars</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:4px;align-items:center;">
+              <label style="font-size:9px;color:var(--muted);font-weight:700;">STYLE</label>
+              <select class="seq-gen-select" id="seqFillGenre" style="font-size:10px;">
+                <option value="general" selected>General</option>
+                <option value="rock">Rock</option>
+                <option value="hiphop">Hip-Hop</option>
+                <option value="jazz">Jazz</option>
+                <option value="latin">Latin</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;">
+            <button title="Apply the selected drum fill pattern. Fills the current bar with the chosen rhythm." class="seq-gen-action" onclick="seqFillApply()">🥁 Apply</button>
+            <button title="Close the fill generator panel. Your current pattern is unchanged." class="seq-gen-action seq-gen-secondary" onclick="seqFillToggle()">Close</button>
+          </div>
+        </div>
       </div><!-- end dr-stage-left-col / drToolsBar -->
 
       <!-- ── MAIN: Drum Roll ── -->
@@ -23952,10 +23951,7 @@ function renderSequencerHtml(song) {
               <span class="ts-dot" style="background:${color}"></span>
               <span class="ts-name" style="color:${color}">${label}</span>
               <button class="ts-sample-btn" onclick="event.stopPropagation();_drumLabelClick(event,'${row}')" title="Change ${label} sample">${label} ▾</button>
-              <div class="ts-ctrls">
-                <span class="ts-ctrl ts-m" onclick="event.stopPropagation();_tsMute('${row}')" title="Mute">M</span>
-                <span class="ts-ctrl ts-s" onclick="event.stopPropagation();_tsSolo('${row}')" title="Solo">S</span>
-              </div>
+              <div class="ts-ctrls"></div>
               <span class="ts-chev">▾</span>
             </div>
             <div class="ts-strip-body">
@@ -26858,13 +26854,13 @@ function seqBuildGrids(song) {
     }
   }
 
-  // ── Mobile: toggle Tools/Settings panel in drum drawer ──────────
-  window._drToggleToolsPanel = function() {
-    var bar = document.getElementById('drToolsBar');
-    var tab = document.getElementById('drToolsToggleTab');
-    if (!bar || !tab) return;
-    var collapsed = bar.classList.toggle('dr-tools-collapsed');
-    tab.classList.toggle('tools-open', !collapsed);
+  window._drToggleMobMore = function() {
+    var panel = document.getElementById('drMobMorePanel');
+    var btn = document.getElementById('drMobMoreBtn');
+    if (!panel) return;
+    var isOpen = panel.classList.toggle('open');
+    panel.style.display = isOpen ? 'flex' : 'none';
+    if (btn) btn.classList.toggle('open', isOpen);
   };
 
   // ── Drum drawer tool state ──────────────────────────────────────
@@ -41964,31 +41960,6 @@ function renderKeyboardDrawerHtml(song) {
             </select>
             <span style="flex:1"></span>
             <button id="mprToolbarExtraToggle" onclick="mprToggleToolbarExtra()" title="Show/hide tools" style="width:28px;height:28px;padding:0;border:1.5px solid var(--border2,#333);border-radius:6px;background:transparent;color:var(--text,#eee);font-size:12px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">▼</button>
-            <div class="kbd-port-settings-anchor" style="position:relative;">
-              <button class="kbd-port-settings-btn" id="kbdPortSettingsBtn" onclick="kbdPortToggleSettings(this)" title="Settings" style="width:32px;height:32px;padding:0;border:1.5px solid var(--border2,#333);border-radius:8px;background:transparent;color:var(--text,#eee);font-size:16px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">⚙</button>
-              <div class="kbd-port-settings-pop" id="kbdPortSettingsPop" style="display:none;position:fixed;z-index:9999;background:#1a1b22;border:1.5px solid var(--gold,#f5a623);border-radius:10px;padding:10px 12px;box-shadow:0 8px 28px rgba(0,0,0,0.6);min-width:220px;">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                  <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--gold,#f5a623);flex-shrink:0;min-width:50px;">Time Sig</span>
-                  <select class="seq-select" id="kbdKeysTimeSig" onchange="seqTimeSigChanged(this.value)" title="Time Signature" style="flex:1;font-size:11px;height:30px;border-radius:6px;">
-                    <option value="4"${timeSig==='4'?' selected':''}>4/4</option>
-                    <option value="3"${timeSig==='3'?' selected':''}>3/4</option>
-                    <option value="2"${timeSig==='2'?' selected':''}>2/4</option>
-                    <option value="6"${timeSig==='6'?' selected':''}>6/8</option>
-                    <option value="5"${timeSig==='5'?' selected':''}>5/4</option>
-                  </select>
-                </div>
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                  <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--gold,#f5a623);flex-shrink:0;min-width:50px;">Chords</span>
-                  <select class="seq-select" id="seqInstrumentSelect" onchange="seqInstrumentChanged(this.value)" title="Chord instrument" style="flex:1;font-size:11px;height:30px;border-radius:6px;">
-                    ${_chordInstrumentOptions}
-                  </select>
-                </div>
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--gold,#f5a623);flex-shrink:0;min-width:50px;">Quantize</span>
-                  <button class="mpr-tool-btn${melodyQuantize?' active':''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()" title="Quantize">Qz</button>
-                </div>
-              </div>
-            </div>
           </div>
           <!-- v1.205: Collapsible toolbar rows 2-4, start collapsed -->
           <div id="mprToolbarExtra" style="display:none;flex-direction:column;">
@@ -42023,6 +41994,7 @@ function renderKeyboardDrawerHtml(song) {
             <button class="mpr-tool-btn active" id="mprToolPencil" onclick="mprSetTool('pencil')" title="Pencil">✎</button>
             <button class="mpr-tool-btn" id="mprToolEraser" onclick="mprSetTool('eraser')" title="Delete">✕</button>
             <button class="mpr-tool-btn" id="mprToolPiano" onclick="mprSetTool('piano')" title="Piano" style="border-color:var(--purple,#c8a0ff);color:var(--purple,#c8a0ff);">♫</button>
+            <button class="mpr-tool-btn pr-keylock-btn active" onclick="_prKeyLockToggle()" title="Key Lock — When ON, the pencil tool snaps notes to the current key/scale so everything you draw stays in key. Turn OFF for chromatic free draw.">🔒 Key</button>
             <span style="flex:1"></span>
             <button class="mpr-tool-btn" onclick="if(typeof prRandomizeVelocity==='function')prRandomizeVelocity()" title="Randomize velocities">🎲 Vel</button>
             <button class="mpr-tool-btn" onclick="seqDupPattern()" title="Duplicate pattern" style="border-color:var(--gold,#f5a623);color:var(--gold,#f5a623);">+Dup</button>
@@ -42411,6 +42383,7 @@ function renderKeyboardDrawerHtml(song) {
             <button class="kbd-port-tbtn" id="kbdPrToolPointer" onclick="mprSetTool('pointer')" title="Pointer">▸</button>
             <button class="kbd-port-tbtn active" id="kbdPrToolPencil" onclick="mprSetTool('pencil')" title="Pencil">✎</button>
             <button class="kbd-port-tbtn" id="kbdPrToolEraser" onclick="mprSetTool('eraser')" title="Delete">✕</button>
+            <button class="kbd-port-tbtn pr-keylock-btn active" onclick="_prKeyLockToggle()" title="Key Lock — When ON, the pencil tool snaps notes to the current key/scale so everything you draw stays in key. Turn OFF for chromatic free draw.">🔒 Key</button>
             <button class="kbd-port-tbtn" onclick="if(typeof prRandomizeVelocity==='function')prRandomizeVelocity()" title="Randomize velocities">🎲 Vel</button>
             <button class="kbd-port-tbtn" onclick="seqDupPattern()" title="Duplicate pattern" style="border-color:var(--gold,#f5a623);color:var(--gold,#f5a623);">+Dup</button>
             <button class="kbd-port-tbtn" onclick="seqClearAllChordSlots()" title="Clear all" style="color:#ff5f5f;">Clear ×</button>
@@ -43407,6 +43380,40 @@ var _mprActive = false;
 var _mprTool = 'pencil'; // pointer | pencil | eraser | piano
 var _mprChordSidebarOpen = false;
 
+// ── Key Lock: snap pencil notes to current scale ──
+var _prKeyLock = true; // on by default
+
+function _prKeyLockSnap(midi) {
+  if (!_prKeyLock) return midi;
+  var key = 'C', mode = 'major';
+  try { key = seqCurrentKey() || 'C'; } catch(e){}
+  try { mode = seqCurrentMode() || 'major'; } catch(e){}
+  var rootIdx = SEQ_NOTES.indexOf(key);
+  if (rootIdx < 0) return midi;
+  var scale = SEQ_SCALES[mode] || SEQ_SCALES.major;
+  var steps = scale.steps.slice(0, 7);
+  var inKey = steps.map(function(s) { return (rootIdx + s) % 12; });
+  var pc = ((midi % 12) + 12) % 12;
+  if (inKey.indexOf(pc) >= 0) return midi;
+  var bestDist = 99, bestMidi = midi;
+  for (var d = 1; d <= 2; d++) {
+    var up = ((pc + d) % 12 + 12) % 12;
+    var dn = ((pc - d) % 12 + 12) % 12;
+    if (inKey.indexOf(up) >= 0 && d < bestDist) { bestDist = d; bestMidi = midi + d; }
+    if (inKey.indexOf(dn) >= 0 && d < bestDist) { bestDist = d; bestMidi = midi - d; }
+  }
+  return bestMidi;
+}
+
+function _prKeyLockToggle() {
+  _prKeyLock = !_prKeyLock;
+  document.querySelectorAll('.pr-keylock-btn').forEach(function(btn) {
+    btn.classList.toggle('active', _prKeyLock);
+  });
+  if (typeof showToast === 'function') showToast(_prKeyLock ? 'Key Lock ON — pencil snaps to scale' : 'Key Lock OFF — free draw', 'info', 1800);
+}
+window._prKeyLockToggle = _prKeyLockToggle;
+
 function mprInit() {
   var slot = document.getElementById('mprPrSlot');
   var panel = document.getElementById('prPanel');
@@ -43525,6 +43532,7 @@ function _mprAttachPianoHandlers() {
     var minMidi = (typeof window.prGetMinMidi === 'function') ? window.prGetMinMidi() : 36;
     var maxMidi = (typeof window.prGetMaxMidi === 'function') ? window.prGetMaxMidi() : 84;
     if (midi < minMidi || midi > maxMidi) return;
+    if (typeof _prKeyLockSnap === 'function') midi = _prKeyLockSnap(midi);
     // Visual feedback: flash the tapped key row
     var keyRows = keys.querySelectorAll('.pr-key-row');
     if (keyRows[row]) {
@@ -43872,6 +43880,7 @@ function _mcoPillTouchStart(e) {
   var moved = false;
   var chord = pill.dataset.chord;
   var degree = parseInt(pill.dataset.degree || '-1');
+  _mcoDragLastTouch = null;
 
   function onMove(ev) {
     var t = ev.touches[0];
@@ -43897,6 +43906,10 @@ function _mcoPillTouchStart(e) {
     ev.preventDefault();
     _mcoDragGhost.style.left = (t.clientX - 30) + 'px';
     _mcoDragGhost.style.top = (t.clientY - 20) + 'px';
+    // v1.212: update ghost note previews on PR grid
+    _mcoDragLastTouch = { x: t.clientX, y: t.clientY };
+    var scrollEl = document.getElementById('prGridScroll');
+    if (scrollEl) _mcoGhostsUpdate(chord, degree, scrollEl);
   }
 
   function onEnd(ev) {
@@ -43904,6 +43917,9 @@ function _mcoPillTouchStart(e) {
     document.removeEventListener('touchend', onEnd);
     document.removeEventListener('touchcancel', onEnd);
     pill.style.opacity = '';
+    _mcoDragLastTouch = null;
+    // v1.212: remove ghost previews
+    _mcoGhostsClear();
     // v1.211: restore overlay
     if (_mcoOverlay) {
       _mcoOverlay.style.transition = 'opacity 0.2s';
@@ -43966,6 +43982,64 @@ function _mcoDropOnPR(chordName, degree, localX, localY) {
   if (typeof window.prRenderNotes === 'function') window.prRenderNotes();
   if (typeof window.prPalPreview === 'function') window.prPalPreview(chordName);
 }
+
+var _mcoGhostNotes = []; // v1.212: preview note elements on PR grid
+
+function _mcoGhostsClear() {
+  _mcoGhostNotes.forEach(function(el) { if (el.parentNode) el.parentNode.removeChild(el); });
+  _mcoGhostNotes = [];
+}
+
+function _mcoGhostsUpdate(chord, degree, scrollEl) {
+  _mcoGhostsClear();
+  var notesLayer = document.getElementById('prNotesLayer');
+  if (!notesLayer || !scrollEl) return;
+  var rect = scrollEl.getBoundingClientRect();
+  var lastTouch = _mcoDragLastTouch;
+  if (!lastTouch) return;
+  // Check if finger is over the PR grid
+  if (lastTouch.x < rect.left || lastTouch.x > rect.right || lastTouch.y < rect.top || lastTouch.y > rect.bottom) return;
+  var localX = lastTouch.x - rect.left + scrollEl.scrollLeft - 44;
+  var localY = lastTouch.y - rect.top + scrollEl.scrollTop;
+  var colW = (typeof window.prGetColW === 'function') ? window.prGetColW() : 28;
+  var rowH = (typeof window.prGetRowH === 'function') ? window.prGetRowH() : 22;
+  var maxMidi = (typeof window.prGetMaxMidi === 'function') ? window.prGetMaxMidi() : 84;
+  var col = (typeof window.prXToColSnap === 'function') ? window.prXToColSnap(localX) : Math.round(localX / colW);
+  var durCols = (typeof window.prDurToCols === 'function') ? window.prDurToCols() : 4;
+  // Resolve chord MIDI
+  var key = 'C', mode = 'major';
+  try { key = seqCurrentKey() || 'C'; } catch(e){}
+  try { mode = seqCurrentMode() || 'major'; } catch(e){}
+  var midiMap = (typeof seqGenChordMidi === 'function') ? seqGenChordMidi(key, mode) : {};
+  var midiNotes = midiMap[chord] || ((typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(chord) : null);
+  if (!midiNotes || !midiNotes.length) return;
+  midiNotes = midiNotes.slice().sort(function(a, b) { return a - b; });
+  // Shift chord root to drop row
+  var dropRow = Math.floor(localY / rowH);
+  var dropMidi = maxMidi - dropRow;
+  var shift = dropMidi - midiNotes[0];
+  var degColors = [
+    'rgba(80,30,140,0.45)', 'rgba(90,35,155,0.45)', 'rgba(100,40,170,0.45)',
+    'rgba(110,45,180,0.45)', 'rgba(120,50,190,0.45)', 'rgba(130,55,200,0.45)',
+    'rgba(140,60,210,0.45)', 'rgba(150,65,220,0.45)'
+  ];
+  var bg = (degree >= 0 && degColors[degree]) ? degColors[degree] : 'rgba(192,132,252,0.35)';
+  midiNotes.forEach(function(m) {
+    var midi = m + shift;
+    var noteRow = maxMidi - midi;
+    var el = document.createElement('div');
+    el.style.cssText = 'position:absolute;pointer-events:none;border-radius:3px;border:1.5px dashed rgba(192,132,252,0.7);box-sizing:border-box;z-index:6;transition:left 0.06s,top 0.06s;';
+    el.style.background = bg;
+    el.style.left = (col * colW) + 'px';
+    el.style.top = (noteRow * rowH) + 'px';
+    el.style.width = (durCols * colW) + 'px';
+    el.style.height = rowH + 'px';
+    notesLayer.appendChild(el);
+    _mcoGhostNotes.push(el);
+  });
+}
+
+var _mcoDragLastTouch = null;
 
 function _mcoToggle() {
   if (!_mcoOverlay) return;
@@ -63963,6 +64037,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       <button class="pr-tool-btn active" id="prToolPointer" onclick="prSetTool('pointer')" title="Select / Move">▸ Pointer</button>
       <button class="pr-tool-btn" id="prToolPencil" onclick="prSetTool('pencil')" title="Draw Notes">✎ Pencil</button>
       <button class="pr-tool-btn" id="prToolEraser" onclick="prSetTool('eraser')" title="Erase Notes">✕ Eraser</button>
+      <button class="pr-tool-btn pr-keylock-btn active" onclick="_prKeyLockToggle()" title="Key Lock — When ON, the pencil tool snaps notes to the current key/scale so everything you draw stays in key. Turn OFF for chromatic free draw.">🔒 Key Lock</button>
       <button class="pr-tool-btn" id="prZoomFitBtn" onclick="prZoomToNotes()" title="Centre view on notes">⊕ Centre</button>
       <span style="flex:1"></span>
       <button class="pr-tool-btn" onclick="prRandomizeVelocity()" title="Randomize velocities (selected or all)">🎲 Vel</button>
@@ -64022,7 +64097,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <div class="pr-canvas-layer" id="prCanvasLayer">
               <canvas id="prGridCanvas"></canvas>
             </div>
-            <div id="prNotesLayer" style="position:absolute;top:0;left:44px;right:0;bottom:0;z-index:3;"></div>
+            <div id="prNotesLayer" style="position:absolute;top:0;left:44px;right:0;bottom:0;z-index:3;touch-action:none;"></div>
             <div class="pr-select-rect" id="prSelectRect"></div>
             <div class="pr-playhead" id="prPlayhead"></div>
             <div class="pr-drop-indicator" id="prDropIndicator"></div>
@@ -65600,8 +65675,10 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       e.preventDefault();
       const y = e.clientY - rect.top;
       const row = Math.floor(y / PR_ROW_H);
-      const midi = rowToMidi(row);
+      var midi = rowToMidi(row);
       if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
+      // v1.215: Key Lock — snap to scale
+      if (typeof _prKeyLockSnap === 'function') midi = _prKeyLockSnap(midi);
 
       const assignedSeqIdx = _prAutoCreateSectionIfNeeded(col);
       if (assignedSeqIdx === -1) return;
@@ -65942,7 +66019,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
           if (semiDelta === 0) return;
           // Only update once per chord group (check if this is the first note in group)
           const siblings = prNotes.filter(sn => sn.chordName === n.chordName && sn.startCol === n.startCol && !sn.isPencil && prMultiSelected.has(sn.id));
-          if (siblings[0].id !== n.id) return; // skip — first sibling handles it
+          if (!siblings.length || siblings[0].id !== n.id) return;
           const oldName = n.chordName;
           let oldRoot, qual;
           if (oldName.length >= 2 && oldName[1] === '#') { oldRoot = oldName.slice(0, 2); qual = oldName.slice(2); }
