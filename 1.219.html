@@ -15820,6 +15820,64 @@ body.split-4track-active .ft-overlay { display: none !important; }
 }
 .pr-close-btn:hover { color: var(--text, #eee); }
 
+/* ══════════════════════════════════════════════════════════
+   v1.219: Notation View
+   ══════════════════════════════════════════════════════════ */
+.notation-toggle-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700;
+  padding: 3px 10px; border-radius: 5px; cursor: pointer; letter-spacing: 0.06em;
+  background: transparent; border: 1.5px solid #c8a0ff; color: #c8a0ff;
+  transition: background 0.15s, color 0.15s;
+}
+.notation-toggle-btn:hover { background: rgba(200,160,255,0.12); }
+.notation-toggle-btn.active { background: #c8a0ff; color: #0d0e13; }
+
+.notation-container {
+  display: none; flex: 1; flex-direction: column; overflow: auto;
+  background: #fefefe; min-height: 0; position: relative;
+}
+.notation-container.active { display: flex; }
+
+.notation-toolbar {
+  display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+  background: #f5f5f5; border-bottom: 1px solid #ddd; flex-shrink: 0;
+}
+.notation-toolbar .nt-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600;
+  padding: 4px 10px; border-radius: 4px; cursor: pointer;
+  background: #fff; border: 1.5px solid #999; color: #333;
+  transition: background 0.12s, border-color 0.12s;
+}
+.notation-toolbar .nt-btn:hover { border-color: #666; background: #eee; }
+.notation-toolbar .nt-btn.active { background: #333; color: #fff; border-color: #333; }
+.notation-toolbar .nt-dur-btn { min-width: 36px; text-align: center; font-size: 14px; }
+.notation-toolbar .nt-dur-btn.active { background: #c8a0ff; color: #0d0e13; border-color: #c8a0ff; }
+.notation-toolbar .nt-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: #888;
+}
+.notation-toolbar .nt-separator { width: 1px; height: 20px; background: #ccc; flex-shrink: 0; }
+
+.notation-scroll {
+  flex: 1; overflow: auto; padding: 20px 30px; min-height: 0;
+}
+.notation-svg-wrap { min-width: 100%; }
+
+/* Print styles for notation */
+@media print {
+  body * { display: none !important; }
+  .notation-container, .notation-container * { display: block !important; }
+  .notation-container { position: fixed !important; top: 0; left: 0; right: 0; bottom: 0;
+    background: #fff !important; z-index: 999999 !important; overflow: visible !important; }
+  .notation-toolbar { display: none !important; }
+  .notation-scroll { padding: 10mm !important; overflow: visible !important; }
+  .notation-svg-wrap svg { width: 100% !important; }
+}
+
+/* ══════════════════════════════════════════════════════════
+   END v1.219: Notation View
+   ══════════════════════════════════════════════════════════ */
+
 /* ── Quick Chords / Piano Roll toggle button ── */
 .qc-toggle-btn {
   font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 700;
@@ -42292,19 +42350,14 @@ function renderKeyboardDrawerHtml(song) {
           <span id="melodyInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
           <button title="Toggle melody quantization on or off" class="melody-quant-btn${melodyQuantize ? ' active' : ''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()">Quantize</button>
         </div>
-        <!-- Row 2: PR Drawing tools (no grid dropdown) -->
+        <!-- Row 2: Note duration selector -->
         <div class="kbd-stage-toolbar-row" style="border-top:1px solid rgba(255,255,255,0.06);">
-          <button class="qc-toggle-btn" id="qcToggleBtnStage" onclick="qcToggleView()" title="Toggle Quick Chords floating palette" style="font-size:10px;padding:3px 10px;">Quick Chords</button>
-          <span style="width:1px;height:20px;background:var(--border2,#333);flex-shrink:0;"></span>
-          <button class="seq-btn" id="prToolPointerStage" onclick="prSetTool('pointer')" title="Select / Move" style="font-size:10px;padding:3px 10px;">▸ Pointer</button>
-          <button class="seq-btn" id="prToolPencilStage" onclick="prSetTool('pencil')" title="Draw Notes" style="font-size:10px;padding:3px 10px;">✎ Pencil</button>
-          <button class="seq-btn" id="prToolEraserStage" onclick="prSetTool('eraser')" title="Erase Notes" style="font-size:10px;padding:3px 10px;">✕ Eraser</button>
-          <button class="seq-btn pr-keylock-btn active" onclick="_prKeyLockToggle()" title="Key Lock" style="font-size:10px;padding:3px 10px;">🔒 Key Lock</button>
-          <button class="seq-btn" id="prZoomFitBtnStage" onclick="prZoomToNotes()" title="Centre view on notes" style="font-size:10px;padding:3px 10px;">⊕ Centre</button>
-          <span style="flex:1"></span>
-          <button class="seq-btn" onclick="if(typeof prRandomizeVelocity==='function')prRandomizeVelocity()" title="Randomize velocities (selected or all)" style="font-size:10px;padding:3px 10px;">🎲 Randomize Velocity</button>
-          <button class="seq-btn" onclick="seqDupPattern()" title="Duplicate pattern" style="font-size:10px;padding:3px 10px;border-color:var(--gold,#f5a623);color:var(--gold,#f5a623);">+Dup</button>
-          <button class="seq-btn" onclick="seqClearAllChordSlots()" title="Clear all" style="font-size:10px;padding:3px 10px;color:#ff5f5f;">Clear ×</button>
+          <span class="seq-label" style="font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint);">Note Length</span>
+          <button class="seq-btn" id="durBtnWhole" onclick="kbdNoteDurationChanged(1)" title="Whole note" style="font-size:13px;padding:3px 10px;">𝅝</button>
+          <button class="seq-btn" id="durBtnHalf" onclick="kbdNoteDurationChanged(0.5)" title="Half note" style="font-size:13px;padding:3px 10px;">𝅗𝅥</button>
+          <button class="seq-btn active" id="durBtnQuarter" onclick="kbdNoteDurationChanged(0.25)" title="Quarter note" style="font-size:13px;padding:3px 10px;">♩</button>
+          <button class="seq-btn" id="durBtnEighth" onclick="kbdNoteDurationChanged(0.125)" title="Eighth note" style="font-size:13px;padding:3px 10px;">♪</button>
+          <button class="seq-btn" id="durBtnSixteenth" onclick="kbdNoteDurationChanged(0.0625)" title="Sixteenth note" style="font-size:13px;padding:3px 10px;">𝅘𝅥𝅯</button>
         </div>
       </div>
       <!-- Hidden: keep kbdDskSettingsExtra for JS references -->
@@ -42630,6 +42683,12 @@ function kbdNoteDurationChanged(val) {
   if (deskDur) deskDur.value = sv;
   const mobDur = document.getElementById('kbdPortNoteDur');
   if (mobDur) mobDur.value = sv;
+  // Sync row-2 duration buttons
+  var durMap = {'1':'durBtnWhole','0.5':'durBtnHalf','0.25':'durBtnQuarter','0.125':'durBtnEighth','0.0625':'durBtnSixteenth'};
+  Object.keys(durMap).forEach(function(k) {
+    var b = document.getElementById(durMap[k]);
+    if (b) b.classList.toggle('active', k === sv);
+  });
 }
 
 /* ═══ INLINE SEQUENCE TOGGLE ═══ */
@@ -64313,11 +64372,14 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     <div class="pr-header">
       <span class="pr-title" id="prTitleLabel">Piano Roll</span>
       <button class="qc-toggle-btn" id="qcToggleBtn" onclick="qcToggleView()" title="Toggle Quick Chords floating palette">Quick Chords</button>
+      <button class="notation-toggle-btn" id="notationToggleBtn" onclick="notationToggle()" title="Toggle notation / staff view">♩ Notation</button>
       <button class="pr-tool-btn active" id="prToolPointer" onclick="prSetTool('pointer')" title="Select / Move">▸ Pointer</button>
       <button class="pr-tool-btn" id="prToolPencil" onclick="prSetTool('pencil')" title="Draw Notes">✎ Pencil</button>
       <button class="pr-tool-btn" id="prToolEraser" onclick="prSetTool('eraser')" title="Erase Notes">✕ Eraser</button>
       <button class="pr-tool-btn pr-keylock-btn active" onclick="_prKeyLockToggle()" title="Key Lock — When ON, the pencil tool snaps notes to the current key/scale so everything you draw stays in key. Turn OFF for chromatic free draw.">🔒 Key Lock</button>
       <button class="pr-tool-btn" id="prZoomFitBtn" onclick="prZoomToNotes()" title="Centre view on notes">⊕ Centre</button>
+      <button class="pr-tool-btn" onclick="seqDupPattern()" title="Duplicate pattern" style="border-color:var(--gold,#f5a623);color:var(--gold,#f5a623);">+Dup</button>
+      <button class="pr-tool-btn" onclick="seqClearAllChordSlots()" title="Clear all" style="color:#ff5f5f;">Clear ×</button>
       <span style="flex:1"></span>
       <button class="pr-tool-btn" onclick="prRandomizeVelocity()" title="Randomize velocities (selected or all)">🎲 Randomize Velocity</button>
       <button class="pr-tool-btn" id="prQFlamBtn" onclick="prToggleQFlam()" title="Q-Flam: toggle enable/disable — when ON, dropdown selection applies flam" style="transition:background 0.15s,color 0.15s;">Q-Flam</button>
@@ -64349,6 +64411,27 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       <button class="pr-close-btn" onclick="prClose()" title="Close">✕</button>
     </div>
     <div class="pr-body" style="position:relative;">
+      <!-- Notation / Staff view (hidden by default) -->
+      <div class="notation-container" id="notationContainer">
+        <div class="notation-toolbar" id="notationToolbar">
+          <span class="nt-label">Duration:</span>
+          <button class="nt-btn nt-dur-btn" data-dur="whole" onclick="ntSetDuration('whole')" title="Whole note">𝅝</button>
+          <button class="nt-btn nt-dur-btn" data-dur="half" onclick="ntSetDuration('half')" title="Half note">𝅗𝅥</button>
+          <button class="nt-btn nt-dur-btn active" data-dur="quarter" onclick="ntSetDuration('quarter')" title="Quarter note">♩</button>
+          <button class="nt-btn nt-dur-btn" data-dur="eighth" onclick="ntSetDuration('eighth')" title="Eighth note">♪</button>
+          <button class="nt-btn nt-dur-btn" data-dur="sixteenth" onclick="ntSetDuration('sixteenth')" title="Sixteenth note">𝅘𝅥𝅯</button>
+          <div class="nt-separator"></div>
+          <button class="nt-btn active" id="ntToolPointer" onclick="ntSetTool('pointer')" title="Select / Move">▸ Pointer</button>
+          <button class="nt-btn" id="ntToolPencil" onclick="ntSetTool('pencil')" title="Add notes">✎ Pencil</button>
+          <button class="nt-btn" id="ntToolEraser" onclick="ntSetTool('eraser')" title="Delete notes">✕ Eraser</button>
+          <div class="nt-separator"></div>
+          <button class="nt-btn" id="ntPrintBtn" onclick="ntPrint()" title="Print notation">🖨 Print</button>
+          <button class="nt-btn" id="ntSaveBtn" onclick="ntSavePDF()" title="Save as PDF">💾 Save PDF</button>
+        </div>
+        <div class="notation-scroll" id="notationScroll">
+          <svg id="notationSVG" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+      </div>
       <!-- Floating Quick Chords palette -->
       <div class="qc-container qc-hidden" id="qcContainer">
         <div class="qc-float-header" id="qcFloatHeader">
@@ -67773,6 +67856,702 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
 })();
 /* @lock:end — Piano Roll */
+
+/* ════════════════════════════════════════════════════════════════════
+   NOTATION / STAFF VIEW — v1.219
+   ════════════════════════════════════════════════════════════════════ */
+(function() {
+  'use strict';
+
+  /* ── constants ─────────────────────────────────────────────────── */
+  var STAFF_LINE_GAP = 10;
+  var STAFF_TOP_MARGIN = 80;
+  var STAFF_LEFT_MARGIN = 80;
+  var NOTE_HEAD_RX = 6;
+  var NOTE_HEAD_RY = 4.5;
+  var STEM_LENGTH = 35;
+  var SYSTEM_GAP = 140;
+  var BEATS_PER_SYSTEM = 0; // computed per render
+  var COL_WIDTH = 20; // pixels per subdivision column
+
+  var RAINBOW = [
+    '#e53e3e','#ed8936','#ecc94b','#48bb78','#4fd1c5','#4299e1','#9f7aea'
+  ];
+
+  var SEQ_NOTES_LOCAL = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  var SCALES_LOCAL = {
+    major: [0,2,4,5,7,9,11],
+    minor: [0,2,3,5,7,8,10]
+  };
+
+  var ENHARMONIC_DISPLAY = {
+    'C#':'Db','D#':'Eb','F#':'Gb','G#':'Ab','A#':'Bb'
+  };
+
+  var DUR_MAP = {
+    whole: 16, half: 8, quarter: 4, eighth: 2, sixteenth: 1
+  };
+  var DUR_NAMES = ['whole','half','quarter','eighth','sixteenth'];
+
+  /* ── state ──────────────────────────────────────────────────────── */
+  var _ntActive = false;
+  var _ntTool = 'pointer';
+  var _ntDuration = 'quarter';
+  var _ntDragNote = null;
+  var _ntDragStart = null;
+  var _ntHoverInfo = null;
+
+  /* ── SVG namespace helper ─────────────────────────────────────── */
+  var NS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs, parent) {
+    var el = document.createElementNS(NS, tag);
+    if (attrs) Object.keys(attrs).forEach(function(k) { el.setAttribute(k, attrs[k]); });
+    if (parent) parent.appendChild(el);
+    return el;
+  }
+
+  /* ── midi helpers ──────────────────────────────────────────────── */
+  function midiToNoteName(midi) {
+    var n = SEQ_NOTES_LOCAL[midi % 12];
+    var oct = Math.floor(midi / 12) - 1;
+    var display = ENHARMONIC_DISPLAY[n] || n;
+    return display + oct;
+  }
+
+  function midiToStaffPos(midi) {
+    var noteInOctave = midi % 12;
+    var octave = Math.floor(midi / 12) - 1;
+    var map = [0,0,1,1,2,3,3,4,4,5,5,6]; // C=0,D=1,E=2,F=3,G=4,A=5,B=6
+    var diatonicInOctave = map[noteInOctave];
+    return (octave * 7) + diatonicInOctave;
+  }
+
+  // Middle C (60) = C4 = ledger line below treble staff
+  // Treble: lines = F5(77),D5(74),B4(71),G4(67),E4(64)
+  // Bass:   lines = A3(57),F3(53),D3(50),B2(47),G2(43)
+  // Staff pos of B4 (bottom treble line pos=34), top treble line F5 pos=38
+  // We use: y = ref - (staffPos - refPos) * halfLineGap
+  var TREBLE_BOTTOM_LINE_POS = midiToStaffPos(64); // E4 = 30
+  var BASS_TOP_LINE_POS = midiToStaffPos(57); // A3 = 26
+
+  function noteYOnTreble(midi, staffTopY) {
+    var pos = midiToStaffPos(midi);
+    var bottomLineY = staffTopY + 4 * STAFF_LINE_GAP; // bottom treble line = E4
+    var halfGap = STAFF_LINE_GAP / 2;
+    return bottomLineY - (pos - TREBLE_BOTTOM_LINE_POS) * halfGap;
+  }
+
+  function noteYOnBass(midi, bassTopY) {
+    var pos = midiToStaffPos(midi);
+    var topLineY = bassTopY; // top bass line = A3
+    var halfGap = STAFF_LINE_GAP / 2;
+    return topLineY - (pos - BASS_TOP_LINE_POS) * halfGap;
+  }
+
+  function needsLedger(midi, staffTopY, isTreble) {
+    var lines = [];
+    if (isTreble) {
+      var bottomY = staffTopY + 4 * STAFF_LINE_GAP;
+      var pos = midiToStaffPos(midi);
+      var refPos = TREBLE_BOTTOM_LINE_POS; // E4
+      // ledger lines below: C4(60 pos=28), A3...
+      if (pos < refPos) {
+        for (var p = refPos - 2; p >= pos; p -= 2) {
+          lines.push(bottomY + (refPos - p) * (STAFF_LINE_GAP / 2));
+        }
+      }
+      // ledger lines above: A5...
+      var topPos = TREBLE_BOTTOM_LINE_POS + 8; // F5
+      if (pos > topPos) {
+        for (var p2 = topPos + 2; p2 <= pos; p2 += 2) {
+          lines.push(staffTopY - (p2 - topPos) * (STAFF_LINE_GAP / 2));
+        }
+      }
+    } else {
+      var topY = staffTopY;
+      var pos2 = midiToStaffPos(midi);
+      var refPos2 = BASS_TOP_LINE_POS; // A3
+      var botPos = refPos2 - 8; // G2
+      if (pos2 > refPos2) {
+        for (var p3 = refPos2 + 2; p3 <= pos2; p3 += 2) {
+          lines.push(topY - (p3 - refPos2) * (STAFF_LINE_GAP / 2));
+        }
+      }
+      if (pos2 < botPos) {
+        for (var p4 = botPos - 2; p4 >= pos2; p4 -= 2) {
+          lines.push(topY + 4 * STAFF_LINE_GAP + (botPos - p4) * (STAFF_LINE_GAP / 2));
+        }
+      }
+    }
+    return lines;
+  }
+
+  function isSharp(midi) {
+    return [1,3,6,8,10].indexOf(midi % 12) >= 0;
+  }
+
+  function getScaleDegree(midi) {
+    var key = (typeof seqCurrentKey === 'function') ? seqCurrentKey() : 'C';
+    var mode = (typeof seqCurrentMode === 'function') ? seqCurrentMode() : 'major';
+    var rootIdx = SEQ_NOTES_LOCAL.indexOf(key);
+    if (rootIdx < 0) rootIdx = 0;
+    var steps = SCALES_LOCAL[mode] || SCALES_LOCAL.major;
+    var rel = ((midi % 12) - rootIdx + 12) % 12;
+    var deg = steps.indexOf(rel);
+    return deg >= 0 ? deg : -1;
+  }
+
+  function noteColor(midi) {
+    var deg = getScaleDegree(midi);
+    return deg >= 0 ? RAINBOW[deg] : '#888';
+  }
+
+  /* ── duration visual helpers ──────────────────────────────────── */
+  function durColsToName(durCols) {
+    if (durCols >= 16) return 'whole';
+    if (durCols >= 8) return 'half';
+    if (durCols >= 4) return 'quarter';
+    if (durCols >= 2) return 'eighth';
+    return 'sixteenth';
+  }
+
+  function isFilled(durName) {
+    return durName === 'quarter' || durName === 'eighth' || durName === 'sixteenth';
+  }
+
+  function hasFlag(durName) {
+    return durName === 'eighth' || durName === 'sixteenth';
+  }
+
+  function flagCount(durName) {
+    if (durName === 'eighth') return 1;
+    if (durName === 'sixteenth') return 2;
+    return 0;
+  }
+
+  /* ── toggle ─────────────────────────────────────────────────────── */
+  window.notationToggle = function() {
+    _ntActive = !_ntActive;
+    var btn = document.getElementById('notationToggleBtn');
+    var container = document.getElementById('notationContainer');
+    var inner = document.getElementById('prBodyInner');
+    if (!btn || !container || !inner) return;
+    if (_ntActive) {
+      btn.classList.add('active');
+      container.classList.add('active');
+      inner.style.display = 'none';
+      ntRender();
+    } else {
+      btn.classList.remove('active');
+      container.classList.remove('active');
+      inner.style.display = '';
+    }
+  };
+
+  /* ── tool / duration setters ────────────────────────────────────── */
+  window.ntSetTool = function(tool) {
+    _ntTool = tool;
+    ['ntToolPointer','ntToolPencil','ntToolEraser'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.toggle('active', id === 'ntTool' + tool.charAt(0).toUpperCase() + tool.slice(1));
+    });
+    updateCursor();
+  };
+
+  window.ntSetDuration = function(dur) {
+    _ntDuration = dur;
+    var toolbar = document.getElementById('notationToolbar');
+    if (!toolbar) return;
+    toolbar.querySelectorAll('.nt-dur-btn').forEach(function(b) {
+      b.classList.toggle('active', b.getAttribute('data-dur') === dur);
+    });
+    updateCursor();
+  };
+
+  /* ── custom cursors ─────────────────────────────────────────────── */
+  var _cursorCache = {};
+  function buildCursorSVG(durName) {
+    var w = 24, h = 32;
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'">';
+    var fill = isFilled(durName) ? '#fff' : 'none';
+    var cx = 10, cy = 20;
+    // note head
+    svg += '<ellipse cx="'+cx+'" cy="'+cy+'" rx="5" ry="3.5" fill="'+fill+'" stroke="#fff" stroke-width="1.5" transform="rotate(-15,'+cx+','+cy+')"/>';
+    // stem
+    if (durName !== 'whole') {
+      svg += '<line x1="'+(cx+5)+'" y1="'+cy+'" x2="'+(cx+5)+'" y2="4" stroke="#fff" stroke-width="1.5"/>';
+    }
+    // flags
+    var fc = flagCount(durName);
+    for (var i = 0; i < fc; i++) {
+      var fy = 4 + i * 6;
+      svg += '<path d="M'+(cx+5)+','+fy+' Q'+(cx+12)+','+(fy+4)+' '+(cx+5)+','+(fy+8)+'" fill="none" stroke="#fff" stroke-width="1.5"/>';
+    }
+    svg += '</svg>';
+    return 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '") 10 20, crosshair';
+  }
+
+  function updateCursor() {
+    var scroll = document.getElementById('notationScroll');
+    if (!scroll) return;
+    if (_ntTool === 'pencil') {
+      if (!_cursorCache[_ntDuration]) _cursorCache[_ntDuration] = buildCursorSVG(_ntDuration);
+      scroll.style.cursor = _cursorCache[_ntDuration];
+    } else if (_ntTool === 'eraser') {
+      scroll.style.cursor = 'not-allowed';
+    } else {
+      scroll.style.cursor = 'default';
+    }
+  }
+
+  /* ── main render ────────────────────────────────────────────────── */
+  window.ntRender = function() {
+    if (!_ntActive) return;
+    var svg = document.getElementById('notationSVG');
+    if (!svg) return;
+    svg.innerHTML = '';
+
+    var notes = (typeof window.prGetNotes === 'function') ? window.prGetNotes() : [];
+    var snap = (typeof window.prGetSnap === 'function') ? window.prGetSnap() : 4;
+    var timeSig = (typeof window.prGetTimeSig === 'function') ? window.prGetTimeSig() : 4;
+    var bars = (typeof window.prGetBars === 'function') ? window.prGetBars() : 4;
+    var totalCols = (typeof window.prGetTotalCols === 'function') ? window.prGetTotalCols() : (bars * timeSig * snap);
+
+    var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    var title = (song && song.title) ? song.title : 'Untitled';
+    var bpm = (song && song.bpm) ? song.bpm : 120;
+    var keyLabel = (song && song.key) ? song.key : 'C major';
+
+    var beatsPerBar = timeSig;
+    var colsPerBeat = snap;
+    var colsPerBar = beatsPerBar * colsPerBeat;
+    var barsPerSystem = Math.max(2, Math.min(4, Math.floor(900 / (colsPerBar * COL_WIDTH))));
+    var systemCols = barsPerSystem * colsPerBar;
+    var systemWidth = systemCols * COL_WIDTH;
+    var numSystems = Math.ceil(bars / barsPerSystem);
+
+    var totalWidth = STAFF_LEFT_MARGIN + systemWidth + 60;
+    var grandStaffHeight = 4 * STAFF_LINE_GAP * 2 + 30; // treble + bass + gap
+    var totalHeight = STAFF_TOP_MARGIN + numSystems * (grandStaffHeight + SYSTEM_GAP) + 60;
+
+    svg.setAttribute('width', totalWidth);
+    svg.setAttribute('height', totalHeight);
+    svg.setAttribute('viewBox', '0 0 ' + totalWidth + ' ' + totalHeight);
+    svg.style.background = '#fff';
+
+    // Title, BPM, key, time sig
+    svgEl('text', {x: totalWidth/2, y: 30, 'text-anchor': 'middle', 'font-size': '18', 'font-weight': 'bold', 'font-family': 'Georgia, serif', fill: '#222'}, svg).textContent = title;
+    svgEl('text', {x: totalWidth/2, y: 48, 'text-anchor': 'middle', 'font-size': '11', fill: '#666', 'font-family': 'sans-serif'}, svg).textContent = keyLabel + '  ·  ♩ = ' + bpm;
+
+    // Sort notes by startCol for grouping
+    var sorted = notes.slice().sort(function(a,b) { return a.startCol - b.startCol || b.midi - a.midi; });
+
+    // Group notes by system
+    for (var sys = 0; sys < numSystems; sys++) {
+      var sysStartCol = sys * systemCols;
+      var sysEndCol = Math.min(sysStartCol + systemCols, totalCols);
+      var sysY = STAFF_TOP_MARGIN + sys * (grandStaffHeight + SYSTEM_GAP);
+
+      // Treble clef staff (5 lines)
+      var trebleTopY = sysY;
+      for (var ln = 0; ln < 5; ln++) {
+        var ly = trebleTopY + ln * STAFF_LINE_GAP;
+        svgEl('line', {x1: STAFF_LEFT_MARGIN, y1: ly, x2: STAFF_LEFT_MARGIN + systemWidth, y2: ly, stroke: '#333', 'stroke-width': '1'}, svg);
+      }
+
+      // Bass clef staff
+      var bassTopY = trebleTopY + 4 * STAFF_LINE_GAP + 30;
+      for (var ln2 = 0; ln2 < 5; ln2++) {
+        var ly2 = bassTopY + ln2 * STAFF_LINE_GAP;
+        svgEl('line', {x1: STAFF_LEFT_MARGIN, y1: ly2, x2: STAFF_LEFT_MARGIN + systemWidth, y2: ly2, stroke: '#333', 'stroke-width': '1'}, svg);
+      }
+
+      // Bar lines
+      for (var b = 0; b <= barsPerSystem; b++) {
+        if (sysStartCol + b * colsPerBar > totalCols) break;
+        var bx = STAFF_LEFT_MARGIN + b * colsPerBar * COL_WIDTH;
+        svgEl('line', {x1: bx, y1: trebleTopY, x2: bx, y2: bassTopY + 4 * STAFF_LINE_GAP, stroke: '#333', 'stroke-width': b === 0 ? '2' : '1'}, svg);
+      }
+
+      // Brace
+      var braceTop = trebleTopY;
+      var braceBot = bassTopY + 4 * STAFF_LINE_GAP;
+      var braceMid = (braceTop + braceBot) / 2;
+      svgEl('path', {
+        d: 'M'+(STAFF_LEFT_MARGIN-5)+','+braceTop+' Q'+(STAFF_LEFT_MARGIN-20)+','+braceMid+' '+(STAFF_LEFT_MARGIN-5)+','+braceBot,
+        fill: 'none', stroke: '#333', 'stroke-width': '2.5'
+      }, svg);
+
+      // Treble clef symbol
+      svgEl('text', {x: STAFF_LEFT_MARGIN + 8, y: trebleTopY + 32, 'font-size': '42', fill: '#333', 'font-family': 'serif'}, svg).textContent = '𝄞';
+
+      // Bass clef symbol
+      svgEl('text', {x: STAFF_LEFT_MARGIN + 8, y: bassTopY + 22, 'font-size': '30', fill: '#333', 'font-family': 'serif'}, svg).textContent = '𝄢';
+
+      // Time signature (first system only)
+      if (sys === 0) {
+        svgEl('text', {x: STAFF_LEFT_MARGIN + 38, y: trebleTopY + 17, 'font-size': '18', 'font-weight': 'bold', fill: '#333', 'font-family': 'serif'}, svg).textContent = beatsPerBar;
+        svgEl('text', {x: STAFF_LEFT_MARGIN + 38, y: trebleTopY + 35, 'font-size': '18', 'font-weight': 'bold', fill: '#333', 'font-family': 'serif'}, svg).textContent = '4';
+        svgEl('text', {x: STAFF_LEFT_MARGIN + 38, y: bassTopY + 17, 'font-size': '18', 'font-weight': 'bold', fill: '#333', 'font-family': 'serif'}, svg).textContent = beatsPerBar;
+        svgEl('text', {x: STAFF_LEFT_MARGIN + 38, y: bassTopY + 35, 'font-size': '18', 'font-weight': 'bold', fill: '#333', 'font-family': 'serif'}, svg).textContent = '4';
+      }
+
+      // Beat guides (light grey vertical lines on each beat)
+      for (var bt = 1; bt < systemCols / colsPerBeat; bt++) {
+        if (bt % beatsPerBar === 0) continue; // skip bar lines
+        var btx = STAFF_LEFT_MARGIN + bt * colsPerBeat * COL_WIDTH;
+        if (btx > STAFF_LEFT_MARGIN + systemWidth) break;
+        svgEl('line', {x1: btx, y1: trebleTopY, x2: btx, y2: bassTopY + 4 * STAFF_LINE_GAP, stroke: '#ddd', 'stroke-width': '0.5'}, svg);
+      }
+
+      // Render notes in this system
+      var noteAreaStart = STAFF_LEFT_MARGIN + (sys === 0 ? 55 : 30);
+      var noteAreaWidth = systemWidth - (sys === 0 ? 55 : 30);
+
+      for (var ni = 0; ni < sorted.length; ni++) {
+        var n = sorted[ni];
+        if (n.startCol < sysStartCol || n.startCol >= sysEndCol) continue;
+
+        var relCol = n.startCol - sysStartCol;
+        var nx = noteAreaStart + (relCol / systemCols) * noteAreaWidth;
+        var durName = durColsToName(n.durCols);
+        var color = noteColor(n.midi);
+        var isTreble = n.midi >= 60;
+        var ny;
+
+        if (isTreble) {
+          ny = noteYOnTreble(n.midi, trebleTopY);
+        } else {
+          ny = noteYOnBass(n.midi, bassTopY);
+        }
+
+        var g = svgEl('g', {
+          'class': 'nt-note',
+          'data-id': n.id,
+          'data-midi': n.midi,
+          'data-col': n.startCol,
+          'data-dur': n.durCols,
+          cursor: _ntTool === 'eraser' ? 'not-allowed' : (_ntTool === 'pointer' ? 'grab' : 'default')
+        }, svg);
+
+        // Ledger lines
+        var ledgers = needsLedger(n.midi, isTreble ? trebleTopY : bassTopY, isTreble);
+        ledgers.forEach(function(ly3) {
+          svgEl('line', {x1: nx - 10, y1: ly3, x2: nx + 10, y2: ly3, stroke: '#333', 'stroke-width': '1'}, g);
+        });
+
+        // Accidental
+        if (isSharp(n.midi)) {
+          svgEl('text', {x: nx - 14, y: ny + 4, 'font-size': '12', fill: color, 'font-family': 'serif'}, g).textContent = '♯';
+        }
+
+        // Note head
+        var filled = isFilled(durName);
+        svgEl('ellipse', {
+          cx: nx, cy: ny, rx: NOTE_HEAD_RX, ry: NOTE_HEAD_RY,
+          fill: filled ? color : 'none', stroke: color, 'stroke-width': '1.5',
+          transform: 'rotate(-15,' + nx + ',' + ny + ')'
+        }, g);
+
+        // Stem (not for whole notes)
+        if (durName !== 'whole') {
+          var stemUp = ny > (isTreble ? trebleTopY + 2 * STAFF_LINE_GAP : bassTopY + 2 * STAFF_LINE_GAP);
+          var sx = stemUp ? nx + NOTE_HEAD_RX - 1 : nx - NOTE_HEAD_RX + 1;
+          var sy1 = ny;
+          var sy2 = stemUp ? ny - STEM_LENGTH : ny + STEM_LENGTH;
+          svgEl('line', {x1: sx, y1: sy1, x2: sx, y2: sy2, stroke: color, 'stroke-width': '1.5'}, g);
+
+          // Flags
+          var fc2 = flagCount(durName);
+          for (var fi = 0; fi < fc2; fi++) {
+            var fy2, flagPath;
+            if (stemUp) {
+              fy2 = sy2 + fi * 7;
+              flagPath = 'M'+sx+','+fy2+' Q'+(sx+10)+','+(fy2+5)+' '+sx+','+(fy2+10);
+            } else {
+              fy2 = sy2 - fi * 7;
+              flagPath = 'M'+sx+','+fy2+' Q'+(sx+10)+','+(fy2-5)+' '+sx+','+(fy2-10);
+            }
+            svgEl('path', {d: flagPath, fill: 'none', stroke: color, 'stroke-width': '1.5'}, g);
+          }
+        }
+
+        // Note name above
+        svgEl('text', {
+          x: nx, y: ny - (durName === 'whole' ? 12 : (ny > (isTreble ? trebleTopY : bassTopY) + 2 * STAFF_LINE_GAP ? STEM_LENGTH + 8 : -8)),
+          'text-anchor': 'middle', 'font-size': '8', fill: color, 'font-family': 'sans-serif', 'font-weight': 'bold'
+        }, g).textContent = midiToNoteName(n.midi);
+
+        // Chord name (if note has chordName)
+        if (n.chordName) {
+          var chordY = isTreble ? trebleTopY - 18 : bassTopY - 18;
+          // Only show chord label on the first note of this chord at this position
+          var alreadyShown = svg.querySelector('[data-chord-col="'+n.startCol+'"]');
+          if (!alreadyShown) {
+            var ct = svgEl('text', {
+              x: nx, y: chordY,
+              'text-anchor': 'middle', 'font-size': '11', fill: '#c8a0ff',
+              'font-family': 'sans-serif', 'font-weight': 'bold',
+              'data-chord-col': n.startCol
+            }, svg);
+            ct.textContent = n.chordName;
+          }
+        }
+      }
+
+      // System number
+      var barNum = sys * barsPerSystem + 1;
+      svgEl('text', {x: STAFF_LEFT_MARGIN - 8, y: trebleTopY - 6, 'font-size': '9', fill: '#999', 'text-anchor': 'end', 'font-family': 'sans-serif'}, svg).textContent = barNum;
+    }
+
+    // End double bar line
+    var lastSys = numSystems - 1;
+    var lastSysY = STAFF_TOP_MARGIN + lastSys * (grandStaffHeight + SYSTEM_GAP);
+    var lastBassBot = lastSysY + 4 * STAFF_LINE_GAP + 30 + 4 * STAFF_LINE_GAP;
+    var lastBarsInSys = Math.min(barsPerSystem, bars - lastSys * barsPerSystem);
+    var endX = STAFF_LEFT_MARGIN + lastBarsInSys * colsPerBar * COL_WIDTH;
+    svgEl('line', {x1: endX - 3, y1: lastSysY, x2: endX - 3, y2: lastBassBot, stroke: '#333', 'stroke-width': '1'}, svg);
+    svgEl('line', {x1: endX, y1: lastSysY, x2: endX, y2: lastBassBot, stroke: '#333', 'stroke-width': '3'}, svg);
+
+    // Attach interaction handlers
+    _ntAttachHandlers(svg);
+  };
+
+  /* ── interaction handlers ──────────────────────────────────────── */
+  function _ntAttachHandlers(svg) {
+    svg.addEventListener('mousedown', function(e) {
+      var noteG = e.target.closest('.nt-note');
+      if (_ntTool === 'eraser' && noteG) {
+        var id = noteG.getAttribute('data-id');
+        if (id && typeof window.prDeleteNoteById === 'function') {
+          window.prDeleteNoteById(id);
+          ntRender();
+        }
+        return;
+      }
+      if (_ntTool === 'pointer' && noteG) {
+        _ntDragNote = {
+          id: noteG.getAttribute('data-id'),
+          origMidi: parseInt(noteG.getAttribute('data-midi')),
+          origCol: parseInt(noteG.getAttribute('data-col'))
+        };
+        _ntDragStart = {x: e.clientX, y: e.clientY};
+        e.preventDefault();
+        return;
+      }
+      if (_ntTool === 'pencil') {
+        _ntAddNoteAtClick(e);
+      }
+    });
+
+    svg.addEventListener('mousemove', function(e) {
+      if (!_ntDragNote || !_ntDragStart) return;
+      var dy = _ntDragStart.y - e.clientY;
+      var semitoneDelta = Math.round(dy / 5);
+      var newMidi = Math.max(21, Math.min(108, _ntDragNote.origMidi + semitoneDelta));
+      if (newMidi !== _ntDragNote.lastMidi) {
+        _ntDragNote.lastMidi = newMidi;
+      }
+    });
+
+    svg.addEventListener('mouseup', function(e) {
+      if (_ntDragNote && _ntDragStart) {
+        var dy = _ntDragStart.y - e.clientY;
+        var semitoneDelta = Math.round(dy / 5);
+        var newMidi = Math.max(21, Math.min(108, _ntDragNote.origMidi + semitoneDelta));
+        if (newMidi !== _ntDragNote.origMidi && typeof window.prUpdateNote === 'function') {
+          window.prUpdateNote(_ntDragNote.id, {midi: newMidi});
+          ntRender();
+        }
+      }
+      _ntDragNote = null;
+      _ntDragStart = null;
+    });
+  }
+
+  function _ntAddNoteAtClick(e) {
+    var svg = document.getElementById('notationSVG');
+    if (!svg) return;
+    var rect = svg.getBoundingClientRect();
+    var x = e.clientX - rect.left;
+    var y = e.clientY - rect.top;
+
+    var snap = (typeof window.prGetSnap === 'function') ? window.prGetSnap() : 4;
+    var timeSig = (typeof window.prGetTimeSig === 'function') ? window.prGetTimeSig() : 4;
+    var bars = (typeof window.prGetBars === 'function') ? window.prGetBars() : 4;
+    var totalCols = bars * timeSig * snap;
+    var colsPerBar = timeSig * snap;
+    var barsPerSystem = Math.max(2, Math.min(4, Math.floor(900 / (colsPerBar * COL_WIDTH))));
+    var systemCols = barsPerSystem * colsPerBar;
+    var systemWidth = systemCols * COL_WIDTH;
+    var grandStaffHeight = 4 * STAFF_LINE_GAP * 2 + 30;
+    var numSystems = Math.ceil(bars / barsPerSystem);
+
+    // Find which system
+    var sys = -1;
+    for (var s = 0; s < numSystems; s++) {
+      var sysY = STAFF_TOP_MARGIN + s * (grandStaffHeight + SYSTEM_GAP);
+      var sysBot = sysY + grandStaffHeight + 20;
+      if (y >= sysY - 20 && y < sysBot) { sys = s; break; }
+    }
+    if (sys < 0) return;
+
+    var sysY2 = STAFF_TOP_MARGIN + sys * (grandStaffHeight + SYSTEM_GAP);
+    var trebleTopY = sysY2;
+    var bassTopY = trebleTopY + 4 * STAFF_LINE_GAP + 30;
+    var noteAreaStart = STAFF_LEFT_MARGIN + (sys === 0 ? 55 : 30);
+    var noteAreaWidth = systemWidth - (sys === 0 ? 55 : 30);
+
+    // Determine column from x
+    var relX = x - noteAreaStart;
+    if (relX < 0) return;
+    var fracCol = (relX / noteAreaWidth) * systemCols;
+    var col = Math.round(fracCol);
+    col = Math.max(0, Math.min(systemCols - 1, col));
+    var absCol = sys * systemCols + col;
+    if (absCol >= totalCols) return;
+
+    // Determine midi from y
+    var halfGap = STAFF_LINE_GAP / 2;
+    var isTreble = y < bassTopY - 10;
+    var midi;
+    if (isTreble) {
+      var bottomLineY = trebleTopY + 4 * STAFF_LINE_GAP;
+      var posFromBottom = Math.round((bottomLineY - y) / halfGap);
+      var staffPos = TREBLE_BOTTOM_LINE_POS + posFromBottom;
+      midi = staffPosToMidi(staffPos);
+    } else {
+      var topLineY2 = bassTopY;
+      var posFromTop = Math.round((topLineY2 - y) / halfGap);
+      var staffPos2 = BASS_TOP_LINE_POS + posFromTop;
+      midi = staffPosToMidi(staffPos2);
+    }
+    if (midi < 21 || midi > 108) return;
+
+    // Add note via PR
+    var durCols = DUR_MAP[_ntDuration] || 4;
+    if (typeof window.prPushNote === 'function' && typeof window.prGetNextId === 'function') {
+      var newNote = {
+        id: window.prGetNextId(),
+        midi: midi,
+        startCol: absCol,
+        durCols: durCols,
+        vel: 100,
+        isPencil: true
+      };
+      window.prPushNote(newNote);
+      ntRender();
+    }
+  }
+
+  function staffPosToMidi(pos) {
+    // pos: 0=C0, 7=C1, 14=C2... each step is a diatonic step
+    var octave = Math.floor(pos / 7);
+    var deg = pos % 7;
+    if (deg < 0) { deg += 7; octave--; }
+    var diatonicToSemi = [0,2,4,5,7,9,11]; // C D E F G A B
+    var midi = (octave + 1) * 12 + diatonicToSemi[deg];
+    return midi;
+  }
+
+  /* ── compose mode integration ──────────────────────────────────── */
+  // When PR re-renders (compose mode places notes), re-render notation
+  var _origPrRenderNotes = window.prRenderNotes;
+  if (typeof _origPrRenderNotes === 'function') {
+    window.prRenderNotes = function() {
+      _origPrRenderNotes.apply(this, arguments);
+      if (_ntActive) {
+        clearTimeout(window._ntRenderDebounce);
+        window._ntRenderDebounce = setTimeout(ntRender, 80);
+      }
+    };
+  }
+
+  /* ── chord pill drag ─────────────────────────────────────────────── */
+  // Allow chord pills from the Quick Chords palette to be dragged onto the notation
+  var scrollEl = document.getElementById('notationScroll');
+  if (scrollEl) {
+    scrollEl.addEventListener('dragover', function(e) {
+      if (!_ntActive) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    scrollEl.addEventListener('drop', function(e) {
+      if (!_ntActive) return;
+      e.preventDefault();
+      var chordData = e.dataTransfer.getData('text/plain');
+      if (!chordData) return;
+      // Place chord at the drop position — simulate adding chord notes
+      // For now, use the existing compose mode chord placement
+      if (typeof _ckPlaceChordAtBeat === 'function') {
+        var svg = document.getElementById('notationSVG');
+        if (!svg) return;
+        var rect = svg.getBoundingClientRect();
+        var x = e.clientX - rect.left;
+        var snap = (typeof window.prGetSnap === 'function') ? window.prGetSnap() : 4;
+        var timeSig = (typeof window.prGetTimeSig === 'function') ? window.prGetTimeSig() : 4;
+        var bars = (typeof window.prGetBars === 'function') ? window.prGetBars() : 4;
+        var colsPerBar = timeSig * snap;
+        var barsPerSystem = Math.max(2, Math.min(4, Math.floor(900 / (colsPerBar * COL_WIDTH))));
+        var systemWidth = barsPerSystem * colsPerBar * COL_WIDTH;
+        var relX = x - STAFF_LEFT_MARGIN - 55;
+        if (relX < 0) relX = 0;
+        var beat = Math.floor((relX / systemWidth) * barsPerSystem * timeSig);
+        _ckPlaceChordAtBeat(chordData, beat);
+        setTimeout(ntRender, 100);
+      }
+    });
+  }
+
+  /* ── print ──────────────────────────────────────────────────────── */
+  window.ntPrint = function() {
+    if (!_ntActive) return;
+    window.print();
+  };
+
+  /* ── save as PDF ────────────────────────────────────────────────── */
+  window.ntSavePDF = function() {
+    if (!_ntActive) return;
+    var svg = document.getElementById('notationSVG');
+    if (!svg) return;
+    var svgData = new XMLSerializer().serializeToString(svg);
+    var canvas = document.createElement('canvas');
+    var w = parseInt(svg.getAttribute('width')) || 1000;
+    var h = parseInt(svg.getAttribute('height')) || 800;
+    canvas.width = w * 2;
+    canvas.height = h * 2;
+    var ctx = canvas.getContext('2d');
+    ctx.scale(2, 2);
+    var img = new Image();
+    img.onload = function() {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(function(blob) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+        var title = (song && song.title) ? song.title.replace(/[^a-zA-Z0-9]/g, '_') : 'notation';
+        a.download = title + '_notation.png';
+        a.click();
+        URL.revokeObjectURL(a.href);
+        if (typeof showToast === 'function') showToast('Notation saved as image');
+      }, 'image/png');
+    };
+    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+  };
+
+  /* ── re-render on PR changes ────────────────────────────────────── */
+  // Hook into prLoadFromGrid to auto-refresh notation
+  var _origPrLoad = window.prLoadFromGrid;
+  if (typeof _origPrLoad === 'function') {
+    window.prLoadFromGrid = function() {
+      _origPrLoad.apply(this, arguments);
+      if (_ntActive) setTimeout(ntRender, 100);
+    };
+  }
+
+})();
 
 /* ════════════════════════════════════════════════════════════════════
    QUICK CHORDS — FLOATING PALETTE
