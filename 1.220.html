@@ -16904,8 +16904,8 @@ setTimeout(function() {
     <!-- Logo + New Idea + Roll — grouped for idle-dim effect -->
     <div id="headerDimGroup" style="display:flex;align-items:center;gap:10px;">
     <div style="display:flex;flex-direction:column;gap:1px;cursor:pointer;" onclick="showList()" title="Back to drafts">
-      <span class="header-logo">Drafthaus<span class="header-version">v1.219</span></span>
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.219</span>
+      <span class="header-logo">Drafthaus<span class="header-version">v1.220</span></span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.220</span>
     </div>
     <!-- New Idea + Roll (moved from center; hidden on mobile by CSS class rules) -->
     <button title="Create a new blank song draft. Start fresh with an empty canvas for your next idea." class="hla-newdraft-btn" onclick="newSong()"
@@ -37849,11 +37849,23 @@ async function _bootFastRestore(songId) {
     renderGrid();
     setSyncStatus('saved', 'Loaded ✓');
 
-    // Boot to song list only — no song loaded until user clicks Load
-    if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
-    document.body.classList.add('songlist-active');
-    _uiDismissLoadingScreen();
     _bootFastRestored = true;
+
+    // ── Restore last active state behind loading screen ──
+    var _ls = window._lastStateFromFirestore || {};
+    var _lastView = _ls.lastView;
+    if (_lastView === 'detail' && s) {
+      // User was working on a song — restore full state (loading screen stays up)
+      console.log('[BOOT-FAST] Restoring last active state for song:', s.id);
+      _songCurrentId = s.id;
+      localStorage.setItem('drafthaus-last-song', s.id);
+      _uiRestoreFromState(s.uiState, s);
+    } else {
+      // Last view was song list or no state — show list as before
+      if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
+      document.body.classList.add('songlist-active');
+      _uiDismissLoadingScreen();
+    }
 
     // ── Background verify against Firestore ──
     _bootBackgroundVerify(songId, _cached.ts);
@@ -37881,12 +37893,21 @@ async function _bootFastRestore(songId) {
     renderGrid();
     setSyncStatus('saved', 'Loaded ✓');
 
-    // Boot to song list only — no song loaded until user clicks Load
-    if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
-    document.body.classList.add('songlist-active');
-    _uiDismissLoadingScreen();
-
     _bootFastRestored = true;
+
+    // ── Restore last active state behind loading screen ──
+    var _ls2 = window._lastStateFromFirestore || {};
+    var _lastView2 = _ls2.lastView;
+    if (_lastView2 === 'detail' && s) {
+      console.log('[BOOT-FAST] Restoring last active state for song:', s.id);
+      _songCurrentId = s.id;
+      localStorage.setItem('drafthaus-last-song', s.id);
+      _uiRestoreFromState(s.uiState, s);
+    } else {
+      if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
+      document.body.classList.add('songlist-active');
+      _uiDismissLoadingScreen();
+    }
 
     // ── Background-load all songs so song list is populated ──
     setTimeout(function() {
