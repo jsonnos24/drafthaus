@@ -64739,6 +64739,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     if (notesLayer) {
       notesLayer.style.cursor = tool === 'pencil' ? 'crosshair' : tool === 'eraser' ? 'not-allowed' : 'default';
     }
+    // Sync notation cursor
+    if (typeof window._ntUpdateCursor === 'function') window._ntUpdateCursor();
   };
 
   window.prSetSnap = function(val) {
@@ -67892,7 +67894,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
   /* ── state ──────────────────────────────────────────────────────── */
   var _ntActive = false;
-  var _ntTool = 'pointer';
+  function _ntGetTool() { return (typeof window.prGetTool === 'function') ? window.prGetTool() : 'pointer'; }
   var _ntDuration = 'quarter';
   var _ntDragNote = null;
   var _ntDragStart = null;
@@ -68047,14 +68049,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   };
 
   /* ── tool / duration setters ────────────────────────────────────── */
-  window.ntSetTool = function(tool) {
-    _ntTool = tool;
-    ['ntToolPointer','ntToolPencil','ntToolEraser'].forEach(function(id) {
-      var el = document.getElementById(id);
-      if (el) el.classList.toggle('active', id === 'ntTool' + tool.charAt(0).toUpperCase() + tool.slice(1));
-    });
-    updateCursor();
-  };
+  // ntSetTool removed — notation reads PR tool state via prGetTool()
 
   window.ntSetDuration = function(dur) {
     _ntDuration = dur;
@@ -68093,15 +68088,16 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   function updateCursor() {
     var scroll = document.getElementById('notationScroll');
     if (!scroll) return;
-    if (_ntTool === 'pencil') {
+    if (_ntGetTool() === 'pencil') {
       if (!_cursorCache[_ntDuration]) _cursorCache[_ntDuration] = buildCursorSVG(_ntDuration);
       scroll.style.cursor = _cursorCache[_ntDuration];
-    } else if (_ntTool === 'eraser') {
+    } else if (_ntGetTool() === 'eraser') {
       scroll.style.cursor = 'not-allowed';
     } else {
       scroll.style.cursor = 'default';
     }
   }
+  window._ntUpdateCursor = updateCursor;
 
   /* ── chord detection for penciled note groups ─────────────────── */
   var CHORD_PATTERNS = [
@@ -68320,7 +68316,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
           'data-midi': n.midi,
           'data-col': n.startCol,
           'data-dur': n.durCols,
-          cursor: _ntTool === 'eraser' ? 'not-allowed' : (_ntTool === 'pointer' ? 'grab' : 'default')
+          cursor: _ntGetTool() === 'eraser' ? 'not-allowed' : (_ntGetTool() === 'pointer' ? 'grab' : 'default')
         }, svg);
 
         // Ledger lines
@@ -68404,7 +68400,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   function _ntAttachHandlers(svg) {
     svg.addEventListener('mousedown', function(e) {
       var noteG = e.target.closest('.nt-note');
-      if (_ntTool === 'eraser' && noteG) {
+      if (_ntGetTool() === 'eraser' && noteG) {
         var id = noteG.getAttribute('data-id');
         if (id && typeof window.prDeleteNoteById === 'function') {
           window.prDeleteNoteById(id);
@@ -68412,7 +68408,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         }
         return;
       }
-      if (_ntTool === 'pointer' && noteG) {
+      if (_ntGetTool() === 'pointer' && noteG) {
         _ntDragNote = {
           id: noteG.getAttribute('data-id'),
           origMidi: parseInt(noteG.getAttribute('data-midi')),
@@ -68422,7 +68418,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         e.preventDefault();
         return;
       }
-      if (_ntTool === 'pencil') {
+      if (_ntGetTool() === 'pencil') {
         _ntAddNoteAtClick(e);
       }
     });
