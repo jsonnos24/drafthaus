@@ -37852,20 +37852,12 @@ async function _bootFastRestore(songId) {
     _bootFastRestored = true;
 
     // ── Restore last active state behind loading screen ──
-    var _ls = window._lastStateFromFirestore || {};
-    var _lastView = _ls.lastView;
-    if (_lastView === 'detail' && s) {
-      // User was working on a song — restore full state (loading screen stays up)
-      console.log('[BOOT-FAST] Restoring last active state for song:', s.id);
-      _songCurrentId = s.id;
-      localStorage.setItem('drafthaus-last-song', s.id);
-      _uiRestoreFromState(s.uiState, s);
-    } else {
-      // Last view was song list or no state — show list as before
-      if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
-      document.body.classList.add('songlist-active');
-      _uiDismissLoadingScreen();
-    }
+    // Always restore the last song the user was working on.
+    // The per-song uiState drives which view/drawer to restore.
+    console.log('[BOOT-FAST] Restoring last active state for song:', s.id);
+    _songCurrentId = s.id;
+    localStorage.setItem('drafthaus-last-song', s.id);
+    _uiRestoreFromState(s.uiState, s);
 
     // ── Background verify against Firestore ──
     _bootBackgroundVerify(songId, _cached.ts);
@@ -37896,18 +37888,10 @@ async function _bootFastRestore(songId) {
     _bootFastRestored = true;
 
     // ── Restore last active state behind loading screen ──
-    var _ls2 = window._lastStateFromFirestore || {};
-    var _lastView2 = _ls2.lastView;
-    if (_lastView2 === 'detail' && s) {
-      console.log('[BOOT-FAST] Restoring last active state for song:', s.id);
-      _songCurrentId = s.id;
-      localStorage.setItem('drafthaus-last-song', s.id);
-      _uiRestoreFromState(s.uiState, s);
-    } else {
-      if (typeof v4ShowWelcomePrompt === 'function') v4ShowWelcomePrompt();
-      document.body.classList.add('songlist-active');
-      _uiDismissLoadingScreen();
-    }
+    console.log('[BOOT-FAST] Restoring last active state for song:', s.id);
+    _songCurrentId = s.id;
+    localStorage.setItem('drafthaus-last-song', s.id);
+    _uiRestoreFromState(s.uiState, s);
 
     // ── Background-load all songs so song list is populated ──
     setTimeout(function() {
@@ -38290,13 +38274,35 @@ function _uiRestoreFromState(state, song) {
   if (state) {
     console.log('[UI-STATE] DEBUG — state.splitActive:', state.splitActive, '| state.splitRight:', state.splitRight, '| state.drawerOpen:', state.drawerOpen, '| state.mobileDrawer:', state.mobileDrawer, '| state.splitExpanded:', state.splitExpanded, '| state.perfMode:', state.perfMode);
   }
-  if (!song) { console.warn('[UI-STATE] No song, dismissing'); _uiDismissLoadingScreen(); return; }
-  // No saved state — fall back to song list
-  if (!state) {
-    console.log('[UI-STATE] No saved state — falling back to song list');
-    _uiRestoring = false;
-    showList();
+  if (!song) {
+    console.warn('[UI-STATE] No song — falling back to song list');
     _uiDismissLoadingScreen();
+    return;
+  }
+  // No saved uiState — still open the song in detail view with default layout
+  if (!state) {
+    console.log('[UI-STATE] No saved uiState — opening song with default layout');
+    _uiRestoring = true;
+    try {
+      if (typeof loopOnSongChange === 'function') loopOnSongChange(song);
+      populateSongFields(song);
+      if (typeof TL !== 'undefined' && typeof TL.load === 'function') { try { TL.load(song); } catch(e) {} }
+      setSongViewMode('runthrough');
+      if (typeof ilInitAndRender === 'function') ilInitAndRender(song);
+      if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
+      showDetail();
+      if (typeof closeToolPicker === 'function') closeToolPicker();
+      var _pyf = document.getElementById('pickFighterOverlay');
+      if (_pyf) _pyf.remove();
+      if (typeof _vr4TrackSyncToSong === 'function') _vr4TrackSyncToSong(song.id);
+    } catch(e) { console.error('[UI-STATE] default restore error:', e); }
+    _uiRestoring = false;
+    _uiDismissLoadingScreen();
+    setTimeout(function() {
+      if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+      if (typeof mtPreloadForSong === 'function') mtPreloadForSong(song.id);
+      if (typeof loopPreloadForSong === 'function') loopPreloadForSong(song.id);
+    }, 300);
     return;
   }
   _uiRestoring = true;
@@ -38337,19 +38343,66 @@ function _uiRestoreFromState(state, song) {
       }, 2000);
       return;
     } else {
-      // ── Desktop restore — stay on song list, song loaded in background ──
-      console.log('[UI-STATE] Desktop — loading song in background, staying on song list');
+      // ── Desktop restore — fully restore last active view ──
+      console.log('[UI-STATE] Desktop — restoring full view state');
+
+      // Show the detail view (song open)
+      showDetail();
+
+      // Restore split mode if it was active
+      if (state.splitActive && state.splitRight) {
+        console.log('[UI-STATE] Restoring split mode — right:', state.splitRight, '| left:', state.splitLeft, '| expanded:', state.splitExpanded);
+        openSplitMode(state.splitRight);
+
+        // Restore left pane selection
+        if (state.splitLeft) {
+          var leftSel = document.getElementById('splitLeftSelect');
+          if (leftSel) {
+            leftSel.value = state.splitLeft;
+            if (typeof setSplitLeftView === 'function') setSplitLeftView(state.splitLeft);
+          }
+        }
+
+        // Restore expanded pane
+        if (state.splitExpanded) {
+          splitExpandPane(state.splitExpanded);
+        }
+      }
+
+      // Restore performance mode
+      if (state.perfMode && typeof ilSetPerfMode === 'function') {
+        ilSetPerfMode(true);
+      }
+
+      // Unhide runthrough view now that layout is stable
+      var _rtEl2 = document.getElementById('songViewRunthrough');
+      if (_rtEl2) _rtEl2.style.visibility = '';
+
+      // 4-track sync
+      if (typeof _vr4TrackSyncToSong === 'function') _vr4TrackSyncToSong(song.id);
+
+      // Suppress any tool picker popups — we're restoring, not opening fresh
+      if (typeof closeToolPicker === 'function') closeToolPicker();
+      var _pyf2 = document.getElementById('pickFighterOverlay');
+      if (_pyf2) _pyf2.remove();
+
       _uiRestoring = false;
-      showList();
       _uiDismissLoadingScreen();
-      // Preload audio in background so drawers open fast when user opens one
+
+      // Preload audio in background
       setTimeout(function() {
         if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
         if (typeof mtPreloadForSong === 'function') mtPreloadForSong(song.id);
         if (typeof loopPreloadForSong === 'function') loopPreloadForSong(song.id);
       }, 300);
-      return;
 
+      // Warm up audio contexts after a short delay (no user gesture here,
+      // but resume() will succeed on next interaction)
+      setTimeout(function() {
+        if (typeof _warmUpAllAudioContexts === 'function') _warmUpAllAudioContexts();
+      }, 500);
+
+      return;
     }
   } catch(e) {
     console.error('[UI-STATE] restore error:', e);
@@ -68086,6 +68139,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       btn.classList.add('active');
       container.classList.add('active');
       inner.style.display = 'none';
+      // Always start from Bar 1 — reset scroll to top-left
+      var _ntScroll = container.querySelector('.notation-scroll');
+      if (_ntScroll) { _ntScroll.scrollTop = 0; _ntScroll.scrollLeft = 0; }
       ntRender();
     } else {
       btn.classList.remove('active');
@@ -68207,23 +68263,20 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     var colsPerBeat = snap;
     var colsPerBar = beatsPerBar * colsPerBeat;
 
-    // Smart range: only render bars that contain notes (+ 1 bar padding)
-    var firstNoteBar = bars - 1, lastNoteBar = 0;
+    // Always render from Bar 1 through last bar with notes (+ 1 bar padding)
+    var firstNoteBar = 0;
+    var lastNoteBar = 0;
     if (notes.length > 0) {
       notes.forEach(function(n) {
-        var b = Math.floor(n.startCol / colsPerBar);
-        if (b < firstNoteBar) firstNoteBar = b;
         var endBar = Math.floor((n.startCol + (n.durCols || 1) - 1) / colsPerBar);
         if (endBar > lastNoteBar) lastNoteBar = endBar;
       });
-      firstNoteBar = Math.max(0, firstNoteBar - 1);
       lastNoteBar = Math.min(bars - 1, lastNoteBar + 1);
     } else {
-      firstNoteBar = 0;
       lastNoteBar = Math.min(3, bars - 1);
     }
     var renderBars = lastNoteBar - firstNoteBar + 1;
-    var renderStartCol = firstNoteBar * colsPerBar;
+    var renderStartCol = 0;
 
     var barsPerSystem = 8;
     var systemCols = barsPerSystem * colsPerBar;
