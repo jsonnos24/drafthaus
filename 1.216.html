@@ -44462,7 +44462,7 @@ mprToggleInlinePR = function() {
 
 // ═══ v1.216: Piano Roll Horizontal Paging (mobile) ═══
 // Lock time axis to 2-bar boundaries (portrait) or 4-bar (landscape)
-var _prPageSnap = { active: false, startX: 0, startScroll: 0, pageW: 0 };
+var _prPageSnap = { active: false, locked: false, startX: 0, startY: 0, startScroll: 0, pageW: 0 };
 
 function _prPageGetBarWidth() {
   var colW = (typeof window.prGetColW === 'function') ? window.prGetColW() : 12;
@@ -44491,12 +44491,15 @@ function _prPageSnapScroll(scrollEl) {
 function _prPageTouchStart(e) {
   if (window.innerWidth >= 900) return;
   if (e.touches.length !== 1) return;
+  if (_mprPinch) return;
   var scrollEl = document.getElementById('prGridScroll');
   if (!scrollEl) return;
   var barW = _prPageGetBarWidth();
   var pageBars = _prPageGetPageBars();
   _prPageSnap.active = true;
+  _prPageSnap.locked = false; // not yet committed to horizontal
   _prPageSnap.startX = e.touches[0].clientX;
+  _prPageSnap.startY = e.touches[0].clientY;
   _prPageSnap.startScroll = scrollEl.scrollLeft;
   _prPageSnap.pageW = barW * pageBars;
 }
@@ -44504,12 +44507,19 @@ function _prPageTouchStart(e) {
 function _prPageTouchMove(e) {
   if (!_prPageSnap.active || window.innerWidth >= 900) return;
   if (e.touches.length !== 1) { _prPageSnap.active = false; return; }
+  var dx = Math.abs(e.touches[0].clientX - _prPageSnap.startX);
+  var dy = Math.abs(e.touches[0].clientY - _prPageSnap.startY);
+  // Determine direction: if vertical wins, bail and let native scroll handle it
+  if (!_prPageSnap.locked) {
+    if (dx < 8 && dy < 8) return; // not enough movement to decide
+    if (dy > dx) { _prPageSnap.active = false; return; } // vertical — let native scroll
+    _prPageSnap.locked = true; // horizontal confirmed — lock in
+  }
   var scrollEl = document.getElementById('prGridScroll');
   if (!scrollEl || _prPageSnap.pageW < 1) return;
-  e.preventDefault(); // prevent native scroll — we're snapping
-  // Lock to page boundaries during drag
-  var dx = _prPageSnap.startX - e.touches[0].clientX;
-  var rawScroll = _prPageSnap.startScroll + dx;
+  e.preventDefault(); // prevent native scroll — we're snapping horizontally
+  var rawDx = _prPageSnap.startX - e.touches[0].clientX;
+  var rawScroll = _prPageSnap.startScroll + rawDx;
   var page = Math.round(rawScroll / _prPageSnap.pageW);
   page = Math.max(0, page);
   scrollEl.scrollLeft = page * _prPageSnap.pageW;
@@ -44518,6 +44528,7 @@ function _prPageTouchMove(e) {
 function _prPageTouchEnd(e) {
   if (!_prPageSnap.active) return;
   _prPageSnap.active = false;
+  _prPageSnap.locked = false;
   _prPageSnapScroll(document.getElementById('prGridScroll'));
 }
 

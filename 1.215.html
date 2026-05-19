@@ -34607,6 +34607,39 @@ function seqStop(letTracksFinish) {
 }
 /* @lock:end — Sequencer Scheduler */
 
+// ── Chord Bus Limiter + Velocity Reduction (outside lock) ────────
+var _chordLimiterInserted = false;
+function _patchChordLimiter() {
+  if (_chordLimiterInserted) return;
+  if (!seqAudioCtx || !seqChordsGain || !seqChordsPan) return;
+  _chordLimiterInserted = true;
+  var comp = seqAudioCtx.createDynamicsCompressor();
+  comp.threshold.value = -10;
+  comp.knee.value = 6;
+  comp.ratio.value = 6;
+  comp.attack.value = 0.003;
+  comp.release.value = 0.12;
+  seqChordsGain.disconnect(seqChordsPan);
+  seqChordsGain.connect(comp);
+  comp.connect(seqChordsPan);
+}
+(function() {
+  var _origGetSeqAudioCtx = getSeqAudioCtx;
+  getSeqAudioCtx = function() {
+    var ctx = _origGetSeqAudioCtx();
+    _patchChordLimiter();
+    return ctx;
+  };
+})();
+(function() {
+  var _origCP = seqPlayChordPiano;
+  seqPlayChordPiano = function(m, t, v, d) { _origCP(m, t, (v || 0.8) * 0.55, d); };
+  var _origCP2 = seqPlayChordPiano2;
+  seqPlayChordPiano2 = function(m, t, v, d) { _origCP2(m, t, (v || 0.8) * 0.55, d); };
+  var _origCG = seqPlayChordGuitar;
+  seqPlayChordGuitar = function(m, t, v, d) { _origCG(m, t, (v || 0.8) * 0.6, d); };
+})();
+
 // ── Tab Builder ───────────────────────────────────────────────────
 
 function renderTabPreviewHtml(inst, partId, beats, chords) {
