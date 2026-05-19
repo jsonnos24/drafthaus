@@ -37840,6 +37840,7 @@ var _bootSongsFullyLoaded = false;
 async function _bootFastRestore(songId) {
   setSyncStatus('syncing', 'Loading…');
   _dhMark('firestore-fetch-start');
+  console.log('[BOOT-DEBUG] _bootFastRestore called for songId:', songId);
 
   // ── Try localStorage cache first for instant render ──
   var _cached = null;
@@ -37847,9 +37848,13 @@ async function _bootFastRestore(songId) {
     var _raw = localStorage.getItem('dh-fast-cache');
     if (_raw) {
       var _parsed = JSON.parse(_raw);
+      console.log('[BOOT-DEBUG] Cache found — id:', _parsed?.id, '| matches:', _parsed?.id === songId, '| has song:', !!_parsed?.song);
+      console.log('[BOOT-DEBUG] Cached uiState:', JSON.stringify(_parsed?.song?.uiState || null));
       if (_parsed && _parsed.id === songId && _parsed.song) _cached = _parsed;
+    } else {
+      console.log('[BOOT-DEBUG] No dh-fast-cache in localStorage');
     }
-  } catch(_ce) {}
+  } catch(_ce) { console.warn('[BOOT-DEBUG] Cache parse error:', _ce); }
 
   if (_cached) {
     _dhMark('cache-hit');
@@ -37864,9 +37869,8 @@ async function _bootFastRestore(songId) {
     _bootFastRestored = true;
 
     // ── Restore last active state behind loading screen ──
-    // Always restore the last song the user was working on.
-    // The per-song uiState drives which view/drawer to restore.
-    console.log('[BOOT-FAST] Restoring last active state for song:', s.id);
+    console.log('[BOOT-DEBUG] About to call _uiRestoreFromState — uiState:', JSON.stringify(s.uiState || null));
+    console.log('[BOOT-DEBUG] song.id:', s.id, '| song.title:', s.title);
     _songCurrentId = s.id;
     localStorage.setItem('drafthaus-last-song', s.id);
     _uiRestoreFromState(s.uiState, s);
@@ -37887,9 +37891,10 @@ async function _bootFastRestore(songId) {
   // ── No cache — fall through to Firestore fetch ──
   try {
     const uid = _authUid();
-    if (!uid) { loadSongsFromSheet(); return; }
+    if (!uid) { console.warn('[BOOT-DEBUG] No uid — falling back to loadSongsFromSheet'); loadSongsFromSheet(); return; }
+    console.log('[BOOT-DEBUG] Fetching song from Firestore:', songId);
     const doc = await db.collection('songs').doc(songId).get({ source: 'server' });
-    if (!doc.exists) { loadSongsFromSheet(); return; }
+    if (!doc.exists) { console.warn('[BOOT-DEBUG] Song doc not found in Firestore — falling back'); loadSongsFromSheet(); return; }
     _dhMark('firestore-fast-done (1 song)');
     const s = normalizeLoadedSong({ ...doc.data(), _fromSheet: false });
     const idx = songs.findIndex(x => x.id === s.id);
@@ -37900,7 +37905,7 @@ async function _bootFastRestore(songId) {
     _bootFastRestored = true;
 
     // ── Restore last active state behind loading screen ──
-    console.log('[BOOT-FAST] Restoring last active state for song:', s.id);
+    console.log('[BOOT-DEBUG] Firestore path — About to call _uiRestoreFromState — uiState:', JSON.stringify(s.uiState || null));
     _songCurrentId = s.id;
     localStorage.setItem('drafthaus-last-song', s.id);
     _uiRestoreFromState(s.uiState, s);
@@ -38413,17 +38418,20 @@ function _uiRestoreFromState(state, song) {
         : (state.splitRight || null);
 
       if (_restoreTool) {
-        console.log('[UI-STATE] Restoring drawer:', _restoreTool, '| splitExpanded:', state.splitExpanded, '| splitLeft:', state.splitLeft);
+        console.log('[BOOT-DEBUG] ★ Restoring drawer:', _restoreTool, '| splitExpanded:', state.splitExpanded, '| splitLeft:', state.splitLeft);
+        console.log('[BOOT-DEBUG] Body classes BEFORE openSplitMode:', document.body.className);
         // Go straight into split mode — do NOT call _ensureDetailView (redundant,
         // showDetail() already called above) or closeAllDrawers (destructive during
         // boot — triggers close callbacks on drawers that aren't open yet)
         openSplitMode(_restoreTool);
+        console.log('[BOOT-DEBUG] Body classes AFTER openSplitMode:', document.body.className);
         // Restore expanded state (default to right-expanded like navToolTap)
         var _expSide = state.splitExpanded || 'right';
         _splitExpandedSide = _expSide;
         document.body.classList.remove('split-expanded-left', 'split-expanded-right');
         document.body.classList.add('split-expanded-' + _expSide);
         if (typeof _syncExpandBtns === 'function') _syncExpandBtns();
+        console.log('[BOOT-DEBUG] Body classes AFTER expand:', document.body.className);
 
         // Restore left pane selection
         if (state.splitLeft) {
@@ -38454,11 +38462,18 @@ function _uiRestoreFromState(state, song) {
       if (_pyf2) _pyf2.remove();
 
       _uiDismissLoadingScreen();
+      console.log('[BOOT-DEBUG] ★ Loading screen dismissed — final body classes:', document.body.className);
+      console.log('[BOOT-DEBUG] ★ _splitActive:', _splitActive, '| _splitExpandedSide:', _splitExpandedSide, '| _splitCurrentTool:', typeof _splitCurrentTool !== 'undefined' ? _splitCurrentTool : 'undefined');
+      console.log('[BOOT-DEBUG] ★ _uiRestoring:', _uiRestoring, '(will stay true for 2500ms to block MutationObserver)');
 
       // Keep _uiRestoring true briefly to suppress the MutationObserver's
       // intermediate save (body class changes during restore trigger a 1200ms
       // debounced save that would capture stale drawerOpen:"none")
-      setTimeout(function() { _uiRestoring = false; }, 2500);
+      setTimeout(function() {
+        _uiRestoring = false;
+        console.log('[BOOT-DEBUG] _uiRestoring set to false — body classes now:', document.body.className);
+        console.log('[BOOT-DEBUG] _splitActive:', _splitActive, '| _splitExpandedSide:', _splitExpandedSide);
+      }, 2500);
 
       // Preload audio in background
       setTimeout(function() {
@@ -38481,6 +38496,21 @@ function _uiRestoreFromState(state, song) {
           uiStateSave();
         }
       }, 15000);
+
+      // Debug watchdog — check body classes at 500ms and 3s to catch anything
+      // that clobbers the restore after it completes
+      setTimeout(function() {
+        console.log('[BOOT-DEBUG] WATCHDOG 500ms — body classes:', document.body.className);
+        console.log('[BOOT-DEBUG] WATCHDOG 500ms — _splitActive:', _splitActive, '| _splitExpandedSide:', _splitExpandedSide, '| _uiRestoring:', _uiRestoring);
+        console.log('[BOOT-DEBUG] WATCHDOG 500ms — songlist-active:', document.body.classList.contains('songlist-active'), '| split-active:', document.body.classList.contains('split-active'));
+      }, 500);
+      setTimeout(function() {
+        console.log('[BOOT-DEBUG] WATCHDOG 3s — body classes:', document.body.className);
+        console.log('[BOOT-DEBUG] WATCHDOG 3s — _splitActive:', _splitActive, '| _splitExpandedSide:', _splitExpandedSide, '| _uiRestoring:', _uiRestoring);
+        var _visDetail = document.getElementById('viewDetail')?.classList.contains('active');
+        var _visList = document.getElementById('viewList')?.classList.contains('active');
+        console.log('[BOOT-DEBUG] WATCHDOG 3s — viewDetail active:', _visDetail, '| viewList active:', _visList);
+      }, 3000);
 
       return;
     }
@@ -38521,12 +38551,17 @@ function _uiRestoreFromState(state, song) {
 
 function initApp() {
   _dhMark('init-app');
+  console.log('[BOOT-DEBUG] initApp() called');
+  console.log('[BOOT-DEBUG] _lastStateFromFirestore:', JSON.stringify(window._lastStateFromFirestore || null));
+  console.log('[BOOT-DEBUG] _lastSongIdFromFirestore:', _lastSongIdFromFirestore);
   _loadExpandedProjs();
   loadUserProjects();
   var _fastId = (window._lastStateFromFirestore || {}).lastSongId || _lastSongIdFromFirestore;
+  console.log('[BOOT-DEBUG] _fastId resolved to:', _fastId || 'NULL — will show song list');
   if (_fastId) {
     _bootFastRestore(_fastId);
   } else {
+    console.warn('[BOOT-DEBUG] No lastSongId found — falling back to preloadSongsFromSheet (song list)');
     preloadSongsFromSheet(true);
   }
   // startSyncPolling deferred to _uiDismissLoadingScreen to avoid
@@ -41904,6 +41939,11 @@ function _setWorkLayout() {
 /* ── Desktop init — no split by default, user opens drawers explicitly ── */
 function _initSplitAlwaysOn() {
   if (window.innerWidth < 900) return; // mobile stays non-split
+  // If _uiRestoring is active, the restore path already set split state — don't clobber it
+  if (_uiRestoring) {
+    console.log('[SPLIT-INIT] Skipping — _uiRestoring is active, restore already set split state');
+    return;
+  }
   // Don't auto-activate split — user will open a drawer or have state restored
   _splitActive = false;
   document.body.classList.remove('split-active');
