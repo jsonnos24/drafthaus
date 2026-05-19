@@ -65357,7 +65357,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         if (row < 0 || row >= PR_TOTAL_ROWS) return;
 
         const el = document.createElement('div');
-        el.className = 'pr-note' + (n.isPencil ? ' pencil-note' : '') + (n.id === prSelected ? ' selected' : '');
+        el.className = 'pr-note' + (n.isPencil ? ' pencil-note' : '') + (n.id === prSelected ? ' selected' : '') + (_prFreshIds.has(n.id) ? ' pr-note-fresh' : '');
         el.dataset.noteId = n.id;
         if (n.degree >= 0) el.dataset.degree = n.degree;
         el.style.left = colToX(n.startCol) + 'px';
@@ -65424,7 +65424,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         const dv = PR_DRUM_VOICES[voiceIdx];
 
         const el = document.createElement('div');
-        el.className = 'pr-note drum-' + dn.voice + (dn.id === prSelected ? ' selected' : '');
+        el.className = 'pr-note drum-' + dn.voice + (dn.id === prSelected ? ' selected' : '') + (_prFreshIds.has(dn.id) ? ' pr-note-fresh' : '');
         el.dataset.noteId = dn.id;
         el.style.left = colToX(dn.startCol) + 'px';
         el.style.top = (drumYOffset + voiceIdx * drumRowH + 1) + 'px';
@@ -65455,6 +65455,11 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       curLine.className = 'pr-compose-cursor';
       curLine.style.cssText = 'position:absolute;left:' + colToX(prComposeCursor) + 'px;top:0;width:2px;height:100%;background:#ff4444;z-index:200;pointer-events:none;opacity:0.85;';
       layer.appendChild(curLine);
+    }
+    // Clear fresh-note IDs after animation starts (single frame delay so class is applied first)
+    if (_prFreshIds.size > 0) {
+      clearTimeout(_prFreshTimer);
+      _prFreshTimer = setTimeout(function() { _prFreshIds.clear(); }, 600);
     }
     // Preserve multi-selection visual after re-render
     if (prMultiSelected && prMultiSelected.size > 0) prApplyMultiSelectVisual();
@@ -65701,6 +65706,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         _seqIdx: assignedSeqIdx
       };
       prNotes.push(newNote);
+      _prFreshIds.add(newNote.id);
       prSelected = newNote.id;
       prPreviewNote(newNote);
       prRenderNotes();
@@ -66099,11 +66105,11 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         if (c.type === 'piano') {
           var nn = {id: prNextId++, midi: c.midi, startCol: col, durCols: c.durCols, chordName: c.chordName||'', degree: c.degree != null ? c.degree : -1, isPencil: true, vel: c.vel||Math.min(1.0, Math.max(0.5, 0.9 * (0.85 + Math.random() * 0.30))), _seqIdx: _prColToSeqIdx(col)};
           prNotes.push(nn);
-          newIds.add(nn.id);
+          newIds.add(nn.id); _prFreshIds.add(nn.id);
         } else if (c.type === 'drum') {
           var dn = {id: prNextId++, voice: c.voice, startCol: col, durCols: c.durCols, vel: c.vel||Math.min(1.0, Math.max(0.5, 0.9 * (0.85 + Math.random() * 0.30))), _seqIdx: _prColToSeqIdx(col)};
           prDrumNotes.push(dn);
-          newIds.add(dn.id);
+          newIds.add(dn.id); _prFreshIds.add(dn.id);
         }
       });
       prMultiSelected = newIds;
@@ -66209,12 +66215,14 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         midiNotes.forEach((midi, i) => {
           if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
           var v = (i === 0) ? (0.70 + Math.random() * 0.20) : (0.50 + Math.random() * 0.30);
+          var _fid = prNextId++;
           prNotes.push({
-            id: prNextId++, midi, startCol: col,
+            id: _fid, midi, startCol: col,
             durCols: _chordDurCols,
             chordName, degree, isPencil: false, vel: v,
             _seqIdx: _prColToSeqIdx(col)
           });
+          _prFreshIds.add(_fid);
         });
         _prPalDidDrag = true; // suppress the click preview
         if (typeof seqPlayChordByName === 'function') seqPlayChordByName(chordName);
@@ -66288,7 +66296,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       midiNotes.forEach(function(midi, i) {
         if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
         var v = (i === 0) ? (0.70 + Math.random() * 0.20) : (0.50 + Math.random() * 0.30);
-        prNotes.push({ id: prNextId++, midi: midi, startCol: col, durCols: _dropDurCols, chordName: chordName, degree: degree, isPencil: false, vel: v });
+        var _fid2 = prNextId++;
+        prNotes.push({ id: _fid2, midi: midi, startCol: col, durCols: _dropDurCols, chordName: chordName, degree: degree, isPencil: false, vel: v });
+        _prFreshIds.add(_fid2);
       });
       if (typeof seqPlayChordByName === 'function') seqPlayChordByName(chordName);
       prRenderNotes();
@@ -66652,6 +66662,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       _seqIdx: _prColToSeqIdx(prComposeCursor)
     };
     prNotes.push(newNote);
+    _prFreshIds.add(newNote.id);
     prSelected = newNote.id;
     console.log('[PR-compose] placed: midi=' + midi + ' (' + midiToName(midi) + ') col=' + prComposeCursor + ' dur=' + durCols + ' → cursor now ' + (prComposeCursor + durCols));
     prComposeCursor += durCols;
@@ -66693,11 +66704,13 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     midiNotes.sort(function(a, b) { return a - b; });
     midiNotes.forEach(function(midi, i) {
       var v = (i === 0) ? (0.70 + Math.random() * 0.20) : (0.50 + Math.random() * 0.30);
+      var _fid3 = prNextId++;
       prNotes.push({
-        id: prNextId++,
+        id: _fid3,
         midi: midi, startCol: prComposeCursor, durCols: durCols,
         chordName: name, degree: (degree !== '' && degree !== undefined) ? parseInt(degree) : -1, isPencil: false, vel: v
       });
+      _prFreshIds.add(_fid3);
     });
     console.log('[PR-compose] chord "' + name + '" placed: ' + midiNotes.length + ' notes [' + midiNotes.join(',') + '] col=' + prComposeCursor + ' dur=' + durCols);
     prComposeCursor += durCols;
@@ -66751,8 +66764,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       const startCol = Math.round((posMs / prRecLoopMs) * prRecSectionCols);
       const durMs = Math.max(50, elapsed);
       const durCols = Math.max(1, Math.round((durMs / prRecLoopMs) * prRecSectionCols));
+      var _rid = 'rec_' + Date.now() + '_' + midi;
       prNotes.push({
-        id: 'rec_' + Date.now() + '_' + midi,
+        id: _rid,
         midi: midi,
         startCol: Math.min(startCol, prRecSectionCols - 1),
         durCols: Math.min(durCols, prRecSectionCols - startCol),
@@ -66760,6 +66774,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         degree: info.degree != null ? info.degree : -1,
         isPencil: false
       });
+      _prFreshIds.add(_rid);
     });
     prRecActiveNotes.clear();
     prIsRecording = false;
@@ -66793,8 +66808,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const durCols = Math.max(1, Math.round((durMs / prRecLoopMs) * prRecSectionCols));
     // Check for out-of-range MIDI
     if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
+    var _rid2 = 'rec_' + Date.now() + '_' + midi;
     prNotes.push({
-      id: 'rec_' + Date.now() + '_' + midi,
+      id: _rid2,
       midi: midi,
       startCol: Math.min(startCol, prRecSectionCols - 1),
       durCols: Math.min(durCols, prRecSectionCols - startCol),
@@ -66802,6 +66818,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       degree: info.degree != null ? info.degree : -1,
       isPencil: false
     });
+    _prFreshIds.add(_rid2);
     if (prOpen) prRenderNotes();
   };
 
@@ -66853,7 +66870,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   window.prGetNotes = function() { return prNotes; };
   window.prGetNextId = function() { return prNextId++; };
   window._prColToSeqIdx = _prColToSeqIdx;
-  window.prPushNote = function(note) { prNotes.push(note); prRenderNotes(); };
+  window.prPushNote = function(note) { prNotes.push(note); if (note.id != null) _prFreshIds.add(note.id); prRenderNotes(); };
   window.prGetComposeCursor = function() { return prComposeCursor; };
   window.prSetComposeCursor = function(col) { prComposeCursor = col; prRenderNotes(); _prScrollToCursor(); };
 
