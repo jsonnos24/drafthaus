@@ -8078,6 +8078,65 @@ body.split-active #splitTransportDock { display: flex; }
 /* Purple border on triangle toggle — always visible */
 .ucb-toggle-btn { border: 2px solid #9b59b6 !important; border-radius: 50% !important; }
 
+/* ═══ v1.216: Quick Chords Mobile States ═══ */
+@media (max-width: 899px) {
+  /* State QC-1: Quick Chords Open — header hidden, bottom nav hidden, piano+toolbar up, UCB+strip down */
+  body.qc-state-1 #siteHeader,
+  body.qc-state-1 #headerTransport { display: none !important; }
+  body.qc-state-1 .bottom-nav {
+    transform: translateY(100%) !important; pointer-events: none !important;
+    transition: transform 0.2s ease !important;
+  }
+  body.qc-state-1 .keyboard-drawer.open {
+    top: env(safe-area-inset-top, 0px) !important;
+    height: calc(100dvh - env(safe-area-inset-top, 0px)) !important;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px)) !important;
+    border-radius: 0 !important;
+  }
+  body.qc-state-1 .uc-bar {
+    bottom: env(safe-area-inset-bottom, 0px) !important;
+    transition: bottom 0.2s ease !important;
+  }
+  body.qc-state-1 .global-seq-strip {
+    position: fixed !important; bottom: calc(86px + env(safe-area-inset-bottom, 0px)) !important;
+    left: 0 !important; right: 0 !important; z-index: 99992 !important;
+    display: flex !important; opacity: 1 !important; height: auto !important;
+    transition: bottom 0.2s ease !important;
+  }
+  /* UCB triangle visible bottom-left in QC states */
+  body.qc-state-1 .ucb-toggle-btn,
+  body.qc-state-2 .ucb-toggle-btn {
+    position: fixed !important; bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+    left: 8px !important; z-index: 100010 !important;
+  }
+
+  /* State QC-2: Zoomed Out — QC closed, all octaves, header still hidden, bottom nav hidden, UCB row1 hidden */
+  body.qc-state-2 #siteHeader,
+  body.qc-state-2 #headerTransport { display: none !important; }
+  body.qc-state-2 .bottom-nav {
+    transform: translateY(100%) !important; pointer-events: none !important;
+    transition: transform 0.2s ease !important;
+  }
+  body.qc-state-2 .uc-mob-row1 { display: none !important; }
+  body.qc-state-2 .keyboard-drawer.open {
+    top: env(safe-area-inset-top, 0px) !important;
+    height: calc(100dvh - env(safe-area-inset-top, 0px)) !important;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px)) !important;
+    border-radius: 0 !important;
+  }
+  body.qc-state-2 .uc-bar {
+    bottom: env(safe-area-inset-bottom, 0px) !important;
+    transition: bottom 0.2s ease !important;
+  }
+  body.qc-state-2 .global-seq-strip {
+    position: fixed !important; bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important;
+    left: 0 !important; right: 0 !important; z-index: 99992 !important;
+    display: flex !important; opacity: 1 !important; height: auto !important;
+    transition: bottom 0.2s ease !important;
+  }
+}
+/* ═══ END v1.216: Quick Chords Mobile States ═══ */
+
 /* Hide UCB when songlist is active (no song open) */
 body.songlist-active .uc-bar { display: none; }
 
@@ -16827,8 +16886,8 @@ setTimeout(function() {
     <!-- Logo + New Idea + Roll — grouped for idle-dim effect -->
     <div id="headerDimGroup" style="display:flex;align-items:center;gap:10px;">
     <div style="display:flex;flex-direction:column;gap:1px;cursor:pointer;" onclick="showList()" title="Back to drafts">
-      <span class="header-logo">Drafthaus<span class="header-version">v1.215</span></span>
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.215</span>
+      <span class="header-logo">Drafthaus<span class="header-version">v1.216</span></span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.216</span>
     </div>
     <!-- New Idea + Roll (moved from center; hidden on mobile by CSS class rules) -->
     <button title="Create a new blank song draft. Start fresh with an empty canvas for your next idea." class="hla-newdraft-btn" onclick="newSong()"
@@ -44306,6 +44365,182 @@ window.addEventListener('orientationchange', _mprHandleOrientationZoom);
 window.addEventListener('resize', _mprHandleOrientationZoom);
 if (screen.orientation) screen.orientation.addEventListener('change', _mprHandleOrientationZoom);
 
+// ═══ v1.216: Quick Chords Mobile State Machine ═══
+// States: 0=inactive, 1=QC Open, 2=Zoomed Out, 3=restoring to default
+var _qcMobileState = 0;
+
+function _qcMobileEnter() {
+  if (window.innerWidth >= 900) return; // desktop: no-op
+  _qcMobileState = 1;
+  document.body.classList.remove('qc-state-2');
+  document.body.classList.add('qc-state-1');
+  // Reset piano roll scroll to top-left
+  var scrollEl = document.getElementById('prGridScroll');
+  if (scrollEl) { scrollEl.scrollLeft = 0; scrollEl.scrollTop = 0; }
+  // Hijack the UCB triangle to cycle through QC states
+  _qcOverrideTriangle(true);
+}
+
+function _qcMobileZoomOut() {
+  _qcMobileState = 2;
+  document.body.classList.remove('qc-state-1');
+  document.body.classList.add('qc-state-2');
+  // Close chord overlay
+  if (typeof _mcoDestroy === 'function') _mcoDestroy();
+  // Zoom piano roll to fit all octaves vertically
+  var scrollEl = document.getElementById('prGridScroll');
+  var vpH = scrollEl ? scrollEl.clientHeight : 300;
+  var totalRows = 49; // PR_TOTAL_ROWS
+  var fitRowH = Math.max(4, Math.floor(vpH / totalRows));
+  if (typeof window.prSetZoomV === 'function') window.prSetZoomV(fitRowH);
+  // Scroll to top
+  if (scrollEl) { scrollEl.scrollTop = 0; }
+  setTimeout(function() { if (typeof window.prRender === 'function') window.prRender(); }, 50);
+}
+
+function _qcMobileExit() {
+  _qcMobileState = 0;
+  document.body.classList.remove('qc-state-1', 'qc-state-2');
+  _qcOverrideTriangle(false);
+  // Restore normal zoom
+  var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+  var ui = song?.uiState;
+  if (ui?.mobileKeysZoomV) {
+    if (typeof window.prSetZoomV === 'function') window.prSetZoomV(ui.mobileKeysZoomV);
+  } else {
+    if (typeof window.prSetZoomV === 'function') window.prSetZoomV(22);
+  }
+  if (ui?.mobileKeysZoomH) {
+    if (typeof window.prSetZoomH === 'function') window.prSetZoomH(ui.mobileKeysZoomH);
+  }
+  setTimeout(function() { if (typeof window.prRender === 'function') window.prRender(); }, 50);
+}
+
+// Cycle: QC Open (1) → Zoomed Out (2) → Default (exit)
+function _qcMobileCycle() {
+  if (_qcMobileState === 1) {
+    // Close the QC overlay but stay in focused mode
+    _mprInlinePrOpen = false;
+    var container = document.getElementById('mprInlinePr');
+    if (container) container.classList.remove('open');
+    var strip = document.getElementById('mprPrToggleStrip');
+    if (strip) strip.classList.remove('open');
+    var arrow = document.getElementById('mprPrToggleArrow');
+    if (arrow) arrow.textContent = '▼';
+    _qcMobileZoomOut();
+  } else if (_qcMobileState === 2) {
+    _qcMobileExit();
+  }
+}
+
+// Override/restore the UCB triangle onclick
+var _qcTriangleOrigFn = null;
+function _qcOverrideTriangle(override) {
+  var btn = document.getElementById('ucbToggleBtn');
+  if (!btn) return;
+  if (override) {
+    _qcTriangleOrigFn = btn.getAttribute('onclick');
+    btn.setAttribute('onclick', '_qcMobileCycle()');
+  } else {
+    btn.setAttribute('onclick', _qcTriangleOrigFn || 'ucbToggleCycle()');
+    _qcTriangleOrigFn = null;
+  }
+}
+
+// Hook: override mprToggleInlinePR to enter QC state on mobile
+var _mprToggleInlinePR_orig = mprToggleInlinePR;
+mprToggleInlinePR = function() {
+  _mprToggleInlinePR_orig();
+  if (window.innerWidth >= 900) return;
+  if (_mprInlinePrOpen && _qcMobileState === 0) {
+    _qcMobileEnter();
+  } else if (!_mprInlinePrOpen && _qcMobileState === 1) {
+    // User closed QC via the strip toggle — go to zoomed out
+    _qcMobileZoomOut();
+  }
+};
+
+// ═══ v1.216: Piano Roll Horizontal Paging (mobile) ═══
+// Lock time axis to 2-bar boundaries (portrait) or 4-bar (landscape)
+var _prPageSnap = { active: false, startX: 0, startScroll: 0, pageW: 0 };
+
+function _prPageGetBarWidth() {
+  var colW = (typeof window.prGetColW === 'function') ? window.prGetColW() : 12;
+  var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+  var sd = song?.sequencer || {};
+  var timeSig = parseInt(sd.time || song?.time || '4', 10);
+  var snap = 4; // subdivisions per beat
+  return colW * timeSig * snap; // px per bar
+}
+
+function _prPageGetPageBars() {
+  var isLand = window.matchMedia('(orientation: landscape)').matches;
+  return isLand ? 4 : 2;
+}
+
+function _prPageSnapScroll(scrollEl) {
+  if (!scrollEl || window.innerWidth >= 900) return;
+  var barW = _prPageGetBarWidth();
+  var pageBars = _prPageGetPageBars();
+  var pageW = barW * pageBars;
+  if (pageW < 1) return;
+  var page = Math.round(scrollEl.scrollLeft / pageW);
+  scrollEl.scrollLeft = page * pageW;
+}
+
+function _prPageTouchStart(e) {
+  if (window.innerWidth >= 900) return;
+  if (e.touches.length !== 1) return;
+  var scrollEl = document.getElementById('prGridScroll');
+  if (!scrollEl) return;
+  var barW = _prPageGetBarWidth();
+  var pageBars = _prPageGetPageBars();
+  _prPageSnap.active = true;
+  _prPageSnap.startX = e.touches[0].clientX;
+  _prPageSnap.startScroll = scrollEl.scrollLeft;
+  _prPageSnap.pageW = barW * pageBars;
+}
+
+function _prPageTouchMove(e) {
+  if (!_prPageSnap.active || window.innerWidth >= 900) return;
+  if (e.touches.length !== 1) { _prPageSnap.active = false; return; }
+  var scrollEl = document.getElementById('prGridScroll');
+  if (!scrollEl || _prPageSnap.pageW < 1) return;
+  e.preventDefault(); // prevent native scroll — we're snapping
+  // Lock to page boundaries during drag
+  var dx = _prPageSnap.startX - e.touches[0].clientX;
+  var rawScroll = _prPageSnap.startScroll + dx;
+  var page = Math.round(rawScroll / _prPageSnap.pageW);
+  page = Math.max(0, page);
+  scrollEl.scrollLeft = page * _prPageSnap.pageW;
+}
+
+function _prPageTouchEnd(e) {
+  if (!_prPageSnap.active) return;
+  _prPageSnap.active = false;
+  _prPageSnapScroll(document.getElementById('prGridScroll'));
+}
+
+function _prPageAttach() {
+  var scrollEl = document.getElementById('prGridScroll');
+  if (!scrollEl || scrollEl._prPageBound) return;
+  scrollEl._prPageBound = true;
+  scrollEl.addEventListener('touchstart', _prPageTouchStart, { passive: false });
+  scrollEl.addEventListener('touchmove', _prPageTouchMove, { passive: false });
+  scrollEl.addEventListener('touchend', _prPageTouchEnd, { passive: true });
+  scrollEl.addEventListener('touchcancel', _prPageTouchEnd, { passive: true });
+}
+
+// Attach paging when PR mounts
+var _prPageAttachOrig = (typeof _mprAttachPinchZoom === 'function') ? _mprAttachPinchZoom : null;
+_mprAttachPinchZoom = function() {
+  if (_prPageAttachOrig) _prPageAttachOrig();
+  _prPageAttach();
+};
+// Also try to attach immediately if already mounted
+setTimeout(_prPageAttach, 500);
+// ═══ END v1.216 ═══
+
 function openSeqDrawer() {
   // ── Perf mode: only one tool panel at a time ──
   if (window._ilPerfMode && document.getElementById('vrOverlay')?.classList.contains('vr-open')) {
@@ -65694,7 +65929,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       const row = Math.floor(y / PR_ROW_H);
       var midi = rowToMidi(row);
       if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
-      // v1.215: Key Lock — snap to scale
+      // v1.216: Key Lock — snap to scale
       if (typeof _prKeyLockSnap === 'function') midi = _prKeyLockSnap(midi);
 
       const assignedSeqIdx = _prAutoCreateSectionIfNeeded(col);
