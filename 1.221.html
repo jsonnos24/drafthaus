@@ -38221,6 +38221,17 @@ function uiStateSave() {
     console.log('[UI-STATE] SAVING state:', JSON.stringify(state), 'onSongList:', state.onSongList);
     // Save per-song UI state
     var songRef = db.collection('songs').doc(_songCurrentId);
+    // Also sync uiState into the localStorage fast-cache so boot picks it up
+    try {
+      var _fcRaw = localStorage.getItem('dh-fast-cache');
+      if (_fcRaw) {
+        var _fc = JSON.parse(_fcRaw);
+        if (_fc && _fc.song && _fc.id === _songCurrentId) {
+          _fc.song.uiState = state;
+          localStorage.setItem('dh-fast-cache', JSON.stringify(_fc));
+        }
+      }
+    } catch(_cacheErr) {}
     songRef.update({ uiState: state }).then(function() {
       console.log('[UI-STATE] ✓ song uiState saved to Firestore for', _songCurrentId);
     }).catch(function(e) {
