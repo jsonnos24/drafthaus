@@ -5200,7 +5200,7 @@ button, select, input, textarea { touch-action: manipulation; }
     display: flex; align-items: center; gap: 4px;
     -webkit-user-select: none; user-select: none;
   }
-  .seq-borrowed-toggle:hover { color: #5eeadb; }
+  .seq-borrowed-toggle:hover { color: #68d391; }
   /* v1.217: Borrowed = green */
   .seq-borrowed-pill {
     font-family: 'IBM Plex Mono', monospace; font-size: 10px;
@@ -16032,14 +16032,9 @@ body.split-4track-active .ft-overlay { display: none !important; }
   color: #f0dca8; opacity: 0.8; border-style: dashed;
 }
 .pr-chord-pill-var:hover { background: rgba(255,248,230,0.16); opacity: 1; color: #fff5d0; }
-.pr-chord-pill[data-degree="0"] { color: #c084fc; border-color: rgba(192,132,252,0.35); }
-.pr-chord-pill[data-degree="1"] { color: #c48dff; }
-.pr-chord-pill[data-degree="2"] { color: #cd97ff; }
-.pr-chord-pill[data-degree="3"] { color: #d6a0ff; }
-.pr-chord-pill[data-degree="4"] { color: #deaaff; }
-.pr-chord-pill[data-degree="5"] { color: #e6b4ff; }
-.pr-chord-pill[data-degree="6"] { color: #edbeff; }
-.pr-chord-pill[data-degree="7"] { color: #f3c8ff; }
+/* v1.217: uniform purple for diatonic PR chord pills */
+.pr-chord-pill[data-degree] { color: #c084fc; border-color: rgba(192,132,252,0.35); }
+.pr-chord-pill.pr-pill-borrowed { color: #68d391; border-color: rgba(72,187,120,0.35); }
 
 /* ── grid area ── */
 .pr-grid-wrap {
@@ -16097,15 +16092,10 @@ body.split-4track-active .ft-overlay { display: none !important; }
   cursor: ew-resize; background: transparent;
 }
 .pr-note .pr-note-resize:hover { background: rgba(255,255,255,0.15); }
-/* note color by degree */
-.pr-note[data-degree="0"] { background: rgba(80,30,140,0.7); border-color: #9a50e0; }
-.pr-note[data-degree="1"] { background: rgba(90,35,155,0.7); border-color: #aa58f0; }
-.pr-note[data-degree="2"] { background: rgba(100,40,170,0.7); border-color: #ba60ff; }
-.pr-note[data-degree="3"] { background: rgba(110,45,180,0.7); border-color: #c068ff; }
-.pr-note[data-degree="4"] { background: rgba(120,50,190,0.7); border-color: #c870ff; }
-.pr-note[data-degree="5"] { background: rgba(130,55,200,0.7); border-color: #d078ff; }
-.pr-note[data-degree="6"] { background: rgba(140,60,210,0.7); border-color: #d880ff; }
-.pr-note[data-degree="7"] { background: rgba(150,65,220,0.7); border-color: #e088ff; }
+/* v1.217: diatonic=purple, variation=cream, borrowed=green on PR */
+.pr-note[data-degree] { background: rgba(90,30,160,0.7); border-color: #9a50e0; }
+.pr-note.pr-note-variation { background: rgba(245,230,190,0.5); border-color: #d4c090; color: #3a3020; }
+.pr-note.pr-note-borrowed { background: rgba(72,187,120,0.5); border-color: #48bb78; }
 /* pencil notes (user-drawn, not from chord grid) */
 .pr-note.pencil-note { background: rgba(100,220,180,0.45); border-color: rgba(100,220,180,0.8); }
 /* fresh-note splash animation */
@@ -30340,7 +30330,7 @@ function seqRenderChordPills(song) {
     ).join('');
     if (alwaysVisible) {
       return `<div style="margin-top:6px;text-align:center;">
-        <div style="font-size:10px;color:var(--teal,#2dd4bf);opacity:0.7;margin-bottom:4px;letter-spacing:0.08em;text-transform:uppercase;">Borrowed / Chromatic</div>
+        <div style="font-size:10px;color:#68d391;opacity:0.7;margin-bottom:4px;letter-spacing:0.08em;text-transform:uppercase;">Borrowed / Chromatic</div>
         <div class="${cls}" style="display:flex;justify-content:center;">${pills}</div>
       </div>`;
     }
@@ -30381,22 +30371,14 @@ function seqRenderChordPills(song) {
 
   if (isDesktopStage) {
     // Desktop Stage: 3 collapsible vertical sections (Diatonic / Variations / Borrowed)
-    const _degColors = [
-      {bg:'#1a0833',border:'#3a1060',color:'#c084fc'},
-      {bg:'#200d3e',border:'#4a1878',color:'#c48dff'},
-      {bg:'#271249',border:'#5a2090',color:'#cd97ff'},
-      {bg:'#2e1854',border:'#6a28a8',color:'#d6a0ff'},
-      {bg:'#361e60',border:'#7a30c0',color:'#deaaff'},
-      {bg:'#3d246c',border:'#8a38d8',color:'#e6b4ff'},
-      {bg:'#452a78',border:'#9a44e8',color:'#edbeff'},
-      {bg:'#4d3084',border:'#aa52f0',color:'#f3c8ff'},
-    ];
+    // v1.217: uniform purple for all diatonic degrees
+    const _degColor = {bg:'#1e0a3a',border:'#6b2fa0',color:'#c084fc'};
     // Diatonic pills with variations nested under each parent
     let diatonicHtml = '';
     let variationsHtml = '';
     names.forEach((name, i) => {
       const displayName = name.replace('_viii','');
-      const dc = _degColors[i] || _degColors[0];
+      const dc = _degColor;
       diatonicHtml += `<div class="seq-chord-pill" data-degree="${i}" data-chord="${name}" draggable="true"
         style="background:${dc.bg};border-color:${dc.border};color:${dc.color};"
         title="Hold to preview · Drag into piano roll"
@@ -30431,7 +30413,6 @@ function seqRenderChordPills(song) {
     let borrowedHtml = '';
     borrowed.forEach(b => {
       borrowedHtml += `<div class="seq-borrowed-pill" draggable="true" data-chord="${b.name}"
-        style="border-color:rgba(45,212,191,0.5);color:#2dd4bf;background:rgba(45,212,191,0.08);"
         title="${b.label} · Drag into piano roll"
         ondragstart="this.classList.add('dragging');event.dataTransfer.setData('text/plain',JSON.stringify({chord:'${b.name}',degree:''}))"
         ondragend="this.classList.remove('dragging')"
@@ -44076,12 +44057,14 @@ function _mcoGhostsUpdate(chord, degree, scrollEl) {
   var dropRow = Math.floor(localY / rowH);
   var dropMidi = maxMidi - dropRow;
   var shift = dropMidi - midiNotes[0];
-  var degColors = [
-    'rgba(80,30,140,0.45)', 'rgba(90,35,155,0.45)', 'rgba(100,40,170,0.45)',
-    'rgba(110,45,180,0.45)', 'rgba(120,50,190,0.45)', 'rgba(130,55,200,0.45)',
-    'rgba(140,60,210,0.45)', 'rgba(150,65,220,0.45)'
-  ];
-  var bg = (degree >= 0 && degColors[degree]) ? degColors[degree] : 'rgba(192,132,252,0.35)';
+  // v1.217: uniform purple for diatonic, cream for variation, green for borrowed
+  var bg;
+  if (degree >= 0) { bg = 'rgba(90,30,160,0.45)'; }
+  else {
+    var _ghostBorrowed = false;
+    try { var _gbl = (typeof getBorrowedChords==='function') ? getBorrowedChords(key,mode) : []; _ghostBorrowed = _gbl.some(function(b){return b.name===chord;}); } catch(e){}
+    bg = _ghostBorrowed ? 'rgba(72,187,120,0.35)' : 'rgba(245,230,190,0.35)';
+  }
   midiNotes.forEach(function(m) {
     var midi = m + shift;
     var noteRow = maxMidi - midi;
@@ -65590,7 +65573,14 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         if (row < 0 || row >= PR_TOTAL_ROWS) return;
 
         const el = document.createElement('div');
-        el.className = 'pr-note' + (n.isPencil ? ' pencil-note' : '') + (n.id === prSelected ? ' selected' : '') + (_prFreshIds.has(n.id) ? ' pr-note-fresh' : '');
+        var _nCls = 'pr-note' + (n.isPencil ? ' pencil-note' : '') + (n.id === prSelected ? ' selected' : '') + (_prFreshIds.has(n.id) ? ' pr-note-fresh' : '');
+        if (n.degree >= 0) { _nCls += ''; }
+        else if (n.chordName && !n.isPencil) {
+          var _isBorrowed = false;
+          try { var _bList = (typeof getBorrowedChords==='function') ? getBorrowedChords(seqCurrentKey(),seqCurrentMode()) : []; _isBorrowed = _bList.some(function(b){return b.name===n.chordName;}); } catch(e){}
+          _nCls += _isBorrowed ? ' pr-note-borrowed' : ' pr-note-variation';
+        }
+        el.className = _nCls;
         el.dataset.noteId = n.id;
         if (n.degree >= 0) el.dataset.degree = n.degree;
         el.style.left = colToX(n.startCol) + 'px';
