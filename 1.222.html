@@ -38379,10 +38379,31 @@ function _uiRestoreFromState(state, song) {
       // Show the detail view (song open)
       showDetail();
 
-      // Restore split mode if it was active
-      if (state.splitActive && state.splitRight) {
-        console.log('[UI-STATE] Restoring split mode — right:', state.splitRight, '| left:', state.splitLeft, '| expanded:', state.splitExpanded);
-        openSplitMode(state.splitRight);
+      // Restore drawer/split — use drawerOpen as primary signal since
+      // splitActive can be false even when a drawer was visually open
+      var _restoreTool = (state.drawerOpen && state.drawerOpen !== 'none')
+        ? state.drawerOpen
+        : (state.splitRight || null);
+
+      if (_restoreTool) {
+        console.log('[UI-STATE] Restoring drawer:', _restoreTool, '| splitExpanded:', state.splitExpanded, '| splitLeft:', state.splitLeft);
+        // Use navToolTap paradigm: open split + expand right to 100%
+        if (typeof _ensureDetailView === 'function') _ensureDetailView();
+        if (typeof closeAllDrawers === 'function') closeAllDrawers(null);
+        openSplitMode(_restoreTool);
+        // Restore expanded state (default to right-expanded like navToolTap)
+        if (state.splitExpanded) {
+          _splitExpandedSide = state.splitExpanded;
+          document.body.classList.remove('split-expanded-left', 'split-expanded-right');
+          document.body.classList.add('split-expanded-' + state.splitExpanded);
+          if (typeof _syncExpandBtns === 'function') _syncExpandBtns();
+        } else {
+          // Default: drawer at 100% (right expanded) like navToolTap
+          _splitExpandedSide = 'right';
+          document.body.classList.remove('split-expanded-left');
+          document.body.classList.add('split-expanded-right');
+          if (typeof _syncExpandBtns === 'function') _syncExpandBtns();
+        }
 
         // Restore left pane selection
         if (state.splitLeft) {
@@ -38391,11 +38412,6 @@ function _uiRestoreFromState(state, song) {
             leftSel.value = state.splitLeft;
             if (typeof setSplitLeftView === 'function') setSplitLeftView(state.splitLeft);
           }
-        }
-
-        // Restore expanded pane
-        if (state.splitExpanded) {
-          splitExpandPane(state.splitExpanded);
         }
       }
 
@@ -38416,8 +38432,12 @@ function _uiRestoreFromState(state, song) {
       var _pyf2 = document.getElementById('pickFighterOverlay');
       if (_pyf2) _pyf2.remove();
 
-      _uiRestoring = false;
       _uiDismissLoadingScreen();
+
+      // Keep _uiRestoring true briefly to suppress the MutationObserver's
+      // intermediate save (body class changes during restore trigger a 1200ms
+      // debounced save that would capture stale drawerOpen:"none")
+      setTimeout(function() { _uiRestoring = false; }, 2500);
 
       // Preload audio in background
       setTimeout(function() {
