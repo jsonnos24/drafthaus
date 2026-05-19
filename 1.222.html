@@ -34612,6 +34612,10 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
     const synthDecayTail   = 0.55;
     const synthStopTail    = 0.65;
 
+    // Match the same envelope as playPianoNote (preview) so pencil notes
+    // sound identical during playback: attack ramp + sustain + release tail
+    const melVol = Math.min(1, noteVel * 0.75 * 0.85);
+    const _melRelT = 0.50;
     let samplerPlayed = false;
     if (hasPiano && _pianoLoaded) {
       const closest = _pianoClosestMidi(midiNote);
@@ -34620,10 +34624,12 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
         const src = ctx.createBufferSource(), gain = ctx.createGain();
         src.buffer = buf;
         src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
-        gain.gain.setValueAtTime(amp, t);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + dur2 + samplerDecayTail);
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(melVol, t + 0.06);
+        gain.gain.exponentialRampToValueAtTime(Math.max(0.01, melVol * 0.50), t + dur2);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur2 + _melRelT);
         src.connect(gain); gain.connect(seqGetMelodyOut());
-        src.start(t); src.stop(t + dur2 + samplerStopTail);
+        src.start(t); src.stop(t + dur2 + _melRelT + 0.05);
         _melodyScheduledNodes.push(src);
         samplerPlayed = true;
       }
@@ -34635,10 +34641,12 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
         const src = ctx.createBufferSource(), gain = ctx.createGain();
         src.buffer = buf;
         src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
-        gain.gain.setValueAtTime(amp, t);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + dur2 + samplerDecayTail);
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(melVol, t + 0.06);
+        gain.gain.exponentialRampToValueAtTime(Math.max(0.01, melVol * 0.50), t + dur2);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur2 + _melRelT);
         src.connect(gain); gain.connect(seqGetMelodyOut());
-        src.start(t); src.stop(t + dur2 + samplerStopTail);
+        src.start(t); src.stop(t + dur2 + _melRelT + 0.05);
         _melodyScheduledNodes.push(src);
         samplerPlayed = true;
       }
@@ -34650,10 +34658,12 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
         const src = ctx.createBufferSource(), gain = ctx.createGain();
         src.buffer = buf;
         src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
-        gain.gain.setValueAtTime(amp, t);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + dur2 + samplerDecayTail);
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(melVol, t + 0.06);
+        gain.gain.exponentialRampToValueAtTime(Math.max(0.01, melVol * 0.50), t + dur2);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur2 + _melRelT);
         src.connect(gain); gain.connect(seqGetMelodyOut());
-        src.start(t); src.stop(t + dur2 + samplerStopTail);
+        src.start(t); src.stop(t + dur2 + _melRelT + 0.05);
         _melodyScheduledNodes.push(src);
         samplerPlayed = true;
       }
@@ -34663,10 +34673,12 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
       const octShift = (n.octave || 4) - 4;
       const freq = baseFreq * Math.pow(2, octShift);
       const o = ctx.createOscillator(), g = ctx.createGain();
+      const synthVol = Math.min(1, noteVel * 0.75 * 0.3);
       o.type = wave; o.frequency.value = freq;
       o.connect(g); g.connect(seqGetMelodyOut());
       g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(amp, t + 0.02);
+      g.gain.linearRampToValueAtTime(synthVol, t + 0.06);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.001, synthVol * 0.50), t + dur2);
       g.gain.exponentialRampToValueAtTime(0.001, t + dur2 + synthDecayTail);
       o.start(t); o.stop(t + dur2 + synthStopTail);
       _melodyScheduledNodes.push(o);
