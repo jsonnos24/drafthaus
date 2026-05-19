@@ -16843,8 +16843,8 @@ setTimeout(function() {
     <!-- Logo + New Idea + Roll — grouped for idle-dim effect -->
     <div id="headerDimGroup" style="display:flex;align-items:center;gap:10px;">
     <div style="display:flex;flex-direction:column;gap:1px;cursor:pointer;" onclick="showList()" title="Back to drafts">
-      <span class="header-logo">Drafthaus<span class="header-version">v1.217</span></span>
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.217</span>
+      <span class="header-logo">Drafthaus<span class="header-version">v1.218</span></span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.218</span>
     </div>
     <!-- New Idea + Roll (moved from center; hidden on mobile by CSS class rules) -->
     <button title="Create a new blank song draft. Start fresh with an empty canvas for your next idea." class="hla-newdraft-btn" onclick="newSong()"
@@ -33604,6 +33604,7 @@ var _fkbDragging = false;
 var _fkbTouchActiveKey = null;
 var _fkbOctaves = [4];
 var _fkbEl = null;
+var _fkbMinimized = false;
 
 function fkbInit() {
   if (_fkbEl) return;
@@ -33619,6 +33620,7 @@ function fkbInit() {
         '<button class="fkb-oct-btn" id="fkbShrink" title="Remove octave">−</button>' +
         '<span class="fkb-oct-label" id="fkbOctLabel">1 oct</span>' +
         '<button class="fkb-oct-btn" id="fkbGrow" title="Add octave">+</button>' +
+        '<button class="fkb-oct-btn" id="fkbMinBtn" title="Minimize keyboard" style="margin-left:6px;font-size:13px;">▾</button>' +
       '</div>' +
       '<div class="fkb-body" id="fkbBody"></div>' +
     '</div>';
@@ -33627,6 +33629,7 @@ function fkbInit() {
 
   document.getElementById('fkbShrink').addEventListener('click', function() { fkbResize(-1); });
   document.getElementById('fkbGrow').addEventListener('click', function() { fkbResize(1); });
+  document.getElementById('fkbMinBtn').addEventListener('click', function() { fkbToggleMinimize(); });
 
   // Drag logic on header
   var hdr = document.getElementById('fkbHeader');
@@ -33717,6 +33720,13 @@ function fkbRender() {
     {bg:'#134e4a',bdr:'#4fd1c5'},{bg:'#1e3a5f',bdr:'#4299e1'},
     {bg:'#3b1f6e',bdr:'#9f7aea'}
   ];
+  // v1.218: Pressed-state colors per rainbow degree (brighter versions)
+  var _fkbPressedW = [
+    '#ff7b7b','#ffb366','#ffd966','#6ee89a','#6ee8dd','#6bb8f7','#b99df7'
+  ];
+  var _fkbPressedB = [
+    '#cc4444','#cc7733','#ccaa33','#33aa66','#33aa99','#3388cc','#7744cc'
+  ];
   var WDB = '#f0ede8', WDBD = '#c8c4be';
   var BDB = '#111';
   var _fkbNoteDegree = {};
@@ -33749,11 +33759,12 @@ function fkbRender() {
       k.dataset.note = note;
       k.dataset.oct  = oct;
       k._origBg = bg;
+      k._pressedBg = (deg != null) ? _fkbPressedW[deg] : '#ddd';
       if (note === 'C' || isRoot) {
         var lc = isRoot ? '#fff' : (inScale ? '#1a1a2e' : '#999');
         k.innerHTML = '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:' + lc + ';font-weight:' + (isRoot?'700':'400') + ';pointer-events:none;user-select:none;">' + note + oct + '</span>';
       }
-      var dn = function() { k.style.background = '#ff6b6b'; kbdPlayNote(note, oct, true); melodyRecordNote(note, oct, true); };
+      var dn = function() { k.style.background = k._pressedBg; kbdPlayNote(note, oct, true); melodyRecordNote(note, oct, true); };
       var up = function() { k.style.background = bg; kbdNoteOff(note, oct); melodyRecordNote(note, oct, false); };
       k.addEventListener('mousedown', dn);
       k.addEventListener('mouseup', up);
@@ -33777,7 +33788,8 @@ function fkbRender() {
       bk.dataset.note = note;
       bk.dataset.oct  = oct;
       bk._origBg = bg;
-      var dn = function() { bk.style.background = '#ff6b6b'; kbdPlayNote(note, oct, true); melodyRecordNote(note, oct, true); };
+      bk._pressedBg = (deg != null) ? _fkbPressedB[deg] : '#444';
+      var dn = function() { bk.style.background = bk._pressedBg; kbdPlayNote(note, oct, true); melodyRecordNote(note, oct, true); };
       var up = function() { bk.style.background = bg; kbdNoteOff(note, oct); melodyRecordNote(note, oct, false); };
       bk.addEventListener('mousedown', function(e) { e.stopPropagation(); dn(); });
       bk.addEventListener('mouseup', up);
@@ -33807,7 +33819,7 @@ function fkbRender() {
       melodyRecordNote(_fkbTouchActiveKey.dataset.note, parseInt(_fkbTouchActiveKey.dataset.oct), false);
     }
     _fkbTouchActiveKey = elem;
-    elem.style.background = '#ff6b6b';
+    elem.style.background = elem._pressedBg || '#ff6b6b';
     kbdPlayNote(elem.dataset.note, parseInt(elem.dataset.oct), true);
     melodyRecordNote(elem.dataset.note, parseInt(elem.dataset.oct), true);
   }, { passive: false });
@@ -33840,7 +33852,7 @@ function fkbHighlightChord(midiNotes) {
   body.querySelectorAll('.fkb-key').forEach(function(k) {
     var ni = SEQ_NOTES.indexOf(k.dataset.note);
     if (ni >= 0 && pitchClasses.has(ni)) {
-      k.style.background = '#4ade80';
+      k.style.background = k._pressedBg || '#4ade80';
       k._chordHL = true;
     }
   });
@@ -33864,7 +33876,7 @@ function fkbNoteOn(note, oct) {
   if (!body) return;
   body.querySelectorAll('.fkb-key').forEach(function(k) {
     if (k.dataset.note === note && k.dataset.oct == oct) {
-      k.style.background = '#ff6b6b';
+      k.style.background = k._pressedBg || '#ff6b6b';
       k._noteHL = true;
     }
   });
