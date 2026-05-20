@@ -4596,6 +4596,25 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   /* body.pr-open .fkb-wrap { display: none !important; } — removed: FKB should stay visible in PR */
 
+  /* v1.225: Mini inline keyboard in toolbar row */
+  .fkb-inline-wkey {
+    width: 7px; height: 28px; background: #e8e8e8; border: 1px solid #888;
+    border-radius: 0 0 2px 2px; cursor: pointer; flex-shrink: 0; position: relative; z-index: 1;
+  }
+  .fkb-inline-wkey:hover, .fkb-inline-wkey.active { background: #f5a623; }
+  .fkb-inline-wkey.in-scale { background: #fff; }
+  .fkb-inline-bkey {
+    width: 5px; height: 18px; background: #222; border: 1px solid #555;
+    border-radius: 0 0 2px 2px; cursor: pointer; flex-shrink: 0;
+    margin-left: -3px; margin-right: -3px; position: relative; z-index: 2;
+  }
+  .fkb-inline-bkey:hover, .fkb-inline-bkey.active { background: #f5a623; }
+  .fkb-inline-bkey.in-scale { background: #444; }
+  .fkb-inline-oct-mark {
+    position: absolute; bottom: 0; left: 0; font-size: 6px; color: #666;
+    pointer-events: none; line-height: 1;
+  }
+
   /* ═══════════════════ KEYBOARD DRAWER — MOBILE LANDSCAPE ═══════════════════ */
   @media (orientation: landscape) and (max-height: 500px) {
     /* ── Full-viewport drawer in landscape — bottom nav + seq strip stay visible ── */
@@ -31748,6 +31767,9 @@ async function _urStartRecording() {
     })(b);
   }
 
+  // v1.225: Save the intended recording start step BEFORE playback advances the scheduler
+  var _urSavedStartStep = (_urStartStep >= 0) ? _urStartStep : (_prPendingSeekStep >= 0 ? _prPendingSeekStep : _seqStepIndex);
+
   // Start sequencer playback during countdown (full playback)
   if (!seqIsPlaying) {
     _seqPlayFilter = 'all';
@@ -31768,6 +31790,11 @@ async function _urStartRecording() {
 
   if (!_urCountingIn) return; // cancelled during count-in
   _urCountingIn = false;
+
+  // v1.225: Reset scheduler to the intended start position after 2-bar countdown
+  // The scheduler advanced during countdown — rewind it so recording captures at correct bar
+  _seqStepIndex = _urSavedStartStep;
+  console.log('[UR-REC] countdown done — resetting scheduler to step=' + _urSavedStartStep);
 
   // ── ARM universal recording ──
   _urIsRecording  = true;
@@ -33793,6 +33820,66 @@ function fkbToggleMinimize() {
   if (body) body.style.display = _fkbMinimized ? 'none' : '';
   if (btn) { btn.textContent = _fkbMinimized ? '▴' : '▾'; btn.title = _fkbMinimized ? 'Restore keyboard' : 'Minimize keyboard'; }
   if (panel) panel.style.minHeight = _fkbMinimized ? '0' : '';
+  // v1.225: Show/hide inline mini keys in toolbar row
+  var inlineRow = document.getElementById('fkbInlineRow');
+  if (inlineRow) {
+    inlineRow.style.display = _fkbMinimized ? 'flex' : 'none';
+    if (_fkbMinimized) fkbRenderInline();
+  }
+  // Hide floating panel when minimized to inline
+  if (_fkbEl) _fkbEl.style.display = _fkbMinimized ? 'none' : '';
+}
+
+// v1.225: Render mini inline playable keyboard (all octaves 1-7) in toolbar row
+function fkbRenderInline() {
+  var el = document.getElementById('fkbInlineKeys');
+  if (!el) return;
+  el.innerHTML = '';
+  var key = (typeof seqCurrentKey === 'function') ? seqCurrentKey() : 'C';
+  var mode = (typeof seqCurrentMode === 'function') ? seqCurrentMode() : 'major';
+  var rootIdx = (typeof SEQ_NOTES !== 'undefined') ? SEQ_NOTES.indexOf(key) : 0;
+  var scaleSet = new Set();
+  if (typeof SEQ_SCALES !== 'undefined' && SEQ_SCALES[mode]) {
+    SEQ_SCALES[mode].steps.forEach(function(s) { scaleSet.add(SEQ_NOTES[(rootIdx + s) % 12]); });
+  }
+  var allNotes = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  var isBlack = {'C#':1,'D#':1,'F#':1,'G#':1,'A#':1};
+  for (var oct = 1; oct <= 7; oct++) {
+    for (var ni = 0; ni < 12; ni++) {
+      var noteName = allNotes[ni];
+      var isB = !!isBlack[noteName];
+      var inScale = scaleSet.has(noteName);
+      var kd = document.createElement('div');
+      kd.className = (isB ? 'fkb-inline-bkey' : 'fkb-inline-wkey') + (inScale ? ' in-scale' : '');
+      kd.setAttribute('data-note', noteName);
+      kd.setAttribute('data-oct', oct);
+      if (noteName === 'C') {
+        var mark = document.createElement('span');
+        mark.className = 'fkb-inline-oct-mark';
+        mark.textContent = oct;
+        kd.style.position = 'relative';
+        kd.appendChild(mark);
+      }
+      (function(n, o) {
+        kd.addEventListener('pointerdown', function(e) {
+          e.preventDefault();
+          this.classList.add('active');
+          this.setPointerCapture(e.pointerId);
+          if (typeof kbdPlayNote === 'function') kbdPlayNote(n, o, true);
+          if (typeof melodyRecordNote === 'function') melodyRecordNote(n, o, true);
+        });
+        kd.addEventListener('pointerup', function() {
+          this.classList.remove('active');
+          if (typeof kbdNoteOff === 'function') kbdNoteOff(n, o);
+          if (typeof melodyRecordNote === 'function') melodyRecordNote(n, o, false);
+        });
+        kd.addEventListener('pointerleave', function() {
+          this.classList.remove('active');
+        });
+      })(noteName, oct);
+      el.appendChild(kd);
+    }
+  }
 }
 
 function fkbRender() {
@@ -42569,14 +42656,9 @@ function renderKeyboardDrawerHtml(song) {
           <span id="melodyInstrumentLoading" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);">loading…</span>
           <button title="Toggle melody quantization on or off" class="melody-quant-btn${melodyQuantize ? ' active' : ''}" id="melodyQuantBtn" onclick="melodyToggleQuantize()">Quantize</button>
         </div>
-        <!-- Row 2: Note duration selector -->
-        <div class="kbd-stage-toolbar-row" style="border-top:1px solid rgba(255,255,255,0.06);">
-          <span class="seq-label" style="font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint);">Note Length</span>
-          <button class="seq-btn" id="durBtnWhole" onclick="kbdNoteDurationChanged(1)" title="Whole note" style="padding:3px 8px;display:inline-flex;align-items:center;"><svg width="16" height="18" viewBox="0 0 18 20"><ellipse cx="9" cy="12" rx="7" ry="4.5" fill="none" stroke="currentColor" stroke-width="1.8" transform="rotate(-15,9,12)"/></svg></button>
-          <button class="seq-btn" id="durBtnHalf" onclick="kbdNoteDurationChanged(0.5)" title="Half note" style="padding:3px 8px;display:inline-flex;align-items:center;"><svg width="16" height="22" viewBox="0 0 18 24"><ellipse cx="8" cy="17" rx="6" ry="4" fill="none" stroke="currentColor" stroke-width="1.8" transform="rotate(-15,8,17)"/><line x1="14" y1="17" x2="14" y2="3" stroke="currentColor" stroke-width="1.8"/></svg></button>
-          <button class="seq-btn active" id="durBtnQuarter" onclick="kbdNoteDurationChanged(0.25)" title="Quarter note" style="padding:3px 8px;display:inline-flex;align-items:center;"><svg width="16" height="22" viewBox="0 0 18 24"><ellipse cx="8" cy="17" rx="6" ry="4" fill="currentColor" stroke="currentColor" stroke-width="1" transform="rotate(-15,8,17)"/><line x1="14" y1="17" x2="14" y2="3" stroke="currentColor" stroke-width="1.8"/></svg></button>
-          <button class="seq-btn" id="durBtnEighth" onclick="kbdNoteDurationChanged(0.125)" title="Eighth note" style="padding:3px 8px;display:inline-flex;align-items:center;"><svg width="16" height="22" viewBox="0 0 18 24"><ellipse cx="8" cy="17" rx="6" ry="4" fill="currentColor" stroke="currentColor" stroke-width="1" transform="rotate(-15,8,17)"/><line x1="14" y1="17" x2="14" y2="3" stroke="currentColor" stroke-width="1.8"/><path d="M14,3 Q18,6 14,10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
-          <button class="seq-btn" id="durBtnSixteenth" onclick="kbdNoteDurationChanged(0.0625)" title="Sixteenth note" style="padding:3px 8px;display:inline-flex;align-items:center;"><svg width="16" height="22" viewBox="0 0 18 24"><ellipse cx="8" cy="17" rx="6" ry="4" fill="currentColor" stroke="currentColor" stroke-width="1" transform="rotate(-15,8,17)"/><line x1="14" y1="17" x2="14" y2="3" stroke="currentColor" stroke-width="1.8"/><path d="M14,3 Q18,6 14,10" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M14,7 Q18,10 14,14" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
+        <!-- v1.225: Mini inline keyboard row (replaces Note Length) -->
+        <div class="kbd-stage-toolbar-row" id="fkbInlineRow" style="border-top:1px solid rgba(255,255,255,0.06);padding:2px 4px;display:none;overflow-x:auto;overflow-y:hidden;white-space:nowrap;-webkit-overflow-scrolling:touch;">
+          <div id="fkbInlineKeys" style="display:inline-flex;height:28px;position:relative;user-select:none;touch-action:none;"></div>
         </div>
       </div>
       <!-- Hidden: keep kbdDskSettingsExtra for JS references -->
@@ -46486,19 +46568,14 @@ document.addEventListener('DOMContentLoaded', function() { ucbPopulateChordProgs
 
 // (Spacebar for sequencer and keyboard handled by global keydown handler above)
 
-// ── R shortcut for tape deck (Space handled by global keydown handler) ───────
+// ── R shortcut for recording (v1.225: global — no longer requires tape deck visible) ───────
 document.addEventListener('keydown', function(e) {
-  const overlay = document.getElementById('vrOverlay');
-  const miniBar = document.getElementById('vrMiniBar');
-  const deckVisible = (overlay && (overlay.classList.contains('vr-open') || overlay.offsetParent !== null)) ||
-                      (miniBar && miniBar.style.display !== 'none' && miniBar.offsetParent !== null);
-  if (!deckVisible) return;
   const tag = e.target?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key.toLowerCase() === 'r' && !e.shiftKey) {
     e.preventDefault();
-    ucRec(); // Use the same picker/mode flow as the REC button
+    ucRec();
   }
 });
 
@@ -68694,6 +68771,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   var _ntPainting = false;
   var _ntPaintLastKey = null; // "col:midi" to avoid duplicate notes at same spot
   var _ntErasing = false;
+  var _ntEraseStart = null; // {x, y} SVG-local coords for drag-box erase
+  var _ntEraseRect = null;  // SVG <rect> element for visual selection box
 
   function _ntPosFromEvent(e) {
     var svg = document.getElementById('notationSVG');
@@ -68768,13 +68847,21 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       var noteG = e.target.closest('.nt-note');
       if (_ntGetTool() === 'eraser') {
         _ntErasing = true;
-        if (noteG) {
-          var id = noteG.getAttribute('data-id');
-          if (id && typeof window.prDeleteNoteById === 'function') {
-            window.prDeleteNoteById(id);
-            ntRender();
-          }
-        }
+        var svgRect = svg.getBoundingClientRect();
+        _ntEraseStart = { x: e.clientX - svgRect.left, y: e.clientY - svgRect.top };
+        // Create visible selection rectangle
+        _ntEraseRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        _ntEraseRect.setAttribute('x', _ntEraseStart.x);
+        _ntEraseRect.setAttribute('y', _ntEraseStart.y);
+        _ntEraseRect.setAttribute('width', 0);
+        _ntEraseRect.setAttribute('height', 0);
+        _ntEraseRect.setAttribute('fill', 'rgba(255,60,60,0.15)');
+        _ntEraseRect.setAttribute('stroke', '#ff3c3c');
+        _ntEraseRect.setAttribute('stroke-width', '1.5');
+        _ntEraseRect.setAttribute('stroke-dasharray', '4,3');
+        _ntEraseRect.setAttribute('pointer-events', 'none');
+        svg.appendChild(_ntEraseRect);
+        e.preventDefault();
         return;
       }
       if (_ntGetTool() === 'pointer' && noteG) {
@@ -68801,15 +68888,27 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     });
 
     svg.addEventListener('mousemove', function(e) {
-      if (_ntErasing && _ntGetTool() === 'eraser') {
-        var noteG = e.target.closest('.nt-note');
-        if (noteG) {
-          var id = noteG.getAttribute('data-id');
-          if (id && typeof window.prDeleteNoteById === 'function') {
-            window.prDeleteNoteById(id);
-            ntRender();
-          }
-        }
+      if (_ntErasing && _ntGetTool() === 'eraser' && _ntEraseStart && _ntEraseRect) {
+        var svgRect2 = svg.getBoundingClientRect();
+        var curX = e.clientX - svgRect2.left;
+        var curY = e.clientY - svgRect2.top;
+        var rx = Math.min(_ntEraseStart.x, curX);
+        var ry = Math.min(_ntEraseStart.y, curY);
+        var rw = Math.abs(curX - _ntEraseStart.x);
+        var rh = Math.abs(curY - _ntEraseStart.y);
+        _ntEraseRect.setAttribute('x', rx);
+        _ntEraseRect.setAttribute('y', ry);
+        _ntEraseRect.setAttribute('width', rw);
+        _ntEraseRect.setAttribute('height', rh);
+        // Highlight notes inside box
+        var allNotes = svg.querySelectorAll('.nt-note');
+        allNotes.forEach(function(ng) {
+          var nb = ng.getBBox();
+          var nCx = nb.x + nb.width / 2;
+          var nCy = nb.y + nb.height / 2;
+          var inside = nCx >= rx && nCx <= rx + rw && nCy >= ry && nCy <= ry + rh;
+          ng.style.opacity = inside ? '0.35' : '1';
+        });
         return;
       }
       if (_ntPainting && _ntGetTool() === 'pencil') {
@@ -68835,6 +68934,33 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     svg.addEventListener('mouseup', function(e) {
       _ntPainting = false;
       _ntPaintLastKey = null;
+      // v1.225: Drag-box erase — delete all notes inside selection box on mouseup
+      if (_ntErasing && _ntEraseRect && _ntEraseStart) {
+        var rx2 = parseFloat(_ntEraseRect.getAttribute('x'));
+        var ry2 = parseFloat(_ntEraseRect.getAttribute('y'));
+        var rw2 = parseFloat(_ntEraseRect.getAttribute('width'));
+        var rh2 = parseFloat(_ntEraseRect.getAttribute('height'));
+        var toDelete = [];
+        svg.querySelectorAll('.nt-note').forEach(function(ng) {
+          var nb = ng.getBBox();
+          var nCx = nb.x + nb.width / 2;
+          var nCy = nb.y + nb.height / 2;
+          if (nCx >= rx2 && nCx <= rx2 + rw2 && nCy >= ry2 && nCy <= ry2 + rh2) {
+            var nid = ng.getAttribute('data-id');
+            if (nid) toDelete.push(nid);
+          }
+          ng.style.opacity = '1';
+        });
+        if (_ntEraseRect.parentNode) _ntEraseRect.parentNode.removeChild(_ntEraseRect);
+        _ntEraseRect = null;
+        _ntEraseStart = null;
+        _ntErasing = false;
+        if (toDelete.length > 0 && typeof window.prDeleteNoteById === 'function') {
+          toDelete.forEach(function(did) { window.prDeleteNoteById(did); });
+          ntRender();
+        }
+        return;
+      }
       _ntErasing = false;
       if (_ntDragNote && _ntDragStart) {
         var dy = _ntDragStart.y - e.clientY;
@@ -68852,7 +68978,14 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     svg.addEventListener('mouseleave', function() {
       _ntPainting = false;
       _ntPaintLastKey = null;
+      // v1.225: Clean up erase box on mouseleave
+      if (_ntEraseRect && _ntEraseRect.parentNode) _ntEraseRect.parentNode.removeChild(_ntEraseRect);
+      _ntEraseRect = null;
+      _ntEraseStart = null;
       _ntErasing = false;
+      // Reset any highlight opacity
+      var svg2 = document.getElementById('notationSVG');
+      if (svg2) svg2.querySelectorAll('.nt-note').forEach(function(ng) { ng.style.opacity = '1'; });
     });
   }
 
