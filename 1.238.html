@@ -23384,6 +23384,23 @@ function _midiHandleMessage(msg) {
 // Route MIDI channel-10 (GM drum) notes to the sequencer drum sounds
 
 function _midiNoteOn(midiNote, velocity) {
+  // v1.238: Key Lock — filter non-scale MIDI keys when Key Lock is on
+  if (typeof _prKeyLock !== 'undefined' && _prKeyLock) {
+    try {
+      var _klKey = (typeof seqCurrentKey === 'function' ? seqCurrentKey() : 'C') || 'C';
+      var _klMode = (typeof seqCurrentMode === 'function' ? seqCurrentMode() : 'major') || 'major';
+      var _klRoot = SEQ_NOTES.indexOf(_klKey);
+      if (_klRoot >= 0) {
+        var _klScale = (typeof SEQ_SCALES !== 'undefined' && SEQ_SCALES[_klMode]) ? SEQ_SCALES[_klMode] : null;
+        if (_klScale) {
+          var _klSteps = _klScale.steps.slice(0, 7);
+          var _klInKey = _klSteps.map(function(s) { return (_klRoot + s) % 12; });
+          var _klPc = ((midiNote % 12) + 12) % 12;
+          if (_klInKey.indexOf(_klPc) < 0) return; // not in scale — ignore
+        }
+      }
+    } catch(e) {}
+  }
   var _fmn = SEQ_NOTES[midiNote % 12], _fmo = Math.floor(midiNote / 12) - 1;
   if (_fmn) fkbNoteOn(_fmn, _fmo);
   // Step-input: place note in PR when compose mode is active
@@ -34504,7 +34521,7 @@ function fkbRender() {
       // v1.227: Key lock guard — ignore out-of-scale keys when _prKeyLock is on
       var dn = function() { if (_prKeyLock && !bk._inScale) return; bk.style.background = bk._pressedBg; kbdPlayNote(note, oct, true); melodyRecordNote(note, oct, true); };
       var up = function() { bk.style.background = bg; kbdNoteOff(note, oct); melodyRecordNote(note, oct, false); };
-      bk.addEventListener('mousedown', function(e) { e.stopPropagation(); dn(); });
+      bk.addEventListener('mousedown', function(e) { e.stopPropagation(); _fkbDragging = true; dn(); });
       bk.addEventListener('mouseup', up);
       bk.addEventListener('mouseleave', function() { up(); });
       bk.addEventListener('mouseenter', function(e) { e.stopPropagation(); if (_fkbDragging) dn(); });
@@ -68264,6 +68281,10 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     // Sync & save
     if (typeof prAutoSync === 'function') prAutoSync();
     if (prOpen) prRenderNotes();
+    // v1.238: refresh notation view after recording finishes
+    if (typeof window.ntRender === 'function' && document.getElementById('notationSVG')) {
+      window.ntRender();
+    }
     console.log('[PR REC] Stopped — total notes:', prNotes.length);
   };
 
@@ -68302,6 +68323,10 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     });
     _prFreshIds.add(_rid2);
     if (prOpen) prRenderNotes();
+    // v1.238: live-update notation view during MIDI recording
+    if (typeof window.ntRender === 'function' && document.getElementById('notationSVG')) {
+      window.ntRender();
+    }
   };
 
   window.prRecordChord = function(chordName, degree) {
@@ -68381,6 +68406,12 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       if (!grouped[si]) grouped[si] = [];
       grouped[si].push(n);
     });
+    // v1.238: clear pianoRoll for ALL loaded sections, then repopulate from grouped
+    // This ensures sections with zero notes get emptied (fixes erased-but-still-plays bug)
+    _prSectionLayout.forEach(function(lay) {
+      var seq = seqs[lay.seqIdx];
+      if (seq) seq.pianoRoll = [];
+    });
     Object.keys(grouped).forEach(function(siStr) {
       var si = parseInt(siStr);
       var seq = seqs[si];
@@ -68401,11 +68432,15 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     save();
     // Live-update the playing scheduler cache so edits take effect immediately
     if (typeof _seqSongSections !== 'undefined' && _seqSongSections && _seqSongSections.length) {
-      Object.keys(grouped).forEach(function(siStr) {
-        var si2 = parseInt(siStr);
-        var sched = _seqSongSections.find(function(ss) { return ss._seqIdx === si2; });
-        if (sched && seqs[si2]) sched.pianoRoll = seqs[si2].pianoRoll;
+      _prSectionLayout.forEach(function(lay) {
+        var sched = _seqSongSections.find(function(ss) { return ss._seqIdx === lay.seqIdx; });
+        if (sched && seqs[lay.seqIdx]) sched.pianoRoll = seqs[lay.seqIdx].pianoRoll;
       });
+      // v1.238: stop currently-scheduled chord audio nodes so erased notes silence immediately
+      if (typeof _prChordScheduledNodes !== 'undefined' && _prChordScheduledNodes.length) {
+        _prChordScheduledNodes.forEach(function(n) { try { n.stop(); } catch(e) {} });
+        _prChordScheduledNodes = [];
+      }
     }
     _prMarkDirty();
   };
