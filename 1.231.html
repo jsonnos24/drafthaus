@@ -45814,6 +45814,8 @@ function seqKeySelectChanged(triggerEl) {
   // Refresh PR palette + full re-render if open (new key = new scale highlights)
   if (typeof window.prBuildPalette === 'function') window.prBuildPalette();
   if (typeof window.prRender === 'function') window.prRender();
+  // v1.231: re-render notation view so key label + transposed notes update visually
+  if (typeof window.ntRender === 'function') window.ntRender();
   const kd = document.getElementById('seqKeyDisplay');
   if (kd) kd.textContent = newVal;
 }
@@ -68990,11 +68992,11 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         svgEl('text', {x: STAFF_LEFT_MARGIN + 38, y: bassTopY + 35, 'font-size': '18', 'font-weight': 'bold', fill: '#333', 'font-family': 'serif'}, svg).textContent = '4';
       }
 
-      // Beat guides (light grey vertical lines on each beat)
+      // Beat guides (light grey vertical lines on each beat) — aligned to note area
       for (var bt = 1; bt < systemCols / colsPerBeat; bt++) {
         if (bt % beatsPerBar === 0) continue; // skip bar lines
-        var btx = STAFF_LEFT_MARGIN + bt * colsPerBeat * dynamicColW;
-        if (btx > STAFF_LEFT_MARGIN + systemWidth) break;
+        var btx = _blNoteStart + (bt * colsPerBeat / systemCols) * _blNoteWidth;
+        if (btx > _blNoteStart + _blNoteWidth) break;
         svgEl('line', {x1: btx, y1: trebleTopY, x2: btx, y2: bassTopY + 4 * STAFF_LINE_GAP, stroke: '#ddd', 'stroke-width': '0.5'}, svg);
       }
 
@@ -69121,21 +69123,23 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         _ntRenderRests(svg, rbStart, colsPerBar, sorted, noteAreaStart, noteAreaWidth, systemCols, sysStartCol, trebleTopY);
       }
 
-      // Bar numbers above each bar
+      // Bar numbers above each bar — aligned to note area
       for (var bn = 0; bn < barsPerSystem; bn++) {
         var absBar = firstNoteBar + sys * barsPerSystem + bn;
         if (absBar >= bars) break;
-        var bnx = STAFF_LEFT_MARGIN + bn * colsPerBar * dynamicColW;
+        var bnx = (bn === 0) ? STAFF_LEFT_MARGIN : _blNoteStart + (bn * colsPerBar / systemCols) * _blNoteWidth;
         svgEl('text', {x: bnx + 3, y: trebleTopY - 6, 'font-size': '10', fill: '#333', 'font-weight': 'bold', 'text-anchor': 'start', 'font-family': 'sans-serif'}, svg).textContent = absBar + 1;
       }
     }
 
-    // End double bar line
+    // End double bar line — aligned to note area
     var lastSys = numSystems - 1;
     var lastSysY = STAFF_TOP_MARGIN + lastSys * (grandStaffHeight + SYSTEM_GAP);
     var lastBassBot = lastSysY + 4 * STAFF_LINE_GAP + 40 + 4 * STAFF_LINE_GAP;
     var lastBarsInSys = Math.min(barsPerSystem, renderBars - lastSys * barsPerSystem);
-    var endX = STAFF_LEFT_MARGIN + lastBarsInSys * colsPerBar * dynamicColW;
+    var _endNoteStart = STAFF_LEFT_MARGIN + (lastSys === 0 ? 55 : 30);
+    var _endNoteWidth = systemWidth - (lastSys === 0 ? 55 : 30);
+    var endX = _endNoteStart + (lastBarsInSys * colsPerBar / systemCols) * _endNoteWidth;
     svgEl('line', {x1: endX - 3, y1: lastSysY, x2: endX - 3, y2: lastBassBot, stroke: '#000', 'stroke-width': '1'}, svg);
     svgEl('line', {x1: endX, y1: lastSysY, x2: endX, y2: lastBassBot, stroke: '#000', 'stroke-width': '3'}, svg);
 
