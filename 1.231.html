@@ -4560,7 +4560,7 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   /* v1.217: fkb-tab removed — floating keyboard auto-managed by drawer */
   .fkb-panel {
-    display: none; min-width: 340px;
+    display: none; min-width: 340px; max-width: 580px; width: 580px;
     background: linear-gradient(180deg, #141420 0%, #0d0d18 100%);
     border: 1.5px solid #f5a623; border-radius: 10px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(245,166,35,0.15);
@@ -4590,7 +4590,8 @@ button, select, input, textarea { touch-action: manipulation; }
   /* v1.217: fkb-close-btn removed */
   .fkb-body {
     padding: 6px 8px 10px; max-height: 180px;
-    overflow-x: auto; overflow-y: hidden;
+    overflow-x: scroll; overflow-y: hidden;
+    max-width: 100%;
   }
   /* v1.231: visible scrollbar for floating keyboard horizontal scroll */
   .fkb-body::-webkit-scrollbar { height: 6px; }
@@ -33848,21 +33849,22 @@ function fkbHide() {
 }
 
 function fkbResize(delta) {
-  // v1.231: +/- now scrolls the full-range keyboard left/right by one octave
-  var el = document.getElementById('fkbBody');
-  if (!el) return;
-  var W = 38;
-  var oneOctPx = 7 * W;
-  el.scrollBy({ left: delta * oneOctPx, behavior: 'smooth' });
-  // Update _fkbOctaves to track visible range for label
-  var scrollL = el.scrollLeft + (delta > 0 ? oneOctPx : -oneOctPx);
-  var loOct = Math.max(1, Math.min(7, Math.floor(scrollL / oneOctPx) + 1));
-  var visCols = Math.round((el.clientWidth || 300) / oneOctPx);
-  var hiOct = Math.min(7, loOct + Math.max(1, visCols) - 1);
+  var allOct = [1,2,3,4,5,6,7];
+  var lo = _fkbOctaves[0];
+  var hi = _fkbOctaves[_fkbOctaves.length - 1];
+  if (delta > 0) {
+    if (hi < 7) hi++;
+    else if (lo > 1) lo--;
+    else return;
+  } else {
+    if (_fkbOctaves.length <= 1) return;
+    hi--;
+  }
   _fkbOctaves = [];
-  for (var i = loOct; i <= hiOct; i++) _fkbOctaves.push(i);
+  for (var i = lo; i <= hi; i++) _fkbOctaves.push(i);
   var lbl = document.getElementById('fkbOctLabel');
   if (lbl) lbl.textContent = _fkbOctaves.length + ' oct';
+  fkbRender();
 }
 
 function fkbToggleMinimize() {
@@ -34125,7 +34127,7 @@ function fkbRender() {
   if (!el) return;
   if (typeof seqCurrentKey !== 'function') return;
   var W = 38, BW = 24, WH = 140, BH = 88;
-  // v1.231: Always render full range (octaves 1-7) with horizontal scroll
+  // v1.231: Render all 7 octaves; horizontal scroll in fkb-body reveals full range
   var _fkbAllOctaves = [1,2,3,4,5,6,7];
   var totalWidth = 7 * _fkbAllOctaves.length * W;
   var key  = seqCurrentKey();
@@ -34268,15 +34270,14 @@ function fkbRender() {
   board.addEventListener('touchend',    _fkbRelease);
   board.addEventListener('touchcancel', _fkbRelease);
 
-  // v1.231: Scroll to show default octaves (3-4) centered
-  var defLo = _fkbOctaves[0] || 3;
-  var defLoIdx = _fkbAllOctaves.indexOf(defLo);
-  if (defLoIdx < 0) defLoIdx = 2; // fallback to octave 3
-  var defStartX = defLoIdx * 7 * W;
-  var visibleOcts = _fkbOctaves.length;
-  var defCenterX = defStartX + (visibleOcts * 7 * W) / 2;
+  // v1.231: Scroll to show current _fkbOctaves range centered
+  var loIdx = _fkbAllOctaves.indexOf(_fkbOctaves[0]);
+  if (loIdx < 0) loIdx = 2;
+  var loX = loIdx * 7 * W;
+  var visW = _fkbOctaves.length * 7 * W;
+  var centerX = loX + visW / 2;
   var cW = el.clientWidth || el.offsetWidth || 300;
-  if (totalWidth > cW) el.scrollLeft = Math.max(0, defCenterX - cW / 2);
+  if (totalWidth > cW) el.scrollLeft = Math.max(0, centerX - cW / 2);
 }
 
 function fkbHighlightChord(midiNotes) {
