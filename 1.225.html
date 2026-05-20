@@ -16904,8 +16904,8 @@ setTimeout(function() {
     <!-- Logo + New Idea + Roll — grouped for idle-dim effect -->
     <div id="headerDimGroup" style="display:flex;align-items:center;gap:10px;">
     <div style="display:flex;flex-direction:column;gap:1px;cursor:pointer;" onclick="showList()" title="Back to drafts">
-      <span class="header-logo">Drafthaus<span class="header-version">v1.224</span></span>
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.224</span>
+      <span class="header-logo">Drafthaus<span class="header-version">v1.225</span></span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.225</span>
     </div>
     <!-- New Idea + Roll (moved from center; hidden on mobile by CSS class rules) -->
     <button title="Create a new blank song draft. Start fresh with an empty canvas for your next idea." class="hla-newdraft-btn" onclick="newSong()"
@@ -32120,13 +32120,30 @@ function ucStop() {
     _urStopRecording();
     return; // stop recording only — don't kill playback yet (user hits stop again for that)
   }
+  // v1.225: If already stopped, rewind playhead to beginning
+  var _anythingPlaying = (typeof seqIsPlaying !== 'undefined' && seqIsPlaying) ||
+                         (typeof _mtIsPlaying !== 'undefined' && _mtIsPlaying) ||
+                         (typeof _vrRecording !== 'undefined' && _vrRecording);
+  if (!_anythingPlaying) {
+    _prPendingSeekStep = -1;
+    _seqStepIndex = 0;
+    // Reset visual playhead
+    if (typeof _drHidePlayhead === 'function') _drHidePlayhead();
+    if (typeof _mixUpdateTransport === 'function') _mixUpdateTransport(0, 4);
+    // Reset PR playhead visual
+    var prPlayhead = document.getElementById('prPlayhead');
+    if (prPlayhead) prPlayhead.style.left = '0px';
+    console.log('[UCB-STOP] already stopped — rewinding to beginning');
+    ucbSetStatus('Stopped', 'active');
+    return;
+  }
   // If 4-track recording, stop it
   if (typeof _vrRecording !== 'undefined' && _vrRecording) {
     if (typeof _mtStopRecording === 'function') { try { _mtStopRecording(); } catch(e) { console.warn('[UCB] _mtStopRecording error', e); } }
   }
   // Always reset rec button state (safety net for stuck states)
   _ucSetRecState(false);
-  // Always stop playback too
+  // Always stop playback too (seqStop will preserve playhead position)
   if (typeof sharedStop === 'function') { try { sharedStop(); } catch(e) { console.warn('[UCB] sharedStop error', e); } }
   // Explicitly stop metronome (standalone or otherwise)
   if (typeof globalMetroStop === 'function') { try { globalMetroStop(); } catch(e) {} }
@@ -34603,7 +34620,7 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
     const t = Math.max(loopStartTime, loopStartTime + n.startMs / 1000 + melJitter);
     const dur = n.durMs / 1000;
     const midiNote = SEQ_NOTES.indexOf(n.note) + ((n.octave || 4) + 1) * 12;
-    const noteVel = (n.vel != null) ? n.vel : 1.0;
+    const noteVel = Math.min(1.0, Math.max(0, (n.vel != null) ? parseFloat(n.vel) || 0.8 : 1.0));
     const amp = 0.22 * noteVel * (seqHumanizeMelody ? (0.80 + Math.random() * 0.45) : 1.0);
 
     const dur2 = Math.max(0.12, dur * 1.12);
@@ -34690,6 +34707,11 @@ function seqStop(letTracksFinish) {
   // Diagnostic: log who stops song-mode playback
   if (_seqPlayMode === 'song' && seqIsPlaying) {
     console.warn('[SEQ-STOP] stopping song-mode playback. Caller:', new Error().stack?.split('\n').slice(1,4).join(' | '));
+  }
+  // v1.225: Preserve playhead position on stop so next play resumes from here
+  if (seqIsPlaying && _seqPlayMode !== 'song') {
+    _prPendingSeekStep = _seqStepIndex;
+    console.log('[SEQ-STOP] preserved playhead at step=' + _seqStepIndex);
   }
   seqIsPlaying = false;
   clearInterval(_seqTimer);
@@ -54252,6 +54274,7 @@ function _syncPerfControlsVisibility() {
 // no button, select, or other element can intercept or scroll the page.
 // Only text-entry fields (INPUT, TEXTAREA, contentEditable) are exempt.
 // ══════════════════════════════════════════════════════════════════════════
+var _spaceLastStopTime = 0; // v1.225: double-space detection
 document.addEventListener('keydown', function(e) {
   if (e.code !== 'Space') return;
   const t = e.target;
@@ -54271,8 +54294,9 @@ document.addEventListener('keydown', function(e) {
   // 3. Global play / stop — spacebar ALWAYS controls audio transport
   //
   // STOP path: if ANYTHING is playing or recording, spacebar stops it all.
-  // PLAY path: if nothing is playing, spacebar starts playback based on
-  //            which drawer/overlay is visible (Shift+Space = full song).
+  //            Playhead stays where it was (seqStop preserves it).
+  // PLAY path: if nothing is playing, spacebar starts from current position.
+  // DOUBLE-SPACE while stopped: rewind to beginning.
 
   var _isRecording  = typeof _vrRecording !== 'undefined' && _vrRecording;
   var _isSeqPlaying = typeof seqIsPlaying !== 'undefined' && seqIsPlaying;
@@ -54287,6 +54311,7 @@ document.addEventListener('keydown', function(e) {
 
   // ── STOP: kill everything that's running ──
   if (_anythingOn) {
+    _spaceLastStopTime = Date.now();
     if (_isRecording && typeof _mtStopRecording === 'function') _mtStopRecording();
     // Use sharedStop to properly clean up song-mode, strip play, loops, 4-track
     if (_isSeqPlaying && typeof sharedStop === 'function') { sharedStop(); }
@@ -54299,6 +54324,21 @@ document.addEventListener('keydown', function(e) {
     if (_isMetroOn && typeof seqToggleMet === 'function') seqToggleMet();
     return;
   }
+
+  // v1.225: Double-space while stopped → rewind to beginning
+  var _nowMs = Date.now();
+  if (_spaceLastStopTime > 0 && (_nowMs - _spaceLastStopTime) < 400) {
+    _prPendingSeekStep = -1;
+    _seqStepIndex = 0;
+    _spaceLastStopTime = 0;
+    if (typeof _drHidePlayhead === 'function') _drHidePlayhead();
+    if (typeof _mixUpdateTransport === 'function') _mixUpdateTransport(0, 4);
+    var _prPh = document.getElementById('prPlayhead');
+    if (_prPh) _prPh.style.left = '0px';
+    console.log('[SPACE] double-tap — rewinding to beginning');
+    return;
+  }
+  _spaceLastStopTime = _nowMs;
 
   // ── PLAY: nothing running — start playback based on context ──
   var rtOpen   = document.getElementById('runThroughDrawer')?.classList.contains('open');
@@ -66244,6 +66284,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         if (prTool !== 'pencil') return;
       }
       if (prTool !== 'pencil') return;
+      // Block pencil while recording to prevent note flood
+      if (prIsRecording) return;
       e.preventDefault();
       const y = e.clientY - rect.top;
       const row = Math.floor(y / PR_ROW_H);
@@ -67755,7 +67797,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       var durCols = Math.min(n.durCols, sectionCols - n.startCol);
       var durMs = (durCols / sectionCols) * loopDurMs;
 
-      var noteVel = (n.vel != null) ? n.vel : 0.8;
+      var noteVel = Math.min(1.0, Math.max(0, (n.vel != null) ? parseFloat(n.vel) || 0.8 : 0.8));
       if (!n.isPencil && n.chordName) {
         var gk = n.chordName + ':' + n.startCol;
         if (!chordGroups[gk]) {
@@ -68746,6 +68788,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         return;
       }
       if (_ntGetTool() === 'pencil') {
+        // Block pencil while recording to prevent note flood
+        if (typeof prIsRecording !== 'undefined' && prIsRecording) return;
+        if (typeof _urIsRecording !== 'undefined' && _urIsRecording) return;
         var pos = _ntPosFromEvent(e);
         if (pos) {
           _ntPainting = true;
