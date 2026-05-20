@@ -18998,16 +18998,18 @@ async function deleteLocalSong(id) {
   const isOwner = !song?.ownerId || song.ownerId === uid;
   const title = (song && song.title) ? song.title : 'Untitled';
 
-  if (isOwner) {
-    if (!confirm('Move "' + title + '" to Trash?\n\nIt will be permanently deleted after 30 days.')) return;
-  } else {
-    if (!confirm('Move "' + title + '" to Trash?\n(The owner\'s copy is not affected.)')) return;
+  if (!isOwner) {
+    if (!confirm('Remove "' + title + '" from your list?\n(The owner\'s copy is not affected.)')) return;
+    rowDismissSharedSong(id);
+    if (typeof v4RenderBoard === 'function') v4RenderBoard();
+    return;
   }
 
-  _songTrashSoftDelete(id, song, isOwner);
+  if (!confirm('Move "' + title + '" to Trash?\n\nIt will be permanently deleted after 30 days.')) return;
+  _songTrashSoftDelete(id, song);
 }
 
-/* ── v4 Song Delete → Soft-delete to Trash ── */
+/* ── v4 Song Delete → Soft-delete to Trash (owned) or Dismiss (shared) ── */
 async function v4DeleteSong(id) {
   if (!_authUser()) { v4RequireAuth(); return; }
   const song = songs.find(s => s.id === id);
@@ -19016,12 +19018,14 @@ async function v4DeleteSong(id) {
   const title = (song && song.title) ? song.title : 'Untitled';
 
   if (isShared) {
-    if (!confirm('Move "' + title + '" to Trash?\n(The owner\'s copy is not affected.)')) return;
-  } else {
-    if (!confirm('Move "' + title + '" to Trash?\n\nIt will be permanently deleted after 30 days.')) return;
+    if (!confirm('Remove "' + title + '" from your list?\n(The owner\'s copy is not affected.)')) return;
+    rowDismissSharedSong(id);
+    if (typeof v4RenderBoard === 'function') v4RenderBoard();
+    return;
   }
 
-  _songTrashSoftDelete(id, song, !isShared);
+  if (!confirm('Move "' + title + '" to Trash?\n\nIt will be permanently deleted after 30 days.')) return;
+  _songTrashSoftDelete(id, song);
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -19030,15 +19034,14 @@ async function v4DeleteSong(id) {
 const SONG_TRASH_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
 var trashedSongs = [];
 
-/* ── Shared soft-delete helper ── */
-function _songTrashSoftDelete(id, song, isOwner) {
+/* ── Soft-delete helper (owned songs only — shared songs use rowDismissSharedSong) ── */
+function _songTrashSoftDelete(id, song) {
   const title = (song && song.title) ? song.title : 'Untitled';
 
   /* Move from songs[] → trashedSongs[] locally */
   const trashEntry = song ? { ...song } : { id: id };
   trashEntry.trashed = true;
   trashEntry.trashedAt = Date.now();
-  trashEntry._isOwner = isOwner;
 
   songs = songs.filter(s => s.id !== id);
   trashedSongs.push(trashEntry);
@@ -19050,13 +19053,11 @@ function _songTrashSoftDelete(id, song, isOwner) {
   showToast('"' + title + '" moved to Trash');
   dhLogEvent('song_trash');
 
-  /* Persist trashed flag to Firestore (owner songs only) */
-  if (isOwner) {
-    db.collection('songs').doc(id).update({
-      trashed: true,
-      trashedAt: firebase.firestore.Timestamp.now()
-    }).catch(e => console.error('[SongTrash] Firestore update error:', e));
-  }
+  /* Persist trashed flag to Firestore */
+  db.collection('songs').doc(id).update({
+    trashed: true,
+    trashedAt: firebase.firestore.Timestamp.now()
+  }).catch(e => console.error('[SongTrash] Firestore update error:', e));
 }
 
 /* ── Permanent delete (full nuke — takes, loops, storage, song doc) ── */
@@ -19116,7 +19117,6 @@ async function songTrashRestore(id) {
   trashedSongs.splice(idx, 1);
   delete song.trashed;
   delete song.trashedAt;
-  delete song._isOwner;
   songs.push(song);
   save();
   if (typeof v4RenderBoard === 'function') v4RenderBoard();
@@ -19227,10 +19227,9 @@ function songTrashRender() {
     const at = typeof s.trashedAt === 'number' ? s.trashedAt : (s.trashedAt?.toMillis ? s.trashedAt.toMillis() : s.trashedAt?.seconds ? s.trashedAt.seconds * 1000 : now);
     const daysLeft = Math.max(0, Math.ceil((SONG_TRASH_TTL - (now - at)) / (24 * 60 * 60 * 1000)));
     const dateStr = new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const shared = s._isOwner === false ? ' (shared)' : '';
     return '<div class="song-trash-item">' +
       '<div class="song-trash-item-info">' +
-        '<div class="song-trash-item-title">' + title + shared + '</div>' +
+        '<div class="song-trash-item-title">' + title + '</div>' +
         '<div class="song-trash-item-meta">Trashed ' + dateStr + ' · ' + daysLeft + ' day' + (daysLeft !== 1 ? 's' : '') + ' left</div>' +
       '</div>' +
       '<div class="song-trash-item-actions">' +
@@ -20742,7 +20741,12 @@ function doDelete() {
   const uid = _authUid();
   const isOwner = !song.ownerId || song.ownerId === uid;
   closeModal();
-  _songTrashSoftDelete(song.id, song, isOwner);
+  if (!isOwner) {
+    rowDismissSharedSong(song.id);
+    if (typeof v4RenderBoard === 'function') v4RenderBoard();
+  } else {
+    _songTrashSoftDelete(song.id, song, true);
+  }
 }
 
 // ── Structure ─────────────────────────────────────────────────────
