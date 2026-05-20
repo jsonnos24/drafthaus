@@ -41902,12 +41902,12 @@ function _syncExpandBtns() {
   if (rh) { rh.textContent = isExpandedRight ? 'Hit Enter to Revert' : 'Hit Enter to Expand'; }
 }
 
-function closeSplitMode() {
+function closeSplitMode(keepPerf) {
   // Desktop: actually close split (drawers are no longer always-on)
   if (!_splitActive) return;
   _splitActive = false;
-  // Exit perf/rehearse mode so side tabs + header reappear
-  if (document.body.classList.contains('il-perf-active') && typeof ilSetPerfMode === 'function') {
+  // Exit perf/rehearse mode so side tabs + header reappear (unless perf toggle is managing it)
+  if (!keepPerf && document.body.classList.contains('il-perf-active') && typeof ilSetPerfMode === 'function') {
     ilSetPerfMode(false);
   }
   if (_splitCurrentTool) {
@@ -41925,6 +41925,55 @@ function closeSplitMode() {
   if (window.innerWidth >= 900) {
     _showSplitRightDefault();
   }
+  if (typeof uiStateSave === 'function') uiStateSave();
+}
+
+/* ── v1.230: Split-aware Performance Mode toggle ──────────────── */
+var _perfSavedTool = null;   // tool that was in the right panel before perf
+var _perfSavedRatio = null;  // split ratio before perf
+
+function splitTogglePerfMode() {
+  if (window._ilPerfMode) {
+    // EXIT perf → restore split with lyrics left + saved tool right
+    ilSetPerfMode(false);
+    if (_perfSavedTool) {
+      // Restore the split layout
+      var ratio = _perfSavedRatio || '25%';
+      document.documentElement.style.setProperty('--split-left', ratio);
+      var div = document.getElementById('splitDivider');
+      var rp  = document.getElementById('splitRightPanel');
+      if (div) div.style.left = 'calc(' + ratio + ' - 3px)';
+      if (rp)  rp.style.left = ratio;
+      openSplitMode(_perfSavedTool);
+      document.body.classList.add('split-left-lyrics');
+      // Ensure lyrics editor is showing on the left
+      if (typeof _ensureDetailView === 'function') _ensureDetailView();
+      if (window._songViewMode !== 'runthrough') {
+        if (typeof setSongViewMode === 'function') setSongViewMode('runthrough');
+        var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+        if (song && typeof ilInitAndRender === 'function') ilInitAndRender(song);
+      }
+      _perfSavedTool = null;
+      _perfSavedRatio = null;
+    }
+  } else {
+    // ENTER perf → save state, close split, go fullscreen perf
+    if (_splitActive && _splitCurrentTool) {
+      _perfSavedTool = _splitCurrentTool;
+      // Read current ratio from CSS variable
+      _perfSavedRatio = getComputedStyle(document.documentElement).getPropertyValue('--split-left').trim() || '25%';
+      closeSplitMode(true); // keepPerf — we're about to set perf mode ourselves
+    }
+    // Ensure lyrics view
+    if (typeof _ensureDetailView === 'function') _ensureDetailView();
+    if (window._songViewMode !== 'runthrough') {
+      if (typeof setSongViewMode === 'function') setSongViewMode('runthrough');
+      var song2 = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+      if (song2 && typeof ilInitAndRender === 'function') ilInitAndRender(song2);
+    }
+    ilSetPerfMode(true);
+  }
+  if (typeof _syncBottomNav === 'function') _syncBottomNav();
   if (typeof uiStateSave === 'function') uiStateSave();
 }
 
@@ -49397,7 +49446,7 @@ function navLyricsToggleTap() {
         var song = getCurrentSong();
         if (song) ilInitAndRender(song);
       }
-      ilSetPerfMode(true);
+      // v1.230: Open in edit mode, not perf mode — user toggles perf via divider pill
       document.body.classList.add('split-left-lyrics');
       _syncExpandBtns();
       _syncBottomNav();
@@ -63776,8 +63825,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   <div id="splitRightContent"></div>
   <div id="splitRightDefault" class="split-right-default"></div>
 </div>
-<div id="splitDivider"><div id="splitDividerBtns" onmousedown="event.stopPropagation()"><button id="splitPerfPill" onclick="if(typeof ilSetPerfMode==='function'){ilSetPerfMode(!window._ilPerfMode);}" title="Toggle Performance Mode">Performance</button><button id="splitSwapBtn" onclick="switchSplitSides()" title="Swap panels">⇄</button><button id="splitCloseBtn" onclick="closeSplitMode()" title="Close split view">✕</button></div></div>
-<button id="exitPerfBtn" onclick="if(typeof ilSetPerfMode==='function')ilSetPerfMode(false);">✕ Exit Performance</button>
+<div id="splitDivider"><div id="splitDividerBtns" onmousedown="event.stopPropagation()"><button id="splitPerfPill" onclick="splitTogglePerfMode()" title="Enter Performance Mode — fullscreen lyrics with auto-scroll">Performance</button><button id="splitSwapBtn" onclick="switchSplitSides()" title="Swap panels">⇄</button><button id="splitCloseBtn" onclick="closeSplitMode()" title="Close split view">✕</button></div></div>
+<button id="exitPerfBtn" onclick="if(typeof splitTogglePerfMode==='function' && _perfSavedTool){splitTogglePerfMode();}else if(typeof ilSetPerfMode==='function'){ilSetPerfMode(false);}">✕ Exit Performance</button>
 
 <!-- ── Drawer transport dock — fixed above bottom nav (desktop, split mode only) ── -->
 <div id="splitTransportDock">
