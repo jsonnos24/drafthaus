@@ -4659,7 +4659,7 @@ button, select, input, textarea { touch-action: manipulation; }
   }
   /* v1.217: fkb-tab removed — floating keyboard auto-managed by drawer */
   .fkb-panel {
-    display: none; min-width: 340px; max-width: 580px; width: 580px;
+    display: none; min-width: 340px; max-width: 90vw; width: 580px;
     background: linear-gradient(180deg, #141420 0%, #0d0d18 100%);
     border: 1.5px solid #f5a623; border-radius: 10px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(245,166,35,0.15);
@@ -34671,6 +34671,14 @@ function fkbRender() {
   var centerX = loX + visW / 2;
   var cW = el.clientWidth || el.offsetWidth || 300;
   if (totalWidth > cW) el.scrollLeft = Math.max(0, centerX - cW / 2);
+
+  // v1.250: Expand panel width to fit selected octave range
+  var _fkbPanelEl = document.getElementById('fkbPanel');
+  if (_fkbPanelEl) {
+    var desiredW = _fkbOctaves.length * 7 * W + 24; // keys + padding
+    var maxW = Math.min(window.innerWidth * 0.9, 1400);
+    _fkbPanelEl.style.width = Math.max(340, Math.min(desiredW, maxW)) + 'px';
+  }
 }
 
 function fkbHighlightChord(midiNotes) {
@@ -34709,20 +34717,54 @@ function fkbHighlightChord(midiNotes) {
         // v1.250: Show purple chord interval label
         var iLbl = _chordIntervals[ni];
         if (iLbl) {
-          var _ciEl = document.createElement('span');
+          var _ciEl = document.createElement('div');
           _ciEl.className = 'fkb-chord-interval';
-          _ciEl.style.cssText = 'position:absolute;top:4px;left:50%;transform:translateX(-50%);font-family:\'IBM Plex Mono\',monospace;font-size:12px;font-weight:800;color:#c084fc;pointer-events:none;user-select:none;text-shadow:0 0 6px rgba(192,132,252,0.6);z-index:5;';
           _ciEl.textContent = iLbl;
-          k.style.position = k.style.position || 'absolute';
+          _ciEl.style.position = 'absolute';
+          _ciEl.style.top = '6px';
+          _ciEl.style.left = '50%';
+          _ciEl.style.transform = 'translateX(-50%)';
+          _ciEl.style.fontFamily = "'IBM Plex Mono', monospace";
+          _ciEl.style.fontSize = '11px';
+          _ciEl.style.fontWeight = '800';
+          _ciEl.style.color = '#7c3aed';
+          _ciEl.style.pointerEvents = 'none';
+          _ciEl.style.userSelect = 'none';
+          _ciEl.style.zIndex = '5';
+          _ciEl.style.background = '#fff';
+          _ciEl.style.borderRadius = '50%';
+          _ciEl.style.width = '20px';
+          _ciEl.style.height = '20px';
+          _ciEl.style.lineHeight = '20px';
+          _ciEl.style.textAlign = 'center';
+          _ciEl.style.boxShadow = '0 1px 4px rgba(0,0,0,0.4)';
           k.appendChild(_ciEl);
         }
       }
     });
   }
+  // v1.250: Dim non-chord keys for visual contrast
+  function _dimKeys(container, cls) {
+    if (!container) return;
+    container.querySelectorAll(cls).forEach(function(k) {
+      var ni = SEQ_NOTES.indexOf(k.dataset.note);
+      if (ni >= 0 && !pitchClasses.has(ni)) {
+        k._preDimFilter = k.style.filter || '';
+        k._preDimOpacity = k.style.opacity || '';
+        k.style.filter = 'brightness(0.35) saturate(0.3)';
+        k.style.opacity = '0.5';
+        k._chordDimmed = true;
+      }
+    });
+  }
   // Floating keyboard
-  if (_fkbOpen) _hlKeys(document.getElementById('fkbBody'), '.fkb-key');
+  if (_fkbOpen) {
+    _hlKeys(document.getElementById('fkbBody'), '.fkb-key');
+    _dimKeys(document.getElementById('fkbBody'), '.fkb-key');
+  }
   // v1.227: Mini inline keyboard
   _hlKeys(document.getElementById('fkbInlineKeys'), '.fkb-ikey');
+  _dimKeys(document.getElementById('fkbInlineKeys'), '.fkb-ikey');
 }
 
 function fkbClearHighlight() {
@@ -34737,9 +34779,24 @@ function fkbClearHighlight() {
       }
     });
   }
-  if (_fkbOpen) _clKeys(document.getElementById('fkbBody'), '.fkb-key');
+  // v1.250: Restore dimmed keys
+  function _undimKeys(container, cls) {
+    if (!container) return;
+    container.querySelectorAll(cls).forEach(function(k) {
+      if (k._chordDimmed) {
+        k.style.filter = k._preDimFilter || '';
+        k.style.opacity = k._preDimOpacity || '';
+        k._chordDimmed = false;
+      }
+    });
+  }
+  if (_fkbOpen) {
+    _clKeys(document.getElementById('fkbBody'), '.fkb-key');
+    _undimKeys(document.getElementById('fkbBody'), '.fkb-key');
+  }
   // v1.227: Mini inline keyboard
   _clKeys(document.getElementById('fkbInlineKeys'), '.fkb-ikey');
+  _undimKeys(document.getElementById('fkbInlineKeys'), '.fkb-ikey');
 }
 
 function fkbNoteOn(note, oct) {
