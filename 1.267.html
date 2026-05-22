@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: 8917.5 -->
+<!-- BUILD: 8917.6 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -29080,6 +29080,33 @@ function seqBuildGrids(song) {
         _drRollDirty = true;
         _drRollRenderNotes();
         _drRollSaveData();
+      } else if ((ev.metaKey || ev.ctrlKey) && ev.key === 'a') {
+        ev.preventDefault();
+        _drRollClearMultiSelect();
+        var allKeys = new Set();
+        _drRollVoices.forEach(function(dv) {
+          var voice = dv.voice;
+          var secList = _drRollSections || [];
+          if (secList.length > 0) {
+            var globalOff = 0;
+            secList.forEach(function(sec) {
+              var map = sec.drums && sec.drums[voice];
+              if (map) {
+                map.forEach(function(val, localCol) {
+                  allKeys.add(voice + ':' + (globalOff + localCol));
+                });
+              }
+              globalOff += (sec.drumSteps || 16);
+            });
+          } else {
+            var map = _drRollData[voice];
+            if (map) {
+              map.forEach(function(val, col) { allKeys.add(voice + ':' + col); });
+            }
+          }
+        });
+        _drRollMultiSelected = allKeys;
+        _drRollApplyMultiSelectVisual();
       }
     });
 
@@ -29916,6 +29943,128 @@ function seqBuildGrids(song) {
   }
   // Also attach on DOMContentLoaded
   document.addEventListener('DOMContentLoaded', () => setTimeout(_dsAttach, 200));
+
+  // ── Keyboard shortcuts: Select All, Copy, Paste, Delete ──
+  var _dsClipboard = null; // [{voice, idxOffset, vel}]
+  var _dsStripIds = {kick:'seqKick',snare:'seqSnare',hat:'seqHat',hitom:'seqHiTom',lotom:'seqLoTom',crash:'seqCrash',clap:'seqClap'};
+  var _dsVoiceList = ['kick','snare','hat','hitom','lotom','crash','clap'];
+
+  function _dsIsGridVisible() {
+    var stack = document.getElementById('tsDrumStack');
+    return stack && stack.offsetParent !== null;
+  }
+
+  function _dsGetSlotVel(voice, idx) {
+    var el = document.getElementById(_dsStripIds[voice]);
+    if (!el) return 0.8;
+    var slot = el.querySelector('.seq-slot[data-idx="' + idx + '"]');
+    return slot && slot.dataset.vel ? parseFloat(slot.dataset.vel) : 0.8;
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (!_dsIsGridVisible()) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+    // Don't intercept if drum roll is active (it has its own handler)
+    var drRoll = document.getElementById('drRollOuter');
+    if (drRoll && drRoll.offsetParent !== null) return;
+    var seqEl = document.getElementById('seqDrawer');
+    if (!seqEl || !seqEl.classList.contains('open')) return;
+    var isMod = e.metaKey || e.ctrlKey;
+
+    // Cmd+A = select all drum-on cells
+    if (isMod && e.key === 'a') {
+      e.preventDefault();
+      _dsSelected.clear();
+      _dsVoiceList.forEach(function(voice) {
+        var el = document.getElementById(_dsStripIds[voice]);
+        if (!el) return;
+        el.querySelectorAll('.seq-slot.drum-on').forEach(function(slot) {
+          _dsSelected.add(_dsKey(voice, parseInt(slot.dataset.idx)));
+        });
+      });
+      _dsApplyVisual();
+      return;
+    }
+
+    // Cmd+C = copy selected
+    if (isMod && e.key === 'c' && _dsSelected.size > 0) {
+      e.preventDefault();
+      var toCopy = [];
+      var minIdx = Infinity;
+      _dsSelected.forEach(function(key) {
+        var parts = key.split(':');
+        var idx = parseInt(parts[1]);
+        if (idx < minIdx) minIdx = idx;
+        toCopy.push({voice: parts[0], idx: idx, vel: _dsGetSlotVel(parts[0], idx)});
+      });
+      _dsClipboard = toCopy.map(function(h) { return {voice: h.voice, idxOffset: h.idx - minIdx, vel: h.vel}; });
+      if (typeof showToast === 'function') showToast('Copied ' + _dsClipboard.length + ' hit' + (_dsClipboard.length > 1 ? 's' : ''), 'info', 800);
+      return;
+    }
+
+    // Cmd+V = paste
+    if (isMod && e.key === 'v' && _dsClipboard && _dsClipboard.length > 0) {
+      e.preventDefault();
+      // Paste at the column after the rightmost selected cell, or column 0
+      var pasteAt = 0;
+      if (_dsSelected.size > 0) {
+        _dsSelected.forEach(function(key) {
+          var idx = parseInt(key.split(':')[1]);
+          if (idx + 1 > pasteAt) pasteAt = idx + 1;
+        });
+      }
+      var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+      var sd = song && typeof seqGetData === 'function' ? seqGetData(song) : {};
+      var totalSteps = sd.totalDrumSteps || sd.totalSteps || 16;
+      _dsSelected.clear();
+      var touchedLanes = new Set();
+      _dsClipboard.forEach(function(c) {
+        var targetIdx = pasteAt + c.idxOffset;
+        if (targetIdx >= totalSteps) return;
+        var elId = _dsStripIds[c.voice];
+        var el = document.getElementById(elId);
+        if (!el) return;
+        var slot = el.querySelector('.seq-slot[data-idx="' + targetIdx + '"]');
+        if (!slot) return;
+        slot.classList.add('drum-on');
+        slot.classList.remove('ts-off');
+        var h = Math.round((c.vel || 0.8) * 100);
+        slot.innerHTML = '<div class="ts-fill" style="height:' + h + '%"></div>';
+        slot.dataset.vel = (c.vel || 0.8).toFixed(2);
+        touchedLanes.add(c.voice);
+        _dsSelected.add(_dsKey(c.voice, targetIdx));
+      });
+      touchedLanes.forEach(function(voice) {
+        if (typeof seqSaveDrumLane === 'function') seqSaveDrumLane(voice, _dsStripIds[voice]);
+      });
+      _dsApplyVisual();
+      return;
+    }
+
+    // Delete / Backspace = remove selected hits
+    if ((e.key === 'Delete' || e.key === 'Backspace') && _dsSelected.size > 0) {
+      e.preventDefault();
+      var touchedDel = new Set();
+      _dsSelected.forEach(function(key) {
+        var parts = key.split(':');
+        var voice = parts[0], idx = parseInt(parts[1]);
+        var elId = _dsStripIds[voice];
+        var el = document.getElementById(elId);
+        if (!el) return;
+        var slot = el.querySelector('.seq-slot[data-idx="' + idx + '"]');
+        if (!slot) return;
+        slot.classList.remove('drum-on');
+        slot.classList.add('ts-off');
+        slot.innerHTML = '';
+        slot.dataset.vel = '0';
+        touchedDel.add(voice);
+      });
+      touchedDel.forEach(function(voice) {
+        if (typeof seqSaveDrumLane === 'function') seqSaveDrumLane(voice, _dsStripIds[voice]);
+      });
+      _dsClearSelect();
+    }
+  });
 
   // Expose for external use
   window._dsClearDrumSelect = _dsClearSelect;
@@ -67886,6 +68035,18 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       prRenderNotes();
       prApplyMultiSelectVisual();
       prAutoSync();
+      return;
+    }
+
+    // ── Select All ──
+    if (isMod && e.key === 'a') {
+      e.preventDefault();
+      prClearMultiSelect();
+      var allIds = new Set();
+      prNotes.forEach(function(n) { allIds.add(n.id); });
+      prDrumNotes.forEach(function(n) { allIds.add(n.id); });
+      prMultiSelected = allIds;
+      prApplyMultiSelectVisual();
       return;
     }
 
