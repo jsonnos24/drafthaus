@@ -25553,6 +25553,11 @@ function seqRenderSequenceTabs() {
 
   // v1.208: strip fixed at bottom — flush below UCB
   // Position is handled by CSS (.global-seq-strip { bottom: ... }) and _seqStripShow()
+
+  // v1.272: Keep arrangement view in sync when sequences change
+  if (typeof arrIsOpen === 'function' && arrIsOpen() && typeof arrRenderAll === 'function') {
+    try { arrRenderAll(); } catch(e) { console.warn('[ARR] sync render error:', e); }
+  }
 }
 
 // ── Sequence strip Play/Stop toggle ─────────────────────────────────────────
@@ -73342,14 +73347,19 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       if (t.group === '4track') {
         var ftIdx = parseInt(t.id.replace('ft', ''));
         var trackLinks = links4t[ftIdx] || [];
-        // For each linked sequence, place a region
+        var hasLinked4t = false;
         sections.forEach(function(sec) {
           if (!sec.seq) return;
           var isLinked = trackLinks.indexOf(sec.seq.id) >= 0;
           if (isLinked) {
             html += _arrMakeAudioRegion(sec, t, ftIdx, isMuted, true);
+            hasLinked4t = true;
           }
         });
+        // If track has a buffer but no links, show on first section as unlinked
+        if (!hasLinked4t && typeof _mtTracks !== 'undefined' && _mtTracks[ftIdx] && _mtTracks[ftIdx].buffer && sections.length > 0) {
+          html += _arrMakeAudioRegion(sections[0], t, ftIdx, isMuted, false);
+        }
       }
       else if (t.id === 'chords') {
         sections.forEach(function(sec) {
@@ -73373,13 +73383,23 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       else if (t.group === 'looper') {
         var loopIdx = 'ABCD'.indexOf(t.id.replace('loop', ''));
         var loopLinks = linksLoop[loopIdx] || [];
+        var hasBuffer = typeof loopTracks !== 'undefined' && loopTracks[loopIdx] && loopTracks[loopIdx].buffer;
+        var hasLinkedRegions = false;
         sections.forEach(function(sec) {
           if (!sec.seq) return;
           var isLinked = loopLinks.indexOf(sec.seq.id) >= 0;
           if (isLinked) {
             html += _arrMakeAudioRegion(sec, t, loopIdx, isMuted, true);
+            hasLinkedRegions = true;
           }
         });
+        // If this track has a loaded buffer but no links, show it on the first section as unlinked
+        if (!hasLinkedRegions && hasBuffer && sections.length > 0) {
+          var firstSec = sections[0];
+          if (firstSec) {
+            html += _arrMakeAudioRegion(firstSec, t, loopIdx, isMuted, false);
+          }
+        }
       }
       else if (t.group === 'drums') {
         var drumKey = t.id; // kick, snare, hat, etc.
@@ -73632,13 +73652,86 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   // 11. MUTE / SOLO / VOLUME / PAN
   // ═══════════════════════════════════════════════════════════════
 
+  // Map track IDs to their actual Web Audio gain nodes
+  function _arrGetGainNode(trackId) {
+    switch(trackId) {
+      case 'kick':   return typeof seqKickGain   !== 'undefined' ? seqKickGain   : null;
+      case 'snare':  return typeof seqSnareGain  !== 'undefined' ? seqSnareGain  : null;
+      case 'hat':    return typeof seqHatGain    !== 'undefined' ? seqHatGain    : null;
+      case 'hitom':  return typeof seqHiTomGain  !== 'undefined' ? seqHiTomGain  : null;
+      case 'lotom':  return typeof seqLoTomGain  !== 'undefined' ? seqLoTomGain  : null;
+      case 'crash':  return typeof seqCrashGain  !== 'undefined' ? seqCrashGain  : null;
+      case 'clap':   return typeof seqClapGain   !== 'undefined' ? seqClapGain   : null;
+      case 'chords': return typeof seqChordsGain !== 'undefined' ? seqChordsGain : null;
+      case 'keys':   return typeof seqMelodyGain !== 'undefined' ? seqMelodyGain : null;
+      case 'loopA': case 'loopB': case 'loopC': case 'loopD':
+        var li = 'ABCD'.indexOf(trackId.replace('loop', ''));
+        return (typeof loopTracks !== 'undefined' && loopTracks[li] && loopTracks[li].gainNode) ? loopTracks[li].gainNode : null;
+      case 'ft0': case 'ft1': case 'ft2': case 'ft3':
+        // 4-track uses _mtMasterGain for all — no per-track gain separation yet
+        return null;
+      default: return null;
+    }
+  }
+
+  function _arrGetGroupGainNode(gid) {
+    switch(gid) {
+      case 'drums':  return typeof seqDrumsGain  !== 'undefined' ? seqDrumsGain  : null;
+      case 'looper': return typeof loopMasterGain !== 'undefined' ? loopMasterGain : null;
+      case '4track': return typeof _mtMasterGain  !== 'undefined' ? _mtMasterGain  : null;
+      case 'harmony': return null; // no single harmony bus — chords + keys are separate
+      default: return null;
+    }
+  }
+
+  function _arrApplyGain(trackId) {
+    var node = _arrGetGainNode(trackId);
+    if (!node || !node.gain) return;
+    var ts = _arrTrackState[trackId];
+    if (!ts) return;
+    var track = ARR_TRACKS.find(function(t) { return t.id === trackId; });
+    var gs = track ? _arrGroupState[track.group] : null;
+
+    // Check if any solo is active in this group
+    var groupTracks = ARR_TRACKS.filter(function(t) { return t.group === track.group; });
+    var anySolo = groupTracks.some(function(t) { return _arrTrackState[t.id]?.solo; });
+
+    var shouldMute = ts.mute || (gs && gs.mute) || (anySolo && !ts.solo);
+    var vol = shouldMute ? 0 : (ts.vol / 100);
+
+    // Apply group volume scaling
+    if (gs && gs.vol !== undefined) vol *= (gs.vol / 100);
+
+    try {
+      node.gain.setTargetAtTime(vol, node.context.currentTime, 0.015);
+    } catch(e) {
+      node.gain.value = vol;
+    }
+  }
+
+  function _arrApplyAllGains() {
+    ARR_TRACKS.forEach(function(t) { _arrApplyGain(t.id); });
+    // Group-level nodes
+    ARR_GROUPS.forEach(function(g) {
+      var gNode = _arrGetGroupGainNode(g.id);
+      if (!gNode || !gNode.gain) return;
+      var gs = _arrGroupState[g.id];
+      if (!gs) return;
+      // Check if any group has solo active
+      var anyGroupSolo = ARR_GROUPS.some(function(gg) { return _arrGroupState[gg.id]?.solo; });
+      var shouldMute = gs.mute || (anyGroupSolo && !gs.solo);
+      var vol = shouldMute ? 0 : (gs.vol / 100);
+      try { gNode.gain.setTargetAtTime(vol, gNode.context.currentTime, 0.015); } catch(e) { gNode.gain.value = vol; }
+    });
+  }
+
   window.arrTrackMute = function(id) {
     var s = _arrTrackState[id];
     if (!s) return;
     s.mute = !s.mute;
     var btn = document.querySelector('[data-arr-m="' + id + '"]');
     if (btn) btn.classList.toggle('active', s.mute);
-    // Update region opacity
+    _arrApplyAllGains();
     _arrSyncMuteVisuals();
   };
 
@@ -73648,11 +73741,13 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     s.solo = !s.solo;
     var btn = document.querySelector('[data-arr-s="' + id + '"]');
     if (btn) btn.classList.toggle('active', s.solo);
+    _arrApplyAllGains();
+    _arrSyncMuteVisuals();
   };
 
   window.arrTrackVol = function(id, val) {
     var s = _arrTrackState[id];
-    if (s) s.vol = parseInt(val);
+    if (s) { s.vol = parseInt(val); _arrApplyGain(id); }
   };
 
   window.arrGroupMute = function(gid) {
@@ -73661,6 +73756,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     gs.mute = !gs.mute;
     var btn = document.querySelector('[data-arr-grp-m="' + gid + '"]');
     if (btn) btn.classList.toggle('active', gs.mute);
+    _arrApplyAllGains();
     _arrSyncMuteVisuals();
   };
 
@@ -73670,11 +73766,19 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     gs.solo = !gs.solo;
     var btn = document.querySelector('[data-arr-grp-s="' + gid + '"]');
     if (btn) btn.classList.toggle('active', gs.solo);
+    _arrApplyAllGains();
+    _arrSyncMuteVisuals();
   };
 
   window.arrGroupVol = function(gid, val) {
     var gs = _arrGroupState[gid];
-    if (gs) gs.vol = parseInt(val);
+    if (!gs) return;
+    gs.vol = parseInt(val);
+    // Apply to the actual gain node for this group
+    var node = null;
+    if (gid === 'drums' && typeof seqDrumsGain !== 'undefined') node = seqDrumsGain;
+    if (node) node.gain.value = gs.vol / 100;
+    _arrApplyAllGains();
   };
 
   function _arrSyncMuteVisuals() {
@@ -74351,6 +74455,41 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         region.classList.add('selected');
         _arrSelectedRegions.push(region);
       }
+    });
+
+    // Double-click region → close arrangement, open appropriate editor at that section
+    lanes.addEventListener('dblclick', function(e) {
+      var region = e.target.closest('.arr-region');
+      if (!region) return;
+      var trackId = region.dataset.arrRegion;
+      var secIdx = parseInt(region.dataset.arrSecIdx);
+      if (isNaN(secIdx) || secIdx < 0) return;
+
+      // Switch to the correct section tab
+      if (typeof seqTabClick === 'function') {
+        try { seqTabClick(secIdx); } catch(ee) {}
+      } else if (typeof window.seqActiveIdx !== 'undefined') {
+        window.seqActiveIdx = secIdx;
+      }
+
+      // Close arrangement
+      arrClose();
+
+      // Open the right drawer
+      var track = ARR_TRACKS.find(function(t) { return t.id === trackId; });
+      if (!track) return;
+
+      setTimeout(function() {
+        if (track.group === '4track') {
+          if (typeof navToolTap === 'function') navToolTap('4track');
+        } else if (track.id === 'chords' || track.id === 'keys') {
+          if (typeof navToolTap === 'function') navToolTap('keyboard');
+        } else if (track.group === 'looper') {
+          if (typeof navToolTap === 'function') navToolTap('looper');
+        } else if (track.group === 'drums') {
+          if (typeof navToolTap === 'function') navToolTap('sequencer');
+        }
+      }, 100);
     });
   }
 
