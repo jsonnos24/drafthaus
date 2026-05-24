@@ -17386,20 +17386,10 @@ body.arr-view-open .uc-bar {
     -webkit-backdrop-filter: none !important;
   }
 
-  /* 2. Skip rendering hidden drawers until opened — saves layout/paint memory.
-     content-visibility:hidden tells the browser to skip the entire subtree.
-     contain:strict isolates the element from the rest of the document. */
-  .seq-drawer:not(.open),
-  .ft-drawer:not(.open),
-  .looper-drawer:not(.open),
-  .keyboard-drawer:not(.open),
-  .inspo-drawer:not(.open),
-  .practice-drawer:not(.open),
-  .mix-drawer:not(.open) {
-    content-visibility: hidden;
-    contain: strict;
-    contain-intrinsic-size: 0 0;
-  }
+  /* 2. v1.279: REMOVED content-visibility:hidden from drawers —
+     JS wires event listeners on elements inside closed drawers during boot,
+     which forces expensive synchronous layout recalcs of the hidden subtrees.
+     DOM evacuation (end of body) handles memory reduction instead. */
 
   /* 3. Reduce canvas memory — hidden canvases still allocate GPU buffers */
   .seq-drawer:not(.open) canvas,
@@ -17411,18 +17401,10 @@ body.arr-view-open .uc-bar {
   }
 }
 
-/* v1.279: Mobile — skip rendering for modals/overlays not covered by class rules above.
-   Drawers (.seq-drawer, .ft-drawer etc) already handled by class-based rules.
-   These are modals/popups that use display:none or .open toggling. */
-@media (max-width: 900px) {
-  #shareModal:not(.open), #storageModal:not(.open),
-  #seqSettingsPopup:not(.open), #arrOverlay:not(.open),
-  #arrDrawer:not(.open), #vrBtPanel:not(.open),
-  #pvSignupOverlay, #vrOverlay:not(.open) {
-    content-visibility: hidden;
-    contain-intrinsic-size: 0 0;
-  }
-}
+/* v1.279: REMOVED content-visibility for modals — JS accesses these elements
+   while hidden, forcing expensive synchronous layout recalcs (23 warnings in console).
+   The class-based rules above (:not(.open) on drawers) are fine because those drawers
+   have no JS touching them while closed. The modals/overlays DO get JS access. */
 
 </style>
 </head>
@@ -39486,7 +39468,10 @@ var _firestoreUnsubscribe = null;
 var _syncRenderTimer = null;
 function _syncRenderDebounce() {
   if (_syncRenderTimer) clearTimeout(_syncRenderTimer);
-  _syncRenderTimer = setTimeout(function() { _syncRenderTimer = null; renderGrid(); }, 300);
+  // v1.279: On mobile, debounce renderGrid at 2s (was 300ms) to reduce churn
+  // from rapid snapshot fires (uiState saves trigger owned-song snapshots)
+  var _delay = (window.innerWidth < 900) ? 2000 : 300;
+  _syncRenderTimer = setTimeout(function() { _syncRenderTimer = null; renderGrid(); }, _delay);
 }
 
 function startSyncPolling() {
@@ -40006,8 +39991,11 @@ function esc(str) {
 //                                 mixerFaders: {channelKey: {vol, pan, mute, solo}},
 //                                 armedTrack, mobileDrawer, timestamp }
 var _uiSaveTimer = null;
-var _uiSaveDelay = 800; // debounce ms
+// v1.279: On mobile, throttle state saves to max once per 10s to reduce Firestore write churn.
+// Each save triggers an onSnapshot which triggers renderGrid — a feedback loop that eats memory.
+var _uiSaveDelay = (window.innerWidth < 900) ? 10000 : 800; // debounce ms
 var _uiRestoring = false; // true while restore is in progress (suppresses save)
+var _uiLastSavedJSON = ''; // v1.279: skip save if state hasn't changed
 
 function _uiCaptureState() {
   var song = getCurrentSong();
@@ -40097,7 +40085,14 @@ function uiStateSave() {
   if (_uiSaveTimer) clearTimeout(_uiSaveTimer);
   _uiSaveTimer = setTimeout(function() {
     var state = _uiCaptureState();
-    console.log('[UI-STATE] SAVING state:', JSON.stringify(state), 'onSongList:', state.onSongList);
+    // v1.279: Skip save if state hasn't actually changed — prevents Firestore write → snapshot → renderGrid loop
+    var stateJSON = JSON.stringify(state);
+    // Strip timestamp for comparison (it always changes)
+    var cmpJSON = stateJSON.replace(/"timestamp":\d+/, '"timestamp":0');
+    var prevCmp = _uiLastSavedJSON.replace(/"timestamp":\d+/, '"timestamp":0');
+    if (cmpJSON === prevCmp) { return; }
+    _uiLastSavedJSON = stateJSON;
+    console.log('[UI-STATE] SAVING state:', stateJSON, 'onSongList:', state.onSongList);
     // Save per-song UI state
     var songRef = db.collection('songs').doc(_songCurrentId);
     // Also sync uiState into the localStorage fast-cache so boot picks it up
@@ -40242,12 +40237,17 @@ function _uiRestoreFromState(state, song) {
       setTimeout(function() {
         if (typeof arrOpen === 'function') arrOpen();
       }, 50);
-      // Preload audio in background so drawers open fast when user taps one
+      // v1.279: Defer audio preload on mobile to 15s (was 2s) — reduces memory pressure
+      // during the critical first seconds. Drawers will load on-demand if opened sooner.
       setTimeout(function() {
         if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
+      }, 10000);
+      setTimeout(function() {
         if (typeof mtPreloadForSong === 'function') mtPreloadForSong(song.id);
+      }, 15000);
+      setTimeout(function() {
         if (typeof loopPreloadForSong === 'function') loopPreloadForSong(song.id);
-      }, 2000);
+      }, 20000);
       return;
     } else {
       // ── Desktop restore — fully restore last active view ──
@@ -73170,7 +73170,17 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
    * Load an array of pre-built sections (same shape as _seqSongSections)
    * into the timeline, laid end-to-end on the beat axis.
    */
+  // v1.279: Debounce on mobile — called 7+ times during boot, each rebuilding the full timeline
+  var _tlLoadTimer = null;
   function tlLoadSections(sections, key, mode) {
+    if (window.innerWidth < 900) {
+      if (_tlLoadTimer) clearTimeout(_tlLoadTimer);
+      _tlLoadTimer = setTimeout(function() { _tlLoadSectionsInner(sections, key, mode); }, 200);
+      return;
+    }
+    _tlLoadSectionsInner(sections, key, mode);
+  }
+  function _tlLoadSectionsInner(sections, key, mode) {
     var tl = [];
     var beatOffset = 0;
     _tlSections = [];
