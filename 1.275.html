@@ -74,14 +74,40 @@ window.addEventListener('unhandledrejection', function(ev) {
 <!-- Font preconnect for faster load -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500&family=MedievalSharp&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Pirata+One&display=swap" rel="stylesheet">
+<!-- v1.275: Defer fonts on mobile — load async via media="print" swap trick.
+     Fonts still load, just don't block render or spike peak memory during boot. -->
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500&family=MedievalSharp&display=swap" rel="stylesheet" id="dhFonts1">
+<link href="https://fonts.googleapis.com/css2?family=Pirata+One&display=swap" rel="stylesheet" id="dhFonts2">
+<script>
+// v1.275: On mobile, defer font loading to reduce peak boot memory
+if (window.innerWidth < 900) {
+  var f1 = document.getElementById('dhFonts1');
+  var f2 = document.getElementById('dhFonts2');
+  if (f1) { f1.media = 'print'; f1.onload = function(){ f1.media = 'all'; }; }
+  if (f2) { f2.media = 'print'; f2.onload = function(){ f2.media = 'all'; }; }
+}
+</script>
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
+<!-- v1.275: Defer firebase-functions on mobile — only used for collab join + recording stitch -->
+<script>
+if (window.innerWidth >= 900) {
+  document.write('<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"><\/script>');
+} else {
+  window._dhLoadFunctions = function() {
+    if (window._dhFunctionsLoaded) return Promise.resolve();
+    return new Promise(function(resolve) {
+      var s = document.createElement('script');
+      s.src = 'https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js';
+      s.onload = function() { window._dhFunctionsLoaded = true; resolve(); };
+      document.head.appendChild(s);
+    });
+  };
+}
+</script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
@@ -17326,17 +17352,41 @@ body.arr-view-open .uc-bar {
 }
 @keyframes arrCountinPop { 0%{transform:scale(2);opacity:0}50%{opacity:1}100%{transform:scale(1);opacity:1} }
 
-/* ── v1.275: Kill backdrop-filter on mobile ──
+/* ── v1.275: Chrome iOS WKWebView crash prevention ──
    Chrome iOS uses WKWebView with a ~200-300MB memory ceiling.
-   Each backdrop-filter: blur() forces a separate GPU compositing layer.
-   76 declarations = 76 layers = OOM crash on boot.
-   The dark rgba backgrounds provide sufficient visual separation without blur. */
+   Three combined techniques to stay under that limit: */
+
+/* 1. Kill backdrop-filter — each blur() forces a GPU compositing layer */
 @media (max-width: 900px) {
   *,
   *::before,
   *::after {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
+  }
+
+  /* 2. Skip rendering hidden drawers until opened — saves layout/paint memory.
+     content-visibility:hidden tells the browser to skip the entire subtree.
+     contain:strict isolates the element from the rest of the document. */
+  .seq-drawer:not(.open),
+  .ft-drawer:not(.open),
+  .looper-drawer:not(.open),
+  .keyboard-drawer:not(.open),
+  .inspo-drawer:not(.open),
+  .practice-drawer:not(.open),
+  .mix-drawer:not(.open) {
+    content-visibility: hidden;
+    contain: strict;
+    contain-intrinsic-size: 0 0;
+  }
+
+  /* 3. Reduce canvas memory — hidden canvases still allocate GPU buffers */
+  .seq-drawer:not(.open) canvas,
+  .ft-drawer:not(.open) canvas,
+  .looper-drawer:not(.open) canvas,
+  .keyboard-drawer:not(.open) canvas {
+    width: 0 !important;
+    height: 0 !important;
   }
 }
 
@@ -40317,6 +40367,8 @@ function initApp() {
 
   document.getElementById('seqDrawerTab')?.classList.remove('tab-loading');
 
+  // v1.275: On mobile, defer drawer UI builds further to reduce boot memory spike
+  var _drawerBuildDelay = (window.innerWidth < 900) ? 3000 : 300;
   setTimeout(() => {
     loopBuildUI();
     document.getElementById('looperTab')?.classList.remove('tab-loading');
@@ -40327,7 +40379,7 @@ function initApp() {
     renderPracticeDrawer();
     document.getElementById('practiceTab')?.classList.remove('tab-loading');
 
-  }, 300);
+  }, _drawerBuildDelay);
 
   // Samples load on-demand via initSequencer / seqOnInstrumentChange / initMidi
   // No eager preload — saves memory and avoids loading instruments the user may never use.
@@ -41580,6 +41632,7 @@ async function _handleCollabJoinAfterAuth(user) {
   const { songId, token } = _pendingCollabJoin;
   _pendingCollabJoin = null; // consume it
   try {
+    if (typeof _dhLoadFunctions === 'function') await _dhLoadFunctions(); // v1.275: lazy-load on mobile
     const joinCollab = firebase.functions().httpsCallable('joinCollab');
     const result = await joinCollab({ songId: songId, token: token });
     const data = result.data;
@@ -57695,8 +57748,10 @@ window.mtArmTrack = function(i) {
     _mtEnsureStream().catch(function(e) { console.error('[MIC-DEBUG] Arm-time _mtEnsureStream failed:', e); });
     // Warm up the stitch Cloud Function on arm so it's hot by the time recording stops
     if (typeof _chunkedUploadSupported !== 'undefined' && _chunkedUploadSupported) {
-      firebase.functions().httpsCallable('stitchRecordingChunks')({ recordingId: '_ping', destPath: '_ping', contentType: '' })
-        .catch(() => {}); // just waking the instance
+      (typeof _dhLoadFunctions === 'function' ? _dhLoadFunctions() : Promise.resolve()).then(function() { // v1.275
+        firebase.functions().httpsCallable('stitchRecordingChunks')({ recordingId: '_ping', destPath: '_ping', contentType: '' })
+          .catch(() => {}); // just waking the instance
+      });
     }
   } else { _vuMaybeStop(); _inputMonOnStreamReleased(); }
   // Keep shared transport Rec button in sync
@@ -59216,6 +59271,7 @@ async function _chunkFinalize(session, songId, durSec, mimeType, trackIdx, sourc
 
   try {
     _setStatus('Stitching…');
+    if (typeof _dhLoadFunctions === 'function') await _dhLoadFunctions(); // v1.275: lazy-load on mobile
     const stitchFn = firebase.functions().httpsCallable('stitchRecordingChunks');
     const result = await stitchFn({
       recordingId: session.recordingId,
@@ -61388,6 +61444,7 @@ function _ftReorderTake(trackIdx, fromIdx, toIdx) {
 
 /* ── Drawer open/close ────────────────────────────────────────────────────────────────── */
 function ftOpen() {
+  if (typeof _ftEnsureInit === 'function') _ftEnsureInit(); // v1.275: lazy init on mobile
   if (!_songCurrentId) { showToast('Select a song first', 'warn', 2000); return; }
   _vrSongId = _songCurrentId;
   _mtEnsureTrackObjects();
@@ -64354,7 +64411,12 @@ function ftInit() {
   ftUpdateTransport();
 }
 
-if (document.readyState === 'loading') {
+// v1.275: Defer ftInit on mobile — 4-track drawer isn't visible at boot
+if (window.innerWidth < 900) {
+  var _ftInitDone = false;
+  window._ftEnsureInit = function() { if (!_ftInitDone) { _ftInitDone = true; ftInit(); } };
+  setTimeout(window._ftEnsureInit, 4000);
+} else if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', ftInit);
 } else {
   ftInit();
