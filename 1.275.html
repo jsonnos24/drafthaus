@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: 1.274.0 -->
+<!-- BUILD: 1.275.0 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -17674,8 +17674,8 @@ setTimeout(function() {
     <!-- Logo + New Idea + Roll — grouped for idle-dim effect -->
     <div id="headerDimGroup" style="display:flex;align-items:center;gap:10px;">
     <div style="display:flex;flex-direction:column;gap:1px;cursor:pointer;" onclick="document.body.classList.contains('songlist-active')&&_songCurrentId?showDetail():showList()" title="Back to drafts">
-      <span class="header-logo">Drafthaus<span class="header-version">v1.274</span></span>
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.274</span>
+      <span class="header-logo">Drafthaus<span class="header-version">v1.275</span></span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.275</span>
     </div>
     <!-- New Idea + Roll (moved from center; hidden on mobile by CSS class rules) -->
     <button title="Create a new blank song draft. Start fresh with an empty canvas for your next idea." class="hla-newdraft-btn" onclick="newSong()"
@@ -18875,8 +18875,15 @@ async function loadUserProjects() {
   const uid = _authUid();
   if (!uid) return;
   try {
-    const doc = await db.collection('users').doc(uid).get();
-    const data = doc.data() || {};
+    // v1.275: Use cached user doc from onSnapshot if available (avoids duplicate Firestore read)
+    var data;
+    if (window._userDocCache) {
+      data = window._userDocCache;
+      window._userDocCache = null; // consume once
+    } else {
+      const doc = await db.collection('users').doc(uid).get();
+      data = doc.data() || {};
+    }
     if (Array.isArray(data.projects) && data.projects.length) {
       _userProjects = data.projects;
     } else {
@@ -19260,8 +19267,16 @@ const STATUS_LABELS = { idea:'💡 Idea', drafting:'✏️ Drafting', recording:
 // Weights: title 5 | bpm 5 | key 5 | 4+ sections 5 | chords 40 | lyrics 40 = 100
 
 let _renderGridPending = false;
+var _renderGridBootTimer = null; // v1.275: boot-phase debounce
 
 function renderGrid() {
+  // v1.275: During boot (fast-restore active, full load not done), debounce rapid calls
+  if (typeof _bootFastRestored !== 'undefined' && _bootFastRestored &&
+      typeof _bootSongsFullyLoaded !== 'undefined' && !_bootSongsFullyLoaded) {
+    if (_renderGridBootTimer) clearTimeout(_renderGridBootTimer);
+    _renderGridBootTimer = setTimeout(function() { _renderGridBootTimer = null; renderGrid(); }, 100);
+    return;
+  }
   // Don't re-render if a dropdown menu is open — onSnapshot-driven re-renders
   // destroy the DOM and kill the open menu before the user can select anything.
   if (document.querySelector('.sl-actions-menu.open, .sl-status-menu.open, .sl-takes-dropdown.open')) {
@@ -37538,6 +37553,8 @@ auth.onAuthStateChanged(user => {
       let appInited = false;
       // Use onSnapshot so tier updates (e.g. after Stripe payment) are applied in real-time
       _userTierUnsub = userRef.onSnapshot(doc => {
+        // v1.275: Stash full doc data so loadUserProjects can skip a redundant .get()
+        window._userDocCache = doc.data() || {};
         const newTier = doc.data()?.tier || 'free';
         _dismissedShares = new Set(doc.data()?.dismissedShares || []);
         if (doc.data()?.lastSongId) _lastSongIdFromFirestore = doc.data().lastSongId;
@@ -39367,11 +39384,11 @@ function startSyncPolling() {
 
   const handleSnapshot = (snapshot, _listenerKey) => {
     console.log('[CRASH-DEBUG] ★ handleSnapshot fired, changes:', snapshot.docChanges().length, 'key:', _listenerKey);
-    // Skip the initial bulk snapshot on mobile if we already loaded songs
+    // v1.275: Skip the initial bulk snapshot on ALL devices if songs already loaded
     // (first onSnapshot always fires with ALL existing docs — redundant after boot)
-    if (_syncFirstFire[_listenerKey] && window.innerWidth < 900 && songs.length > 0) {
+    if (_syncFirstFire[_listenerKey] && songs.length > 0) {
       _syncFirstFire[_listenerKey] = false;
-      console.log('[CRASH-DEBUG] ★ Skipping initial bulk snapshot on mobile (already loaded)');
+      console.log('[CRASH-DEBUG] ★ Skipping initial bulk snapshot (already loaded), key:', _listenerKey);
       return;
     }
     _syncFirstFire[_listenerKey] = false;
@@ -40055,6 +40072,10 @@ function _uiRestoreFromState(state, song) {
       var _pyf = document.getElementById('pickFighterOverlay');
       if (_pyf) _pyf.remove();
       if (typeof _vr4TrackSyncToSong === 'function') _vr4TrackSyncToSong(song.id);
+      // v1.275: Mobile — open Arrange view so returning users land in their workspace
+      if (window.innerWidth < 900 && typeof arrOpen === 'function') {
+        setTimeout(function() { arrOpen(); }, 50);
+      }
     } catch(e) { console.error('[UI-STATE] default restore error:', e); }
     _uiRestoring = false;
     _uiDismissLoadingScreen();
@@ -40064,7 +40085,9 @@ function _uiRestoreFromState(state, song) {
       if (typeof loopPreloadForSong === 'function') loopPreloadForSong(song.id);
     }, 300);
     // Delayed state save — capture real state after user settles in
+    // v1.275: Skip on mobile — prevents desktop state overwriting mobile context
     setTimeout(function() {
+      if (window.innerWidth < 900) return;
       if (typeof uiStateSave === 'function') {
         console.log('[UI-STATE] Post-restore heal save');
         uiStateSave();
@@ -40097,11 +40120,15 @@ function _uiRestoreFromState(state, song) {
     if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
 
     if (isMobile) {
-      // ── Mobile restore — always stay on song list, song is loaded in background ──
-      console.log('[UI-STATE] Mobile — loading song in background, staying on song list');
+      // ── v1.275: Mobile restore — open Arrange view so user lands in workspace ──
+      console.log('[UI-STATE] Mobile — opening Arrange view for returning user');
       _uiRestoring = false;
-      showList();
+      showDetail();
       _uiDismissLoadingScreen();
+      // Open Arrange after loading screen is gone so overlay renders correctly
+      setTimeout(function() {
+        if (typeof arrOpen === 'function') arrOpen();
+      }, 50);
       // Preload audio in background so drawers open fast when user taps one
       setTimeout(function() {
         if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
@@ -40195,7 +40222,9 @@ function _uiRestoreFromState(state, song) {
 
       // Delayed state save — heal any corrupted state from old boot code
       // by capturing the real active view after restore settles
+      // v1.275: Skip on mobile — prevents desktop state overwriting mobile context
       setTimeout(function() {
+        if (window.innerWidth < 900) return;
         if (typeof uiStateSave === 'function') {
           console.log('[UI-STATE] Post-restore heal save');
           uiStateSave();
@@ -40289,14 +40318,21 @@ function initApp() {
   // Samples load on-demand via initSequencer / seqOnInstrumentChange / initMidi
   // No eager preload — saves memory and avoids loading instruments the user may never use.
 
-  // Auto-reconnect MIDI if permission was previously granted (no prompt shown)
+  // v1.275: Defer MIDI auto-reconnect — connect input listeners but don't load samples
+  // until the keyboard drawer is actually opened. Set flag for drawer open handler.
   setTimeout(() => {
     if (!navigator.requestMIDIAccess) return;
     if (navigator.permissions && navigator.permissions.query) {
       navigator.permissions.query({ name: 'midi', sysex: false }).then(perm => {
         if (perm.state === 'granted') {
-          console.log('[MIDI] Auto-reconnecting — permission already granted');
-          initMidi(true);
+          // If keyboard drawer is already open (unlikely at boot), load now
+          if (document.body.classList.contains('keyboard-drawer-open')) {
+            console.log('[MIDI] Auto-reconnecting — keyboard drawer already open');
+            initMidi(true);
+          } else {
+            console.log('[MIDI] Permission granted — deferring sample load until keyboard drawer opens');
+            window._midiAutoReconnectPending = true;
+          }
         }
       }).catch(() => {});
     }
@@ -45296,6 +45332,11 @@ function openKeyboardDrawer() {
   document.getElementById('keyboardDrawerOverlay').classList.add('open');
   if (window.innerWidth < 768) document.body.classList.add('ft-drawer-open');
   document.body.classList.add('keyboard-drawer-open');
+  // v1.275: Trigger deferred MIDI auto-reconnect now that keyboard drawer is open
+  if (window._midiAutoReconnectPending) {
+    window._midiAutoReconnectPending = false;
+    if (typeof initMidi === 'function') initMidi(true);
+  }
   _seqStripShow();
   if (window.innerWidth < 900) document.getElementById('keyboardDrawerTab').style.display = 'none';
   else document.getElementById('keyboardDrawerTab').classList.add('tab-active');
