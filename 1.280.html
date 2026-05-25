@@ -18501,6 +18501,12 @@ _dhMark('firebase-init');
 const auth = firebase.auth();
 const db   = firebase.firestore();
 
+// v1.281: Ensure firebase-storage is loaded before use (deferred on mobile)
+async function _ensureStorage() {
+  if (typeof firebase.storage === 'function') return;
+  if (window._dhLoadStorage) await window._dhLoadStorage();
+}
+
 // ── Centralized auth accessors ─────────────────────────────────
 // Use these instead of scattering auth.currentUser?.uid everywhere.
 // _authUid() returns uid string or null (never throws).
@@ -19744,6 +19750,7 @@ async function deleteLocalSong(id) {
 
 /* ── v4 Song Delete → Soft-delete to Trash (owned) or Dismiss (shared) ── */
 async function v4DeleteSong(id) {
+  await _ensureStorage();
   if (!_authUser()) { v4RequireAuth(); return; }
   const song = songs.find(s => s.id === id);
   const uid = _authUid();
@@ -42363,6 +42370,7 @@ function exportPDF() {
 
 // ── Bounce (WebM/Opus) ────────────────────────────────────────────
 async function exportBounce() {
+  await _ensureStorage();
   const song = getCurrentSong();
   if (!song) return;
 
@@ -50417,6 +50425,7 @@ async function loopMicPillClick() {
 
 // ── Loop Persistence ───────────────────────────────────────────────
 async function loopAutoSave(trackIdx, blob, mimeType, duration, source) {
+  await _ensureStorage();
   const songId = loopSongId || _songCurrentId;
   if (!songId || !_authUser()) {
     console.warn('[Looper] skipping save — no active song or user', { songId, user: _authUid() });
@@ -50517,6 +50526,7 @@ function loopRenderSavedLoops(snap) {
 
 async function loopDeleteSavedLoop(docId, storagePath) {
   if (!confirm('Delete this saved loop? This cannot be undone.')) return;
+  await _ensureStorage();
   try {
     if (storagePath) firebase.storage().ref(storagePath).delete().catch(() => {});
     await db.collection('song_loops').doc(docId).delete();
@@ -59979,6 +59989,7 @@ async function _countUploadsForSong(collections, songId) {
 
 // ── Upload (with trackNum) — returns new doc ID ────────────────
 async function _uploadTake(blob, duration, mimeType, trackIdx, source) {
+  await _ensureStorage();
   const uid = _authUid();
   const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('wav') ? 'wav' : (mimeType.includes('mp3') || mimeType.includes('mpeg')) ? 'mp3' : 'ogg';
   const fname = 'take_' + Date.now() + '.' + ext;
