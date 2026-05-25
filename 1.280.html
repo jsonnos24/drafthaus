@@ -29,8 +29,44 @@ window.addEventListener('error', function(ev) {
     if (ls) { ls.style.opacity = '0'; ls.style.transition = 'opacity 0.3s'; setTimeout(function() { ls.remove(); }, 350); }
   }
 });
+// v1.281: Track Firestore assertion errors to prevent infinite cascade.
+// When Firestore's WebChannel drops (iOS backgrounding), the SDK throws
+// "INTERNAL ASSERTION FAILED: Unexpected state" in an infinite loop.
+// We suppress after the 2nd occurrence and terminate/reinit Firestore.
+var _dhFirestoreAssertCount = 0;
 window.addEventListener('unhandledrejection', function(ev) {
   var msg = 'UnhandledPromise: ' + (ev.reason?.message || ev.reason || 'unknown');
+  // Suppress Firestore assertion error cascade — prevent infinite loop
+  if (msg.indexOf('INTERNAL ASSERTION FAILED') !== -1) {
+    _dhFirestoreAssertCount++;
+    if (_dhFirestoreAssertCount === 1) {
+      console.error('[FIRESTORE-RECOVERY] Assertion error detected — will recover');
+    }
+    if (_dhFirestoreAssertCount >= 2) {
+      ev.preventDefault(); // suppress further logging
+      if (_dhFirestoreAssertCount === 2) {
+        // Stop listeners and clear Firestore network to break the error loop.
+        // db is const so we can't reinit — instead disable/re-enable network.
+        console.warn('[FIRESTORE-RECOVERY] Multiple assertion errors — resetting connection');
+        try {
+          if (typeof stopSyncPolling === 'function') stopSyncPolling();
+          if (typeof db !== 'undefined') {
+            db.disableNetwork().then(function() {
+              console.log('[FIRESTORE-RECOVERY] Network disabled, re-enabling in 3s');
+              _dhFirestoreAssertCount = 0;
+              setTimeout(function() {
+                db.enableNetwork().then(function() {
+                  console.log('[FIRESTORE-RECOVERY] Network re-enabled, restarting sync');
+                  if (typeof startSyncPolling === 'function') startSyncPolling();
+                }).catch(function() {});
+              }, 3000);
+            }).catch(function() {});
+          }
+        } catch(_re) {}
+      }
+      return;
+    }
+  }
   window._dhErrors.push(msg);
   console.error('[CRASH-DEBUG]', msg);
   var box = document.getElementById('dhCrashDebug');
@@ -53,7 +89,8 @@ window.addEventListener('unhandledrejection', function(ev) {
   // Show previous boot's beacons if they exist (means last boot didn't finish cleanly)
   if (_prev) {
     window._dhLastBootBeacons = _prev;
-    // Will be displayed after DOM is ready
+    // Show immediately via document.write — can't wait for <body>, page may crash first
+    document.write('<div style="position:fixed;top:0;left:0;right:0;background:#1a0a00;color:#f5a623;font:10px/1.3 monospace;padding:8px;z-index:999999;word-break:break-all;">LAST BOOT: ' + _prev.replace(/</g,'&lt;') + '</div>');
   }
   localStorage.setItem(_bk, 'B0:head-start:' + Date.now());
   window._dhBeacon = function(tag) {
@@ -17463,16 +17500,7 @@ body.arr-view-open .uc-bar {
 @keyframes dhLoad { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 body.app-loading > *:not(#appLoadingScreen) { visibility: hidden; }
 </style>
-<script>
-if (window._dhBeacon) window._dhBeacon('B2:body-parsed');
-// Show previous boot's beacons on loading screen if last boot crashed
-if (window._dhLastBootBeacons) {
-  var _bDiv = document.createElement('div');
-  _bDiv.style.cssText = 'position:fixed;top:10px;left:10px;right:10px;background:#1a0a00;color:#f5a623;font:10px/1.3 monospace;padding:8px;z-index:100000;border-radius:4px;word-break:break-all;';
-  _bDiv.textContent = 'LAST BOOT: ' + window._dhLastBootBeacons;
-  document.body.appendChild(_bDiv);
-}
-</script>
+<script>if (window._dhBeacon) window._dhBeacon('B2:body-parsed');</script>
 <script>
 // ── MOBILE SAFETY NET — independent of all other code ──
 // If app-loading is still on the body after 10s, something failed — force dismiss
@@ -39683,10 +39711,29 @@ function startSyncPolling() {
     } catch(e) { console.error('[CRASH-DEBUG] handleSnapshot THREW:', e.message, e.stack); }
   };
 
+  var _syncErrorRecovering = false;
   const errHandler = e => {
     console.warn('[SYNC] Firestore listener error:', e?.code, e?.message, e);
     if (e?.code === 'permission-denied' || e?.code === 'unauthenticated') {
       setSyncStatus('error', 'Auth expired — reload to reconnect');
+      return;
+    }
+    // v1.281: On transport errors (WebChannel drops on iOS backgrounding),
+    // tear down all listeners and retry after a delay. Without this, the
+    // Firestore SDK enters an invalid state and throws INTERNAL ASSERTION
+    // FAILED in an infinite loop that kills the tab.
+    if (!_syncErrorRecovering) {
+      _syncErrorRecovering = true;
+      console.warn('[SYNC] Transport error — tearing down listeners, will retry in 3s');
+      setSyncStatus('error', 'Reconnecting…');
+      stopSyncPolling();
+      setTimeout(function() {
+        _syncErrorRecovering = false;
+        console.log('[SYNC] Retrying listeners after transport error');
+        // Re-enable network in case Firestore is in a zombie state
+        if (typeof db !== 'undefined' && db.enableNetwork) db.enableNetwork().catch(function(){});
+        startSyncPolling();
+      }, 3000);
     }
   };
 
