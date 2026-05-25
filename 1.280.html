@@ -33681,6 +33681,42 @@ async function sharedPlaySong() {
       await mtPreloadForSong(_songCurrentId);
     }
   }
+  // v1.280: Pre-flight sample loading — ensure all instruments needed by the song
+  // are loaded before playback starts (fixes missing sounds when playing from arrange
+  // view without having opened individual drawers first)
+  var _pfSong = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
+  if (_pfSong) {
+    var _pfSeqs = typeof getSongSequences === 'function' ? getSongSequences(_pfSong) : (_pfSong.sequences || []);
+    var _pfNeedPiano = false, _pfNeedPiano2 = false, _pfNeedGuitar = false;
+    // Check chord + melody instruments across ALL sequences
+    _pfSeqs.forEach(function(sq) {
+      var ci = (sq.instrument || 'piano').split('+');
+      var mi = (sq.melodyInstrument || 'piano').split('+');
+      var all = ci.concat(mi);
+      if (all.indexOf('piano') >= 0)  _pfNeedPiano  = true;
+      if (all.indexOf('piano2') >= 0) _pfNeedPiano2 = true;
+      if (all.indexOf('guitar') >= 0) _pfNeedGuitar = true;
+    });
+    var _pfLoading = [];
+    if (_pfNeedPiano  && !_pianoLoaded  && !_pianoLoading)  { loadPianoSamples();  _pfLoading.push('piano'); }
+    if (_pfNeedPiano2 && !_piano2Loaded && !_piano2Loading) { loadPiano2Samples(); _pfLoading.push('piano2'); }
+    if (_pfNeedGuitar && !_guitarLoaded && !_guitarLoading) { loadGuitarSamples(); _pfLoading.push('guitar'); }
+    // Also ensure drum samples are loaded
+    if (typeof seqDrumMode !== 'undefined') {
+      if (seqDrumMode === 'lacer' && typeof _acousticLoadState !== 'undefined' && _acousticLoadState === 'idle') {
+        loadAcousticSamples(); _pfLoading.push('drums-lacer');
+      } else if (seqDrumMode === 'hargreaves' && typeof _acoustic2LoadState !== 'undefined' && _acoustic2LoadState === 'idle') {
+        loadAcoustic2Samples(); _pfLoading.push('drums-hargreaves');
+      }
+    }
+    // Also set _kbdMelodyInstrument from the first sequence so melody playback uses correct instrument
+    if (_pfSeqs.length > 0) {
+      _kbdMelodyInstrument = _pfSeqs[0].melodyInstrument || 'piano';
+    }
+    if (_pfLoading.length > 0) {
+      console.log('[SHARED-PLAY-SONG] Pre-flight loading samples:', _pfLoading.join(', '));
+    }
+  }
   // Mark strip play button as active (so it shows Stop and can be used to stop)
   if (typeof _seqStripPlaying !== 'undefined') _seqStripPlaying = true;
   // Enable 4-track stop buttons so user can stop the sequence
@@ -33985,6 +34021,20 @@ function seqPlay() {
   if (!song) return;
   // Flush any DOM state into the song object before reading
   if (typeof seqSaveAllToCurrent === 'function') seqSaveAllToCurrent(song);
+  // v1.280: Pre-flight sample loading for single-section play
+  var _spSeqs = typeof getSongSequences === 'function' ? getSongSequences(song) : [];
+  var _spSeq = _spSeqs[seqActiveIdx] || song.sequencer || {};
+  var _spCI = (_spSeq.instrument || 'piano').split('+');
+  var _spMI = (_spSeq.melodyInstrument || 'piano').split('+');
+  var _spAll = _spCI.concat(_spMI);
+  if (_spAll.indexOf('piano') >= 0  && !_pianoLoaded  && !_pianoLoading)  loadPianoSamples();
+  if (_spAll.indexOf('piano2') >= 0 && !_piano2Loaded && !_piano2Loading) loadPiano2Samples();
+  if (_spAll.indexOf('guitar') >= 0 && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
+  if (typeof seqDrumMode !== 'undefined') {
+    if (seqDrumMode === 'lacer' && typeof _acousticLoadState !== 'undefined' && _acousticLoadState === 'idle') loadAcousticSamples();
+    else if (seqDrumMode === 'hargreaves' && typeof _acoustic2LoadState !== 'undefined' && _acoustic2LoadState === 'idle') loadAcoustic2Samples();
+  }
+  _kbdMelodyInstrument = _spSeq.melodyInstrument || 'piano';
   const seqs = getSongSequences(song);
   const seq  = seqs[seqActiveIdx] || song.sequencer || {};
   const _songWideBpm = parseFloat(song?.bpm || 100);
@@ -40437,7 +40487,7 @@ function initApp() {
   }, _drawerBuildDelay);
 
   // Samples load on-demand via initSequencer / seqOnInstrumentChange / initMidi
-  // No eager preload — saves memory and avoids loading instruments the user may never use.
+  // No eager preload at boot — saves memory. Pre-flight loading added in sharedPlaySong/seqPlay (v1.280).
 
   // v1.275: Defer MIDI auto-reconnect — connect input listeners but don't load samples
   // until the keyboard drawer is actually opened. Set flag for drawer open handler.
