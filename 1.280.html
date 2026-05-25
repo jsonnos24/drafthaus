@@ -40236,10 +40236,9 @@ function _uiRestoreFromState(state, song) {
       var _pyf = document.getElementById('pickFighterOverlay');
       if (_pyf) _pyf.remove();
       if (typeof _vr4TrackSyncToSong === 'function') _vr4TrackSyncToSong(song.id);
-      // v1.275: Mobile — open Arrange view so returning users land in their workspace
-      if (window.innerWidth < 900 && typeof arrOpen === 'function') {
-        setTimeout(function() { arrOpen(); }, 50);
-      }
+      // v1.281: Removed arrOpen() from mobile boot — arrangement view is too heavy
+      // to initialize during boot (95 KB, audio nodes, analysers, zoom handlers).
+      // Users tap the ARRANGE tab when they need it. Fixes white-screen crash.
     } catch(e) { console.error('[UI-STATE] default restore error:', e); }
     _uiRestoring = false;
     _uiDismissLoadingScreen();
@@ -40284,16 +40283,14 @@ function _uiRestoreFromState(state, song) {
     if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
 
     if (isMobile) {
-      // ── v1.275: Mobile restore — open Arrange view so user lands in workspace ──
-      console.log('[UI-STATE] Mobile — opening Arrange view for returning user');
+      // ── v1.281: Mobile restore — land on song detail view ──
+      // Removed arrOpen() — arrangement view is too heavy for boot
+      // (95 KB code, audio nodes, analysers, zoom). Tap ARRANGE tab on demand.
+      console.log('[UI-STATE] Mobile — restoring song detail view (arrangement deferred)');
       _uiRestoring = false;
       showDetail();
       _uiDismissLoadingScreen();
-      // Open Arrange after loading screen is gone so overlay renders correctly
-      setTimeout(function() {
-        if (typeof arrOpen === 'function') arrOpen();
-      }, 50);
-      // v1.279: Defer audio preload on mobile to 15s (was 2s) — reduces memory pressure
+      // v1.279: Defer audio preload on mobile — reduces memory pressure
       // during the critical first seconds. Drawers will load on-demand if opened sooner.
       setTimeout(function() {
         if (typeof _mtEnsureTrackObjects === 'function') _mtEnsureTrackObjects();
