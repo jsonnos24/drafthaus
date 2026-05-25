@@ -39594,6 +39594,13 @@ function startSyncPolling() {
             }
             songs[idx] = s;
             if (_isActiveSong) {
+              // v1.281: Skip heavy re-render if boot just rendered this song (< 5s ago).
+              // The onSnapshot initial fire duplicates work _bootFastRestore already did.
+              if (_bootSongRenderedAt && (Date.now() - _bootSongRenderedAt) < 5000) {
+                console.log('[SYNC] Skipping active-song re-render — boot rendered <5s ago');
+                setSyncStatus('saved', '↓ Draft updated ✓');
+                return;
+              }
               populateSongFields(s);
               // Re-render whichever view is active so collaborators see changes live
               if (window._songViewMode === 'runthrough') {
@@ -39652,6 +39659,12 @@ function startSyncPolling() {
             }
             songs[idx] = s;
             if (_isActive2) {
+              // v1.281: Skip heavy re-render if boot just rendered this song
+              if (_bootSongRenderedAt && (Date.now() - _bootSongRenderedAt) < 5000) {
+                console.log('[SYNC] Skipping viewOnly active-song re-render — boot rendered <5s ago');
+                setSyncStatus('saved', '↓ Draft updated ✓');
+                return;
+              }
               populateSongFields(s);
               if (window._songViewMode === 'runthrough') ilInitAndRender(s);
               else renderStructure(s);
@@ -39684,6 +39697,7 @@ function stopSyncPolling() {
 // ── Fast boot: load only the last-opened song, defer the rest ───
 var _bootFastRestored = false;
 var _bootSongsFullyLoaded = false;
+var _bootSongRenderedAt = 0;  // v1.281: timestamp when boot rendered the active song
 
 async function _bootFastRestore(songId) {
   setSyncStatus('syncing', 'Loading…');
@@ -39715,6 +39729,7 @@ async function _bootFastRestore(songId) {
     setSyncStatus('saved', 'Loaded ✓');
 
     _bootFastRestored = true;
+    _bootSongRenderedAt = Date.now();  // v1.281: mark boot render time
 
     // ── Restore last active state behind loading screen ──
     console.log('[BOOT-DEBUG] About to call _uiRestoreFromState — uiState:', JSON.stringify(s.uiState || null));
@@ -39751,6 +39766,7 @@ async function _bootFastRestore(songId) {
     setSyncStatus('saved', 'Loaded ✓');
 
     _bootFastRestored = true;
+    _bootSongRenderedAt = Date.now();  // v1.281: mark boot render time
 
     // ── Restore last active state behind loading screen ──
     console.log('[BOOT-DEBUG] Firestore path — About to call _uiRestoreFromState — uiState:', JSON.stringify(s.uiState || null));
@@ -39773,6 +39789,13 @@ async function _bootFastRestore(songId) {
 }
 
 async function _bootBackgroundVerify(songId, cacheTs) {
+  // v1.281: Skip server verification if cache is very fresh (< 30s).
+  // On mobile this avoids a duplicate Firestore fetch + full re-render
+  // right after boot — the data is almost certainly unchanged.
+  if (cacheTs && (Date.now() - cacheTs) < 30000) {
+    console.log('[BOOT-VERIFY] Cache is <30s old — skipping server verification');
+    return;
+  }
   try {
     var doc = await db.collection('songs').doc(songId).get({ source: 'server' });
     if (!doc.exists) return;
