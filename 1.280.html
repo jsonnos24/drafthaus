@@ -39863,15 +39863,23 @@ async function _bootFastRestore(songId) {
     _uiRestoreFromState(s.uiState, s);
 
     // ── Background verify against Firestore ──
-    _bootBackgroundVerify(songId, _cached.ts);
+    // v1.281: On mobile, defer verify to reduce post-boot network + memory pressure
+    if (window.innerWidth < 900) {
+      setTimeout(function() { _bootBackgroundVerify(songId, _cached.ts); }, 3000);
+    } else {
+      _bootBackgroundVerify(songId, _cached.ts);
+    }
 
     // ── Background-load all songs so song list is populated ──
+    // v1.281: On mobile, delay much longer (5s) to avoid post-boot memory spike
+    // from 70+ song stubs + 3 Firestore queries during the critical first seconds
+    var _bgDelay = (window.innerWidth < 900) ? 5000 : 200;
     setTimeout(function() {
       if (!_bootSongsFullyLoaded) {
         _bootSongsFullyLoaded = true;
         loadSongsFromSheet();
       }
-    }, 200);
+    }, _bgDelay);
     return;
   }
 
@@ -39899,12 +39907,13 @@ async function _bootFastRestore(songId) {
     _uiRestoreFromState(s.uiState, s);
 
     // ── Background-load all songs so song list is populated ──
+    var _bgDelay2 = (window.innerWidth < 900) ? 5000 : 200;
     setTimeout(function() {
       if (!_bootSongsFullyLoaded) {
         _bootSongsFullyLoaded = true;
         loadSongsFromSheet();
       }
-    }, 200);
+    }, _bgDelay2);
   } catch(e) {
     console.warn('[BOOT-FAST] Failed, falling back to full load:', e.message);
     _bootFastRestored = false;
@@ -39925,6 +39934,7 @@ async function _bootBackgroundVerify(songId, cacheTs) {
     if (!doc.exists) return;
     var serverData = doc.data();
     var serverTs = serverData.updatedAt || 0;
+    var _isMobileVerify = (window.innerWidth < 900);
     if (serverTs > cacheTs) {
       console.log('[BOOT-VERIFY] Server version newer — updating in memory');
       var s = normalizeLoadedSong({ ...serverData, _fromSheet: false });
@@ -39933,15 +39943,18 @@ async function _bootBackgroundVerify(songId, cacheTs) {
       if (_songCurrentId === s.id) {
         populateSongFields(s);
         if (typeof ftSyncAllStrips === 'function') ftSyncAllStrips();
-        // Re-render piano roll — cache strips pianoRoll arrays > 50 notes,
-        // so the keyboard drawer loads empty on cache-hit. Now that we have
-        // full Firestore data, refresh the piano roll if it's visible.
-        if (typeof prLoadFromGrid === 'function') {
-          try { prLoadFromGrid(); console.log('[BOOT-VERIFY] Re-rendered piano roll with full data'); } catch(e) {}
-        }
-        // Also re-render sequencer tabs/grid in case data was stale
-        if (typeof seqRenderSequenceTabs === 'function') {
-          try { seqRenderSequenceTabs(); } catch(e) {}
+        // v1.281: Skip piano roll + sequencer re-render on mobile — these are
+        // heavy DOM operations (504 notes, 9 sections) that spike memory during
+        // the critical first seconds. Data is in memory; renders on drawer open.
+        if (!_isMobileVerify) {
+          if (typeof prLoadFromGrid === 'function') {
+            try { prLoadFromGrid(); console.log('[BOOT-VERIFY] Re-rendered piano roll with full data'); } catch(e) {}
+          }
+          if (typeof seqRenderSequenceTabs === 'function') {
+            try { seqRenderSequenceTabs(); } catch(e) {}
+          }
+        } else {
+          console.log('[BOOT-VERIFY] Mobile — skipping piano roll/seq re-render (deferred to drawer open)');
         }
       }
       localStorage.setItem('dh-fast-cache', JSON.stringify({ id: songId, ts: Date.now(), song: _stripForCache(serverData) }));
@@ -39960,12 +39973,14 @@ async function _bootBackgroundVerify(songId, cacheTs) {
           var sF = normalizeLoadedSong({ ...serverData, _fromSheet: false });
           var idxF = songs.findIndex(function(x) { return x.id === sF.id; });
           if (idxF >= 0) songs[idxF] = sF; else songs.push(sF);
-          // Only re-render piano roll if it was stripped — skip heavy renders
-          if (!_hasPR) {
+          // v1.281: On mobile, skip DOM re-render — just backfill memory
+          if (!_isMobileVerify && !_hasPR) {
             populateSongFields(sF);
             if (typeof prLoadFromGrid === 'function') {
               try { prLoadFromGrid(); console.log('[BOOT-VERIFY] Re-rendered piano roll (cache had stripped data)'); } catch(e) {}
             }
+          } else if (_isMobileVerify) {
+            console.log('[BOOT-VERIFY] Mobile — backfilled in-memory data (render deferred)');
           }
         }
       }
@@ -40401,7 +40416,11 @@ function _uiRestoreFromState(state, song) {
     try {
       if (typeof loopOnSongChange === 'function') loopOnSongChange(song);
       populateSongFields(song);
-      if (typeof TL !== 'undefined' && typeof TL.load === 'function') { try { TL.load(song); } catch(e) {} }
+      // v1.281: Skip TL.load on mobile — timeline is only needed for arrangement
+      // view which is deferred anyway. Saves ~662 event objects from being allocated.
+      if (window.innerWidth >= 900) {
+        if (typeof TL !== 'undefined' && typeof TL.load === 'function') { try { TL.load(song); } catch(e) {} }
+      }
       setSongViewMode('runthrough');
       if (typeof ilInitAndRender === 'function') ilInitAndRender(song);
       if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
@@ -40446,8 +40465,11 @@ function _uiRestoreFromState(state, song) {
     // 1. Populate song fields silently (already loaded)
     if (typeof loopOnSongChange === 'function') loopOnSongChange(song);
     populateSongFields(song);
-    if (typeof TL !== 'undefined' && typeof TL.load === 'function') {
-      try { TL.load(song); } catch(e) {}
+    // v1.281: Skip TL.load on mobile — timeline only needed for arrangement view
+    if (window.innerWidth >= 900) {
+      if (typeof TL !== 'undefined' && typeof TL.load === 'function') {
+        try { TL.load(song); } catch(e) {}
+      }
     }
     // Hide runthrough view during restore to prevent edit-lyrics flash
     var _rtEl = document.getElementById('songViewRunthrough');
@@ -73694,6 +73716,12 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     if (drawer) drawer.classList.add('open');
     document.body.classList.add('arr-view-open');
     document.body.style.overflow = 'hidden';
+
+    // v1.281: Ensure timeline is loaded — on mobile boot TL.load is deferred
+    if (typeof TL !== 'undefined' && typeof TL.load === 'function') {
+      var _arrSong = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
+      if (_arrSong) { try { TL.load(_arrSong); } catch(e) {} }
+    }
 
     arrRenderAll();
     _arrTickStart();
