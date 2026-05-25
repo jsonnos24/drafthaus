@@ -87,16 +87,27 @@ if (window.innerWidth < 900) {
   if (f2) { f2.media = 'print'; f2.onload = function(){ f2.media = 'all'; }; }
 }
 </script>
-<!-- Firebase SDK -->
+<!-- Firebase SDK — app/auth/firestore are required synchronously for boot.
+     v1.281: Storage + Functions deferred on mobile (only needed for recording/export). -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
-<!-- v1.275: Defer firebase-functions on mobile — only used for collab join + recording stitch -->
 <script>
 if (window.innerWidth >= 900) {
+  // Desktop: load storage + functions immediately (non-blocking after firestore)
+  document.write('<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"><\/script>');
   document.write('<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"><\/script>');
 } else {
+  // Mobile: lazy-load storage + functions on first use — saves ~150 KB parse at boot
+  window._dhLoadStorage = function() {
+    if (window._dhStorageLoaded) return Promise.resolve();
+    return new Promise(function(resolve) {
+      var s = document.createElement('script');
+      s.src = 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js';
+      s.onload = function() { window._dhStorageLoaded = true; resolve(); };
+      document.head.appendChild(s);
+    });
+  };
   window._dhLoadFunctions = function() {
     if (window._dhFunctionsLoaded) return Promise.resolve();
     return new Promise(function(resolve) {
@@ -106,6 +117,8 @@ if (window.innerWidth >= 900) {
       document.head.appendChild(s);
     });
   };
+  // Pre-warm storage after boot settles (15s) so it's ready when user records
+  setTimeout(function() { if (window._dhLoadStorage) window._dhLoadStorage(); }, 15000);
 }
 </script>
 <!-- v1.279: Mobile boot stagger — intercept DOMContentLoaded listeners and run them
