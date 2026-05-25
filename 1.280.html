@@ -19277,17 +19277,25 @@ function deleteProjectFolder(fullPath) {
 /* @lock:start — Song Manager */
 function save() {
   try {
-    // Strip pianoRoll from localStorage cache to stay under quota (~5MB).
-    // Firestore is source of truth; pianoRoll is regenerable from chord grid.
+    // v1.281: Strip heavy data from localStorage cache — pianoRoll (>50 notes),
+    // timeline (arrangement view data, ~61KB per sequence), and sequencer
+    // (duplicate reference to sequences[activeIdx]). Firestore is source of truth;
+    // all stripped data reloads on demand. Cuts ~1MB from boot JSON parsing.
     var _lsSongs = songs.map(function(s) {
-      if (!s.sequences || !s.sequences.some(function(sq) { return sq && sq.pianoRoll && sq.pianoRoll.length > 50; })) return s;
       var clone = Object.assign({}, s);
-      clone.sequences = s.sequences.map(function(sq) {
-        if (!sq || !sq.pianoRoll || sq.pianoRoll.length <= 50) return sq;
-        var sc = Object.assign({}, sq);
-        delete sc.pianoRoll;
-        return sc;
-      });
+      // Always strip sequencer — it's a duplicate reference
+      delete clone.sequencer;
+      if (clone.sequences && clone.sequences.length) {
+        clone.sequences = s.sequences.map(function(sq) {
+          if (!sq) return sq;
+          var sc = Object.assign({}, sq);
+          // Strip timeline (arrangement view data — ~61KB each)
+          delete sc.timeline;
+          // Strip large pianoRoll arrays
+          if (sc.pianoRoll && sc.pianoRoll.length > 50) delete sc.pianoRoll;
+          return sc;
+        });
+      }
       return clone;
     });
     localStorage.setItem('track_songs', JSON.stringify(_lsSongs));
@@ -37482,6 +37490,24 @@ function _estimateDocSize(payload) {
   try { return JSON.stringify(payload).length; } catch(e) { return 0; }
 }
 
+// v1.281: Strip heavy data from a song before writing to localStorage cache.
+// Removes timeline (~61KB/seq), large pianoRoll, and sequencer (duplicate ref).
+// Firestore is source of truth — all stripped data reloads on demand.
+function _stripForCache(songData) {
+  var s = Object.assign({}, songData);
+  delete s.sequencer;  // duplicate of sequences[activeIdx]
+  if (s.sequences && s.sequences.length) {
+    s.sequences = s.sequences.map(function(sq) {
+      if (!sq) return sq;
+      var sc = Object.assign({}, sq);
+      delete sc.timeline;  // arrangement view data
+      if (sc.pianoRoll && sc.pianoRoll.length > 50) delete sc.pianoRoll;
+      return sc;
+    });
+  }
+  return s;
+}
+
 function _stripPianoRollsForSize(payload) {
   if (!payload.sequences || !Array.isArray(payload.sequences)) return payload;
   payload = Object.assign({}, payload);
@@ -37546,11 +37572,8 @@ async function syncToSheet(song) {
     clearPendingSync(song.id);
     setSyncStatus('saved', 'Saved ✓');
     try {
-      var _cachePayload = JSON.parse(JSON.stringify(payload));
-      if (_cachePayload.sequences) _cachePayload.sequences = _cachePayload.sequences.map(function(sq) {
-        if (!sq || !sq.pianoRoll || sq.pianoRoll.length <= 50) return sq;
-        var sc = Object.assign({}, sq); delete sc.pianoRoll; return sc;
-      });
+      // v1.281: use _stripForCache to remove timeline, sequencer, large pianoRoll
+      var _cachePayload = _stripForCache(JSON.parse(JSON.stringify(payload)));
       localStorage.setItem('dh-fast-cache', JSON.stringify({ id: song.id, ts: Date.now(), song: _cachePayload }));
     } catch(_ce) { /* quota exceeded — non-critical */ }
       } catch(e) {
@@ -39704,6 +39727,26 @@ async function _bootFastRestore(songId) {
   _dhMark('firestore-fetch-start');
   console.log('[BOOT-DEBUG] _bootFastRestore called for songId:', songId);
 
+  // v1.281: One-time migration — strip bloated cache from pre-v1.281 versions.
+  // Old caches stored timeline (~61KB/seq) and sequencer (~65KB). Re-strip them
+  // so the very first boot after deploy benefits from the smaller parse.
+  try {
+    var _migKey = 'dh-cache-v281-migrated';
+    if (!localStorage.getItem(_migKey)) {
+      var _fcRaw = localStorage.getItem('dh-fast-cache');
+      if (_fcRaw && _fcRaw.length > 200000) {  // only bother if cache is large
+        var _fcObj = JSON.parse(_fcRaw);
+        if (_fcObj && _fcObj.song) {
+          _fcObj.song = _stripForCache(_fcObj.song);
+          localStorage.setItem('dh-fast-cache', JSON.stringify(_fcObj));
+          console.log('[BOOT] Migrated dh-fast-cache — stripped timeline/sequencer');
+        }
+      }
+      localStorage.removeItem('track_songs');  // force rebuild without timeline
+      localStorage.setItem(_migKey, '1');
+    }
+  } catch(_me) { console.warn('[BOOT] Cache migration error:', _me); }
+
   // ── Try localStorage cache first for instant render ──
   var _cached = null;
   try {
@@ -39820,23 +39863,28 @@ async function _bootBackgroundVerify(songId, cacheTs) {
           try { seqRenderSequenceTabs(); } catch(e) {}
         }
       }
-      localStorage.setItem('dh-fast-cache', JSON.stringify({ id: songId, ts: Date.now(), song: serverData }));
+      localStorage.setItem('dh-fast-cache', JSON.stringify({ id: songId, ts: Date.now(), song: _stripForCache(serverData) }));
     } else {
-      // Cache is current, but pianoRoll may still have been stripped from cache.
-      // Re-render if the keyboard drawer is open and piano roll is empty.
+      // v1.281: Cache is current but may have stripped data (pianoRoll, timeline,
+      // sequencer). Backfill the in-memory song with full Firestore data so
+      // arrangement view and piano roll work when opened on demand.
       console.log('[BOOT-VERIFY] Cache is current');
       if (_songCurrentId === songId) {
         var _curSong = songs.find(function(x) { return x.id === songId; });
         var _seq = _curSong && _curSong.sequences && _curSong.sequences[typeof seqActiveIdx !== 'undefined' ? seqActiveIdx : 0];
         var _hasPR = _seq && _seq.pianoRoll && _seq.pianoRoll.length > 0;
-        if (!_hasPR && serverData.sequences) {
+        var _hasTL = _seq && Array.isArray(_seq.timeline) && _seq.timeline.length > 0;
+        if ((!_hasPR || !_hasTL) && serverData.sequences) {
           // Server has sequences — update in-memory song with full data
           var sF = normalizeLoadedSong({ ...serverData, _fromSheet: false });
           var idxF = songs.findIndex(function(x) { return x.id === sF.id; });
           if (idxF >= 0) songs[idxF] = sF; else songs.push(sF);
-          populateSongFields(sF);
-          if (typeof prLoadFromGrid === 'function') {
-            try { prLoadFromGrid(); console.log('[BOOT-VERIFY] Re-rendered piano roll (cache had stripped data)'); } catch(e) {}
+          // Only re-render piano roll if it was stripped — skip heavy renders
+          if (!_hasPR) {
+            populateSongFields(sF);
+            if (typeof prLoadFromGrid === 'function') {
+              try { prLoadFromGrid(); console.log('[BOOT-VERIFY] Re-rendered piano roll (cache had stripped data)'); } catch(e) {}
+            }
           }
         }
       }
