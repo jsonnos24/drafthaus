@@ -39727,22 +39727,19 @@ async function _bootFastRestore(songId) {
   _dhMark('firestore-fetch-start');
   console.log('[BOOT-DEBUG] _bootFastRestore called for songId:', songId);
 
-  // v1.281: One-time migration — strip bloated cache from pre-v1.281 versions.
-  // Old caches stored timeline (~61KB/seq) and sequencer (~65KB). Re-strip them
-  // so the very first boot after deploy benefits from the smaller parse.
+  // v1.281: One-time migration — purge bloated cache from pre-v1.281 versions.
+  // Old caches stored timeline (~61KB/seq) and sequencer (~65KB) totalling ~1.7MB.
+  // Don't parse the old cache (that itself can crash mobile) — just delete it.
+  // Boot falls through to Firestore fetch; next save writes the slim version.
   try {
     var _migKey = 'dh-cache-v281-migrated';
     if (!localStorage.getItem(_migKey)) {
       var _fcRaw = localStorage.getItem('dh-fast-cache');
-      if (_fcRaw && _fcRaw.length > 200000) {  // only bother if cache is large
-        var _fcObj = JSON.parse(_fcRaw);
-        if (_fcObj && _fcObj.song) {
-          _fcObj.song = _stripForCache(_fcObj.song);
-          localStorage.setItem('dh-fast-cache', JSON.stringify(_fcObj));
-          console.log('[BOOT] Migrated dh-fast-cache — stripped timeline/sequencer');
-        }
+      if (_fcRaw && _fcRaw.length > 100000) {
+        localStorage.removeItem('dh-fast-cache');
+        console.log('[BOOT] Purged bloated dh-fast-cache (' + Math.round(_fcRaw.length/1024) + 'KB)');
       }
-      localStorage.removeItem('track_songs');  // force rebuild without timeline
+      localStorage.removeItem('track_songs');
       localStorage.setItem(_migKey, '1');
     }
   } catch(_me) { console.warn('[BOOT] Cache migration error:', _me); }
