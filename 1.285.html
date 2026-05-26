@@ -37832,18 +37832,33 @@ setTimeout(function() {
   if (!localStorage.getItem(_reloadKey)) {
     localStorage.setItem(_reloadKey, '1');
     console.warn('[AUTH-RECOVERY] Clearing Firebase IndexedDB and reloading...');
-    // Delete all Firebase IndexedDB databases to clear the hung state
+    // Delete all Firebase IndexedDB databases to clear the hung state.
+    // indexedDB.deleteDatabase() returns an IDBOpenDBRequest (not a Promise).
+    // Wrap each in a real Promise so Promise.all actually waits for completion.
+    function _idbDeletePromise(name) {
+      return new Promise(function(resolve) {
+        var req = indexedDB.deleteDatabase(name);
+        req.onsuccess = resolve;
+        req.onerror   = resolve; // resolve on error — reload regardless
+        req.onblocked = resolve; // resolve if blocked — reload will clear the connection
+      });
+    }
+    // Fallback timeout: always reload within 4s even if IDB operations stall
+    var _recoveryReloadTimer = setTimeout(function() { location.reload(); }, 4000);
+    function _doReload() { clearTimeout(_recoveryReloadTimer); location.reload(); }
+
     if (indexedDB.databases) {
       indexedDB.databases().then(function(dbs) {
-        var dels = dbs.filter(function(d) { return d.name && d.name.indexOf('firebase') !== -1; })
-                     .map(function(d) { return indexedDB.deleteDatabase(d.name); });
-        Promise.all(dels).then(function() { location.reload(); }).catch(function() { location.reload(); });
-      }).catch(function() { location.reload(); });
+        var firebaseDbs = dbs.filter(function(d) { return d.name && d.name.indexOf('firebase') !== -1; });
+        Promise.all(firebaseDbs.map(function(d) { return _idbDeletePromise(d.name); }))
+          .then(_doReload).catch(_doReload);
+      }).catch(_doReload);
     } else {
-      // Safari <16 doesn't have indexedDB.databases() — try known names then reload
-      try { indexedDB.deleteDatabase('firebaseLocalStorageDb'); } catch(e2) {}
-      try { indexedDB.deleteDatabase('firebase-heartbeat-database'); } catch(e2) {}
-      location.reload();
+      // Safari <16 doesn't have indexedDB.databases() — delete known names then reload
+      Promise.all([
+        _idbDeletePromise('firebaseLocalStorageDb'),
+        _idbDeletePromise('firebase-heartbeat-database'),
+      ]).then(_doReload).catch(_doReload);
     }
   } else {
     // Already tried reload once — don't loop. Clear the flag and show error.
