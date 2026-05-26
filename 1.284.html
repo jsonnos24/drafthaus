@@ -39725,6 +39725,33 @@ function startSyncPolling() {
     // _loadingScreenDismissed covers the non-cache boot path too.
     if (_syncFirstFire[_listenerKey] && (_bootFastRestored || _loadingScreenDismissed)) {
       _syncFirstFire[_listenerKey] = false;
+      // v1.285: On mobile, check only the active song for staleness before skipping.
+      // Calling .data() on all 68 docs is OOM-fatal, but checking just the one active
+      // song doc is cheap and replaces the separate _bootBackgroundVerify Firestore fetch.
+      if (window.innerWidth < 900) {
+        snapshot.docChanges().forEach(function(change) {
+          if (change.doc.id !== _songCurrentId) return; // skip all non-active — no .data() call
+          var _rawData = change.doc.data();
+          var remoteTs = _rawData.updatedAt || 0;
+          var _cachedSong = songs.find(function(x) { return x.id === change.doc.id; });
+          if (_cachedSong && remoteTs <= (_cachedSong.updatedAt || 0)) {
+            console.log('[SYNC] Active song cache is current — no update needed');
+            return;
+          }
+          console.log('[SYNC] Active song stale — updating in memory from first snapshot');
+          if (window._dhBeacon) window._dhBeacon('B10b:sync-stale-update');
+          var s = normalizeLoadedSong(Object.assign({}, _rawData, { _fromSheet: false }));
+          var idx = songs.findIndex(function(x) { return x.id === s.id; });
+          if (idx >= 0) songs[idx] = s; else songs.push(s);
+          // Skip DOM re-render if boot rendered <5s ago — data is in memory for next interaction
+          if (_bootSongRenderedAt && (Date.now() - _bootSongRenderedAt) < 5000) {
+            setSyncStatus('saved', '↓ updated ✓');
+            return;
+          }
+          populateSongFields(s);
+          setSyncStatus('saved', '↓ updated ✓');
+        });
+      }
       console.log('[CRASH-DEBUG] ★ Skipping initial bulk snapshot (boot done), key:', _listenerKey);
       return;
     }
@@ -39948,10 +39975,10 @@ async function _bootFastRestore(songId) {
     _uiRestoreFromState(s.uiState, s);
 
     // ── Background verify against Firestore ──
-    // v1.281: On mobile, defer verify to reduce post-boot network + memory pressure
-    if (window.innerWidth < 900) {
-      setTimeout(function() { _bootBackgroundVerify(songId, _cached.ts); }, 3000);
-    } else {
+    // v1.285: On mobile, skip the separate verify — it fires a Firestore .get() at t=3s
+    // and normalizeLoadedSong({...fullSongData}) spikes memory past the OOM threshold.
+    // startSyncPolling (t=4s) handles stale-cache detection via its first-fire active-song check.
+    if (window.innerWidth >= 900) {
       _bootBackgroundVerify(songId, _cached.ts);
     }
 
