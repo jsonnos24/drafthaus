@@ -37760,7 +37760,9 @@ let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestor
 
 // ── Safety timeout: dismiss loading screen if auth hasn't resolved ──
 // Mobile networks can be slow/flaky — don't strand users on the loading screen forever
+var _authResolved = false;
 setTimeout(function() {
+  if (_authResolved) return; // auth already fired — nothing to do
   if (!document.body.classList.contains('app-loading')) return; // already dismissed
   console.warn('[BOOT] Auth did not resolve within 8s — forcing loading screen dismiss');
   document.body.classList.remove('app-loading');
@@ -37768,10 +37770,55 @@ setTimeout(function() {
   if (_ls) { _ls.style.opacity = '0'; _ls.style.transition = 'opacity 0.3s'; setTimeout(function() { _ls.remove(); }, 350); }
 }, 8000);
 
+// v1.281: Auth recovery — if onAuthStateChanged never fires, Firebase Auth's
+// IndexedDB persistence is likely hung (common on iOS Safari when tab was
+// killed mid-write or IndexedDB quota is exhausted). After 5s, nuke the
+// stuck persistence and force a fresh anonymous session.
+setTimeout(function() {
+  if (_authResolved) return;
+  console.error('[AUTH-RECOVERY] onAuthStateChanged did not fire within 5s — IndexedDB likely hung');
+  if (window._dhBeacon) window._dhBeacon('AUTH-STUCK');
+  // Step 1: Try signing in anonymously — sometimes this unsticks the auth state
+  auth.signInAnonymously().then(function() {
+    console.log('[AUTH-RECOVERY] Anonymous sign-in succeeded — auth should resolve now');
+  }).catch(function(e) {
+    console.error('[AUTH-RECOVERY] Anonymous sign-in also failed:', e.message);
+    // Step 2: Nuclear option — clear Firebase IndexedDB and reload once
+    var _reloadKey = 'dh-auth-recovery-reload';
+    if (!localStorage.getItem(_reloadKey)) {
+      localStorage.setItem(_reloadKey, '1');
+      console.warn('[AUTH-RECOVERY] Clearing IndexedDB and reloading...');
+      // Delete all Firebase IndexedDB databases
+      if (indexedDB.databases) {
+        indexedDB.databases().then(function(dbs) {
+          var dels = dbs.filter(function(d) { return d.name && d.name.indexOf('firebase') !== -1; })
+                       .map(function(d) { return indexedDB.deleteDatabase(d.name); });
+          Promise.all(dels).then(function() { location.reload(); }).catch(function() { location.reload(); });
+        }).catch(function() { location.reload(); });
+      } else {
+        // Safari <16 doesn't have indexedDB.databases() — just try known names
+        try { indexedDB.deleteDatabase('firebaseLocalStorageDb'); } catch(e2) {}
+        try { indexedDB.deleteDatabase('firebase-heartbeat-database'); } catch(e2) {}
+        location.reload();
+      }
+    } else {
+      // Already tried reload once — don't loop. Clear the flag and show error.
+      localStorage.removeItem(_reloadKey);
+      console.error('[AUTH-RECOVERY] Reload already attempted — giving up');
+      if (typeof showToast === 'function') showToast('Connection issue — please reload', 'error', 5000);
+    }
+  });
+}, 5000);
+
+// v1.281: Clear the recovery reload flag on successful auth (proves IndexedDB is fine)
+// This is set inside onAuthStateChanged below.
+
 // (signInWithRedirect removed — Safari ITP blocks cross-origin sessionStorage during OAuth redirect)
 
 /* @lock:start — Auth Lifecycle */
 auth.onAuthStateChanged(user => {
+  _authResolved = true;
+  localStorage.removeItem('dh-auth-recovery-reload'); // v1.281: clear recovery flag
   _dhMark(user ? 'auth-signed-in' : 'auth-signed-out');
   if (window._dhBeacon) window._dhBeacon('B4:auth-' + (user ? 'in' : 'out'));
   // Re-evaluate Roll Hero visibility based on auth state
