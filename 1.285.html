@@ -151,6 +151,32 @@ if (window.innerWidth < 900) {
   if (f2) { f2.media = 'print'; f2.onload = function(){ f2.media = 'all'; }; }
 }
 </script>
+<!-- v1.285: If the previous boot had AUTH-STUCK (flag set by recovery code), kick off
+     Firebase Auth IndexedDB deletions NOW — before the Firebase SDK even loads.
+     firebase.auth() is called ~80ms later; this gives the async deletions time to complete
+     so Firebase opens a clean database instead of a corrupted/locked one. -->
+<script>
+(function() {
+  if (window.innerWidth >= 900) return;
+  if (!localStorage.getItem('dh-auth-recovery-reload')) return;
+  if (!window.indexedDB || !window.indexedDB.deleteDatabase) return;
+  // Known Firebase Auth/Firestore database names to clear proactively
+  var _fdbNames = ['firebaseLocalStorageDb', 'firebase-heartbeat-database'];
+  _fdbNames.forEach(function(n) {
+    try { indexedDB.deleteDatabase(n); } catch(e) {}
+  });
+  // Also enumerate all firebase databases if the API is available
+  if (indexedDB.databases) {
+    indexedDB.databases().then(function(dbs) {
+      dbs.forEach(function(d) {
+        if (d.name && d.name.indexOf('firebase') !== -1) {
+          try { indexedDB.deleteDatabase(d.name); } catch(e) {}
+        }
+      });
+    }).catch(function() {});
+  }
+})();
+</script>
 <!-- Firebase SDK — app/auth/firestore are required synchronously for boot.
      v1.281: Storage + Functions deferred on mobile (only needed for recording/export). -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -18586,6 +18612,23 @@ _dhMark('firebase-init');
 if (window._dhBeacon) window._dhBeacon('B3:fb-init');
 const auth = firebase.auth();
 const db   = firebase.firestore();
+
+// v1.285: IDB diagnostic — intercept indexedDB.open to track what Firebase opens and when.
+// Beacons: IDB-O:<name> on open, IDB-S:<name> on success, IDB-E:<name> on error, IDB-B:<name> on blocked.
+if (window.innerWidth < 900 && window._dhBeacon && window.indexedDB) {
+  (function() {
+    var _origOpen = indexedDB.open.bind(indexedDB);
+    indexedDB.open = function(name, version) {
+      var _shortName = (name || '').replace('firebase', 'fb').replace('Heartbeat', 'HB').replace('LocalStorage', 'LS');
+      window._dhBeacon('IDB-O:' + _shortName);
+      var req = _origOpen(name, version);
+      req.addEventListener('success', function() { window._dhBeacon('IDB-S:' + _shortName); });
+      req.addEventListener('error',   function() { window._dhBeacon('IDB-E:' + _shortName); });
+      req.addEventListener('blocked', function() { window._dhBeacon('IDB-B:' + _shortName); });
+      return req;
+    };
+  })();
+}
 
 // v1.281: Ensure firebase-storage is loaded before use (deferred on mobile)
 async function _ensureStorage() {
