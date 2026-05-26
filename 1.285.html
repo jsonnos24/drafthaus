@@ -138,125 +138,15 @@ window.addEventListener('unhandledrejection', function(ev) {
 <!-- Font preconnect for faster load -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- v1.275: Defer fonts on mobile — load async via media="print" swap trick.
-     Fonts still load, just don't block render or spike peak memory during boot. -->
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500&family=MedievalSharp&display=swap" rel="stylesheet" id="dhFonts1">
-<link href="https://fonts.googleapis.com/css2?family=Pirata+One&display=swap" rel="stylesheet" id="dhFonts2">
-<script>
-// v1.275: On mobile, defer font loading to reduce peak boot memory
-if (window.innerWidth < 900) {
-  var f1 = document.getElementById('dhFonts1');
-  var f2 = document.getElementById('dhFonts2');
-  if (f1) { f1.media = 'print'; f1.onload = function(){ f1.media = 'all'; }; }
-  if (f2) { f2.media = 'print'; f2.onload = function(){ f2.media = 'all'; }; }
-}
-</script>
-<!-- v1.285: If the previous boot had AUTH-STUCK (flag set by recovery code), kick off
-     Firebase Auth IndexedDB deletions NOW — before the Firebase SDK even loads.
-     firebase.auth() is called ~80ms later; this gives the async deletions time to complete
-     so Firebase opens a clean database instead of a corrupted/locked one. -->
-<script>
-(function() {
-  if (window.innerWidth >= 900) return;
-  if (!localStorage.getItem('dh-auth-recovery-reload')) return;
-  if (!window.indexedDB || !window.indexedDB.deleteDatabase) return;
-  // Known Firebase Auth/Firestore database names to clear proactively
-  var _fdbNames = ['firebaseLocalStorageDb', 'firebase-heartbeat-database'];
-  _fdbNames.forEach(function(n) {
-    try { indexedDB.deleteDatabase(n); } catch(e) {}
-  });
-  // Also enumerate all firebase databases if the API is available
-  if (indexedDB.databases) {
-    indexedDB.databases().then(function(dbs) {
-      dbs.forEach(function(d) {
-        if (d.name && d.name.indexOf('firebase') !== -1) {
-          try { indexedDB.deleteDatabase(d.name); } catch(e) {}
-        }
-      });
-    }).catch(function() {});
-  }
-})();
-</script>
-<!-- Firebase SDK — app/auth/firestore are required synchronously for boot.
-     v1.281: Storage + Functions deferred on mobile (only needed for recording/export). -->
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500&family=MedievalSharp&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Pirata+One&display=swap" rel="stylesheet">
+<!-- Firebase SDK — all 5 loaded synchronously like 8914 (no lazy loading) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script>
-if (window.innerWidth >= 900) {
-  // Desktop: load storage + functions immediately (non-blocking after firestore)
-  document.write('<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"><\/script>');
-  document.write('<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"><\/script>');
-} else {
-  // Mobile: lazy-load storage + functions on first use — saves ~150 KB parse at boot
-  window._dhLoadStorage = function() {
-    if (window._dhStorageLoaded) return Promise.resolve();
-    return new Promise(function(resolve) {
-      var s = document.createElement('script');
-      s.src = 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js';
-      s.onload = function() { window._dhStorageLoaded = true; resolve(); };
-      document.head.appendChild(s);
-    });
-  };
-  window._dhLoadFunctions = function() {
-    if (window._dhFunctionsLoaded) return Promise.resolve();
-    return new Promise(function(resolve) {
-      var s = document.createElement('script');
-      s.src = 'https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js';
-      s.onload = function() { window._dhFunctionsLoaded = true; resolve(); };
-      document.head.appendChild(s);
-    });
-  };
-  // Pre-warm storage after boot settles (15s) so it's ready when user records
-  setTimeout(function() { if (window._dhLoadStorage) window._dhLoadStorage(); }, 15000);
-}
-</script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
 <script>if (window._dhBeacon) window._dhBeacon('B1:firebase-loaded');</script>
-<!-- v1.279: Mobile boot stagger — intercept DOMContentLoaded listeners and run them
-     sequentially with idle-callback breathing room so they don't all spike memory at once.
-     Desktop: completely untouched, addEventListener works normally. -->
-<script>
-(function() {
-  if (window.innerWidth >= 900) return;
-  var _dclQueue = [];
-  var _origAEL = document.addEventListener.bind(document);
-  var _dclFired = false;
-  document.addEventListener = function(type, fn, opts) {
-    if (type === 'DOMContentLoaded' && !_dclFired) {
-      _dclQueue.push(fn);
-    } else {
-      _origAEL(type, fn, opts);
-    }
-  };
-  _origAEL('DOMContentLoaded', function() {
-    _dclFired = true;
-    document.addEventListener = _origAEL;
-    var i = 0;
-    var BATCH = 3;
-    function runBatch() {
-      if (i >= _dclQueue.length) {
-        if (window._dhBeacon) window._dhBeacon('B_DCL_DONE:' + i);
-        return;
-      }
-      var end = Math.min(i + BATCH, _dclQueue.length);
-      for (var j = i; j < end; j++) {
-        if (window._dhBeacon) window._dhBeacon('DCL#' + j + ':start');
-        try { _dclQueue[j](); } catch(e) { console.error('[BOOT-STAGGER] DCL#' + j + ' error:', e); }
-        if (window._dhBeacon) window._dhBeacon('DCL#' + j + ':done');
-      }
-      i = end;
-      if (i < _dclQueue.length) {
-        if (typeof requestIdleCallback !== 'undefined') {
-          requestIdleCallback(runBatch, { timeout: 300 });
-        } else {
-          setTimeout(runBatch, 80);
-        }
-      }
-    }
-    runBatch();
-  });
-})();
-</script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
@@ -18613,47 +18503,16 @@ if (window._dhBeacon) window._dhBeacon('B3:fb-init');
 const auth = firebase.auth();
 const db   = firebase.firestore();
 
-// v1.285: IDB diagnostic — intercept indexedDB.open to track what Firebase opens and when.
-// Beacons: IDB-O:<name> on open, IDB-S:<name> on success, IDB-E:<name> on error, IDB-B:<name> on blocked.
-if (window.innerWidth < 900 && window._dhBeacon && window.indexedDB) {
-  (function() {
-    var _origOpen = indexedDB.open.bind(indexedDB);
-    indexedDB.open = function(name, version) {
-      var _shortName = (name || '').replace('firebase', 'fb').replace('Heartbeat', 'HB').replace('LocalStorage', 'LS');
-      window._dhBeacon('IDB-O:' + _shortName);
-      var req = _origOpen(name, version);
-      req.addEventListener('success', function() { window._dhBeacon('IDB-S:' + _shortName); });
-      req.addEventListener('error',   function() { window._dhBeacon('IDB-E:' + _shortName); });
-      req.addEventListener('blocked', function() { window._dhBeacon('IDB-B:' + _shortName); });
-      return req;
-    };
-  })();
-}
-
-// v1.281: Ensure firebase-storage is loaded before use (deferred on mobile)
-async function _ensureStorage() {
-  if (typeof firebase.storage === 'function') return;
-  if (window._dhLoadStorage) await window._dhLoadStorage();
-}
-
 // ── Centralized auth accessors ─────────────────────────────────
-// Use these instead of scattering auth.currentUser?.uid everywhere.
-// _authUid() returns uid string or null (never throws).
-// _authUser() returns the Firebase User object or null.
 function _authUid()  { return auth.currentUser ? auth.currentUser.uid : null; }
 function _authUser() { return auth.currentUser || null; }
 
-// v1.285: On mobile, use HTTP long polling instead of WebSocket.
-// The Firestore WebSocket transport establishes an eager persistent connection
-// ~3-4s after init, with the handshake completing exactly in the crash window
-// (B8+3500-4000ms on iOS). Long polling makes requests on-demand only —
-// no background connection during boot. db.disableNetwork() was tried first
-// but its IndexedDB flush on promise resolution crashed at B8+776-1000ms.
-if (window.innerWidth < 900) {
-  db.settings({ experimentalForceLongPolling: true });
-  console.log('[BOOT] Firestore using long polling (mobile)');
-} else {
-  console.log('[BOOT] Firestore using WebSocket transport (desktop)');
+// Explicit LOCAL persistence — tells Firebase Auth exactly which storage to use at boot.
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+
+// _ensureStorage is a no-op when storage is pre-loaded (all SDKs now load at boot)
+async function _ensureStorage() {
+  if (typeof firebase.storage === 'function') return;
 }
 
 // ── Toast notification system ──────────────────────────────────
@@ -18694,11 +18553,6 @@ function showToast(msg, type = 'info', duration = 3500) {
   const timer = setTimeout(remove, duration);
   toast.addEventListener('click', () => { clearTimeout(timer); remove(); });
 }
-// v1.285: Removed auth.setPersistence(LOCAL) — LOCAL is Firebase Auth's default, so this
-// call was redundant. Worse, it triggered an IndexedDB write before onAuthStateChanged
-// could fire. On iOS Safari when IndexedDB is stressed (prior tab killed mid-write),
-// this write hangs indefinitely, blocking auth state delivery and causing AUTH-STUCK.
-// ──────────────────────────────────────────────────────────────────
 
 
 const STRUCTURE_PARTS = [
@@ -37852,77 +37706,19 @@ document.addEventListener('DOMContentLoaded', function() {
 let _userTierUnsub = null; // holds the onSnapshot unsubscribe for the current user doc
 let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestore
 
-// ── Safety timeout: dismiss loading screen if auth hasn't resolved ──
-// Mobile networks can be slow/flaky — don't strand users on the loading screen forever
-// Use window._authResolved (explicit global property) to avoid any closure/scope ambiguity.
-window._authResolved = false;
+// ── Safety timeout: dismiss loading screen if auth hasn't resolved within 8s ──
 setTimeout(function() {
-  if (window._authResolved) return; // auth already fired — nothing to do
-  if (!document.body.classList.contains('app-loading')) return; // already dismissed
+  if (!document.body.classList.contains('app-loading')) return;
   console.warn('[BOOT] Auth did not resolve within 8s — forcing loading screen dismiss');
   document.body.classList.remove('app-loading');
   var _ls = document.getElementById('appLoadingScreen');
   if (_ls) { _ls.style.opacity = '0'; _ls.style.transition = 'opacity 0.3s'; setTimeout(function() { _ls.remove(); }, 350); }
 }, 8000);
 
-// v1.285: Auth recovery — if onAuthStateChanged never fires, Firebase Auth's
-// IndexedDB is hung. Clear it and reload once. No signInAnonymously() — that
-// would replace the signed-in user's session with an anonymous account.
-setTimeout(function() {
-  if (window._authResolved) return;
-  // Secondary guard: if loading screen was already dismissed, auth fired — don't trigger recovery
-  if (!document.body.classList.contains('app-loading')) return;
-  console.error('[AUTH-RECOVERY] onAuthStateChanged did not fire within 5s — IndexedDB likely hung');
-  if (window._dhBeacon) window._dhBeacon('AUTH-STUCK');
-  var _reloadKey = 'dh-auth-recovery-reload';
-  if (!localStorage.getItem(_reloadKey)) {
-    localStorage.setItem(_reloadKey, '1');
-    console.warn('[AUTH-RECOVERY] Clearing Firebase IndexedDB and reloading...');
-    // Delete all Firebase IndexedDB databases to clear the hung state.
-    // indexedDB.deleteDatabase() returns an IDBOpenDBRequest (not a Promise).
-    // Wrap each in a real Promise so Promise.all actually waits for completion.
-    function _idbDeletePromise(name) {
-      return new Promise(function(resolve) {
-        var req = indexedDB.deleteDatabase(name);
-        req.onsuccess = resolve;
-        req.onerror   = resolve; // resolve on error — reload regardless
-        req.onblocked = resolve; // resolve if blocked — reload will clear the connection
-      });
-    }
-    // Fallback timeout: always reload within 4s even if IDB operations stall
-    var _recoveryReloadTimer = setTimeout(function() { location.reload(); }, 4000);
-    function _doReload() { clearTimeout(_recoveryReloadTimer); location.reload(); }
-
-    if (indexedDB.databases) {
-      indexedDB.databases().then(function(dbs) {
-        var firebaseDbs = dbs.filter(function(d) { return d.name && d.name.indexOf('firebase') !== -1; });
-        Promise.all(firebaseDbs.map(function(d) { return _idbDeletePromise(d.name); }))
-          .then(_doReload).catch(_doReload);
-      }).catch(_doReload);
-    } else {
-      // Safari <16 doesn't have indexedDB.databases() — delete known names then reload
-      Promise.all([
-        _idbDeletePromise('firebaseLocalStorageDb'),
-        _idbDeletePromise('firebase-heartbeat-database'),
-      ]).then(_doReload).catch(_doReload);
-    }
-  } else {
-    // Already tried reload once — don't loop. Clear the flag and show error.
-    localStorage.removeItem(_reloadKey);
-    console.error('[AUTH-RECOVERY] Reload already attempted — giving up');
-    if (typeof showToast === 'function') showToast('Connection issue — please reload', 'error', 5000);
-  }
-}, 5000);
-
-// v1.281: Clear the recovery reload flag on successful auth (proves IndexedDB is fine)
-// This is set inside onAuthStateChanged below.
-
 // (signInWithRedirect removed — Safari ITP blocks cross-origin sessionStorage during OAuth redirect)
 
 /* @lock:start — Auth Lifecycle */
 auth.onAuthStateChanged(user => {
-  window._authResolved = true;
-  localStorage.removeItem('dh-auth-recovery-reload'); // v1.281: clear recovery flag
   _dhMark(user ? 'auth-signed-in' : 'auth-signed-out');
   if (window._dhBeacon) window._dhBeacon('B4:auth-' + (user ? 'in' : 'out'));
   // Re-evaluate Roll Hero visibility based on auth state
