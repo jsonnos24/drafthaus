@@ -138,15 +138,99 @@ window.addEventListener('unhandledrejection', function(ev) {
 <!-- Font preconnect for faster load -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500&family=MedievalSharp&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Pirata+One&display=swap" rel="stylesheet">
-<!-- Firebase SDK — all 5 loaded synchronously like 8914 (no lazy loading) -->
+<!-- v1.275: Defer fonts on mobile — load async via media="print" swap trick.
+     Fonts still load, just don't block render or spike peak memory during boot. -->
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500&family=MedievalSharp&display=swap" rel="stylesheet" id="dhFonts1">
+<link href="https://fonts.googleapis.com/css2?family=Pirata+One&display=swap" rel="stylesheet" id="dhFonts2">
+<script>
+// v1.275: On mobile, defer font loading to reduce peak boot memory
+if (window.innerWidth < 900) {
+  var f1 = document.getElementById('dhFonts1');
+  var f2 = document.getElementById('dhFonts2');
+  if (f1) { f1.media = 'print'; f1.onload = function(){ f1.media = 'all'; }; }
+  if (f2) { f2.media = 'print'; f2.onload = function(){ f2.media = 'all'; }; }
+}
+</script>
+<!-- Firebase SDK — app/auth/firestore are required synchronously for boot.
+     v1.281: Storage + Functions deferred on mobile (only needed for recording/export). -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
+<script>
+if (window.innerWidth >= 900) {
+  // Desktop: load storage + functions immediately (non-blocking after firestore)
+  document.write('<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"><\/script>');
+  document.write('<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"><\/script>');
+} else {
+  // Mobile: lazy-load storage + functions on first use — saves ~150 KB parse at boot
+  window._dhLoadStorage = function() {
+    if (window._dhStorageLoaded) return Promise.resolve();
+    return new Promise(function(resolve) {
+      var s = document.createElement('script');
+      s.src = 'https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js';
+      s.onload = function() { window._dhStorageLoaded = true; resolve(); };
+      document.head.appendChild(s);
+    });
+  };
+  window._dhLoadFunctions = function() {
+    if (window._dhFunctionsLoaded) return Promise.resolve();
+    return new Promise(function(resolve) {
+      var s = document.createElement('script');
+      s.src = 'https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js';
+      s.onload = function() { window._dhFunctionsLoaded = true; resolve(); };
+      document.head.appendChild(s);
+    });
+  };
+  // Pre-warm storage after boot settles (15s) so it's ready when user records
+  setTimeout(function() { if (window._dhLoadStorage) window._dhLoadStorage(); }, 15000);
+}
+</script>
 <script>if (window._dhBeacon) window._dhBeacon('B1:firebase-loaded');</script>
+<!-- v1.279: Mobile boot stagger — intercept DOMContentLoaded listeners and run them
+     sequentially with idle-callback breathing room so they don't all spike memory at once.
+     Desktop: completely untouched, addEventListener works normally. -->
+<script>
+(function() {
+  if (window.innerWidth >= 900) return;
+  var _dclQueue = [];
+  var _origAEL = document.addEventListener.bind(document);
+  var _dclFired = false;
+  document.addEventListener = function(type, fn, opts) {
+    if (type === 'DOMContentLoaded' && !_dclFired) {
+      _dclQueue.push(fn);
+    } else {
+      _origAEL(type, fn, opts);
+    }
+  };
+  _origAEL('DOMContentLoaded', function() {
+    _dclFired = true;
+    document.addEventListener = _origAEL;
+    var i = 0;
+    var BATCH = 3;
+    function runBatch() {
+      if (i >= _dclQueue.length) {
+        if (window._dhBeacon) window._dhBeacon('B_DCL_DONE:' + i);
+        return;
+      }
+      var end = Math.min(i + BATCH, _dclQueue.length);
+      for (var j = i; j < end; j++) {
+        if (window._dhBeacon) window._dhBeacon('DCL#' + j + ':start');
+        try { _dclQueue[j](); } catch(e) { console.error('[BOOT-STAGGER] DCL#' + j + ' error:', e); }
+        if (window._dhBeacon) window._dhBeacon('DCL#' + j + ':done');
+      }
+      i = end;
+      if (i < _dclQueue.length) {
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(runBatch, { timeout: 300 });
+        } else {
+          setTimeout(runBatch, 80);
+        }
+      }
+    }
+    runBatch();
+  });
+})();
+</script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
