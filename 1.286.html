@@ -206,28 +206,24 @@ if (window.innerWidth >= 900) {
     _dclFired = true;
     document.addEventListener = _origAEL;
     var i = 0;
-    var BATCH = 3;
-    function runBatch() {
+    function runOne() {
       if (i >= _dclQueue.length) {
         if (window._dhBeacon) window._dhBeacon('B_DCL_DONE:' + i);
         return;
       }
-      var end = Math.min(i + BATCH, _dclQueue.length);
-      for (var j = i; j < end; j++) {
-        if (window._dhBeacon) window._dhBeacon('DCL#' + j + ':start');
-        try { _dclQueue[j](); } catch(e) { console.error('[BOOT-STAGGER] DCL#' + j + ' error:', e); }
-        if (window._dhBeacon) window._dhBeacon('DCL#' + j + ':done');
-      }
-      i = end;
+      if (window._dhBeacon) window._dhBeacon('DCL#' + i + ':start');
+      try { _dclQueue[i](); } catch(e) { console.error('[BOOT-STAGGER] DCL#' + i + ' error:', e); }
+      if (window._dhBeacon) window._dhBeacon('DCL#' + i + ':done');
+      i++;
       if (i < _dclQueue.length) {
         if (typeof requestIdleCallback !== 'undefined') {
-          requestIdleCallback(runBatch, { timeout: 300 });
+          requestIdleCallback(runOne, { timeout: 500 });
         } else {
-          setTimeout(runBatch, 80);
+          setTimeout(runOne, 80);
         }
       }
     }
-    runBatch();
+    runOne();
   });
 })();
 </script>
