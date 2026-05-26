@@ -57,7 +57,12 @@ window.addEventListener('unhandledrejection', function(ev) {
               setTimeout(function() {
                 db.enableNetwork().then(function() {
                   console.log('[FIRESTORE-RECOVERY] Network re-enabled, restarting sync');
-                  if (typeof startSyncPolling === 'function') startSyncPolling();
+                  // Respect the mobile boot-window delay — don't call startSyncPolling
+                  // immediately after recovery or it bypasses the 4s safety margin.
+                  var _recoveryDelay = (window.innerWidth < 900) ? 4000 : 0;
+                  setTimeout(function() {
+                    if (typeof startSyncPolling === 'function') startSyncPolling();
+                  }, _recoveryDelay);
                 }).catch(function() {});
               }, 3000);
             }).catch(function() {});
@@ -39736,31 +39741,36 @@ function startSyncPolling() {
     // _loadingScreenDismissed covers the non-cache boot path too.
     if (_syncFirstFire[_listenerKey] && (_bootFastRestored || _loadingScreenDismissed)) {
       _syncFirstFire[_listenerKey] = false;
-      // v1.285: On mobile, check only the active song for staleness before skipping.
-      // Calling .data() on all 68 docs is OOM-fatal, but checking just the one active
-      // song doc is cheap and replaces the separate _bootBackgroundVerify Firestore fetch.
+      // v1.285: On mobile, check only the active song timestamp before skipping.
+      // normalizeLoadedSong({...fullSongData}) on a stale song is OOM-fatal inline —
+      // same operation that crashed as _bootBackgroundVerify. Detect staleness here
+      // but defer the actual normalization to 10s when memory pressure has subsided.
       if (window.innerWidth < 900) {
         snapshot.docChanges().forEach(function(change) {
-          if (change.doc.id !== _songCurrentId) return; // skip all non-active — no .data() call
+          if (change.doc.id !== _songCurrentId) return;
           var _rawData = change.doc.data();
           var remoteTs = _rawData.updatedAt || 0;
           var _cachedSong = songs.find(function(x) { return x.id === change.doc.id; });
           if (_cachedSong && remoteTs <= (_cachedSong.updatedAt || 0)) {
-            console.log('[SYNC] Active song cache is current — no update needed');
+            console.log('[SYNC] Active song cache is current');
             return;
           }
-          console.log('[SYNC] Active song stale — updating in memory from first snapshot');
+          // Cache is stale — defer heavy normalization to 10s so boot window is clear
+          console.log('[SYNC] Active song stale — deferring refresh to 10s');
           if (window._dhBeacon) window._dhBeacon('B10b:sync-stale-update');
-          var s = normalizeLoadedSong(Object.assign({}, _rawData, { _fromSheet: false }));
-          var idx = songs.findIndex(function(x) { return x.id === s.id; });
-          if (idx >= 0) songs[idx] = s; else songs.push(s);
-          // Skip DOM re-render if boot rendered <5s ago — data is in memory for next interaction
-          if (_bootSongRenderedAt && (Date.now() - _bootSongRenderedAt) < 5000) {
+          var _staleData = _rawData;
+          setTimeout(function() {
+            if (_songCurrentId !== _staleData.id) return; // user switched songs
+            var s = normalizeLoadedSong(Object.assign({}, _staleData, { _fromSheet: false }));
+            var idx = songs.findIndex(function(x) { return x.id === s.id; });
+            if (idx >= 0) songs[idx] = s; else songs.push(s);
+            populateSongFields(s);
             setSyncStatus('saved', '↓ updated ✓');
-            return;
-          }
-          populateSongFields(s);
-          setSyncStatus('saved', '↓ updated ✓');
+            try {
+              var _cp = _stripForCache(JSON.parse(JSON.stringify(s)));
+              localStorage.setItem('dh-fast-cache', JSON.stringify({ id: s.id, ts: Date.now(), song: _cp }));
+            } catch(_e) {}
+          }, 10000);
         });
       }
       console.log('[CRASH-DEBUG] ★ Skipping initial bulk snapshot (boot done), key:', _listenerKey);
