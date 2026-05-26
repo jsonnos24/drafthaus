@@ -37654,6 +37654,24 @@ async function syncToSheet(song) {
       localStorage.setItem('dh-fast-cache', JSON.stringify({ id: song.id, ts: Date.now(), song: _cachePayload }));
     } catch(_ce) { /* quota exceeded — non-critical */ }
       } catch(e) {
+    // v1.285: permission-denied on first write = expired token (onAuthStateChanged fires
+    // before the token refresh network call completes). Force-refresh and retry once.
+    if ((e?.code === 'permission-denied' || e?.message?.includes('permission-denied')) && _authUser()) {
+      try {
+        setSyncStatus('syncing', 'Retrying…');
+        await _authUser().getIdToken(true); // force token refresh
+        await db.collection('songs').doc(song.id).set(payload, { merge: true });
+        clearPendingSync(song.id);
+        setSyncStatus('saved', 'Saved ✓');
+        try {
+          var _cachePayload2 = _stripForCache(JSON.parse(JSON.stringify(payload)));
+          localStorage.setItem('dh-fast-cache', JSON.stringify({ id: song.id, ts: Date.now(), song: _cachePayload2 }));
+        } catch(_ce2) {}
+        return;
+      } catch(e2) {
+        console.error('[SYNC] Retry after token refresh also failed:', e2?.code, e2?.message);
+      }
+    }
     if (!_authUser()) {
       setSyncStatus('idle', 'Local only');
     } else {
