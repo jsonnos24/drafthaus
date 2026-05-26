@@ -18638,17 +18638,10 @@ function showToast(msg, type = 'info', duration = 3500) {
   const timer = setTimeout(remove, duration);
   toast.addEventListener('click', () => { clearTimeout(timer); remove(); });
 }
-// Force LOCAL persistence so Firebase never tries to use sessionStorage for auth state.
-// On iOS WebKit (Safari, Chrome), Private Browsing disables IndexedDB entirely
-// (QuotaExceededError / DOMException code 22). Fall back through SESSION → NONE
-// so auth still works in-memory for that session.
-auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e => {
-  console.warn('[AUTH] setPersistence(LOCAL) failed:', e?.code || e?.name, e?.message);
-  return auth.setPersistence(firebase.auth.Auth.Persistence.SESSION).catch(e2 => {
-    console.warn('[AUTH] setPersistence(SESSION) also failed:', e2?.code || e2?.name, '— falling back to NONE (in-memory)');
-    return auth.setPersistence(firebase.auth.Auth.Persistence.NONE).catch(() => {});
-  });
-});
+// v1.285: Removed auth.setPersistence(LOCAL) — LOCAL is Firebase Auth's default, so this
+// call was redundant. Worse, it triggered an IndexedDB write before onAuthStateChanged
+// could fire. On iOS Safari when IndexedDB is stressed (prior tab killed mid-write),
+// this write hangs indefinitely, blocking auth state delivery and causing AUTH-STUCK.
 // ──────────────────────────────────────────────────────────────────
 
 
@@ -37797,44 +37790,36 @@ setTimeout(function() {
   if (_ls) { _ls.style.opacity = '0'; _ls.style.transition = 'opacity 0.3s'; setTimeout(function() { _ls.remove(); }, 350); }
 }, 8000);
 
-// v1.281: Auth recovery — if onAuthStateChanged never fires, Firebase Auth's
-// IndexedDB persistence is likely hung (common on iOS Safari when tab was
-// killed mid-write or IndexedDB quota is exhausted). After 5s, nuke the
-// stuck persistence and force a fresh anonymous session.
+// v1.285: Auth recovery — if onAuthStateChanged never fires, Firebase Auth's
+// IndexedDB is hung. Clear it and reload once. No signInAnonymously() — that
+// would replace the signed-in user's session with an anonymous account.
 setTimeout(function() {
   if (_authResolved) return;
   console.error('[AUTH-RECOVERY] onAuthStateChanged did not fire within 5s — IndexedDB likely hung');
   if (window._dhBeacon) window._dhBeacon('AUTH-STUCK');
-  // Step 1: Try signing in anonymously — sometimes this unsticks the auth state
-  auth.signInAnonymously().then(function() {
-    console.log('[AUTH-RECOVERY] Anonymous sign-in succeeded — auth should resolve now');
-  }).catch(function(e) {
-    console.error('[AUTH-RECOVERY] Anonymous sign-in also failed:', e.message);
-    // Step 2: Nuclear option — clear Firebase IndexedDB and reload once
-    var _reloadKey = 'dh-auth-recovery-reload';
-    if (!localStorage.getItem(_reloadKey)) {
-      localStorage.setItem(_reloadKey, '1');
-      console.warn('[AUTH-RECOVERY] Clearing IndexedDB and reloading...');
-      // Delete all Firebase IndexedDB databases
-      if (indexedDB.databases) {
-        indexedDB.databases().then(function(dbs) {
-          var dels = dbs.filter(function(d) { return d.name && d.name.indexOf('firebase') !== -1; })
-                       .map(function(d) { return indexedDB.deleteDatabase(d.name); });
-          Promise.all(dels).then(function() { location.reload(); }).catch(function() { location.reload(); });
-        }).catch(function() { location.reload(); });
-      } else {
-        // Safari <16 doesn't have indexedDB.databases() — just try known names
-        try { indexedDB.deleteDatabase('firebaseLocalStorageDb'); } catch(e2) {}
-        try { indexedDB.deleteDatabase('firebase-heartbeat-database'); } catch(e2) {}
-        location.reload();
-      }
+  var _reloadKey = 'dh-auth-recovery-reload';
+  if (!localStorage.getItem(_reloadKey)) {
+    localStorage.setItem(_reloadKey, '1');
+    console.warn('[AUTH-RECOVERY] Clearing Firebase IndexedDB and reloading...');
+    // Delete all Firebase IndexedDB databases to clear the hung state
+    if (indexedDB.databases) {
+      indexedDB.databases().then(function(dbs) {
+        var dels = dbs.filter(function(d) { return d.name && d.name.indexOf('firebase') !== -1; })
+                     .map(function(d) { return indexedDB.deleteDatabase(d.name); });
+        Promise.all(dels).then(function() { location.reload(); }).catch(function() { location.reload(); });
+      }).catch(function() { location.reload(); });
     } else {
-      // Already tried reload once — don't loop. Clear the flag and show error.
-      localStorage.removeItem(_reloadKey);
-      console.error('[AUTH-RECOVERY] Reload already attempted — giving up');
-      if (typeof showToast === 'function') showToast('Connection issue — please reload', 'error', 5000);
+      // Safari <16 doesn't have indexedDB.databases() — try known names then reload
+      try { indexedDB.deleteDatabase('firebaseLocalStorageDb'); } catch(e2) {}
+      try { indexedDB.deleteDatabase('firebase-heartbeat-database'); } catch(e2) {}
+      location.reload();
     }
-  });
+  } else {
+    // Already tried reload once — don't loop. Clear the flag and show error.
+    localStorage.removeItem(_reloadKey);
+    console.error('[AUTH-RECOVERY] Reload already attempted — giving up');
+    if (typeof showToast === 'function') showToast('Connection issue — please reload', 'error', 5000);
+  }
 }, 5000);
 
 // v1.281: Clear the recovery reload flag on successful auth (proves IndexedDB is fine)
