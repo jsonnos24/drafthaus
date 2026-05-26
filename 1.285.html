@@ -37854,9 +37854,10 @@ let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestor
 
 // ── Safety timeout: dismiss loading screen if auth hasn't resolved ──
 // Mobile networks can be slow/flaky — don't strand users on the loading screen forever
-var _authResolved = false;
+// Use window._authResolved (explicit global property) to avoid any closure/scope ambiguity.
+window._authResolved = false;
 setTimeout(function() {
-  if (_authResolved) return; // auth already fired — nothing to do
+  if (window._authResolved) return; // auth already fired — nothing to do
   if (!document.body.classList.contains('app-loading')) return; // already dismissed
   console.warn('[BOOT] Auth did not resolve within 8s — forcing loading screen dismiss');
   document.body.classList.remove('app-loading');
@@ -37868,7 +37869,9 @@ setTimeout(function() {
 // IndexedDB is hung. Clear it and reload once. No signInAnonymously() — that
 // would replace the signed-in user's session with an anonymous account.
 setTimeout(function() {
-  if (_authResolved) return;
+  if (window._authResolved) return;
+  // Secondary guard: if loading screen was already dismissed, auth fired — don't trigger recovery
+  if (!document.body.classList.contains('app-loading')) return;
   console.error('[AUTH-RECOVERY] onAuthStateChanged did not fire within 5s — IndexedDB likely hung');
   if (window._dhBeacon) window._dhBeacon('AUTH-STUCK');
   var _reloadKey = 'dh-auth-recovery-reload';
@@ -37918,7 +37921,7 @@ setTimeout(function() {
 
 /* @lock:start — Auth Lifecycle */
 auth.onAuthStateChanged(user => {
-  _authResolved = true;
+  window._authResolved = true;
   localStorage.removeItem('dh-auth-recovery-reload'); // v1.281: clear recovery flag
   _dhMark(user ? 'auth-signed-in' : 'auth-signed-out');
   if (window._dhBeacon) window._dhBeacon('B4:auth-' + (user ? 'in' : 'out'));
