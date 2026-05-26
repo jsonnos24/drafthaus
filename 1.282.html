@@ -37731,9 +37731,16 @@ function stopCountdown(timerRef, type) {
 
 // ── Init ───────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
-  songs = [];
-  localStorage.removeItem('track_songs'); // purge stale cache — Firestore is source of truth
-  renderGrid();
+  // v1.282: Guard against DCL stagger race — if _bootFastRestore already ran
+  // and populated songs[], do NOT wipe them. The stagger queues this handler
+  // via requestIdleCallback, which can fire AFTER auth + boot complete.
+  if (!_bootFastRestored) {
+    songs = [];
+    localStorage.removeItem('track_songs');
+    renderGrid();
+  } else {
+    console.log('[BOOT-RACE] DCL handler skipped songs=[] — boot already restored');
+  }
   updateSeqDrawerTab();
   // Populate header audio device dropdowns on load
   if (navigator.mediaDevices?.enumerateDevices) {
@@ -39703,14 +39710,22 @@ function startSyncPolling() {
 
   const handleSnapshot = (snapshot, _listenerKey) => {
     console.log('[CRASH-DEBUG] ★ handleSnapshot fired, changes:', snapshot.docChanges().length, 'key:', _listenerKey);
-    // v1.275: Skip the initial bulk snapshot on ALL devices if songs already loaded
-    // (first onSnapshot always fires with ALL existing docs — redundant after boot)
-    if (_syncFirstFire[_listenerKey] && songs.length > 0) {
+    // v1.282: Skip the initial bulk snapshot if boot already ran — use _bootFastRestored
+    // flag instead of songs.length>0 which races to 0 if DCL stagger wipes it.
+    // _loadingScreenDismissed covers the non-cache boot path too.
+    if (_syncFirstFire[_listenerKey] && (_bootFastRestored || _loadingScreenDismissed)) {
       _syncFirstFire[_listenerKey] = false;
-      console.log('[CRASH-DEBUG] ★ Skipping initial bulk snapshot (already loaded), key:', _listenerKey);
+      console.log('[CRASH-DEBUG] ★ Skipping initial bulk snapshot (boot done), key:', _listenerKey);
       return;
     }
     _syncFirstFire[_listenerKey] = false;
+    // v1.282: On mobile, if a snapshot has >15 changes it's a bulk initial fire
+    // that slipped past the guard (e.g. sync restart). Skip it — loadSongsFromSheet
+    // will handle it with stubs. Processing 68 .data() calls in one frame is OOM-fatal.
+    if (window.innerWidth < 900 && snapshot.docChanges().length > 15) {
+      console.log('[SYNC] Skipping large snapshot on mobile (' + snapshot.docChanges().length + ' changes), key:', _listenerKey);
+      return;
+    }
     try {
     snapshot.docChanges().forEach(change => {
       const _rawData = change.doc.data();
@@ -39797,7 +39812,8 @@ function startSyncPolling() {
   };
 
   const handleSnapshotViewOnly = (snapshot, _listenerKey) => {
-    if (_syncFirstFire[_listenerKey] && window.innerWidth < 900 && songs.length > 0) {
+    // v1.282: Same race-proof guard as handleSnapshot
+    if (_syncFirstFire[_listenerKey] && window.innerWidth < 900 && (_bootFastRestored || _loadingScreenDismissed)) {
       _syncFirstFire[_listenerKey] = false;
       return;
     }
@@ -39930,9 +39946,9 @@ async function _bootFastRestore(songId) {
     }
 
     // ── Background-load all songs so song list is populated ──
-    // v1.281: On mobile, delay much longer (5s) to avoid post-boot memory spike
-    // from 70+ song stubs + 3 Firestore queries during the critical first seconds
-    var _bgDelay = (window.innerWidth < 900) ? 5000 : 200;
+    // v1.282: On mobile, delay 8s so startSyncPolling (4s) has settled first.
+    // Songlist stubs load instantly from localStorage cache; this is a freshness check.
+    var _bgDelay = (window.innerWidth < 900) ? 8000 : 200;
     setTimeout(function() {
       if (!_bootSongsFullyLoaded) {
         _bootSongsFullyLoaded = true;
@@ -39943,6 +39959,9 @@ async function _bootFastRestore(songId) {
   }
 
   // ── No cache — fall through to Firestore fetch ──
+  // v1.282: Even without a song cache, try restoring the songlist stub cache
+  // so the grid shows all cards while we fetch the active song from Firestore.
+  _restoreSongListFromCache();
   try {
     const uid = _authUid();
     if (!uid) { console.warn('[BOOT-DEBUG] No uid — falling back to loadSongsFromSheet'); loadSongsFromSheet(); return; }
@@ -39966,7 +39985,8 @@ async function _bootFastRestore(songId) {
     _uiRestoreFromState(s.uiState, s);
 
     // ── Background-load all songs so song list is populated ──
-    var _bgDelay2 = (window.innerWidth < 900) ? 5000 : 200;
+    // v1.282: 8s on mobile — stagger behind startSyncPolling (4s)
+    var _bgDelay2 = (window.innerWidth < 900) ? 8000 : 200;
     setTimeout(function() {
       if (!_bootSongsFullyLoaded) {
         _bootSongsFullyLoaded = true;
@@ -40449,12 +40469,16 @@ function _uiDismissLoadingScreen() {
     _ls.style.transition = 'opacity 0.3s';
     setTimeout(function() { _ls.remove(); }, 350);
   }
-  console.log('[CRASH-DEBUG] ★ loading screen dismissed, startSyncPolling in 500ms');
+  // v1.282: On mobile, delay sync polling 4s (was 500ms) — the initial onSnapshot
+  // fires all 68 docs at once and that memory spike is fatal right after boot.
+  // Desktop keeps 500ms since it has 10× the memory budget.
+  var _syncDelay = (window.innerWidth < 900) ? 4000 : 500;
+  console.log('[CRASH-DEBUG] ★ loading screen dismissed, startSyncPolling in ' + _syncDelay + 'ms');
   setTimeout(function() {
     console.log('[CRASH-DEBUG] ★ startSyncPolling firing NOW');
     try { startSyncPolling(); } catch(e) { console.error('[CRASH-DEBUG] startSyncPolling threw:', e); }
     if (window._dhBeaconDone) window._dhBeaconDone();
-  }, 500);
+  }, _syncDelay);
 }
 
 function _uiRestoreFromState(state, song) {
