@@ -18595,18 +18595,17 @@ async function _ensureStorage() {
 function _authUid()  { return auth.currentUser ? auth.currentUser.uid : null; }
 function _authUser() { return auth.currentUser || null; }
 
-// Default WebSocket transport (faster than long polling).
-// If iOS WebKit breaks (QuotaExceededError / code 22), revert to:
-//   db.settings({ experimentalForceLongPolling: true });
-console.log('[BOOT] Firestore initialized with WebSocket transport — build 1.163');
-// v1.285: On mobile, disable Firestore network immediately after init.
-// The Firestore WebSocket connection handshake (~3-4s after boot) was
-// completing right in the B8+3500-4000ms crash window and pushing iOS
-// over its per-tab memory limit. Network is re-enabled in startSyncPolling.
+// v1.285: On mobile, use HTTP long polling instead of WebSocket.
+// The Firestore WebSocket transport establishes an eager persistent connection
+// ~3-4s after init, with the handshake completing exactly in the crash window
+// (B8+3500-4000ms on iOS). Long polling makes requests on-demand only —
+// no background connection during boot. db.disableNetwork() was tried first
+// but its IndexedDB flush on promise resolution crashed at B8+776-1000ms.
 if (window.innerWidth < 900) {
-  db.disableNetwork().catch(function(e) {
-    console.warn('[BOOT] db.disableNetwork failed:', e?.message);
-  });
+  db.settings({ experimentalForceLongPolling: true });
+  console.log('[BOOT] Firestore using long polling (mobile)');
+} else {
+  console.log('[BOOT] Firestore using WebSocket transport (desktop)');
 }
 
 // ── Toast notification system ──────────────────────────────────
@@ -39728,13 +39727,6 @@ function startSyncPolling() {
   if (_firestoreUnsubscribe) return;
   const uid = _authUid();
   if (!uid) return;
-  // v1.285: Re-enable Firestore network (was disabled on mobile at boot to prevent
-  // the WebSocket handshake from hitting the crash window at B8+3500-4000ms).
-  if (window.innerWidth < 900) {
-    db.enableNetwork().catch(function(e) {
-      console.warn('[SYNC] db.enableNetwork failed:', e?.message);
-    });
-  }
   var _syncFirstFire = { owned: true, shared: true, readOnly: true };
 
   const handleSnapshot = (snapshot, _listenerKey) => {
