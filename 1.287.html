@@ -37943,7 +37943,16 @@ setTimeout(function() {
   if (_ls) { _ls.style.opacity = '0'; _ls.style.transition = 'opacity 0.3s'; setTimeout(function() { _ls.remove(); }, 350); }
 }, 10000);
 
-// (signInWithRedirect removed — Safari ITP blocks cross-origin sessionStorage during OAuth redirect)
+// v1.287: On iOS Safari, signInWithRedirect navigates through firebaseapp.com at the TOP LEVEL,
+// which establishes ITP trust for that domain and unblocks the auth iframe on return.
+// getRedirectResult() processes any pending redirect; onAuthStateChanged handles the rest.
+auth.getRedirectResult().then(function(result) {
+  if (window._dhBeacon) window._dhBeacon('B4_REDIR:' + (result && result.user ? 'user-ok' : 'null'));
+  if (result && result.user) console.log('[AUTH] redirect sign-in completed for', result.user.uid);
+}).catch(function(err) {
+  if (window._dhBeacon) window._dhBeacon('B4_REDIR_ERR:' + (err.code||'?').slice(0,25));
+  console.warn('[AUTH] getRedirectResult error:', err.code, err.message);
+});
 
 /* @lock:start — Auth Lifecycle */
 window._dhAuthFired = false; // set to true when onAuthStateChanged fires; ITP recovery checks this
@@ -41027,13 +41036,14 @@ async function submitLandingPassword() {
 
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
-    // On iOS Safari, Firebase's default LOCAL persistence (IndexedDB/localStorage) is blocked
-    // by Intelligent Tracking Prevention on the firebaseapp.com auth domain.
-    // Switching to SESSION persistence (sessionStorage) before signing in avoids this —
-    // sessionStorage is allowed even with strict privacy settings.
-    // Always use signInWithPopup — signInWithRedirect is broken on Safari (iOS ITP blocks
-    // the cross-origin sessionStorage that Firebase needs to restore OAuth state after redirect).
-    // Popup is triggered directly from a user gesture so Safari/Chrome mobile allow it.
+    const _iosRedirect = /iPhone|iPad/.test(navigator.userAgent) && /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS/.test(navigator.userAgent);
+    if (_iosRedirect) {
+      // iOS Safari: use redirect instead of popup. The top-level navigation through
+      // firebaseapp.com establishes ITP trust, unblocking the auth iframe on return.
+      // Page navigates away here — no code runs after signInWithRedirect returns.
+      await auth.signInWithRedirect(provider);
+      return;
+    }
     await auth.signInWithPopup(provider);
     // onAuthStateChanged handles hiding overlay + initApp()
   } catch (err) {
@@ -42123,6 +42133,11 @@ async function _pvSignupGoogle() {
   if (errEl) errEl.textContent = '';
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
+    const _iosRedirect = /iPhone|iPad/.test(navigator.userAgent) && /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS/.test(navigator.userAgent);
+    if (_iosRedirect) {
+      await auth.signInWithRedirect(provider);
+      return;
+    }
     await auth.signInWithPopup(provider);
     // onAuthStateChanged picks up _pendingCollabJoin
   } catch(err) {
