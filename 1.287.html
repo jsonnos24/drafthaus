@@ -47,67 +47,68 @@ window.addEventListener('error', function(ev) {
   if (ev.message === 'Script error.' && document.body && document.body.classList.contains('app-loading')) {
     if (!window._dhITPRecoveryTimer) {
       window._dhITPRecoveryTimer = setTimeout(function() {
-        if (window._dhAuthFired) return; // auth resolved on its own, nothing to do
-        if (window._dhBeacon) window._dhBeacon('B_ITP_RECOVERY');
-        console.warn('[BOOT] ITP recovery: auth deadlock at 3s — simulating null-user boot');
-        // Each step in its own try-catch — one failure must not abort the rest.
-        // IMPORTANT: do NOT access let/const variables from the main script block here.
-        // WebKit treats them as TDZ from earlier script blocks even after they've initialized.
-        // Only call functions (which are hoisted) and access window.* properties.
-        if (window._dhBeacon) window._dhBeacon('ITP_R1:sync-stop');
-        try { if (typeof stopSyncPolling === 'function') stopSyncPolling(); } catch(_e1) {}
-
-        if (window._dhBeacon) window._dhBeacon('ITP_R2:banner');
-        try {
-          localStorage.removeItem('dh-v4-gold-banner-dismissed');
-          if (typeof v4UpdateGoldBanner === 'function') v4UpdateGoldBanner('signed-out');
-        } catch(_e2) { if (window._dhBeacon) window._dhBeacon('ITP_ERR2:' + ((_e2&&_e2.message)||'?').slice(0,30)); }
-
-        if (window._dhBeacon) window._dhBeacon('ITP_R3:dom-setup');
-        try {
-          var _lw = document.getElementById('v4ListWrap');
-          if (_lw) _lw.style.display = '';
-          var _sg = document.getElementById('songsGrid');
-          if (_sg) _sg.style.display = 'none';
-          var _itpGh = document.getElementById('gridHeader');
-          if (_itpGh) _itpGh.style.display = 'none';
-          var _itpHr = document.getElementById('hlaRollBtn');
-          if (_itpHr) _itpHr.style.display = 'none';
-          var _itpEmail = document.getElementById('headerUserEmail');
-          if (_itpEmail) _itpEmail.textContent = '';
-          var _itpSeq = document.getElementById('seqDrawerTab');
-          if (_itpSeq) _itpSeq.classList.remove('tab-loading');
-        } catch(_e3) { if (window._dhBeacon) window._dhBeacon('ITP_ERR3:' + ((_e3&&_e3.message)||'?').slice(0,30)); }
-
-        if (window._dhBeacon) window._dhBeacon('ITP_R4:renderDrafts-start');
-        try {
-          if (typeof renderDraftsV4 === 'function') renderDraftsV4();
-          if (window._dhBeacon) window._dhBeacon('ITP_R5:renderDrafts-done');
-        } catch(_e4) { if (window._dhBeacon) window._dhBeacon('ITP_ERR4:' + ((_e4&&_e4.message)||'?').slice(0,30)); }
-
-        setTimeout(function() {
-          if (window._dhBeacon) window._dhBeacon('ITP_R6:drawers-start');
-          try { if (typeof loopBuildUI === 'function') loopBuildUI(); if (window._dhBeacon) window._dhBeacon('ITP_R6a:loop-done'); } catch(_e) { if (window._dhBeacon) window._dhBeacon('ITP_ERR6a:' + ((_e&&_e.message)||'?').slice(0,25)); }
-          var _itpLt = document.getElementById('looperTab'); if (_itpLt) _itpLt.classList.remove('tab-loading');
-          try { if (typeof renderInspoDice === 'function') renderInspoDice(); if (window._dhBeacon) window._dhBeacon('ITP_R6b:inspo-done'); } catch(_e) { if (window._dhBeacon) window._dhBeacon('ITP_ERR6b:' + ((_e&&_e.message)||'?').slice(0,25)); }
-          var _itpIt = document.getElementById('inspoTab'); if (_itpIt) _itpIt.classList.remove('tab-loading');
-          try { if (typeof renderPracticeDrawer === 'function') renderPracticeDrawer(); if (window._dhBeacon) window._dhBeacon('ITP_R6c:practice-done'); } catch(_e) { if (window._dhBeacon) window._dhBeacon('ITP_ERR6c:' + ((_e&&_e.message)||'?').slice(0,25)); }
-          var _itpPt = document.getElementById('practiceTab'); if (_itpPt) _itpPt.classList.remove('tab-loading');
-          if (window._dhBeacon) window._dhBeacon('ITP_R7:drawers-done');
-        }, 6000);
-        if (window._dhBeacon) window._dhBeacon('ITP_R8:dismiss-start');
-        if (typeof _uiDismissLoadingScreen === 'function') {
-          _uiDismissLoadingScreen();
-        } else {
-          document.body.classList.remove('app-loading');
-          var _itpLs = document.getElementById('appLoadingScreen');
-          if (_itpLs) { _itpLs.style.opacity = '0'; _itpLs.style.transition = 'opacity 0.3s'; setTimeout(function() { _itpLs.remove(); }, 350); }
-        }
-        if (window._dhBeacon) window._dhBeacon('ITP_R9:dismiss-done');
+        window._dhITPGuestBoot();
       }, 3000);
     }
   }
 });
+// ITP guest boot — called by recovery timer (3s cold boot) or immediately by signInAsGuest()
+// when Firebase auth is deadlocked by iOS ITP.
+// IMPORTANT: do NOT access let/const variables from the main script block here.
+// WebKit treats them as TDZ from earlier script blocks even after they've initialized.
+// Only call functions (which are hoisted) and access window.* / var properties.
+window._dhITPGuestBoot = function() {
+  if (window._dhAuthFired) return;
+  if (window._dhITPRecoveryTimer) { clearTimeout(window._dhITPRecoveryTimer); window._dhITPRecoveryTimer = null; }
+  if (window._dhBeacon) window._dhBeacon('B_ITP_RECOVERY');
+  console.warn('[BOOT] ITP guest boot: auth deadlock — simulating null-user boot');
+
+  if (window._dhBeacon) window._dhBeacon('ITP_R1:sync-stop');
+  try { if (typeof stopSyncPolling === 'function') stopSyncPolling(); } catch(_e1) {}
+
+  if (window._dhBeacon) window._dhBeacon('ITP_R2:banner');
+  try {
+    localStorage.removeItem('dh-v4-gold-banner-dismissed');
+    if (typeof v4UpdateGoldBanner === 'function') v4UpdateGoldBanner('signed-out');
+  } catch(_e2) { if (window._dhBeacon) window._dhBeacon('ITP_ERR2:' + ((_e2&&_e2.message)||'?').slice(0,30)); }
+
+  if (window._dhBeacon) window._dhBeacon('ITP_R3:dom-setup');
+  try {
+    var _lw = document.getElementById('v4ListWrap'); if (_lw) _lw.style.display = '';
+    var _sg = document.getElementById('songsGrid'); if (_sg) _sg.style.display = 'none';
+    var _itpGh = document.getElementById('gridHeader'); if (_itpGh) _itpGh.style.display = 'none';
+    var _itpHr = document.getElementById('hlaRollBtn'); if (_itpHr) _itpHr.style.display = 'none';
+    var _itpEmail = document.getElementById('headerUserEmail'); if (_itpEmail) _itpEmail.textContent = '';
+    var _itpSeq = document.getElementById('seqDrawerTab'); if (_itpSeq) _itpSeq.classList.remove('tab-loading');
+  } catch(_e3) { if (window._dhBeacon) window._dhBeacon('ITP_ERR3:' + ((_e3&&_e3.message)||'?').slice(0,30)); }
+
+  if (window._dhBeacon) window._dhBeacon('ITP_R4:renderDrafts-start');
+  try {
+    if (typeof renderDraftsV4 === 'function') renderDraftsV4();
+    if (window._dhBeacon) window._dhBeacon('ITP_R5:renderDrafts-done');
+  } catch(_e4) { if (window._dhBeacon) window._dhBeacon('ITP_ERR4:' + ((_e4&&_e4.message)||'?').slice(0,30)); }
+
+  setTimeout(function() {
+    if (window._dhBeacon) window._dhBeacon('ITP_R6:drawers-start');
+    try { if (typeof loopBuildUI === 'function') loopBuildUI(); if (window._dhBeacon) window._dhBeacon('ITP_R6a:loop-done'); } catch(_e) { if (window._dhBeacon) window._dhBeacon('ITP_ERR6a:' + ((_e&&_e.message)||'?').slice(0,25)); }
+    var _itpLt = document.getElementById('looperTab'); if (_itpLt) _itpLt.classList.remove('tab-loading');
+    try { if (typeof renderInspoDice === 'function') renderInspoDice(); if (window._dhBeacon) window._dhBeacon('ITP_R6b:inspo-done'); } catch(_e) { if (window._dhBeacon) window._dhBeacon('ITP_ERR6b:' + ((_e&&_e.message)||'?').slice(0,25)); }
+    var _itpIt = document.getElementById('inspoTab'); if (_itpIt) _itpIt.classList.remove('tab-loading');
+    try { if (typeof renderPracticeDrawer === 'function') renderPracticeDrawer(); if (window._dhBeacon) window._dhBeacon('ITP_R6c:practice-done'); } catch(_e) { if (window._dhBeacon) window._dhBeacon('ITP_ERR6c:' + ((_e&&_e.message)||'?').slice(0,25)); }
+    var _itpPt = document.getElementById('practiceTab'); if (_itpPt) _itpPt.classList.remove('tab-loading');
+    if (window._dhBeacon) window._dhBeacon('ITP_R7:drawers-done');
+  }, 6000);
+
+  if (window._dhBeacon) window._dhBeacon('ITP_R8:dismiss-start');
+  if (typeof _uiDismissLoadingScreen === 'function') {
+    _uiDismissLoadingScreen();
+  } else {
+    document.body.classList.remove('app-loading');
+    var _itpLs = document.getElementById('appLoadingScreen');
+    if (_itpLs) { _itpLs.style.opacity = '0'; _itpLs.style.transition = 'opacity 0.3s'; setTimeout(function() { _itpLs.remove(); }, 350); }
+  }
+  if (window._dhBeacon) window._dhBeacon('ITP_R9:dismiss-done');
+};
 // v1.281: Track Firestore assertion errors to prevent infinite cascade.
 // When Firestore's WebChannel drops (iOS backgrounding), the SDK throws
 // "INTERNAL ASSERTION FAILED: Unexpected state" in an infinite loop.
@@ -188,7 +189,7 @@ window.addEventListener('unhandledrejection', function(ev) {
   // heartbeats don't pollute the key and trigger a false LAST BOOT on the next load.
   window._dhBeaconDone = function() {
     localStorage.removeItem(_bk);
-    window._dhBeacon = null;
+    window._dhBeacon = function() {}; // no-op — stops writes without causing TypeError on late callers
   };
 })();
 // Viewport management.
@@ -19109,7 +19110,7 @@ window.addEventListener('unhandledrejection', function(e) {
 });
 
 // ── Upgrade modal billing toggle ──────────────────────────────────
-let _upgradePeriod = 'monthly';
+var _upgradePeriod = 'monthly'; // var — avoids WebKit TDZ from inline onclick handlers
 function _setUpgradePeriod(period) {
   _upgradePeriod = period;
   const yearly = period === 'yearly';
@@ -41058,7 +41059,7 @@ async function submitLandingPassword() {
 }
 
 // ── Landing sign-in/up (Email + Password) ─────────────────────────
-let _landingSignUpMode = false;
+var _landingSignUpMode = false; // var — avoids WebKit TDZ from inline onclick handlers
 
 function toggleEmailSignUp() {
   _landingSignUpMode = !_landingSignUpMode;
@@ -41139,13 +41140,20 @@ async function submitEmailSignIn() {
 
 // ── Guest sign-in (Anonymous) ────────────────────────────────────
 async function signInAsGuest() {
-  const errEl = document.getElementById('landingError');
+  var errEl = document.getElementById('landingError');
   errEl.textContent = '';
   bartenderPasswordShow();
+  // iOS ITP: Firebase auth iframe is blocked, so signInAnonymously() will deadlock just like
+  // signInWithPopup(). If auth hasn't fired yet we're still deadlocked — boot as offline guest.
+  var _iosNativeSafari = /iPhone|iPad/.test(navigator.userAgent) && /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS/.test(navigator.userAgent);
+  if (_iosNativeSafari && !window._dhAuthFired) {
+    bartenderPasswordHide();
+    if (typeof window._dhITPGuestBoot === 'function') window._dhITPGuestBoot();
+    return;
+  }
   try {
     await auth.signInAnonymously();
     // onAuthStateChanged handles hiding overlay + initApp()
-    // Trigger walkthrough for brand-new guest users
     if (typeof _tutCheckFirstLogin === 'function') _tutCheckFirstLogin();
   } catch (err) {
     errEl.textContent = 'Guest sign-in failed. Please try again.';
@@ -49152,7 +49160,7 @@ function renderDrumNotation() {
 
 
 // ── Funny loading messages ────────────────────────────────────────
-const FUNNY_LOADING_MSGS = [
+var FUNNY_LOADING_MSGS = [ // var — avoids WebKit TDZ from async Promise callbacks
   "bribing the drummer to show up…",
   "tuning the guitar for the 47th time…",
   "asking the bassist where they are…",
