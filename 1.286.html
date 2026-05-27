@@ -9,8 +9,13 @@
 /* @lock:pattern — Dropdown System: All dropdowns must use position:fixed + getBoundingClientRect(). Do not change this pattern. */
 // ── Global error handler: ensure loading screen is dismissed even on JS errors ──
 window._dhErrors = [];
+var _dhErrCounts = {};
 window.addEventListener('error', function(ev) {
   var msg = (ev.message || 'unknown') + ' @ ' + (ev.filename||'').split('/').pop() + ':' + ev.lineno + ':' + ev.colno;
+  // Rate-limit: suppress after 3 occurrences of the same error (prevents flood crashes)
+  var key = ev.message + ':' + ev.lineno;
+  _dhErrCounts[key] = (_dhErrCounts[key] || 0) + 1;
+  if (_dhErrCounts[key] > 3) { console.warn('[CRASH-DEBUG] suppressed repeated error:', msg); return; }
   window._dhErrors.push(msg);
   console.error('[CRASH-DEBUG]', msg);
   // Show on-screen overlay so mobile users can see what crashed
@@ -76959,15 +76964,18 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       if (checkCount > 40) { clearInterval(interval); return; }
       // Wait for auth + songs array to exist
       if (typeof auth === 'undefined' || !_authUser()) return;
-      if (typeof songs === 'undefined') return;
+      // Safari/WebKit: typeof on a cross-script let can throw TDZ — use try-catch
+      var _songs;
+      try { _songs = songs; } catch(e) { return; }
+      if (!Array.isArray(_songs)) return;
       // For new users _lastStateFromFirestore may never be set — wait a bit then proceed
       var firestoreReady = !!window._lastStateFromFirestore || checkCount >= 3;
       if (!firestoreReady) return;
       clearInterval(interval);
       // Only show for brand-new accounts (no tutorialSeen flag AND zero songs)
-      if (!_tutHasSeenTutorial() && songs.length === 0) {
+      if (!_tutHasSeenTutorial() && _songs.length === 0) {
         setTimeout(function() { _tutShowWelcomeOverlay(); }, 200);
-      } else if (!_tutHasSeenTutorial() && songs.length > 0) {
+      } else if (!_tutHasSeenTutorial() && _songs.length > 0) {
         // Existing user who predates the tutorial — silently mark as seen
         if (typeof db !== 'undefined' && _authUser()) {
           var uid = _authUid();
