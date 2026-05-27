@@ -28,11 +28,25 @@ window.addEventListener('error', function(ev) {
     document.body.appendChild(box);
   }
   box.innerHTML += msg + '<br>';
-  // Don't dismiss loading screen for sanitized cross-origin CDN errors — they're benign and app continues loading
   if (ev.message !== 'Script error.' && document.body && document.body.classList.contains('app-loading')) {
     document.body.classList.remove('app-loading');
     var ls = document.getElementById('appLoadingScreen');
     if (ls) { ls.style.opacity = '0'; ls.style.transition = 'opacity 0.3s'; setTimeout(function() { ls.remove(); }, 350); }
+  }
+  // v1.287: "Script error." during loading = Firebase auth iframe likely blocked by iOS ITP.
+  // Auth may still resolve on its own, but start a 5s recovery timer so we don't hang indefinitely.
+  if (ev.message === 'Script error.' && document.body && document.body.classList.contains('app-loading')) {
+    if (!window._dhITPRecoveryTimer) {
+      window._dhITPRecoveryTimer = setTimeout(function() {
+        if (document.body.classList.contains('app-loading')) {
+          console.warn('[BOOT] ITP recovery: Script error during loading — force dismissing after 5s');
+          if (window._dhBeacon) window._dhBeacon('B_ITP_RECOVERY');
+          document.body.classList.remove('app-loading');
+          var _itpLs = document.getElementById('appLoadingScreen');
+          if (_itpLs) { _itpLs.style.opacity = '0'; _itpLs.style.transition = 'opacity 0.3s'; setTimeout(function() { _itpLs.remove(); }, 350); }
+        }
+      }, 5000);
+    }
   }
 });
 // v1.281: Track Firestore assertion errors to prevent infinite cascade.
@@ -17533,23 +17547,24 @@ body.arr-view-open .uc-bar {
 </div>
 <style>
 @keyframes dhLoad { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
-body.app-loading > *:not(#appLoadingScreen) { visibility: hidden; }
+/* v1.287: visibility:hidden removed — loading screen is position:fixed;inset:0 and covers content
+   without this rule; the rule caused a massive repaint ("paint bomb") when app-loading was removed */
 </style>
 <script>if (window._dhBeacon) window._dhBeacon('B2:body-parsed');</script>
 <script>
 // ── MOBILE SAFETY NET — independent of all other code ──
-// If app-loading is still on the body after 35s, something failed — force dismiss
+// If app-loading is still on the body after 12s, something failed — force dismiss
 setTimeout(function() {
   try {
-    if (window._dhBeacon) window._dhBeacon('B_35S_TIMEOUT');
+    if (window._dhBeacon) window._dhBeacon('B_12S_TIMEOUT');
     if (document.body.classList.contains('app-loading')) {
-      console.error('[BOOT-SAFETY] Loading screen stuck for 35s — forcing dismiss');
+      console.error('[BOOT-SAFETY] Loading screen stuck for 12s — forcing dismiss');
       document.body.classList.remove('app-loading');
       var s = document.getElementById('appLoadingScreen');
       if (s) s.parentNode.removeChild(s);
     }
   } catch(e) { console.error('[BOOT-SAFETY] error:', e); }
-}, 35000);
+}, 12000);
 
 // v1.279: Mobile memory pressure GC nudge — after initial parse, yield to let
 // the browser reclaim parser memory before DCL listeners start firing.
@@ -37854,15 +37869,15 @@ if (window._dhBeacon) window._dhBeacon('B3c:past-last-DCL-reg');
 let _userTierUnsub = null; // holds the onSnapshot unsubscribe for the current user doc
 let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestore
 
-// ── Safety timeout: dismiss loading screen if auth hasn't resolved within 30s ──
+// ── Safety timeout: dismiss loading screen if auth hasn't resolved within 10s ──
 setTimeout(function() {
-  if (window._dhBeacon) window._dhBeacon('B_30S_TIMEOUT');
+  if (window._dhBeacon) window._dhBeacon('B_10S_AUTH_TIMEOUT');
   if (!document.body.classList.contains('app-loading')) return;
-  console.warn('[BOOT] Auth did not resolve within 30s — forcing loading screen dismiss');
+  console.warn('[BOOT] Auth did not resolve within 10s — forcing loading screen dismiss');
   document.body.classList.remove('app-loading');
   var _ls = document.getElementById('appLoadingScreen');
   if (_ls) { _ls.style.opacity = '0'; _ls.style.transition = 'opacity 0.3s'; setTimeout(function() { _ls.remove(); }, 350); }
-}, 30000);
+}, 10000);
 
 // (signInWithRedirect removed — Safari ITP blocks cross-origin sessionStorage during OAuth redirect)
 
