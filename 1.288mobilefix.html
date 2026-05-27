@@ -7538,8 +7538,9 @@ body:has(#landingOverlay:not(.hidden)) .bottom-nav {
 }
 #landingError {
   font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 12px; color: var(--red);
-  min-height: 16px; margin-bottom: 4px; text-align: center;
+  font-size: 13px; color: var(--red);
+  min-height: 18px; margin-bottom: 8px; text-align: center;
+  font-weight: 600; line-height: 1.4;
 }
 @media(max-width:700px) {
   .landing-box { padding: 32px 24px 28px; }
@@ -18686,6 +18687,25 @@ auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(e) {
     console.warn('[AUTH] setPersistence(SESSION) also failed:', e2?.code || e2?.name, '— falling back to NONE');
     return auth.setPersistence(firebase.auth.Auth.Persistence.NONE).catch(function() {});
   });
+});
+
+// iOS Safari converts signInWithPopup into a redirect internally (window.opener = null
+// in the returned tab). We handle this explicitly — call getRedirectResult() at boot
+// so the sign-in completes when the page reloads after the Google redirect.
+auth.getRedirectResult().then(function(result) {
+  if (result && result.user) {
+    console.log('[AUTH] getRedirectResult: completed redirect sign-in', result.user.email || '(anonymous)');
+    // onAuthStateChanged will fire and handle app init — nothing else needed here
+  }
+}).catch(function(err) {
+  // auth/no-auth-event = no redirect pending (normal on non-redirect loads)
+  if (err.code && err.code !== 'auth/no-auth-event') {
+    console.warn('[AUTH] getRedirectResult error:', err.code, err.message);
+    var _grrErr = document.getElementById('landingError');
+    if (_grrErr) _grrErr.textContent = 'Google sign-in failed. Please try again.';
+    var _lo = document.getElementById('landingOverlay');
+    if (_lo) _lo.classList.remove('hidden');
+  }
 });
 const db   = firebase.firestore();
 if (window._dhBeacon) window._dhBeacon('B3b:auth-db-created');
@@ -38110,6 +38130,7 @@ auth.onAuthStateChanged(user => {
       }, () => {
         // Fallback: init app if snapshot fails — but only if user is still signed in
         if (!_authUser()) return;
+        bartenderPasswordHide();
         document.getElementById('landingOverlay').classList.add('hidden');
         document.getElementById('v4ListWrap').style.display = '';
         v4UpdateGoldBanner('free');
@@ -38124,6 +38145,7 @@ auth.onAuthStateChanged(user => {
       // Firestore write failed (e.g. offline or rules) — proceed with free tier rather than hanging
       console.warn('[auth] userRef.set failed, proceeding with defaults:', e?.code);
       if (!_authUser()) return;
+      bartenderPasswordHide();
       document.getElementById('landingOverlay').classList.add('hidden');
       document.getElementById('v4ListWrap').style.display = '';
       v4UpdateGoldBanner(user.isAnonymous ? 'guest' : 'free');
@@ -41035,6 +41057,15 @@ async function submitLandingPassword() {
 
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
+    // iOS Safari treats window.open() as a new tab, which loses window.opener,
+    // so signInWithPopup silently fails (credential never posted back). Use
+    // signInWithRedirect instead — page navigates away, getRedirectResult() at
+    // boot completes sign-in when the page reloads.
+    var _isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (_isIOS) {
+      await auth.signInWithRedirect(provider);
+      return; // page will navigate away; code below won't run
+    }
     await auth.signInWithPopup(provider);
     // onAuthStateChanged handles hiding overlay + initApp()
   } catch (err) {
@@ -42123,6 +42154,11 @@ async function _pvSignupGoogle() {
   if (errEl) errEl.textContent = '';
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
+    var _isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (_isIOS) {
+      await auth.signInWithRedirect(provider);
+      return;
+    }
     await auth.signInWithPopup(provider);
     // onAuthStateChanged picks up _pendingCollabJoin
   } catch(err) {
