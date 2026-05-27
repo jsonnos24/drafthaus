@@ -41,17 +41,21 @@ window.addEventListener('error', function(ev) {
         if (window._dhAuthFired) return; // auth resolved on its own, nothing to do
         if (window._dhBeacon) window._dhBeacon('B_ITP_RECOVERY');
         console.warn('[BOOT] ITP recovery: auth deadlock at 3s — simulating null-user boot');
+        // Each step in its own try-catch — one failure must not abort the rest.
+        // IMPORTANT: do NOT access let/const variables from the main script block here.
+        // WebKit treats them as TDZ from earlier script blocks even after they've initialized.
+        // Only call functions (which are hoisted) and access window.* properties.
+        if (window._dhBeacon) window._dhBeacon('ITP_R1:sync-stop');
+        try { if (typeof stopSyncPolling === 'function') stopSyncPolling(); } catch(_e1) {}
+
+        if (window._dhBeacon) window._dhBeacon('ITP_R2:banner');
         try {
-          if (window._dhBeacon) window._dhBeacon('ITP_R1:state-reset');
-          if (typeof stopSyncPolling === 'function') stopSyncPolling();
-          if (typeof songs !== 'undefined') songs = [];
-          if (typeof _songTrashUpdateIcon === 'function') _songTrashUpdateIcon();
-          if (typeof _songCurrentId !== 'undefined') _songCurrentId = null;
-          if (typeof _dismissedShares !== 'undefined') _dismissedShares = new Set();
-          if (window._dhBeacon) window._dhBeacon('ITP_R2:banner');
           localStorage.removeItem('dh-v4-gold-banner-dismissed');
           if (typeof v4UpdateGoldBanner === 'function') v4UpdateGoldBanner('signed-out');
-          if (window._dhBeacon) window._dhBeacon('ITP_R3:dom-setup');
+        } catch(_e2) { if (window._dhBeacon) window._dhBeacon('ITP_ERR2:' + ((_e2&&_e2.message)||'?').slice(0,30)); }
+
+        if (window._dhBeacon) window._dhBeacon('ITP_R3:dom-setup');
+        try {
           var _lw = document.getElementById('v4ListWrap');
           if (_lw) _lw.style.display = '';
           var _sg = document.getElementById('songsGrid');
@@ -60,31 +64,28 @@ window.addEventListener('error', function(ev) {
           if (_itpGh) _itpGh.style.display = 'none';
           var _itpHr = document.getElementById('hlaRollBtn');
           if (_itpHr) _itpHr.style.display = 'none';
-          if (typeof _v4ProjectFilter !== 'undefined') { _v4ProjectFilter = null; window._v4ProjectFilter = null; }
-          if (window._dhBeacon) window._dhBeacon('ITP_R4:renderDrafts-start');
-          if (typeof renderDraftsV4 === 'function') renderDraftsV4();
-          if (window._dhBeacon) window._dhBeacon('ITP_R5:renderDrafts-done');
           var _itpEmail = document.getElementById('headerUserEmail');
           if (_itpEmail) _itpEmail.textContent = '';
           var _itpSeq = document.getElementById('seqDrawerTab');
           if (_itpSeq) _itpSeq.classList.remove('tab-loading');
-          setTimeout(function() {
-            if (window._dhBeacon) window._dhBeacon('ITP_R6:drawers-start');
-            if (typeof loopBuildUI === 'function') { loopBuildUI(); if (window._dhBeacon) window._dhBeacon('ITP_R6a:loop-done'); }
-            var _itpLt = document.getElementById('looperTab');
-            if (_itpLt) _itpLt.classList.remove('tab-loading');
-            if (typeof renderInspoDice === 'function') { renderInspoDice(); if (window._dhBeacon) window._dhBeacon('ITP_R6b:inspo-done'); }
-            var _itpIt = document.getElementById('inspoTab');
-            if (_itpIt) _itpIt.classList.remove('tab-loading');
-            if (typeof renderPracticeDrawer === 'function') { renderPracticeDrawer(); if (window._dhBeacon) window._dhBeacon('ITP_R6c:practice-done'); }
-            var _itpPt = document.getElementById('practiceTab');
-            if (_itpPt) _itpPt.classList.remove('tab-loading');
-            if (window._dhBeacon) window._dhBeacon('ITP_R7:drawers-done');
-          }, 6000); // match initApp()'s mobile _drawerBuildDelay — these renders are expensive
-        } catch(_itpE) {
-          if (window._dhBeacon) window._dhBeacon('ITP_ERR:' + (_itpE && _itpE.message ? _itpE.message.slice(0,40) : 'unknown'));
-          console.error('[ITP-RECOVERY] init error:', _itpE);
-        }
+        } catch(_e3) { if (window._dhBeacon) window._dhBeacon('ITP_ERR3:' + ((_e3&&_e3.message)||'?').slice(0,30)); }
+
+        if (window._dhBeacon) window._dhBeacon('ITP_R4:renderDrafts-start');
+        try {
+          if (typeof renderDraftsV4 === 'function') renderDraftsV4();
+          if (window._dhBeacon) window._dhBeacon('ITP_R5:renderDrafts-done');
+        } catch(_e4) { if (window._dhBeacon) window._dhBeacon('ITP_ERR4:' + ((_e4&&_e4.message)||'?').slice(0,30)); }
+
+        setTimeout(function() {
+          if (window._dhBeacon) window._dhBeacon('ITP_R6:drawers-start');
+          try { if (typeof loopBuildUI === 'function') loopBuildUI(); if (window._dhBeacon) window._dhBeacon('ITP_R6a:loop-done'); } catch(_e) { if (window._dhBeacon) window._dhBeacon('ITP_ERR6a:' + ((_e&&_e.message)||'?').slice(0,25)); }
+          var _itpLt = document.getElementById('looperTab'); if (_itpLt) _itpLt.classList.remove('tab-loading');
+          try { if (typeof renderInspoDice === 'function') renderInspoDice(); if (window._dhBeacon) window._dhBeacon('ITP_R6b:inspo-done'); } catch(_e) { if (window._dhBeacon) window._dhBeacon('ITP_ERR6b:' + ((_e&&_e.message)||'?').slice(0,25)); }
+          var _itpIt = document.getElementById('inspoTab'); if (_itpIt) _itpIt.classList.remove('tab-loading');
+          try { if (typeof renderPracticeDrawer === 'function') renderPracticeDrawer(); if (window._dhBeacon) window._dhBeacon('ITP_R6c:practice-done'); } catch(_e) { if (window._dhBeacon) window._dhBeacon('ITP_ERR6c:' + ((_e&&_e.message)||'?').slice(0,25)); }
+          var _itpPt = document.getElementById('practiceTab'); if (_itpPt) _itpPt.classList.remove('tab-loading');
+          if (window._dhBeacon) window._dhBeacon('ITP_R7:drawers-done');
+        }, 6000);
         if (window._dhBeacon) window._dhBeacon('ITP_R8:dismiss-start');
         if (typeof _uiDismissLoadingScreen === 'function') {
           _uiDismissLoadingScreen();
