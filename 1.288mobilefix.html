@@ -18692,21 +18692,7 @@ auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(e) {
 // iOS Safari converts signInWithPopup into a redirect internally (window.opener = null
 // in the returned tab). We handle this explicitly — call getRedirectResult() at boot
 // so the sign-in completes when the page reloads after the Google redirect.
-auth.getRedirectResult().then(function(result) {
-  if (result && result.user) {
-    console.log('[AUTH] getRedirectResult: completed redirect sign-in', result.user.email || '(anonymous)');
-    // onAuthStateChanged will fire and handle app init — nothing else needed here
-  }
-}).catch(function(err) {
-  // auth/no-auth-event = no redirect pending (normal on non-redirect loads)
-  if (err.code && err.code !== 'auth/no-auth-event') {
-    console.warn('[AUTH] getRedirectResult error:', err.code, err.message);
-    var _grrErr = document.getElementById('landingError');
-    if (_grrErr) _grrErr.textContent = 'Google sign-in failed. Please try again.';
-    var _lo = document.getElementById('landingOverlay');
-    if (_lo) _lo.classList.remove('hidden');
-  }
-});
+
 const db   = firebase.firestore();
 if (window._dhBeacon) window._dhBeacon('B3b:auth-db-created');
 // v1.286: Restore long polling on mobile — WebSocket delivers all songs in one burst
@@ -41057,15 +41043,6 @@ async function submitLandingPassword() {
 
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
-    // iOS Safari treats window.open() as a new tab, which loses window.opener,
-    // so signInWithPopup silently fails (credential never posted back). Use
-    // signInWithRedirect instead — page navigates away, getRedirectResult() at
-    // boot completes sign-in when the page reloads.
-    var _isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
-    if (_isIOS) {
-      await auth.signInWithRedirect(provider);
-      return; // page will navigate away; code below won't run
-    }
     await auth.signInWithPopup(provider);
     // onAuthStateChanged handles hiding overlay + initApp()
   } catch (err) {
@@ -41131,13 +41108,19 @@ async function submitEmailSignIn() {
 
   submitBtn.disabled = true;
   bartenderPasswordShow();
+  var _bpLabelE = document.querySelector('#bartenderPassword .bp-label');
+  if (_bpLabelE) _bpLabelE.textContent = 'Connecting to Firebase...';
+  clearInterval(window._bartenderMsgInterval);
 
   try {
     if (_landingSignUpMode) {
+      if (_bpLabelE) _bpLabelE.textContent = 'Creating account...';
       await auth.createUserWithEmailAndPassword(email, password);
     } else {
+      if (_bpLabelE) _bpLabelE.textContent = 'Signing in...';
       await auth.signInWithEmailAndPassword(email, password);
     }
+    if (_bpLabelE) _bpLabelE.textContent = 'Signed in! Loading app...';
   } catch (err) {
     let msg = 'Sign-in failed. Please try again.';
     if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
@@ -41164,12 +41147,18 @@ async function signInAsGuest() {
   var errEl = document.getElementById('landingError');
   errEl.textContent = '';
   bartenderPasswordShow();
+  // Show live status in bartender label so we can see where it hangs
+  var _bpLabel = document.querySelector('#bartenderPassword .bp-label');
+  if (_bpLabel) _bpLabel.textContent = 'Starting guest sign-in...';
+  clearInterval(window._bartenderMsgInterval); // freeze funny messages during debug
   try {
+    if (_bpLabel) _bpLabel.textContent = 'Connecting to Firebase...';
     await auth.signInAnonymously();
+    if (_bpLabel) _bpLabel.textContent = 'Signed in! Loading app...';
     // onAuthStateChanged handles hiding overlay + initApp()
     if (typeof _tutCheckFirstLogin === 'function') _tutCheckFirstLogin();
   } catch (err) {
-    errEl.textContent = 'Guest sign-in failed. Please try again.';
+    errEl.textContent = 'Guest sign-in failed: ' + (err.code || err.message || 'Unknown error');
     bartenderPasswordHide();
   }
 }
@@ -42154,11 +42143,6 @@ async function _pvSignupGoogle() {
   if (errEl) errEl.textContent = '';
   try {
     const provider = new firebase.auth.GoogleAuthProvider();
-    var _isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
-    if (_isIOS) {
-      await auth.signInWithRedirect(provider);
-      return;
-    }
     await auth.signInWithPopup(provider);
     // onAuthStateChanged picks up _pendingCollabJoin
   } catch(err) {
