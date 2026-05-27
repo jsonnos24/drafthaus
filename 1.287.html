@@ -11,27 +11,36 @@
 window._dhErrors = [];
 var _dhErrCounts = {};
 window.addEventListener('error', function(ev) {
-  var msg = (ev.message || 'unknown') + ' @ ' + (ev.filename||'').split('/').pop() + ':' + ev.lineno + ':' + ev.colno;
-  // Rate-limit: suppress after 3 occurrences of the same error (prevents flood crashes)
-  var key = ev.message + ':' + ev.lineno;
-  _dhErrCounts[key] = (_dhErrCounts[key] || 0) + 1;
-  if (_dhErrCounts[key] > 3) { console.warn('[CRASH-DEBUG] suppressed repeated error:', msg); return; }
-  window._dhErrors.push(msg);
-  console.error('[CRASH-DEBUG]', msg);
-  // Show on-screen overlay so mobile users can see what crashed
-  var box = document.getElementById('dhCrashDebug');
-  if (!box) {
-    box = document.createElement('div');
-    box.id = 'dhCrashDebug';
-    box.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:40vh;overflow:auto;background:#1a0000;color:#ff4444;font:11px/1.4 monospace;padding:12px;z-index:999999;border-top:2px solid #ff4444;';
-    box.innerHTML = '<b>[CRASH DEBUG]</b><br>';
-    document.body.appendChild(box);
-  }
-  box.innerHTML += msg + '<br>';
-  if (ev.message !== 'Script error.' && document.body && document.body.classList.contains('app-loading')) {
-    document.body.classList.remove('app-loading');
-    var ls = document.getElementById('appLoadingScreen');
-    if (ls) { ls.style.opacity = '0'; ls.style.transition = 'opacity 0.3s'; setTimeout(function() { ls.remove(); }, 350); }
+  // "Script error." is the expected cross-origin error from Firebase auth's ITP-blocked iframe.
+  // It is NOT a crash — the ITP recovery timer below handles it. Skip overlay and loading dismiss.
+  if (ev.message === 'Script error.') {
+    console.warn('[BOOT] Script error. (expected — Firebase auth iframe blocked by iOS ITP)');
+  } else {
+    var msg = (ev.message || 'unknown') + ' @ ' + (ev.filename||'').split('/').pop() + ':' + ev.lineno + ':' + ev.colno;
+    // Rate-limit: suppress after 3 occurrences of the same error (prevents flood crashes)
+    var key = ev.message + ':' + ev.lineno;
+    _dhErrCounts[key] = (_dhErrCounts[key] || 0) + 1;
+    if (_dhErrCounts[key] <= 3) {
+      window._dhErrors.push(msg);
+      console.error('[CRASH-DEBUG]', msg);
+      // Show on-screen overlay so mobile users can see what crashed
+      var box = document.getElementById('dhCrashDebug');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'dhCrashDebug';
+        box.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:40vh;overflow:auto;background:#1a0000;color:#ff4444;font:11px/1.4 monospace;padding:12px;z-index:999999;border-top:2px solid #ff4444;';
+        box.innerHTML = '<b>[CRASH DEBUG]</b><br>';
+        document.body.appendChild(box);
+      }
+      box.innerHTML += msg + '<br>';
+    } else {
+      console.warn('[CRASH-DEBUG] suppressed repeated error:', msg);
+    }
+    if (document.body && document.body.classList.contains('app-loading')) {
+      document.body.classList.remove('app-loading');
+      var ls = document.getElementById('appLoadingScreen');
+      if (ls) { ls.style.opacity = '0'; ls.style.transition = 'opacity 0.3s'; setTimeout(function() { ls.remove(); }, 350); }
+    }
   }
   // v1.287: "Script error." = Firebase auth iframe blocked by iOS ITP — auth deadlocked.
   // At 3s, simulate the null-user onAuthStateChanged path so the app is functional.
@@ -161,20 +170,25 @@ window.addEventListener('unhandledrejection', function(ev) {
   if (window.innerWidth >= 900) return;
   var _bk = 'dh-boot-beacons';
   var _prev = localStorage.getItem(_bk);
-  // Show previous boot's beacons if they exist (means last boot didn't finish cleanly)
-  if (_prev) {
+  // Only show LAST BOOT banner if beacons start with B0: — that means a real crash trace.
+  // Beacons that don't start with B0: are leftover post-success heartbeats written after
+  // _dhBeaconDone() cleared the key; showing those as "crashes" is a false alarm.
+  if (_prev && _prev.indexOf('B0:') === 0) {
     window._dhLastBootBeacons = _prev;
-    // Show immediately via document.write — can't wait for <body>, page may crash first
     document.write('<div style="position:fixed;top:0;left:0;right:0;background:#1a0a00;color:#f5a623;font:10px/1.3 monospace;padding:8px;z-index:999999;word-break:break-all;">LAST BOOT: ' + _prev.replace(/</g,'&lt;') + '</div>');
+  } else if (_prev) {
+    localStorage.removeItem(_bk); // stale post-success data — clear silently
   }
   localStorage.setItem(_bk, 'B0:head-start:' + Date.now());
   window._dhBeacon = function(tag) {
     var cur = localStorage.getItem(_bk) || '';
     localStorage.setItem(_bk, cur + ' | ' + tag + ':' + Date.now());
   };
-  // Clear beacons when boot completes successfully
+  // Clear beacons when boot completes successfully, then stop writing so post-success
+  // heartbeats don't pollute the key and trigger a false LAST BOOT on the next load.
   window._dhBeaconDone = function() {
     localStorage.removeItem(_bk);
+    window._dhBeacon = null;
   };
 })();
 // Viewport management.
