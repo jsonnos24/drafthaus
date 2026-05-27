@@ -33,19 +33,56 @@ window.addEventListener('error', function(ev) {
     var ls = document.getElementById('appLoadingScreen');
     if (ls) { ls.style.opacity = '0'; ls.style.transition = 'opacity 0.3s'; setTimeout(function() { ls.remove(); }, 350); }
   }
-  // v1.287: "Script error." during loading = Firebase auth iframe likely blocked by iOS ITP.
-  // Auth may still resolve on its own, but start a 5s recovery timer so we don't hang indefinitely.
+  // v1.287: "Script error." = Firebase auth iframe blocked by iOS ITP — auth deadlocked.
+  // At 3s, simulate the null-user onAuthStateChanged path so the app is functional.
   if (ev.message === 'Script error.' && document.body && document.body.classList.contains('app-loading')) {
     if (!window._dhITPRecoveryTimer) {
       window._dhITPRecoveryTimer = setTimeout(function() {
-        if (document.body.classList.contains('app-loading')) {
-          console.warn('[BOOT] ITP recovery: Script error during loading — force dismissing after 5s');
-          if (window._dhBeacon) window._dhBeacon('B_ITP_RECOVERY');
+        if (window._dhAuthFired) return; // auth resolved on its own, nothing to do
+        if (window._dhBeacon) window._dhBeacon('B_ITP_RECOVERY');
+        console.warn('[BOOT] ITP recovery: auth deadlock at 3s — simulating null-user boot');
+        try {
+          if (typeof stopSyncPolling === 'function') stopSyncPolling();
+          if (typeof songs !== 'undefined') songs = [];
+          if (typeof _songTrashUpdateIcon === 'function') _songTrashUpdateIcon();
+          if (typeof _songCurrentId !== 'undefined') _songCurrentId = null;
+          if (typeof _dismissedShares !== 'undefined') _dismissedShares = new Set();
+          localStorage.removeItem('dh-v4-gold-banner-dismissed');
+          if (typeof v4UpdateGoldBanner === 'function') v4UpdateGoldBanner('signed-out');
+          var _lw = document.getElementById('v4ListWrap');
+          if (_lw) _lw.style.display = '';
+          var _sg = document.getElementById('songsGrid');
+          if (_sg) _sg.style.display = 'none';
+          var _itpGh = document.getElementById('gridHeader');
+          if (_itpGh) _itpGh.style.display = 'none';
+          var _itpHr = document.getElementById('hlaRollBtn');
+          if (_itpHr) _itpHr.style.display = 'none';
+          if (typeof _v4ProjectFilter !== 'undefined') { _v4ProjectFilter = null; window._v4ProjectFilter = null; }
+          if (typeof renderDraftsV4 === 'function') renderDraftsV4();
+          var _itpEmail = document.getElementById('headerUserEmail');
+          if (_itpEmail) _itpEmail.textContent = '';
+          var _itpSeq = document.getElementById('seqDrawerTab');
+          if (_itpSeq) _itpSeq.classList.remove('tab-loading');
+          setTimeout(function() {
+            if (typeof loopBuildUI === 'function') loopBuildUI();
+            var _itpLt = document.getElementById('looperTab');
+            if (_itpLt) _itpLt.classList.remove('tab-loading');
+            if (typeof renderInspoDice === 'function') renderInspoDice();
+            var _itpIt = document.getElementById('inspoTab');
+            if (_itpIt) _itpIt.classList.remove('tab-loading');
+            if (typeof renderPracticeDrawer === 'function') renderPracticeDrawer();
+            var _itpPt = document.getElementById('practiceTab');
+            if (_itpPt) _itpPt.classList.remove('tab-loading');
+          }, 300);
+        } catch(_itpE) { console.error('[ITP-RECOVERY] init error:', _itpE); }
+        if (typeof _uiDismissLoadingScreen === 'function') {
+          _uiDismissLoadingScreen();
+        } else {
           document.body.classList.remove('app-loading');
           var _itpLs = document.getElementById('appLoadingScreen');
           if (_itpLs) { _itpLs.style.opacity = '0'; _itpLs.style.transition = 'opacity 0.3s'; setTimeout(function() { _itpLs.remove(); }, 350); }
         }
-      }, 5000);
+      }, 3000);
     }
   }
 });
@@ -37882,8 +37919,10 @@ setTimeout(function() {
 // (signInWithRedirect removed — Safari ITP blocks cross-origin sessionStorage during OAuth redirect)
 
 /* @lock:start — Auth Lifecycle */
+window._dhAuthFired = false; // set to true when onAuthStateChanged fires; ITP recovery checks this
 if (window._dhBeacon) window._dhBeacon('B4_SETUP:onAuthStateChanged-registering');
 auth.onAuthStateChanged(user => {
+  window._dhAuthFired = true;
   if (window._dhBeacon) window._dhBeacon('B4a:auth-cb-enter');
   _dhMark(user ? 'auth-signed-in' : 'auth-signed-out');
   if (window._dhBeacon) window._dhBeacon('B4:auth-' + (user ? 'in' : 'out'));
