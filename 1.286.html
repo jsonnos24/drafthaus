@@ -28,7 +28,8 @@ window.addEventListener('error', function(ev) {
     document.body.appendChild(box);
   }
   box.innerHTML += msg + '<br>';
-  if (document.body && document.body.classList.contains('app-loading')) {
+  // Don't dismiss loading screen for sanitized cross-origin CDN errors — they're benign and app continues loading
+  if (ev.message !== 'Script error.' && document.body && document.body.classList.contains('app-loading')) {
     document.body.classList.remove('app-loading');
     var ls = document.getElementById('appLoadingScreen');
     if (ls) { ls.style.opacity = '0'; ls.style.transition = 'opacity 0.3s'; setTimeout(function() { ls.remove(); }, 350); }
@@ -76992,10 +76993,12 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
   // Defer first-login check until auth settles
   var _tutAuthInterval = setInterval(function() {
-    if (typeof auth !== 'undefined' && _authUser()) {
-      clearInterval(_tutAuthInterval);
-      _tutCheckFirstLogin();
-    }
+    // Safari/WebKit: typeof on cross-script const can throw TDZ — use try-catch
+    var _auth;
+    try { _auth = auth; } catch(e) { return; }
+    if (!_auth || !_authUser()) return;
+    clearInterval(_tutAuthInterval);
+    _tutCheckFirstLogin();
   }, 500);
 
   // Clean up on auth change
