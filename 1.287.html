@@ -41036,17 +41036,29 @@ async function submitLandingPassword() {
   btn.disabled = true;
   bartenderPasswordShow();
 
+  const _iosNativeSafari = /iPhone|iPad/.test(navigator.userAgent) && /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS/.test(navigator.userAgent);
+  if (_iosNativeSafari) {
+    // iOS Safari + ITP: Firebase's compat signInWithRedirect internally awaits its
+    // initialization promise before navigating. That promise is blocked by ITP (the auth
+    // iframe never loads), so it navigates to about:blank then gets stuck there permanently.
+    // Fix: navigate directly to Firebase's auth handler URL, bypassing the blocked SDK.
+    var _returnTo = window.location.href.split('?')[0].split('#')[0];
+    var _eid = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    window.location.assign(
+      'https://drafthaus-ca18c.firebaseapp.com/__/auth/handler' +
+      '?apiKey=AIzaSyAkQOyqAA0E_vw9Xdgz9LIG5C0ZwGAmgFc' +
+      '&appName=%5BDEFAULT%5D' +
+      '&authType=signInViaRedirect' +
+      '&providerId=google.com' +
+      '&redirectUrl=' + encodeURIComponent(_returnTo) +
+      '&scopes=email%20profile%20openid' +
+      '&eventId=' + _eid
+    );
+    return; // page navigates away
+  }
+
   try {
-    const provider = new firebase.auth.GoogleAuthProvider();
-    const _iosRedirect = /iPhone|iPad/.test(navigator.userAgent) && /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS/.test(navigator.userAgent);
-    if (_iosRedirect) {
-      // iOS Safari: use redirect instead of popup. The top-level navigation through
-      // firebaseapp.com establishes ITP trust, unblocking the auth iframe on return.
-      // Page navigates away here — no code runs after signInWithRedirect returns.
-      await auth.signInWithRedirect(provider);
-      return;
-    }
-    await auth.signInWithPopup(provider);
+    await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
     // onAuthStateChanged handles hiding overlay + initApp()
   } catch (err) {
     if (err.code === 'auth/popup-blocked') {
@@ -42140,14 +42152,24 @@ function _pvToggleSignin() {
 async function _pvSignupGoogle() {
   const errEl = document.getElementById('pvSignupError');
   if (errEl) errEl.textContent = '';
+  const _iosNativeSafari = /iPhone|iPad/.test(navigator.userAgent) && /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS/.test(navigator.userAgent);
+  if (_iosNativeSafari) {
+    var _returnTo = window.location.href.split('?')[0].split('#')[0];
+    var _eid = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    window.location.assign(
+      'https://drafthaus-ca18c.firebaseapp.com/__/auth/handler' +
+      '?apiKey=AIzaSyAkQOyqAA0E_vw9Xdgz9LIG5C0ZwGAmgFc' +
+      '&appName=%5BDEFAULT%5D' +
+      '&authType=signInViaRedirect' +
+      '&providerId=google.com' +
+      '&redirectUrl=' + encodeURIComponent(_returnTo) +
+      '&scopes=email%20profile%20openid' +
+      '&eventId=' + _eid
+    );
+    return;
+  }
   try {
-    const provider = new firebase.auth.GoogleAuthProvider();
-    const _iosRedirect = /iPhone|iPad/.test(navigator.userAgent) && /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS/.test(navigator.userAgent);
-    if (_iosRedirect) {
-      await auth.signInWithRedirect(provider);
-      return;
-    }
-    await auth.signInWithPopup(provider);
+    await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
     // onAuthStateChanged picks up _pendingCollabJoin
   } catch(err) {
     if (err.code === 'auth/popup-blocked') {
