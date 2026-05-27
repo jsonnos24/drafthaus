@@ -7,14 +7,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <script>
 /* @lock:pattern — Dropdown System: All dropdowns must use position:fixed + getBoundingClientRect(). Do not change this pattern. */
-// ── Global error handler: ensure loading screen is dismissed even on JS errors ──
-window.addEventListener('error', function() {
+// ── Global error handler: dismiss loading screen + show visible error on mobile ──
+function _dhShowErr(msg) {
+  var box = document.getElementById('_dhErrBox');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = '_dhErrBox';
+    box.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999999;background:#c00;color:#fff;font:12px monospace;padding:8px;white-space:pre-wrap;word-break:break-all;max-height:40vh;overflow:auto;';
+    if (document.body) document.body.appendChild(box);
+    else document.addEventListener('DOMContentLoaded', function() { document.body.appendChild(box); });
+  }
+  box.textContent += msg + '\n';
+}
+window.addEventListener('error', function(ev) {
   if (document.body && document.body.classList.contains('app-loading')) {
-    console.warn('[BOOT] JS error during init — forcing loading screen dismiss');
     document.body.classList.remove('app-loading');
     var ls = document.getElementById('appLoadingScreen');
     if (ls) { ls.style.opacity = '0'; ls.style.transition = 'opacity 0.3s'; setTimeout(function() { ls.remove(); }, 350); }
   }
+  _dhShowErr('[ERR] ' + (ev.message || '?') + ' @ line ' + ev.lineno);
+});
+window.addEventListener('unhandledrejection', function(ev) {
+  _dhShowErr('[REJ] ' + (ev.reason && ev.reason.message ? ev.reason.message : String(ev.reason)));
 });
 // v1.281: Crash-surviving boot beacons. Writes to localStorage at each checkpoint.
 // If the tab crashes, we can read which checkpoints completed on the next load.
