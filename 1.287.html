@@ -42,13 +42,16 @@ window.addEventListener('error', function(ev) {
         if (window._dhBeacon) window._dhBeacon('B_ITP_RECOVERY');
         console.warn('[BOOT] ITP recovery: auth deadlock at 3s — simulating null-user boot');
         try {
+          if (window._dhBeacon) window._dhBeacon('ITP_R1:state-reset');
           if (typeof stopSyncPolling === 'function') stopSyncPolling();
           if (typeof songs !== 'undefined') songs = [];
           if (typeof _songTrashUpdateIcon === 'function') _songTrashUpdateIcon();
           if (typeof _songCurrentId !== 'undefined') _songCurrentId = null;
           if (typeof _dismissedShares !== 'undefined') _dismissedShares = new Set();
+          if (window._dhBeacon) window._dhBeacon('ITP_R2:banner');
           localStorage.removeItem('dh-v4-gold-banner-dismissed');
           if (typeof v4UpdateGoldBanner === 'function') v4UpdateGoldBanner('signed-out');
+          if (window._dhBeacon) window._dhBeacon('ITP_R3:dom-setup');
           var _lw = document.getElementById('v4ListWrap');
           if (_lw) _lw.style.display = '';
           var _sg = document.getElementById('songsGrid');
@@ -58,23 +61,31 @@ window.addEventListener('error', function(ev) {
           var _itpHr = document.getElementById('hlaRollBtn');
           if (_itpHr) _itpHr.style.display = 'none';
           if (typeof _v4ProjectFilter !== 'undefined') { _v4ProjectFilter = null; window._v4ProjectFilter = null; }
+          if (window._dhBeacon) window._dhBeacon('ITP_R4:renderDrafts-start');
           if (typeof renderDraftsV4 === 'function') renderDraftsV4();
+          if (window._dhBeacon) window._dhBeacon('ITP_R5:renderDrafts-done');
           var _itpEmail = document.getElementById('headerUserEmail');
           if (_itpEmail) _itpEmail.textContent = '';
           var _itpSeq = document.getElementById('seqDrawerTab');
           if (_itpSeq) _itpSeq.classList.remove('tab-loading');
           setTimeout(function() {
-            if (typeof loopBuildUI === 'function') loopBuildUI();
+            if (window._dhBeacon) window._dhBeacon('ITP_R6:drawers-start');
+            if (typeof loopBuildUI === 'function') { loopBuildUI(); if (window._dhBeacon) window._dhBeacon('ITP_R6a:loop-done'); }
             var _itpLt = document.getElementById('looperTab');
             if (_itpLt) _itpLt.classList.remove('tab-loading');
-            if (typeof renderInspoDice === 'function') renderInspoDice();
+            if (typeof renderInspoDice === 'function') { renderInspoDice(); if (window._dhBeacon) window._dhBeacon('ITP_R6b:inspo-done'); }
             var _itpIt = document.getElementById('inspoTab');
             if (_itpIt) _itpIt.classList.remove('tab-loading');
-            if (typeof renderPracticeDrawer === 'function') renderPracticeDrawer();
+            if (typeof renderPracticeDrawer === 'function') { renderPracticeDrawer(); if (window._dhBeacon) window._dhBeacon('ITP_R6c:practice-done'); }
             var _itpPt = document.getElementById('practiceTab');
             if (_itpPt) _itpPt.classList.remove('tab-loading');
+            if (window._dhBeacon) window._dhBeacon('ITP_R7:drawers-done');
           }, 6000); // match initApp()'s mobile _drawerBuildDelay — these renders are expensive
-        } catch(_itpE) { console.error('[ITP-RECOVERY] init error:', _itpE); }
+        } catch(_itpE) {
+          if (window._dhBeacon) window._dhBeacon('ITP_ERR:' + (_itpE && _itpE.message ? _itpE.message.slice(0,40) : 'unknown'));
+          console.error('[ITP-RECOVERY] init error:', _itpE);
+        }
+        if (window._dhBeacon) window._dhBeacon('ITP_R8:dismiss-start');
         if (typeof _uiDismissLoadingScreen === 'function') {
           _uiDismissLoadingScreen();
         } else {
@@ -82,6 +93,7 @@ window.addEventListener('error', function(ev) {
           var _itpLs = document.getElementById('appLoadingScreen');
           if (_itpLs) { _itpLs.style.opacity = '0'; _itpLs.style.transition = 'opacity 0.3s'; setTimeout(function() { _itpLs.remove(); }, 350); }
         }
+        if (window._dhBeacon) window._dhBeacon('ITP_R9:dismiss-done');
       }, 3000);
     }
   }
@@ -40600,15 +40612,16 @@ function _uiDismissLoadingScreen() {
   // Desktop keeps 500ms since it has 10× the memory budget.
   var _syncDelay = (window.innerWidth < 900) ? 4000 : 500;
   console.log('[CRASH-DEBUG] ★ loading screen dismissed, startSyncPolling in ' + _syncDelay + 'ms');
-  // v1.285 crash-narrowing: heartbeats every 500ms so we know exactly when the tab dies
+  // heartbeats every 500ms — extended to 12s to cover drawer-build phase
   if (window.innerWidth < 900) {
-    [500, 1000, 1500, 2000, 2500, 3000, 3500].forEach(function(ms) {
+    [500, 1000, 1500, 2000, 2500, 3000, 3500, 5000, 6500, 8000, 10000, 12000].forEach(function(ms) {
       setTimeout(function() { if (window._dhBeacon) window._dhBeacon('HB:' + ms + 'ms'); }, ms);
     });
   }
   setTimeout(function() {
-    if (window._dhBeacon) window._dhBeacon('B10:sync-start');
-    console.log('[CRASH-DEBUG] ★ startSyncPolling firing NOW');
+    var _hasUid = (typeof _authUid === 'function') ? !!_authUid() : 'unknown';
+    if (window._dhBeacon) window._dhBeacon('B10:sync-start:uid=' + _hasUid);
+    console.log('[CRASH-DEBUG] ★ startSyncPolling firing NOW, uid:', _hasUid);
     try { startSyncPolling(); } catch(e) { console.error('[CRASH-DEBUG] startSyncPolling threw:', e); }
     if (window._dhBeaconDone) window._dhBeaconDone();
   }, _syncDelay);
