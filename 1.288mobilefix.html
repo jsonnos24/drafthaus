@@ -8,158 +8,13 @@
 <script>
 /* @lock:pattern — Dropdown System: All dropdowns must use position:fixed + getBoundingClientRect(). Do not change this pattern. */
 // ── Global error handler: ensure loading screen is dismissed even on JS errors ──
-window._dhErrors = [];
-var _dhErrCounts = {};
-window.addEventListener('error', function(ev) {
-  // Dismiss loading screen on any error — including cross-origin "Script error." events.
-  // "Script error." is a normal browser behavior for cross-origin scripts (Google Fonts, CDN, etc.)
-  // and does NOT mean Firebase auth is broken. Dismissing the screen lets auth finish normally.
+window.addEventListener('error', function() {
   if (document.body && document.body.classList.contains('app-loading')) {
+    console.warn('[BOOT] JS error during init — forcing loading screen dismiss');
     document.body.classList.remove('app-loading');
     var ls = document.getElementById('appLoadingScreen');
     if (ls) { ls.style.opacity = '0'; ls.style.transition = 'opacity 0.3s'; setTimeout(function() { ls.remove(); }, 350); }
-    // If auth hasn't resolved yet, show the landing overlay so users aren't stranded on a blank screen.
-    // onAuthStateChanged will hide it if the user is already signed in, or keep it visible for sign-in.
-    if (!window._dhAuthFired) {
-      var _elo = document.getElementById('landingOverlay');
-      if (_elo) _elo.classList.remove('hidden');
-    }
   }
-  if (ev.message === 'Script error.') {
-    console.warn('[BOOT] Script error. (cross-origin — details suppressed by browser)');
-    return;
-  }
-  // Real errors: log + show crash overlay
-  var msg = (ev.message || 'unknown') + ' @ ' + (ev.filename||'').split('/').pop() + ':' + ev.lineno + ':' + ev.colno;
-  var key = ev.message + ':' + ev.lineno;
-  _dhErrCounts[key] = (_dhErrCounts[key] || 0) + 1;
-  if (_dhErrCounts[key] <= 3) {
-    window._dhErrors.push(msg);
-    console.error('[CRASH-DEBUG]', msg);
-    var box = document.getElementById('dhCrashDebug');
-    if (!box) {
-      box = document.createElement('div');
-      box.id = 'dhCrashDebug';
-      box.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:40vh;overflow:auto;background:#1a0000;color:#ff4444;font:11px/1.4 monospace;padding:12px;z-index:999999;border-top:2px solid #ff4444;';
-      box.innerHTML = '<b>[CRASH DEBUG]</b><br>';
-      document.body.appendChild(box);
-    }
-    box.innerHTML += msg + '<br>';
-  } else {
-    console.warn('[CRASH-DEBUG] suppressed repeated error:', msg);
-  }
-});
-// ITP guest boot — called by recovery timer (3s cold boot) or immediately by signInAsGuest()
-// when Firebase auth is deadlocked by iOS ITP.
-// IMPORTANT: do NOT access let/const variables from the main script block here.
-// WebKit treats them as TDZ from earlier script blocks even after they've initialized.
-// Only call functions (which are hoisted) and access window.* / var properties.
-window._dhITPGuestBoot = function() {
-  if (window._dhAuthFired) return;
-  if (window._dhITPRecoveryTimer) { clearTimeout(window._dhITPRecoveryTimer); window._dhITPRecoveryTimer = null; }
-  if (window._dhBeacon) window._dhBeacon('B_ITP_RECOVERY');
-  console.warn('[BOOT] ITP guest boot: auth deadlock — simulating null-user boot');
-
-  if (window._dhBeacon) window._dhBeacon('ITP_R1:sync-stop');
-  try { if (typeof stopSyncPolling === 'function') stopSyncPolling(); } catch(_e1) {}
-
-  if (window._dhBeacon) window._dhBeacon('ITP_R2:banner');
-  try {
-    localStorage.removeItem('dh-v4-gold-banner-dismissed');
-    if (typeof v4UpdateGoldBanner === 'function') v4UpdateGoldBanner('signed-out');
-  } catch(_e2) { if (window._dhBeacon) window._dhBeacon('ITP_ERR2:' + ((_e2&&_e2.message)||'?').slice(0,30)); }
-
-  if (window._dhBeacon) window._dhBeacon('ITP_R3:dom-setup');
-  try {
-    var _lw = document.getElementById('v4ListWrap'); if (_lw) _lw.style.display = '';
-    var _sg = document.getElementById('songsGrid'); if (_sg) _sg.style.display = 'none';
-    var _itpGh = document.getElementById('gridHeader'); if (_itpGh) _itpGh.style.display = 'none';
-    var _itpHr = document.getElementById('hlaRollBtn'); if (_itpHr) _itpHr.style.display = 'none';
-    var _itpEmail = document.getElementById('headerUserEmail'); if (_itpEmail) _itpEmail.textContent = '';
-    var _itpSeq = document.getElementById('seqDrawerTab'); if (_itpSeq) _itpSeq.classList.remove('tab-loading');
-  } catch(_e3) { if (window._dhBeacon) window._dhBeacon('ITP_ERR3:' + ((_e3&&_e3.message)||'?').slice(0,30)); }
-
-  if (window._dhBeacon) window._dhBeacon('ITP_R4:renderDrafts-start');
-  try {
-    if (typeof renderDraftsV4 === 'function') renderDraftsV4();
-    if (window._dhBeacon) window._dhBeacon('ITP_R5:renderDrafts-done');
-  } catch(_e4) { if (window._dhBeacon) window._dhBeacon('ITP_ERR4:' + ((_e4&&_e4.message)||'?').slice(0,30)); }
-
-  setTimeout(function() {
-    if (window._dhBeacon) window._dhBeacon('ITP_R6:drawers-start');
-    try { if (typeof loopBuildUI === 'function') loopBuildUI(); if (window._dhBeacon) window._dhBeacon('ITP_R6a:loop-done'); } catch(_e) { if (window._dhBeacon) window._dhBeacon('ITP_ERR6a:' + ((_e&&_e.message)||'?').slice(0,25)); }
-    var _itpLt = document.getElementById('looperTab'); if (_itpLt) _itpLt.classList.remove('tab-loading');
-    try { if (typeof renderInspoDice === 'function') renderInspoDice(); if (window._dhBeacon) window._dhBeacon('ITP_R6b:inspo-done'); } catch(_e) { if (window._dhBeacon) window._dhBeacon('ITP_ERR6b:' + ((_e&&_e.message)||'?').slice(0,25)); }
-    var _itpIt = document.getElementById('inspoTab'); if (_itpIt) _itpIt.classList.remove('tab-loading');
-    try { if (typeof renderPracticeDrawer === 'function') renderPracticeDrawer(); if (window._dhBeacon) window._dhBeacon('ITP_R6c:practice-done'); } catch(_e) { if (window._dhBeacon) window._dhBeacon('ITP_ERR6c:' + ((_e&&_e.message)||'?').slice(0,25)); }
-    var _itpPt = document.getElementById('practiceTab'); if (_itpPt) _itpPt.classList.remove('tab-loading');
-    if (window._dhBeacon) window._dhBeacon('ITP_R7:drawers-done');
-  }, 6000);
-
-  if (window._dhBeacon) window._dhBeacon('ITP_R8:dismiss-start');
-  if (typeof _uiDismissLoadingScreen === 'function') {
-    _uiDismissLoadingScreen();
-  } else {
-    document.body.classList.remove('app-loading');
-    var _itpLs = document.getElementById('appLoadingScreen');
-    if (_itpLs) { _itpLs.style.opacity = '0'; _itpLs.style.transition = 'opacity 0.3s'; setTimeout(function() { _itpLs.remove(); }, 350); }
-  }
-  if (window._dhBeacon) window._dhBeacon('ITP_R9:dismiss-done');
-};
-// v1.281: Track Firestore assertion errors to prevent infinite cascade.
-// When Firestore's WebChannel drops (iOS backgrounding), the SDK throws
-// "INTERNAL ASSERTION FAILED: Unexpected state" in an infinite loop.
-// We suppress after the 2nd occurrence and terminate/reinit Firestore.
-var _dhFirestoreAssertCount = 0;
-window.addEventListener('unhandledrejection', function(ev) {
-  var msg = 'UnhandledPromise: ' + (ev.reason?.message || ev.reason || 'unknown');
-  // Suppress Firestore assertion error cascade — prevent infinite loop
-  if (msg.indexOf('INTERNAL ASSERTION FAILED') !== -1) {
-    _dhFirestoreAssertCount++;
-    if (_dhFirestoreAssertCount === 1) {
-      console.error('[FIRESTORE-RECOVERY] Assertion error detected — will recover');
-    }
-    if (_dhFirestoreAssertCount >= 2) {
-      ev.preventDefault(); // suppress further logging
-      if (_dhFirestoreAssertCount === 2) {
-        // Stop listeners and clear Firestore network to break the error loop.
-        // db is const so we can't reinit — instead disable/re-enable network.
-        console.warn('[FIRESTORE-RECOVERY] Multiple assertion errors — resetting connection');
-        try {
-          if (typeof stopSyncPolling === 'function') stopSyncPolling();
-          if (typeof db !== 'undefined') {
-            db.disableNetwork().then(function() {
-              console.log('[FIRESTORE-RECOVERY] Network disabled, re-enabling in 3s');
-              _dhFirestoreAssertCount = 0;
-              setTimeout(function() {
-                db.enableNetwork().then(function() {
-                  console.log('[FIRESTORE-RECOVERY] Network re-enabled, restarting sync');
-                  // Respect the mobile boot-window delay — don't call startSyncPolling
-                  // immediately after recovery or it bypasses the 4s safety margin.
-                  var _recoveryDelay = (window.innerWidth < 900) ? 4000 : 0;
-                  setTimeout(function() {
-                    if (typeof startSyncPolling === 'function') startSyncPolling();
-                  }, _recoveryDelay);
-                }).catch(function() {});
-              }, 3000);
-            }).catch(function() {});
-          }
-        } catch(_re) {}
-      }
-      return;
-    }
-  }
-  window._dhErrors.push(msg);
-  console.error('[CRASH-DEBUG]', msg);
-  var box = document.getElementById('dhCrashDebug');
-  if (!box) {
-    box = document.createElement('div');
-    box.id = 'dhCrashDebug';
-    box.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:40vh;overflow:auto;background:#1a0000;color:#ff4444;font:11px/1.4 monospace;padding:12px;z-index:999999;border-top:2px solid #ff4444;';
-    box.innerHTML = '<b>[CRASH DEBUG]</b><br>';
-    document.body.appendChild(box);
-  }
-  box.innerHTML += msg + '<br>';
 });
 // v1.281: Crash-surviving boot beacons. Writes to localStorage at each checkpoint.
 // If the tab crashes, we can read which checkpoints completed on the next load.
@@ -268,55 +123,6 @@ if (window.innerWidth >= 900) {
   // Pre-warm storage after boot settles (15s) so it's ready when user records
   setTimeout(function() { if (window._dhLoadStorage) window._dhLoadStorage(); }, 15000);
 }
-</script>
-<script>if (window._dhBeacon) window._dhBeacon('B1:firebase-loaded');</script>
-<!-- v1.279: Mobile boot stagger — intercept DOMContentLoaded listeners and run them
-     sequentially with idle-callback breathing room so they don't all spike memory at once.
-     Desktop: completely untouched, addEventListener works normally. -->
-<script>
-(function() {
-  if (window.innerWidth >= 900) return;
-  var _dclQueue = [];
-  var _origAEL = document.addEventListener.bind(document);
-  var _dclFired = false;
-  document.addEventListener = function(type, fn, opts) {
-    if (type === 'DOMContentLoaded' && !_dclFired) {
-      _dclQueue.push(fn);
-    } else {
-      _origAEL(type, fn, opts);
-    }
-  };
-  _origAEL('DOMContentLoaded', function() {
-    _dclFired = true;
-    document.addEventListener = _origAEL;
-    var i = 0;
-    function runOne() {
-      if (i >= _dclQueue.length) {
-        if (window._dhBeacon) window._dhBeacon('B_DCL_DONE:' + i);
-        return;
-      }
-      if (window._dhBeacon) window._dhBeacon('DCL#' + i + ':start');
-      try { _dclQueue[i](); } catch(e) { console.error('[BOOT-STAGGER] DCL#' + i + ' error:', e); }
-      if (window._dhBeacon) window._dhBeacon('DCL#' + i + ':done');
-      i++;
-      if (i < _dclQueue.length) {
-        if (window._dhBeacon) window._dhBeacon('DCL#' + i + ':sched');
-        setTimeout(runOne, 80);
-      } else {
-        if (window._dhBeacon) window._dhBeacon('B_DCL_DONE:' + i);
-        if (window._dhBeacon) {
-          setTimeout(function() { window._dhBeacon('B_POST_DCL:100'); }, 100);
-          setTimeout(function() { window._dhBeacon('B_POST_DCL:500'); }, 500);
-          setTimeout(function() { window._dhBeacon('B_POST_DCL:1500'); }, 1500);
-          setTimeout(function() { window._dhBeacon('B_POST_DCL:2500'); }, 2500);
-          setTimeout(function() { window._dhBeacon('B_POST_DCL:4000'); }, 4000);
-          setTimeout(function() { window._dhBeacon('B_POST_DCL:7000'); }, 7000);
-        }
-      }
-    }
-    runOne();
-  });
-})();
 </script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -37942,29 +37748,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Auth handled by onAuthStateChanged
 });
-if (window._dhBeacon) window._dhBeacon('B3c:past-last-DCL-reg');
 
 let _userTierUnsub = null; // holds the onSnapshot unsubscribe for the current user doc
 let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestore
 
-// ── Safety timeout: dismiss loading screen if auth hasn't resolved within 10s ──
-setTimeout(function() {
-  if (window._dhBeacon) window._dhBeacon('B_10S_AUTH_TIMEOUT');
-  if (!document.body.classList.contains('app-loading')) return;
-  console.warn('[BOOT] Auth did not resolve within 10s — forcing loading screen dismiss');
-  document.body.classList.remove('app-loading');
-  var _ls = document.getElementById('appLoadingScreen');
-  if (_ls) { _ls.style.opacity = '0'; _ls.style.transition = 'opacity 0.3s'; setTimeout(function() { _ls.remove(); }, 350); }
-}, 10000);
-
 /* @lock:start — Auth Lifecycle */
-window._dhAuthFired = false; // set to true when onAuthStateChanged fires; ITP recovery checks this
-if (window._dhBeacon) window._dhBeacon('B4_SETUP:onAuthStateChanged-registering');
 auth.onAuthStateChanged(user => {
-  window._dhAuthFired = true;
-  if (window._dhBeacon) window._dhBeacon('B4a:auth-cb-enter');
   _dhMark(user ? 'auth-signed-in' : 'auth-signed-out');
-  if (window._dhBeacon) window._dhBeacon('B4:auth-' + (user ? 'in' : 'out'));
   // Re-evaluate Roll Hero visibility based on auth state
   if (typeof v4RestoreRollHero === 'function') v4RestoreRollHero();
   if (user) {
@@ -38154,25 +37944,27 @@ auth.onAuthStateChanged(user => {
     // Show gold banner for signed-out users (reset any previous dismissal)
     localStorage.removeItem('dh-v4-gold-banner-dismissed');
     v4UpdateGoldBanner('signed-out');
+    if (songs.length === 0) {
+      songs = [...V4_DEMO_SONGS];
+    }
     document.getElementById('v4ListWrap').style.display = '';
     document.getElementById('songsGrid').style.display = 'none';
     const _gh = document.getElementById('gridHeader');
     if (_gh) _gh.style.display = 'none';
     const _hr = document.getElementById('hlaRollBtn');
     if (_hr) _hr.style.display = 'none';
-    _v4ProjectFilter = null;
-    window._v4ProjectFilter = null;
+    // Default to "Debut LP" project tab for non-logged-in demo view
+    _v4ProjectFilter = 'Debut LP';
+    window._v4ProjectFilter = 'Debut LP';
     renderDraftsV4();
 
     const emailEl = document.getElementById('headerUserEmail');
     if (emailEl) emailEl.textContent = '';
 
-    // Remove loading screen and show sign-in overlay for logged-out users
+    // Remove loading screen for logged-out users
     document.body.classList.remove('app-loading');
     var _ls2 = document.getElementById('appLoadingScreen');
     if (_ls2) { _ls2.style.opacity = '0'; _ls2.style.transition = 'opacity 0.3s'; setTimeout(function() { _ls2.remove(); }, 350); }
-    var _lo = document.getElementById('landingOverlay');
-    if (_lo) _lo.classList.remove('hidden');
 
     // Init drawer UIs for unsigned users (inspo dice, looper, practice)
     document.getElementById('seqDrawerTab')?.classList.remove('tab-loading');
@@ -41057,26 +40849,26 @@ async function submitLandingPassword() {
 }
 
 // ── Landing sign-in/up (Email + Password) ─────────────────────────
-var _landingSignUpMode = false; // var — avoids WebKit TDZ from inline onclick handlers
+var _landingSignUpMode = false;
 
 function toggleEmailSignUp() {
   _landingSignUpMode = !_landingSignUpMode;
   const confirmWrap = document.getElementById('landingConfirmWrap');
-  const submitBtn   = document.getElementById('landingSubmitBtn');
-  const toggleBtn   = document.getElementById('landingToggleBtn');
+  const signInBtn   = document.querySelector('.landing-email-btn:not(.landing-email-btn--outline)');
+  const toggleBtn   = document.querySelector('.landing-email-btn--outline');
   const errEl       = document.getElementById('landingError');
 
   errEl.textContent = '';
 
   if (_landingSignUpMode) {
     confirmWrap.style.display = 'block';
-    submitBtn.textContent  = 'Create Account';
-    toggleBtn.textContent  = 'Back to Sign In';
+    if (signInBtn) signInBtn.textContent = 'Create Account';
+    if (toggleBtn) toggleBtn.textContent = 'Back to Sign In';
     document.getElementById('landingPasswordInput').autocomplete = 'new-password';
   } else {
     confirmWrap.style.display = 'none';
-    submitBtn.textContent  = 'Sign In';
-    toggleBtn.textContent  = 'Create Account';
+    if (signInBtn) signInBtn.textContent = 'Sign In';
+    if (toggleBtn) toggleBtn.textContent = 'Create Account';
     document.getElementById('landingPasswordInput').autocomplete = 'current-password';
   }
 }
@@ -41085,8 +40877,8 @@ async function submitEmailSignIn() {
   const errEl    = document.getElementById('landingError');
   const email    = document.getElementById('landingEmailInput').value.trim();
   const password = document.getElementById('landingPasswordInput').value;
-  const confirm  = document.getElementById('landingConfirmInput').value;
-  const submitBtn = document.getElementById('landingSubmitBtn');
+  const confirm  = document.getElementById('landingConfirmInput')?.value;
+  const signInBtn = document.querySelector('.landing-email-btn:not(.landing-email-btn--outline)');
 
   errEl.textContent = '';
 
@@ -41106,27 +40898,22 @@ async function submitEmailSignIn() {
     }
   }
 
-  submitBtn.disabled = true;
+  if (signInBtn) signInBtn.disabled = true;
   bartenderPasswordShow();
-  var _bpLabelE = document.querySelector('#bartenderPassword .bp-label');
-  if (_bpLabelE) _bpLabelE.textContent = 'Connecting to Firebase...';
-  clearInterval(window._bartenderMsgInterval);
 
   try {
     if (_landingSignUpMode) {
-      if (_bpLabelE) _bpLabelE.textContent = 'Creating account...';
       await auth.createUserWithEmailAndPassword(email, password);
     } else {
-      if (_bpLabelE) _bpLabelE.textContent = 'Signing in...';
       await auth.signInWithEmailAndPassword(email, password);
     }
-    if (_bpLabelE) _bpLabelE.textContent = 'Signed in! Loading app...';
+    // onAuthStateChanged handles hiding overlay + initApp()
   } catch (err) {
     let msg = 'Sign-in failed. Please try again.';
     if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
       msg = 'Incorrect email or password.';
     } else if (err.code === 'auth/email-already-in-use') {
-      msg = 'An account with this email already exists. Sign in instead.';
+      msg = 'An account with this email already exists.';
     } else if (err.code === 'auth/invalid-email') {
       msg = 'Please enter a valid email address.';
     } else if (err.code === 'auth/too-many-requests') {
@@ -41137,28 +40924,21 @@ async function submitEmailSignIn() {
     errEl.textContent = msg;
   } finally {
     bartenderPasswordHide();
-    submitBtn.disabled = false;
+    if (signInBtn) signInBtn.disabled = false;
   }
 }
 
 
 // ── Guest sign-in (Anonymous) ────────────────────────────────────
 async function signInAsGuest() {
-  var errEl = document.getElementById('landingError');
+  const errEl = document.getElementById('landingError');
   errEl.textContent = '';
   bartenderPasswordShow();
-  // Show live status in bartender label so we can see where it hangs
-  var _bpLabel = document.querySelector('#bartenderPassword .bp-label');
-  if (_bpLabel) _bpLabel.textContent = 'Starting guest sign-in...';
-  clearInterval(window._bartenderMsgInterval); // freeze funny messages during debug
   try {
-    if (_bpLabel) _bpLabel.textContent = 'Connecting to Firebase...';
     await auth.signInAnonymously();
-    if (_bpLabel) _bpLabel.textContent = 'Signed in! Loading app...';
     // onAuthStateChanged handles hiding overlay + initApp()
-    if (typeof _tutCheckFirstLogin === 'function') _tutCheckFirstLogin();
   } catch (err) {
-    errEl.textContent = 'Guest sign-in failed: ' + (err.code || err.message || 'Unknown error');
+    errEl.textContent = 'Guest sign-in failed. Please try again.';
     bartenderPasswordHide();
   }
 }
