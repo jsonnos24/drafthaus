@@ -67232,6 +67232,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
             <div class="pr-select-rect" id="prSelectRect"></div>
             <div class="pr-playhead" id="prPlayhead"></div>
             <div class="pr-drop-indicator" id="prDropIndicator"></div>
+            <div id="prChordGhost" style="position:absolute;top:0;left:0;pointer-events:none;z-index:5;"></div>
           </div>
         </div>
       </div>
@@ -69393,6 +69394,46 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   // ── Chord palette drag & drop ──
   let _prPalDrag = null;
 
+  // Cache chord data from dragstart (can't read dataTransfer in dragover due to browser security)
+  var _prDragChord = null;
+  document.addEventListener('dragstart', function(e) {
+    var chord = e.target && (e.target.dataset.chord || e.target.getAttribute('data-chord'));
+    _prDragChord = chord ? { chord: chord, degree: e.target.dataset.degree || '' } : null;
+  });
+  document.addEventListener('dragend', function() { _prDragChord = null; _clearPrDragGhost(); });
+
+  function _renderPrDragGhost(col) {
+    var ghost = document.getElementById('prChordGhost');
+    if (!ghost || !_prDragChord) return;
+    ghost.innerHTML = '';
+    var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    var kp = prParseKey(song);
+    var midiMap = (typeof seqGenChordMidi === 'function') ? seqGenChordMidi(kp.key, kp.mode) : {};
+    var midiNotes = midiMap[_prDragChord.chord] || ((typeof _chordVariantToMidi === 'function') ? _chordVariantToMidi(_prDragChord.chord) : []);
+    if (!midiNotes.length) return;
+    var durCols = prDurToCols();
+    var x = PR_KEY_W + colToX(col);
+    var w = durCols * PR_COL_W;
+    midiNotes.forEach(function(midi) {
+      if (midi < PR_MIN_MIDI || midi > PR_MAX_MIDI) return;
+      var row = midiToRow(midi);
+      var div = document.createElement('div');
+      div.style.cssText = 'position:absolute;pointer-events:none;'
+        + 'left:' + x + 'px;top:' + (row * PR_ROW_H) + 'px;'
+        + 'width:' + w + 'px;height:' + (PR_ROW_H - 1) + 'px;'
+        + 'background:#c084fc;opacity:0.55;border-radius:3px;'
+        + 'border:1px solid #e9d5ff;box-sizing:border-box;';
+      ghost.appendChild(div);
+    });
+  }
+
+  function _clearPrDragGhost() {
+    var ghost = document.getElementById('prChordGhost');
+    if (ghost) ghost.innerHTML = '';
+    var _ind = document.getElementById('prDropIndicator');
+    if (_ind) _ind.style.display = 'none';
+  }
+
   window.prPalPreview = function(chordName) {
     // Don't preview if we just finished a drag
     if (_prPalDidDrag) { _prPalDidDrag = false; return; }
@@ -69422,28 +69463,17 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
       if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
         const col = xToColSnap(x);
-        const row = Math.floor(y / PR_ROW_H);
-        // Show drop indicator spanning the chord's range
-        if (indicator && midiNotes.length) {
-          const minMidi = Math.min(...midiNotes);
-          const maxMidi = Math.max(...midiNotes);
-          const topRow = midiToRow(maxMidi);
-          const botRow = midiToRow(minMidi);
-          indicator.style.display = 'block';
-          indicator.style.left = (PR_KEY_W + colToX(col)) + 'px';
-          indicator.style.top = (topRow * PR_ROW_H) + 'px';
-          indicator.style.width = (prDurToCols() * PR_COL_W) + 'px';
-          indicator.style.height = ((botRow - topRow + 1) * PR_ROW_H) + 'px';
-        }
+        _prDragChord = { chord: chordName, degree: degree };
+        _renderPrDragGhost(col);
       } else {
-        if (indicator) indicator.style.display = 'none';
+        _clearPrDragGhost();
       }
     };
 
     const onUp = ev => {
       const cx = ev.changedTouches ? ev.changedTouches[0].clientX : ev.clientX;
       const cy = ev.changedTouches ? ev.changedTouches[0].clientY : ev.clientY;
-      if (indicator) indicator.style.display = 'none';
+      _clearPrDragGhost();
 
       if (!notesLayer) { cleanup(); return; }
       const rect = notesLayer.getBoundingClientRect();
@@ -69496,23 +69526,13 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     notesLayer.addEventListener('dragover', function(e) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
-      // Show vertical drop guide line
-      var _ind = document.getElementById('prDropIndicator');
-      if (_ind) {
-        var _r = notesLayer.getBoundingClientRect();
-        var _gx = e.clientX - (window._prChordGrabOffsetX || 0) - _r.left;
-        var _gc = xToColSnap(Math.max(0, _gx));
-        _ind.style.display = 'block';
-        _ind.style.left = (PR_KEY_W + colToX(_gc)) + 'px';
-        _ind.style.top = '0px';
-        _ind.style.width = (prDurToCols() * PR_COL_W) + 'px';
-        _ind.style.height = '100%';
-        _ind.style.opacity = '0.4';
-      }
+      var _r = notesLayer.getBoundingClientRect();
+      var _gx = e.clientX - (window._prChordGrabOffsetX || 0) - _r.left;
+      var _gc = xToColSnap(Math.max(0, _gx));
+      _renderPrDragGhost(_gc);
     });
     notesLayer.addEventListener('dragleave', function(e) {
-      var _ind = document.getElementById('prDropIndicator');
-      if (_ind) _ind.style.display = 'none';
+      _clearPrDragGhost();
     });
     notesLayer.addEventListener('drop', function(e) {
       e.preventDefault();
