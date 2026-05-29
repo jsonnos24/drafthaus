@@ -16960,6 +16960,7 @@ body.arr-view-open .uc-bar {
 .arr-transport button:hover { background: rgba(255,255,255,0.08); }
 .arr-transport button.arr-rec { color: #ef4444; border-color: rgba(239,68,68,0.4); }
 .arr-transport button.arr-rec.armed { background: rgba(239,68,68,0.15); animation: arrRecPulse 1s ease-in-out infinite; }
+#arrRecBtn.armed { color: #fff; background: var(--dh-color-rec); border-color: var(--dh-color-rec); }
 .arr-transport button.arr-play.playing { color: #97c459; border-color: rgba(151,196,89,0.4); background: rgba(151,196,89,0.12); }
 @keyframes arrRecPulse { 0%,100%{opacity:1}50%{opacity:0.5} }
 
@@ -60216,6 +60217,15 @@ async function _mtFinishRecording(trackIdx, mimeType) {
       const _placeholderId = '_local_' + Date.now();
       t.takes.push({ id: _placeholderId, duration: Math.round(durSec), trackNum: trackIdx, _local: true });
       t.activeTakeIdx = t.takes.length - 1;
+      // Phase-1: auto-link this take to the section that was under the playhead at record start.
+      try {
+        if (window._arrRecSectionId && typeof arrCompSetTake === 'function') {
+          var _newTake = t.takes[t.takes.length - 1];
+          var _trkId = window._arrRecTrackId || ('ft' + trackIdx);
+          if (_newTake && _newTake.id) arrCompSetTake(_trkId, window._arrRecSectionId, _newTake.id);
+        }
+        if (typeof arrIsOpen === 'function' && arrIsOpen() && typeof arrRenderAll === 'function') arrRenderAll();
+      } catch(e) { console.warn('[ARR] take auto-link error:', e); }
       _mtRenderTakesPanel(trackIdx);
       _mtRenderInlineTakes(trackIdx);
       _mtUpdateTakesBtn(trackIdx);
@@ -60235,6 +60245,8 @@ async function _mtFinishRecording(trackIdx, mimeType) {
   // Skip cloud upload entirely for unsigned users — recording plays back locally only
   if (!_authUid()) {
     _setStatus('Ready — local only (sign in to save)');
+    // Phase-1: unsigned path keeps the local placeholder take permanently — link already applied above.
+    window._arrRecSectionId = null;
     return;
   }
   _vrUploading = true;
@@ -60291,6 +60303,16 @@ async function _mtFinishRecording(trackIdx, mimeType) {
         const idx = tr.takes.findIndex(tk => tk.id === newTake.id);
         if (idx >= 0) {
           tr.activeTakeIdx = idx;
+          // Phase-1: vrLoadTakes() replaced the placeholder with the persisted take, so re-link
+          // the section to the real (Firestore) take id, then clear the record-start snapshot.
+          try {
+            if (window._arrRecSectionId && typeof arrCompSetTake === 'function') {
+              var _relinkTrkId = window._arrRecTrackId || ('ft' + trackIdx);
+              arrCompSetTake(_relinkTrkId, window._arrRecSectionId, newTake.id);
+            }
+            window._arrRecSectionId = null;
+            if (typeof arrIsOpen === 'function' && arrIsOpen() && typeof arrRenderAll === 'function') arrRenderAll();
+          } catch(e) { console.warn('[ARR] take auto-link (cloud) error:', e); }
           // Buffer already loaded locally — skip re-download
           if (localBuffer) {
             tr.buffer = localBuffer;
@@ -74494,6 +74516,21 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     if (typeof arrRenderAll === 'function') arrRenderAll();
   };
 
+  // Resolve which section (by sequence id) contains a given absolute beat on the Arrange timeline.
+  window._arrSectionIdAtBeat = function(beat) {
+    var song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
+    if (!song) return null;
+    var seqs = typeof getSongSequences === 'function' ? getSongSequences(song) : [];
+    var sections = _arrBuildSections(song, seqs);
+    var timeSig = parseInt(song.sequences && song.sequences[0] ? (song.sequences[0].time || 4) : 4, 10);
+    var bar = beat / timeSig;
+    for (var i = 0; i < sections.length; i++) {
+      var s = sections[i];
+      if (bar >= s.startBar && bar < s.startBar + s.bars) return s.seq && s.seq.id ? s.seq.id : null;
+    }
+    return sections.length ? (sections[sections.length - 1].seq && sections[sections.length - 1].seq.id) : null;
+  };
+
   function _arrSectionIndexOf(sec) {
     // Utility: encode section info for drag/drop
     return sec.seqIdx;
@@ -75351,6 +75388,13 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       var trackToArm = 0;
       if (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack >= 0) trackToArm = _mtArmedTrack;
       _mtArmTrack(trackToArm);
+      // Phase-1: remember where this recording targets so the finalizer can auto-link the take.
+      try {
+        var _arrRecBeat = (typeof TL !== 'undefined' && TL.getCurrentBeat) ? TL.getCurrentBeat() : 0;
+        window._arrRecSectionId = (typeof _arrSectionIdAtBeat === 'function') ? _arrSectionIdAtBeat(_arrRecBeat) : null;
+        window._arrRecTrackId = (typeof trackToArm !== 'undefined' && trackToArm >= 0) ? ('ft' + trackToArm)
+                              : (typeof _mtArmedTrack !== 'undefined' && _mtArmedTrack >= 0 ? ('ft' + _mtArmedTrack) : 'ft0');
+      } catch(e) { window._arrRecSectionId = null; }
     }
     // Start recording via the voice recorder
     if (typeof vrRecord === 'function') {
