@@ -17137,6 +17137,26 @@ body.arr-view-open .uc-bar {
   border: 1px solid rgba(255,255,255,0.12);
   transition: opacity 0.12s;
 }
+.arr-take-chip {
+  position: absolute; right: 4px; bottom: 2px;
+  font: 600 var(--dh-font-xs)/1 ui-monospace, monospace;
+  color: var(--dh-color-take);
+  background: rgba(0,0,0,0.45);
+  border-radius: var(--dh-radius-sm);
+  padding: 1px 4px; cursor: pointer; z-index: 3;
+}
+.arr-take-menu {
+  position: fixed; z-index: 100000;
+  min-width: 160px; background: var(--dh-color-surface);
+  border: 1px solid var(--dh-color-border); border-radius: var(--dh-radius-md);
+  font: var(--dh-font-sm)/1.3 ui-monospace, monospace; color: var(--dh-color-text);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5); overflow: hidden;
+}
+.arr-take-row { padding: 6px 10px; cursor: pointer; }
+.arr-take-row:hover { background: var(--dh-color-surface-2); }
+.arr-take-row.active { color: var(--dh-color-take); }
+.arr-take-row.dim { color: var(--dh-color-text-dim); cursor: default; }
+.arr-take-row.sep { border-top: 1px solid var(--dh-color-border); }
 .arr-region.linked { border-style: solid; }
 .arr-region.unlinked { border-style: dashed; cursor: grab; }
 .arr-region:hover { border-color: rgba(255,255,255,0.3); }
@@ -74310,6 +74330,10 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       + '<div class="arr-handle arr-handle-l"></div>'
       + wave
       + '<div class="arr-handle arr-handle-r"></div>'
+      + (track.group === '4track'
+          ? '<span class="arr-take-chip" onclick="event.stopPropagation();arrTakePickerOpen(event,\'' + track.id + '\',\'' + (sec.seq && sec.seq.id ? sec.seq.id : '') + '\')">'
+            + arrTakeChipLabel(track.id, sec.seq && sec.seq.id) + ' &#9662;</span>'
+          : '')
       + '</div>';
   }
 
@@ -74406,6 +74430,54 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       + '<div class="arr-region-midi">' + bars + '</div>'
       + '</div>';
   }
+
+  // Label shown on a region's take chip, e.g. "Take 2" or "—".
+  window.arrTakeChipLabel = function(trackId, sectionId) {
+    var ftIdx = parseInt(String(trackId).replace('ft', ''), 10);
+    var t = (typeof _mtTracks !== 'undefined') ? _mtTracks[ftIdx] : null;
+    if (!t || !t.takes || !t.takes.length) return 'No takes';
+    var i = (typeof arrCompResolveTakeIdx === 'function') ? arrCompResolveTakeIdx(ftIdx, sectionId) : 0;
+    return 'Take ' + (i + 1);
+  };
+
+  // Open the per-section take picker menu anchored to the clicked chip.
+  window.arrTakePickerOpen = function(ev, trackId, sectionId) {
+    document.querySelectorAll('.arr-take-menu').forEach(function(m) { m.remove(); });
+    var ftIdx = parseInt(String(trackId).replace('ft', ''), 10);
+    var t = (typeof _mtTracks !== 'undefined') ? _mtTracks[ftIdx] : null;
+    var menu = document.createElement('div');
+    menu.className = 'arr-take-menu';
+    var activeIdx = (typeof arrCompResolveTakeIdx === 'function') ? arrCompResolveTakeIdx(ftIdx, sectionId) : -1;
+    var html = '';
+    if (t && t.takes && t.takes.length) {
+      t.takes.forEach(function(tk, i) {
+        var dur = tk && tk.duration ? (' · ' + tk.duration + 's') : '';
+        html += '<div class="arr-take-row' + (i === activeIdx ? ' active' : '') + '"'
+              + ' onclick="arrTakePickerPick(\'' + trackId + '\',\'' + sectionId + '\',\'' + (tk.id || '') + '\')">'
+              + (i === activeIdx ? '✓ ' : '') + 'Take ' + (i + 1) + dur + '</div>';
+      });
+    } else {
+      html += '<div class="arr-take-row dim">No takes recorded</div>';
+    }
+    html += '<div class="arr-take-row dim sep">⎘ Comp… (Phase 2)</div>';
+    menu.innerHTML = html;
+    document.body.appendChild(menu);
+    var r = ev.target.getBoundingClientRect();
+    menu.style.left = Math.min(r.left, window.innerWidth - 200) + 'px';
+    menu.style.top = (r.bottom + 4) + 'px';
+    setTimeout(function() {
+      document.addEventListener('click', function _close() {
+        menu.remove(); document.removeEventListener('click', _close);
+      });
+    }, 0);
+  };
+
+  // Apply a take choice, persist, and re-render the timeline.
+  window.arrTakePickerPick = function(trackId, sectionId, takeId) {
+    if (typeof arrCompSetTake === 'function') arrCompSetTake(trackId, sectionId, takeId || null);
+    document.querySelectorAll('.arr-take-menu').forEach(function(m) { m.remove(); });
+    if (typeof arrRenderAll === 'function') arrRenderAll();
+  };
 
   function _arrSectionIndexOf(sec) {
     // Utility: encode section info for drag/drop
