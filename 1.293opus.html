@@ -33191,6 +33191,17 @@ async function _urStartRecording() {
   var song = getCurrentSong();
   if (!song || !_songCurrentId) { showToast('Load a song first', 'info', 2500); return; }
 
+  // Phase-1 (DAW): attribute this recording to the ACTIVE sequencer section. This app records
+  // by looping the active section, so the take belongs to seqActiveIdx's section. Captured here
+  // (the universal record path used by every Record button) and consumed by _mtFinishRecording
+  // to link the armed 4-track to that section AND select this take for it.
+  try {
+    var _arrRecSeqs = (typeof getSongSequences === 'function') ? getSongSequences(song) : (song.sequences || []);
+    var _arrRecActive = (typeof seqActiveIdx !== 'undefined' && _arrRecSeqs[seqActiveIdx]) ? _arrRecSeqs[seqActiveIdx] : (_arrRecSeqs[0] || null);
+    window._arrRecSectionId = (_arrRecActive && _arrRecActive.id) ? _arrRecActive.id : null;
+    window._arrRecTrackId = (typeof window._mtArmedTrack !== 'undefined' && window._mtArmedTrack >= 0) ? ('ft' + window._mtArmedTrack) : null;
+  } catch(e) { window._arrRecSectionId = null; }
+
   _urCountingIn = true;
   _ucSetRecState(true);
 
@@ -60232,12 +60243,26 @@ async function _mtFinishRecording(trackIdx, mimeType) {
       const _placeholderId = '_local_' + Date.now();
       t.takes.push({ id: _placeholderId, duration: Math.round(durSec), trackNum: trackIdx, _local: true });
       t.activeTakeIdx = t.takes.length - 1;
-      // Phase-1: auto-link this take to the section that was under the playhead at record start.
+      // Phase-1: attribute this take to the active section — (1) LINK the 4-track to that
+      // section so its region renders AND plays there, and (2) SELECT this take for it.
+      // Both are required: render + playback gate on seqLinks4t; arrComp only chooses the take.
       try {
-        if (window._arrRecSectionId && typeof arrCompSetTake === 'function') {
-          var _newTake = t.takes[t.takes.length - 1];
-          var _trkId = window._arrRecTrackId || ('ft' + trackIdx);
-          if (_newTake && _newTake.id) arrCompSetTake(_trkId, window._arrRecSectionId, _newTake.id);
+        if (window._arrRecSectionId) {
+          // (1) Ensure the 4-track is linked to this section (region render + playback trigger).
+          if (typeof _seqLinksLoad === 'function' && typeof _seqLinksSave === 'function') {
+            var _l4 = _seqLinksLoad('4t');
+            if (!_l4[trackIdx]) _l4[trackIdx] = [];
+            if (_l4[trackIdx].indexOf(window._arrRecSectionId) < 0) {
+              _l4[trackIdx].push(window._arrRecSectionId);
+              _seqLinksSave('4t', _l4);
+            }
+          }
+          // (2) Select this take for that section (comping model A).
+          if (typeof arrCompSetTake === 'function') {
+            var _newTake = t.takes[t.takes.length - 1];
+            var _trkId = window._arrRecTrackId || ('ft' + trackIdx);
+            if (_newTake && _newTake.id) arrCompSetTake(_trkId, window._arrRecSectionId, _newTake.id);
+          }
         }
         if (typeof arrIsOpen === 'function' && arrIsOpen() && typeof arrRenderAll === 'function') arrRenderAll();
       } catch(e) { console.warn('[ARR] take auto-link error:', e); }
@@ -75404,29 +75429,15 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   }
 
   function _arrStartRecording() {
-    // Capture the playhead beat BEFORE playback starts so the recorded take links to the correct section.
-    var _arrRecStartBeat = (typeof TL !== 'undefined' && TL.getCurrentBeat) ? TL.getCurrentBeat() : 0;
-
-    // Ensure a track is armed BEFORE playback starts. Keep the user's armed track if any;
-    // otherwise arm track 0. mtArmTrack() TOGGLES, so only call it when nothing is armed
-    // (calling it on an already-armed track would disarm it). The previous code called a
-    // nonexistent `_mtArmTrack`, so the arm step AND the snapshot below silently never ran.
+    // Ensure a track is armed before recording: keep the user's armed track if any; otherwise
+    // arm track 0. mtArmTrack() TOGGLES, so only call it when nothing is armed.
     if ((typeof window._mtArmedTrack === 'undefined' || window._mtArmedTrack < 0) && typeof mtArmTrack === 'function') {
       mtArmTrack(0);
     }
-    var trackToArm = (typeof window._mtArmedTrack !== 'undefined' && window._mtArmedTrack >= 0) ? window._mtArmedTrack : 0;
-
-    // Phase-1: remember where this recording targets so the finalizer can auto-link the take.
-    // Runs unconditionally now — it must not depend on the arm branch.
-    try {
-      window._arrRecSectionId = (typeof _arrSectionIdAtBeat === 'function') ? _arrSectionIdAtBeat(_arrRecStartBeat) : null;
-      window._arrRecTrackId = 'ft' + trackToArm;
-    } catch(e) { window._arrRecSectionId = null; }
-
-    // Start playback of all unmuted tracks
+    // NOTE: section attribution is captured in _urStartRecording (the universal record path),
+    // keyed off the ACTIVE sequencer section — so it works whether recording starts here or
+    // from the 4-Track drawer. (The old absolute-beat snapshot was wrong for loop recording.)
     _origArrPlay();
-
-    // Start recording via the voice recorder
     if (typeof vrRecord === 'function') {
       setTimeout(function() { vrRecord(); }, 50);
     }
