@@ -23555,8 +23555,23 @@ function _seqTriggerMtTracksForPart(partId) {
         if (_wantIdx >= 0 && _wantIdx !== _mtTracks[tidx].activeTakeIdx) {
           _mtTracks[tidx].activeTakeIdx = _wantIdx;
           var _wantTake = _mtTracks[tidx].takes[_wantIdx];
-          // If that take's buffer is already decoded, point the track at it so playback uses it.
-          if (_wantTake && _wantTake._localBuffer) { _mtTracks[tidx].buffer = _wantTake._localBuffer; }
+          // Point the track's playable buffer (t.buffer — what _mtSeqPlayTrack uses) at the
+          // CHOSEN take's audio. Three sources, in priority order:
+          //   1. _localBuffer — decoded buffer for IMPORTED takes.
+          //   2. _buffer      — decoded buffer cached by take-preview playback.
+          //   3. downloadUrl  — cloud RECORDED take: hand off to the existing async loader,
+          //      which reads IndexedDB (instant for just-recorded takes) or fetches Storage,
+          //      decodes, then writes t.buffer + redraws. Fire-and-forget: never await in the
+          //      scheduler hot path. _mtSeqPlayTrack is re-invoked below; if the buffer isn't
+          //      ready yet this frame, the stale buffer plays once and the next trigger uses the
+          //      freshly-loaded one — no async introduced here.
+          if (_wantTake && _wantTake._localBuffer) {
+            _mtTracks[tidx].buffer = _wantTake._localBuffer;
+          } else if (_wantTake && _wantTake._buffer) {
+            _mtTracks[tidx].buffer = _wantTake._buffer;
+          } else if (_wantTake && _wantTake.downloadUrl && typeof _mtLoadTakeBuffer === 'function') {
+            _mtLoadTakeBuffer(tidx, _wantTake).catch(function(){});
+          }
         }
       }
       if (!window._mtSeqActiveTracks || !window._mtSeqActiveTracks.has(tidx)) {
@@ -60331,6 +60346,12 @@ async function _mtFinishRecording(trackIdx, mimeType) {
       showToast('Save failed — check connection', 'error', 4000);
       _setStatus('Save failed');
     }
+    // Phase-1: clear the record-start snapshot on EVERY conclusion of the save
+    // attempt (newTake null, or post-vrLoadTakes idx<0), so a stale section id
+    // can't mislink the next recording. The success re-link above already read
+    // and cleared it before this point when idx>=0.
+    window._arrRecSectionId = null;
+    window._arrRecTrackId = null;
     const _pb3 = _el('mtPlayBtn'); if (_pb3) _pb3.disabled = !_mtTracks.some(t=>t&&t.buffer);
   };
 
@@ -60340,6 +60361,10 @@ async function _mtFinishRecording(trackIdx, mimeType) {
     _vrUploading = false;
     _setStatus('Save failed');
     showToast('Save failed — check connection', 'error', 4000);
+    // Phase-1: clear the record-start snapshot on save failure too, so a stale
+    // section id can't mislink the next recording in this session.
+    window._arrRecSectionId = null;
+    window._arrRecTrackId = null;
   });
 }
 
