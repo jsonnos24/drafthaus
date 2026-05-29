@@ -25964,6 +25964,61 @@ function _ucbSyncDropdownBorderColor() {
 // _seqLinkPending: null | { seqIdx, seqId, color }
 window._seqLinkPending = null;
 
+// ── Arrange comp map: song.arrComp[trackId][sectionId] = { slices:[{takeId,from,to}], xfade } ──
+// Phase 1 stores exactly one full-section slice per region (= "pick a take per section").
+function arrCompLoad() {
+  const song = getCurrentSong();
+  if (!song) return {};
+  if (!song.arrComp) song.arrComp = {};
+  return song.arrComp;
+}
+function arrCompSave() {
+  const song = getCurrentSong();
+  if (!song) return;
+  if (typeof save === 'function') save();
+  if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
+}
+// Set the chosen take for one (track, section). takeId === null clears the choice.
+function arrCompSetTake(trackId, sectionId, takeId) {
+  if (!trackId || !sectionId) return;
+  const map = arrCompLoad();
+  if (!map[trackId]) map[trackId] = {};
+  if (takeId === null) {
+    delete map[trackId][sectionId];
+  } else {
+    map[trackId][sectionId] = { slices: [{ takeId: takeId, from: 0, to: 'end' }], xfade: 0 };
+  }
+  arrCompSave();
+}
+// Read the chosen takeId for a (track, section), or null if none chosen.
+function arrCompGetTakeId(trackId, sectionId) {
+  const map = arrCompLoad();
+  const entry = map[trackId] && map[trackId][sectionId];
+  if (!entry || !entry.slices || !entry.slices.length) return null;
+  return entry.slices[0].takeId || null;
+}
+// Resolve a (4-track index, sectionId) to a take INDEX for playback.
+// Falls back to the track's existing activeTakeIdx, then take 0.
+function arrCompResolveTakeIdx(ftIdx, sectionId) {
+  const t = (typeof _mtTracks !== 'undefined') ? _mtTracks[ftIdx] : null;
+  if (!t || !t.takes || !t.takes.length) return -1;
+  const takeId = arrCompGetTakeId('ft' + ftIdx, sectionId);
+  if (takeId) {
+    const i = t.takes.findIndex(function(tk) { return tk && tk.id === takeId; });
+    if (i >= 0) return i;
+  }
+  if (typeof t.activeTakeIdx === 'number' && t.activeTakeIdx >= 0 && t.activeTakeIdx < t.takes.length) {
+    return t.activeTakeIdx;
+  }
+  return 0;
+}
+// Expose on window so the arr* closure (later tasks) can reach these regardless of script scope.
+window.arrCompLoad = arrCompLoad;
+window.arrCompSave = arrCompSave;
+window.arrCompSetTake = arrCompSetTake;
+window.arrCompGetTakeId = arrCompGetTakeId;
+window.arrCompResolveTakeIdx = arrCompResolveTakeIdx;
+
 // Load/save seq links on the song object (synced to Firestore)
 // Falls back to localStorage for migration of existing data on first read.
 function _seqLinksField(type) {
@@ -40149,7 +40204,7 @@ function _slimSongStub(rawData, uid) {
     _viewOnly: isViewOnly, _fromSheet: true,
     lyrics: hasLyrics ? { _cached: 'y' } : {},
     instruments: {}, sequences: hasMusic ? [{ _cached: true, kick: [1] }] : [],
-    chords: {}, structure: {}, sectionOrder: [], loopTracks: [], mtTracks: [],
+    chords: {}, structure: {}, sectionOrder: [], loopTracks: [], mtTracks: [], arrComp: {},
     notes: '', generalNotes: '', sequencer: {}, seqLinks4t: {}, seqLinksLoop: {},
     chordPositions: {}, bpm: s.bpm || '', key: s.key || '', tuning: s.tuning || ''
   };
