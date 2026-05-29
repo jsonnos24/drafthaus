@@ -23542,7 +23542,22 @@ function _seqTriggerMtTracksForPart(partId) {
     });
     // Don't stop tracks that are already playing — let them finish naturally.
     // Only start new tracks that aren't already active.
+    // Resolve the chosen take for THIS section (Phase-1 comping model A) before playing.
+    // The section's identity is its sequence id; pick the first matching seq for this part.
+    var _secSeqId = null;
+    for (var _si = 0; _si < _allSeqs.length; _si++) {
+      if ((_allSeqs[_si].partId || _allSeqs[_si].part) === partId) { _secSeqId = _allSeqs[_si].id; break; }
+    }
     _nextActive.forEach(function(tidx) {
+      if (typeof arrCompResolveTakeIdx === 'function' && _secSeqId && _mtTracks[tidx] && _mtTracks[tidx].takes && _mtTracks[tidx].takes.length) {
+        var _wantIdx = arrCompResolveTakeIdx(tidx, _secSeqId);
+        if (_wantIdx >= 0 && _wantIdx !== _mtTracks[tidx].activeTakeIdx) {
+          _mtTracks[tidx].activeTakeIdx = _wantIdx;
+          var _wantTake = _mtTracks[tidx].takes[_wantIdx];
+          // If that take's buffer is already decoded, point the track at it so playback uses it.
+          if (_wantTake && _wantTake._localBuffer) { _mtTracks[tidx].buffer = _wantTake._localBuffer; }
+        }
+      }
       if (!window._mtSeqActiveTracks || !window._mtSeqActiveTracks.has(tidx)) {
         if (typeof _mtSeqPlayTrack === 'function') _mtSeqPlayTrack(tidx);
       }
