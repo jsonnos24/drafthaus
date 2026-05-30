@@ -9830,7 +9830,7 @@ body.il-perf-active #stickySongBar { display: none !important; }
 .global-seq-strip {
   position: sticky;
   top: 0;
-  z-index: 50;
+  z-index: 975; /* above tool drawers (~940-970) and below site header (9950) */
   width: 100%;
   box-sizing: border-box;
   background: var(--dh-color-surface-2, #0c0f16);
@@ -9842,7 +9842,7 @@ body.il-perf-active #stickySongBar { display: none !important; }
   overflow: hidden;
 }
 /* Three deliberate hide rules — everything else keeps the strip visible */
-body:not(.song-loaded) .global-seq-strip { display: none !important; }
+body.songlist-active .global-seq-strip { display: none !important; }   /* song list: no sections to show */
 body.il-perf-active .global-seq-strip { display: none !important; }
 body.ucb-state-4 .global-seq-strip { display: none !important; }
 /* User-controlled collapse (seq-strip-toggle-btn) — works at all breakpoints */
@@ -25885,15 +25885,18 @@ function _seqStripUpdatePlayhead() {
   var barPos = beat / tsig;
   var strip = document.getElementById('globalSeqStrip');
   var mode = strip ? (strip.getAttribute('data-strip-mode') || 'fit') : 'fit';
+  var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+  var seqs = (song && typeof getSongSequences === 'function') ? getSongSequences(song) : [];
+  var total = 0; seqs.forEach(function(s) { total += parseInt(s.bars || 4, 10) || 4; });
+  if (total < 1) total = 1;
+  // Clamp barPos to [0, total) so the playhead never overshoots before the loop resets.
+  var clampedBarPos = total > 0 ? barPos % total : barPos;
   var x;
   if (mode === 'grid') {
     var ppb = (typeof ARR_PPB !== 'undefined') ? ARR_PPB : 16;
-    x = barPos * ppb - barsEl.scrollLeft;
+    x = clampedBarPos * ppb - barsEl.scrollLeft;
   } else {
-    var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
-    var seqs = (song && typeof getSongSequences === 'function') ? getSongSequences(song) : [];
-    var total = 0; seqs.forEach(function(s) { total += parseInt(s.bars || 4, 10) || 4; });
-    x = total > 0 ? (barPos / total) * barsEl.scrollWidth - barsEl.scrollLeft : 0;
+    x = (clampedBarPos / total) * barsEl.scrollWidth - barsEl.scrollLeft;
   }
   ph.style.left = Math.max(0, x) + 'px';
 }
