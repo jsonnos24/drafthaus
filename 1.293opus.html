@@ -25952,6 +25952,38 @@ window.seqStripDrop = function(e, i) {
 };
 window.seqStripDragEnd = function(e) { _seqStripDragFrom = -1; };
 
+// Animate the strip playhead position from the transport (works in all views).
+function _seqStripUpdatePlayhead() {
+  var ph = document.getElementById('seqStripPlayhead');
+  var barsEl = document.getElementById('seqStripBars');
+  if (!ph || !barsEl) return;
+  var tlPlaying = typeof TL !== 'undefined' && TL.isPlaying && TL.isPlaying();
+  ph.style.display = tlPlaying ? 'block' : 'none';
+  if (!tlPlaying) return;
+  var beat = (TL.getCurrentBeat && TL.getCurrentBeat()) || 0;
+  var tsig = (TL.getTimeSig && TL.getTimeSig()) || 4;
+  var barPos = beat / tsig;
+  var strip = document.getElementById('globalSeqStrip');
+  var mode = strip ? (strip.getAttribute('data-strip-mode') || 'fit') : 'fit';
+  var x;
+  if (mode === 'grid') {
+    var ppb = (typeof ARR_PPB !== 'undefined') ? ARR_PPB : 16;
+    x = barPos * ppb - barsEl.scrollLeft;
+  } else {
+    var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+    var seqs = (song && typeof getSongSequences === 'function') ? getSongSequences(song) : [];
+    var total = 0; seqs.forEach(function(s) { total += parseInt(s.bars || 4, 10) || 4; });
+    x = total > 0 ? (barPos / total) * barsEl.scrollWidth - barsEl.scrollLeft : 0;
+  }
+  ph.style.left = Math.max(0, x) + 'px';
+}
+var _seqStripPhRaf = null;
+function _seqStripPhStart() {
+  if (_seqStripPhRaf) return;
+  (function loop() { _seqStripUpdatePlayhead(); _seqStripPhRaf = requestAnimationFrame(loop); })();
+}
+window._seqStripPhStart = _seqStripPhStart;
+
 function seqRenderSequenceTabs() {
   var inArrange = (typeof arrIsOpen === 'function' && arrIsOpen());
   seqStripRender(inArrange ? 'grid' : 'fit');
@@ -40614,6 +40646,7 @@ function _uiDismissLoadingScreen() {
   _dhMark('loading-screen-dismissed');
   console.log('[BOOT-TIMER] ══ TOTAL: ' + Math.round(performance.now() - window._dhBoot.t0) + 'ms ══');
   console.table(window._dhBoot);
+  if (typeof _seqStripPhStart === 'function') _seqStripPhStart();
   stopFunnyMessages();
   document.body.classList.remove('app-loading');
   var _ls = document.getElementById('appLoadingScreen');
