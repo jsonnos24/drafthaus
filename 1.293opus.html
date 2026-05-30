@@ -6756,6 +6756,20 @@ button, select, input, textarea { touch-action: manipulation; }
     display: none !important;
   }
   .global-seq-strip::-webkit-scrollbar { display: none; }
+  /* ── Proportional strip bars (seqStripRender) ── */
+  .global-seq-strip { display: flex; align-items: stretch; gap: 0; }
+  .seq-strip-bars { display: flex; flex: 1 1 auto; align-items: stretch; position: relative; overflow-x: auto; overflow-y: hidden; min-height: 22px; }
+  .seq-strip-bars::-webkit-scrollbar { display: none; }
+  .seq-strip-bar {
+    position: relative; display: flex; align-items: center; box-sizing: border-box;
+    border-right: 1px solid var(--dh-color-border, #2a3242); cursor: pointer;
+    font: 600 var(--dh-font-xs,10px)/1 ui-monospace, monospace; padding: 0 6px; overflow: hidden; white-space: nowrap;
+  }
+  .seq-strip-bar-label { pointer-events: none; }
+  .seq-strip-bar-active { outline: 2px solid currentColor; outline-offset: -2px; filter: brightness(1.25); }
+  .seq-strip-bar-playing { box-shadow: inset 0 -2px 0 0 currentColor; }
+  .seq-strip-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--dh-color-rec,#ef4444); pointer-events: none; z-index: 3; }
+  .seq-strip-play-btn, .seq-strip-mgr-btn { flex: 0 0 auto; }
 
   /* Modal overlay approach: all drawers use the same strip position — no per-drawer overrides needed */
 
@@ -25850,115 +25864,68 @@ function _drUpdatePartLabel() {
   });
 }
 
-function seqRenderSequenceTabs() {
-  // Render into the global persistent strip (replaces all three per-drawer strips)
-  const strip = document.getElementById('globalSeqStrip');
+// Unified proportional sequence strip. mode: 'fit' (proportional-to-container + min-width + scroll)
+// or 'grid' (bars×ARR_PPB, used inside Arrange and scroll-synced to the lanes).
+function seqStripRender(mode) {
+  mode = mode || 'fit';
+  var strip = document.getElementById('globalSeqStrip');
   if (!strip) return;
-  // Enforce landscape hide — inline style overrides CSS
-  if (typeof _isSeqStripLandscapeHidden === 'function' && _isSeqStripLandscapeHidden()) {
-    strip.style.setProperty('display', 'none', 'important');
-  }
-  const song = getCurrentSong();
+  var song = getCurrentSong();
   if (!song) { strip.innerHTML = ''; return; }
-  const seqs = getSongSequences(song);
-  const _nowPlayingSeqIdx = (_seqPlayMode === 'song' && seqIsPlaying && _seqSongSectionIdx < _seqSongSections.length)
-    ? _seqSongSections[_seqSongSectionIdx]._seqIdx : -1;
+  var seqs = getSongSequences(song);
+  var ppb = (typeof ARR_PPB !== 'undefined') ? ARR_PPB : 16;
+  var MIN_W = 64; // min tap width per section in fit mode
+  var nowIdx = (typeof _seqPlayMode !== 'undefined' && _seqPlayMode === 'song' && seqIsPlaying
+                && _seqSongSectionIdx < _seqSongSections.length) ? _seqSongSections[_seqSongSectionIdx]._seqIdx : -1;
 
-  const tabsHtml = seqs.map((seq, i) => {
-    const label      = seqGetPartLabel(seq.partId || seq.part);
-    const shortLabel = seqGetPartLabelShort(seq.partId || seq.part);
-    const color      = seqGetPartColor(seq.partId || seq.part);
-    const active     = i === seqActiveIdx ? ' active' : '';
-    const playing    = i === _nowPlayingSeqIdx ? ' seq-tab-playing' : '';
-    const linkPending = (window._seqLinkPending && window._seqLinkPending.seqIdx === i) ? ' seq-link-pending' : '';
-    const isUnassigned = !(seq.partId || seq.part);
-    const tabColor = color;
-    const showOrbit = (i === _nowPlayingSeqIdx) || (i === seqActiveIdx && _nowPlayingSeqIdx === -1);
-    return `<button title="Switch to this sequence. Each tab holds a unique drum and chord pattern." class="seq-tab${active}${playing}${linkPending}${isUnassigned ? ' seq-tab-unassigned' : ''}" style="color:${tabColor};" id="seq-tab-btn-${i}"
-      onclick="seqTabClick(${i},event)" title="${linkPending ? 'Click to exit link mode' : 'Switch to '+label}"
-      draggable="true"
-      ondragstart="seqTabDragStart(event,${i})"
-      ondragover="seqTabDragOver(event,${i})"
-      ondrop="seqTabDrop(event,${i})"
-      ondragend="seqTabDragEnd()">
-      ${showOrbit ? '<span class="seq-tab-orbit-dot"></span>' : ''}
-      ${label}
-    </button>`;
+  var barsHtml = seqs.map(function(seq, i) {
+    var pid = seq.partId || seq.part;
+    var label = seqGetPartLabel(pid);
+    var color = seqGetPartColor(pid);
+    var secBars = parseInt(seq.bars || 4, 10) || 4;
+    // grid (Arrange): exact pixel width per bar. fit (elsewhere): flex-grow by bar-count, floored at MIN_W.
+    var widthStyle = (mode === 'grid')
+      ? ('width:' + (secBars * ppb) + 'px;')
+      : ('flex:' + secBars + ' ' + secBars + ' auto;min-width:' + MIN_W + 'px;');
+    var active = (i === seqActiveIdx) ? ' seq-strip-bar-active' : '';
+    var playing = (i === nowIdx) ? ' seq-strip-bar-playing' : '';
+    return '<div class="seq-strip-bar' + active + playing + '" style="' + widthStyle + 'background:' + _seqStripBarBg(color) + ';color:' + color + '"'
+      + ' data-seq-bar="' + i + '" draggable="true"'
+      + ' onclick="seqStripSelect(' + i + ',event)"'
+      + ' ondblclick="seqStripSolo(' + i + ')"'
+      + ' ondragstart="seqStripDragStart(event,' + i + ')"'
+      + ' ondragover="seqStripDragOver(event,' + i + ')"'
+      + ' ondrop="seqStripDrop(event,' + i + ')"'
+      + ' ondragend="seqStripDragEnd(event)">'
+      + '<span class="seq-strip-bar-label">' + label + '</span></div>';
   }).join('');
-  const linkHint = window._seqLinkPending ? `<span class="seq-link-hint">→ tap a track to link</span>` : '';
 
-  const nowPlayingHtml = _seqPlayMode === 'song' && seqIsPlaying && _seqSongSectionIdx < _seqSongSections.length
-    ? `<span class="seq-now-playing-badge visible">▶ ${seqGetPartLabel(_seqSongSections[_seqSongSectionIdx]?.partId)}</span>`
-    : '';
-
-  const _stripHint = seqs.length < 3 ? '<span class="seq-strip-hint">Tap part · double-tap to manage</span>' : '';
-  const _stripIsPlaying = (typeof _seqStripPlaying !== 'undefined' && _seqStripPlaying && seqIsPlaying);
-  const _stripPlayClass = _stripIsPlaying ? ' seq-strip-playing' : '';
-  const _stripPlayLabel = _stripIsPlaying ? '■ Stop' : '▶ Play Sequence';
-  const _stripPlayTitle = _stripIsPlaying ? 'Stop full sequence playback' : 'Play everything — all sections in order, looping';
-  strip.innerHTML = `
-    <button class="seq-strip-play-btn${_stripPlayClass}" id="seqStripPlayBtn" onclick="seqStripPlayToggle()" title="${_stripPlayTitle}">${_stripPlayLabel}</button>
-    <button class="seq-strip-mgr-btn" onclick="seqOpenManagerModal()" title="Sequence Manager">≡</button>
-    ${tabsHtml}
-    ${linkHint}
-    <button class="seq-tab-add seq-tab-dup-btn" onclick="seqDuplicateActive()" title="Duplicate current sequence">⧉<span class="seq-tab-dup-label">Dup</span></button>
-    <button class="seq-tab-add" onclick="seqAddNewSequence()" title="Add new sequence" style="color:var(--teal,#2dd4bf);border-color:rgba(45,212,191,0.35);">+<span class="seq-tab-dup-label">Add</span></button>
-    ${_stripHint}
-    <span class="seq-tab-spacer"></span>
-    ${nowPlayingHtml}`;
-  _ucSyncArrows(); // sync global UCB undo/redo state
-  _ucbSyncDropdownBorderColor();
-  _seqUpdateBarRange();
-  _drUpdatePartLabel();
-
-  // Populate TL sections from the sequence strip so piano roll scroll-to-section works immediately
-  if (typeof TL !== 'undefined' && typeof TL.loadSections === 'function' && seqs.length && !seqIsPlaying) {
-    try {
-      const _songWideBpm = parseFloat(song?.bpm || 100);
-      const _key = seqCurrentKey();
-      const _mode = seqCurrentMode();
-      const _builtSections = seqs.map((seq, si) => {
-        const drumSteps  = parseInt(song?.drumSteps || seq.drumSteps || song?.grid || seq.grid || 4);
-        const chordSteps = parseInt(song?.chordSteps || seq.chordSteps || '1');
-        const time = parseInt(seq.time || 4);
-        const bars = parseInt(seq.bars || 4);
-        return {
-          partId: seq.partId || seq.part || null,
-          chordSlots: seq.chordSlots || [],
-          chordDegrees: seq.chordDegrees || [],
-          chordContinued: seq.chordContinued || [],
-          kick: seq.kick || [], snare: seq.snare || [], hat: seq.hat || [],
-          crash: seq.crash || [], clap: seq.clap || [],
-          hitom: seq.hitom || [], lotom: seq.lotom || [],
-          kickVel: seq.kickVel, snareVel: seq.snareVel, hatVel: seq.hatVel,
-          crashVel: seq.crashVel, clapVel: seq.clapVel, hitomVel: seq.hitomVel, lotomVel: seq.lotomVel,
-          chordVelocities: seq.chordVelocities, chordFlamMs: seq.chordFlamMs,
-          melody: seq.melody || [],
-          melodyInstrument: seq.melodyInstrument || 'piano',
-          pianoRoll: seq.pianoRoll,
-          bpm: _songWideBpm, drumSteps, chordSteps, time, bars,
-          grid: drumSteps,
-          _seqIdx: si,
-        };
-      });
-      TL.loadSections(_builtSections, _key, _mode);
-      TL.setBpm(_songWideBpm);
-    } catch(e) { console.warn('[TL] strip section build error:', e); }
+  strip.setAttribute('data-strip-mode', mode);
+  strip.innerHTML =
+    '<button class="seq-strip-play-btn" id="seqStripPlayBtn" onclick="seqStripPlayToggle()" title="Play everything">▶</button>'
+    + '<div class="seq-strip-bars" id="seqStripBars">' + barsHtml
+    + '<div class="seq-strip-playhead" id="seqStripPlayhead" style="left:0"></div></div>'
+    + '<button class="seq-strip-mgr-btn" onclick="seqOpenManagerModal()" title="Sequence Manager (add / rename / delete)">≡</button>';
+  if (typeof _seqStripSyncPlayBtn === 'function') _seqStripSyncPlayBtn();
+}
+// Background tint for a bar from its section color (handles #hex or rgb()).
+function _seqStripBarBg(color) {
+  if (!color) return 'rgba(255,255,255,0.06)';
+  if (color.charAt(0) === '#') {
+    var r = parseInt(color.substr(1,2),16), g = parseInt(color.substr(3,2),16), b = parseInt(color.substr(5,2),16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',0.16)';
   }
+  return color.replace(')', ',0.16)').replace('rgb', 'rgba');
+}
+window.seqStripRender = seqStripRender;
 
-  // Auto-scroll the strip to keep the playing tab visible during ensemble playback
-  if (_nowPlayingSeqIdx >= 0) {
-    const playingBtn = document.getElementById('seq-tab-btn-' + _nowPlayingSeqIdx);
-    if (playingBtn && strip.scrollWidth > strip.clientWidth) {
-      // Scroll so the playing tab is centered in the strip
-      const targetScroll = playingBtn.offsetLeft - (strip.clientWidth / 2) + (playingBtn.offsetWidth / 2);
-      strip.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
-    }
-  }
-
-  // v1.208: strip fixed at bottom — flush below UCB
-  // Position is handled by CSS (.global-seq-strip { bottom: ... }) and _seqStripShow()
-
+function seqRenderSequenceTabs() {
+  var inArrange = (typeof arrIsOpen === 'function' && arrIsOpen());
+  seqStripRender(inArrange ? 'grid' : 'fit');
+  if (typeof _ucSyncArrows === 'function') _ucSyncArrows();
+  if (typeof _seqUpdateBarRange === 'function') _seqUpdateBarRange();
+  if (typeof _drUpdatePartLabel === 'function') _drUpdatePartLabel();
+  if (typeof _ucbSyncDropdownBorderColor === 'function') _ucbSyncDropdownBorderColor();
   // v1.273: Keep arrangement view in sync when sequences change
   if (typeof arrIsOpen === 'function' && arrIsOpen() && typeof arrRenderAll === 'function') {
     try { arrRenderAll(); } catch(e) { console.warn('[ARR] sync render error:', e); }
