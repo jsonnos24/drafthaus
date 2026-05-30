@@ -25919,6 +25919,39 @@ function _seqStripBarBg(color) {
 }
 window.seqStripRender = seqStripRender;
 
+// Tap a bar → select/activate (loads into current tool + syncs Arrange selection).
+window.seqStripSelect = function(i, ev) {
+  if (ev) ev.stopPropagation();
+  if (typeof seqTabClick === 'function') seqTabClick(i, ev);
+  else { seqActiveIdx = i; if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs(); }
+  if (typeof window._arrSelectedSecIdx !== 'undefined') window._arrSelectedSecIdx = i;
+  if (typeof arrIsOpen === 'function' && arrIsOpen() && typeof arrRenderAll === 'function') arrRenderAll();
+};
+// Double-tap a bar → solo-play that section.
+window.seqStripSolo = function(i) {
+  if (typeof arrSecDblClick === 'function') return arrSecDblClick(i);
+  // Fallback: switch to that section and play it
+  if (typeof seqTabClick === 'function') seqTabClick(i, null);
+  if (typeof sharedPlaySong === 'function') sharedPlaySong();
+};
+// Drag → reorder (reuses moveSectionInOrder so seqLinks4t/arrComp travel with the section).
+var _seqStripDragFrom = -1;
+window.seqStripDragStart = function(e, i) {
+  _seqStripDragFrom = i;
+  try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); } catch(_) {}
+};
+window.seqStripDragOver = function(e, i) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch(_) {} };
+window.seqStripDrop = function(e, i) {
+  e.preventDefault();
+  var from = _seqStripDragFrom;
+  _seqStripDragFrom = -1;
+  if (from < 0 || from === i) return;
+  if (typeof moveSectionInOrder === 'function') moveSectionInOrder(from, i);
+  if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
+  if (typeof arrIsOpen === 'function' && arrIsOpen() && typeof arrRenderAll === 'function') arrRenderAll();
+};
+window.seqStripDragEnd = function(e) { _seqStripDragFrom = -1; };
+
 function seqRenderSequenceTabs() {
   var inArrange = (typeof arrIsOpen === 'function' && arrIsOpen());
   seqStripRender(inArrange ? 'grid' : 'fit');
