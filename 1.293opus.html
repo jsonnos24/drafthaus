@@ -25926,6 +25926,37 @@ function seqRenderSequenceTabs() {
   if (typeof _seqUpdateBarRange === 'function') _seqUpdateBarRange();
   if (typeof _drUpdatePartLabel === 'function') _drUpdatePartLabel();
   if (typeof _ucbSyncDropdownBorderColor === 'function') _ucbSyncDropdownBorderColor();
+  // Keep TL sections in sync after section edits (piano roll scroll-to-section, Arrange timeline).
+  // Guard by !seqIsPlaying so we don't stomp the live play scheduler.
+  try {
+    var _tlSong = getCurrentSong();
+    var _tlSeqs = _tlSong ? getSongSequences(_tlSong) : [];
+    if (typeof TL !== 'undefined' && typeof TL.loadSections === 'function' && _tlSeqs.length && !seqIsPlaying) {
+      var _tlBpm = parseFloat(_tlSong.bpm || 100);
+      var _tlKey = (typeof seqCurrentKey === 'function') ? seqCurrentKey() : 'C';
+      var _tlMode = (typeof seqCurrentMode === 'function') ? seqCurrentMode() : 'major';
+      var _tlSections = _tlSeqs.map(function(seq, si) {
+        var drumSteps  = parseInt(_tlSong.drumSteps || seq.drumSteps || _tlSong.grid || seq.grid || 4);
+        var chordSteps = parseInt(_tlSong.chordSteps || seq.chordSteps || 1);
+        return {
+          partId: seq.partId || seq.part || null,
+          chordSlots: seq.chordSlots || [], chordDegrees: seq.chordDegrees || [],
+          chordContinued: seq.chordContinued || [],
+          kick: seq.kick||[], snare: seq.snare||[], hat: seq.hat||[],
+          crash: seq.crash||[], clap: seq.clap||[], hitom: seq.hitom||[], lotom: seq.lotom||[],
+          kickVel: seq.kickVel, snareVel: seq.snareVel, hatVel: seq.hatVel,
+          crashVel: seq.crashVel, clapVel: seq.clapVel, hitomVel: seq.hitomVel, lotomVel: seq.lotomVel,
+          chordVelocities: seq.chordVelocities, chordFlamMs: seq.chordFlamMs,
+          melody: seq.melody||[], melodyInstrument: seq.melodyInstrument||'piano',
+          pianoRoll: seq.pianoRoll,
+          bpm: _tlBpm, drumSteps: drumSteps, chordSteps: chordSteps,
+          time: parseInt(seq.time||4), bars: parseInt(seq.bars||4), grid: drumSteps, _seqIdx: si,
+        };
+      });
+      TL.loadSections(_tlSections, _tlKey, _tlMode);
+      TL.setBpm(_tlBpm);
+    }
+  } catch(e) { console.warn('[TL] strip section build error:', e); }
   // v1.273: Keep arrangement view in sync when sequences change
   if (typeof arrIsOpen === 'function' && arrIsOpen() && typeof arrRenderAll === 'function') {
     try { arrRenderAll(); } catch(e) { console.warn('[ARR] sync render error:', e); }
