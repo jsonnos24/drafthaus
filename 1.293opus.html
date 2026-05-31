@@ -25670,16 +25670,19 @@ window.seqStripSelect = function(i, ev) {
   if (ev) ev.stopPropagation();
   if (typeof seqTabClick === 'function') seqTabClick(i, ev);
   else { seqActiveIdx = i; if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs(); }
-  if (typeof window._arrSelectedSecIdx !== 'undefined') window._arrSelectedSecIdx = i;
   if (typeof arrIsOpen === 'function' && arrIsOpen() && typeof arrRenderAll === 'function') arrRenderAll();
 };
-// Double-tap a bar → solo-play that section (select it, then play it as a one-shot).
-// arrSecDblClick currently opens the manager, not solo-play — use arrStripPlayToggle instead.
+// Double-tap a bar → solo-play just that section as a one-shot, then clear the scope so the
+// Arrange transport (spacebar / ▶) reverts to play-all. (Falls back to play-all off-Arrange.)
 window.seqStripSolo = function(i) {
-  window._arrSelectedSecIdx = i;
-  if (typeof seqTabClick === 'function') seqTabClick(i, null);
-  if (typeof arrStripPlayToggle === 'function') arrStripPlayToggle();
-  else if (typeof sharedPlaySong === 'function') sharedPlaySong();
+  if (typeof seqTabClick === 'function') seqTabClick(i, null);   // select / load the section
+  if (typeof window._arrSetSelectedSec === 'function' && typeof arrStripPlayToggle === 'function') {
+    window._arrSetSelectedSec(i);   // scope playback to this section
+    arrStripPlayToggle();           // play just it
+    window._arrSetSelectedSec(-1);  // one-shot: don't leave the transport scoped
+  } else if (typeof sharedPlaySong === 'function') {
+    sharedPlaySong();
+  }
 };
 // Drag → reorder (reuses moveSectionInOrder so seqLinks4t/arrComp travel with the section).
 var _seqStripDragFrom = -1;
@@ -75588,6 +75591,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   // ═══════════════════════════════════════════════════════════════
 
   var _arrSelectedSecIdx = -1; // -1 = none selected → play in order
+  // Cross-module setter: _arrSelectedSecIdx is module-scoped, so the shared strip (defined in
+  // another <script>) can't write it directly. seqStripSolo uses this to scope section playback.
+  window._arrSetSelectedSec = function(i) { _arrSelectedSecIdx = (typeof i === 'number' && i >= 0) ? i : -1; };
 
 
   // ═══════════════════════════════════════════════════════════════
