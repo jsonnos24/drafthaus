@@ -16893,25 +16893,6 @@ body.arr-view-open .uc-bar {
 /* Sync scrolling between headers and timeline */
 .arr-timeline-inner { position: relative; min-width: 100%; }
 
-/* Section labels row */
-.arr-sections-row {
-  height: 22px; background: #141418; border-bottom: 1px solid rgba(255,255,255,0.08);
-  display: flex; position: sticky; top: 0; z-index: 4;
-}
-.arr-section {
-  display: flex; align-items: center; justify-content: center;
-  font-size: 10px; font-family: 'IBM Plex Mono', monospace;
-  border-right: 1px solid rgba(255,255,255,0.06);
-  cursor: grab; position: relative; overflow: hidden; user-select: none;
-}
-.arr-section.dragging { opacity: 0.5; }
-.arr-section.drag-over { border-left: 2px solid #f5c542; }
-.arr-section-add {
-  width: 28px; min-width: 28px; display: flex; align-items: center; justify-content: center;
-  color: #2dd4bf; font-size: 16px; cursor: pointer; flex-shrink: 0;
-  border: none; background: none; font-family: 'IBM Plex Mono', monospace;
-}
-.arr-section-add:hover { color: #fff; }
 
 /* ── Shared strip relocated into Arrange (grid mode): behave like the old #arrSectionsRow.
    Mounted as first child of #arrTimelineInner by _arrMountStrip(); sticky-pinned on vertical
@@ -17041,25 +17022,6 @@ body.arr-view-open .uc-bar {
 .arr-statusbar .arr-stat-key { color: #a78bfa; }
 .arr-statusbar .arr-stat-hint { margin-left: auto; color: #444; }
 
-/* ── Section selection glow ── */
-.arr-section.arr-sec-selected {
-  box-shadow: 0 0 0 2px currentColor, 0 0 14px currentColor;
-  animation: arrSecGlow var(--beat-dur, 0.5s) ease-in-out infinite;
-  z-index: 3; position: relative;
-}
-.arr-section.arr-sec-selected::before {
-  content: '';
-  position: absolute; inset: -2px; border-radius: inherit;
-  background: radial-gradient(ellipse at center, currentColor 0%, transparent 70%);
-  opacity: 0.12; pointer-events: none; z-index: -1;
-  animation: arrSecGlowInner var(--beat-dur, 0.5s) ease-in-out infinite;
-}
-@keyframes arrSecGlow {
-  0%, 100% { box-shadow: 0 0 0 2px currentColor, 0 0 8px rgba(255,209,102,0.15); }
-  15% { box-shadow: 0 0 0 3px currentColor, 0 0 20px currentColor; }
-  50% { box-shadow: 0 0 0 2px currentColor, 0 0 8px rgba(255,209,102,0.15); }
-}
-@keyframes arrSecGlowInner { 0%,100%{opacity:0.08} 15%{opacity:0.2} 50%{opacity:0.08} }
 
 /* ── Arrangement strip controls (play btn removed in 1.277.1) ── */
 
@@ -74429,90 +74391,6 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     return sec.seqIdx;
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // 9. SECTION DRAG/DROP REORDER
-  // ═══════════════════════════════════════════════════════════════
-
-  var _arrSecDragIdx = -1;
-
-  window.arrSecDragStart = function(e, idx) {
-    _arrSecDragIdx = idx;
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', '' + idx);
-    setTimeout(function() { e.target.classList.add('dragging'); }, 0);
-  };
-  window.arrSecDragOver = function(e, idx) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    // Visual feedback
-    var els = document.querySelectorAll('.arr-section');
-    els.forEach(function(el) { el.classList.remove('drag-over'); });
-    if (idx !== _arrSecDragIdx) e.target.closest('.arr-section')?.classList.add('drag-over');
-  };
-  window.arrSecDrop = function(e, dropIdx) {
-    e.preventDefault();
-    document.querySelectorAll('.arr-section').forEach(function(el) {
-      el.classList.remove('dragging', 'drag-over');
-    });
-    if (_arrSecDragIdx < 0 || _arrSecDragIdx === dropIdx) return;
-
-    var song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
-    if (!song || !song.sectionOrder) return;
-
-    // Reorder sectionOrder
-    var order = song.sectionOrder.slice();
-    var moved = order.splice(_arrSecDragIdx, 1)[0];
-    order.splice(dropIdx, 0, moved);
-    song.sectionOrder = order;
-
-    // Also reorder the sequences array to match sectionOrder for two-way sync
-    var seqs = typeof getSongSequences === 'function' ? getSongSequences(song) : [];
-    if (seqs.length > 0) {
-      var partMap = {};
-      seqs.forEach(function(seq) {
-        var pid = seq.partId || seq.part || '';
-        if (pid) partMap[pid] = seq;
-      });
-      var newSeqs = [];
-      order.forEach(function(pid) {
-        if (partMap[pid]) {
-          newSeqs.push(partMap[pid]);
-          delete partMap[pid]; // avoid duplicates
-        }
-      });
-      // Append any sequences not in sectionOrder
-      Object.keys(partMap).forEach(function(pid) { newSeqs.push(partMap[pid]); });
-      song.sequences = newSeqs;
-      // Update active index to follow the selected sequence
-      if (typeof seqActiveIdx !== 'undefined' && typeof seqSwitchToSequence === 'function') {
-        var curPartId = seqs[seqActiveIdx] ? (seqs[seqActiveIdx].partId || seqs[seqActiveIdx].part) : null;
-        if (curPartId) {
-          var newIdx = newSeqs.findIndex(function(s) { return (s.partId || s.part) === curPartId; });
-          if (newIdx >= 0) { window.seqActiveIdx = newIdx; window.kbdMelodySeqIdx = newIdx; }
-        }
-      }
-    }
-
-    // Push undo if available
-    if (typeof ucPushUndo === 'function' && typeof _ucCaptureState === 'function') {
-      ucPushUndo(_ucCaptureState(), 'rearrange sections');
-    }
-
-    // Save and re-render
-    if (typeof save === 'function') save();
-    if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
-    arrRenderAll();
-    // Also update the global sequence strip
-    if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
-
-    _arrSecDragIdx = -1;
-  };
-  window.arrSecDragEnd = function(e) {
-    document.querySelectorAll('.arr-section').forEach(function(el) {
-      el.classList.remove('dragging', 'drag-over');
-    });
-    _arrSecDragIdx = -1;
-  };
 
   // ═══════════════════════════════════════════════════════════════
   // 10. REGION DRAG + UNLINK PROMPT
@@ -75711,34 +75589,6 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
   var _arrSelectedSecIdx = -1; // -1 = none selected → play in order
 
-  window.arrSecClick = function(idx, e) {
-    if (e && e.defaultPrevented) return;
-    // Toggle selection
-    if (_arrSelectedSecIdx === idx) {
-      _arrSelectedSecIdx = -1; // deselect
-    } else {
-      _arrSelectedSecIdx = idx;
-    }
-    // Update visuals
-    document.querySelectorAll('.arr-section').forEach(function(el, i) {
-      el.classList.toggle('arr-sec-selected', i === _arrSelectedSecIdx);
-    });
-    // Also sync the global strip active tab to this section
-    if (_arrSelectedSecIdx >= 0) {
-      var song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
-      if (song) {
-        var sections = _arrBuildSections(song, typeof getSongSequences === 'function' ? getSongSequences(song) : []);
-        var sec = sections[_arrSelectedSecIdx];
-        if (sec && sec.seqIdx >= 0 && typeof seqSwitchToSequence === 'function') {
-          seqSwitchToSequence(sec.seqIdx);
-        }
-      }
-    }
-  };
-
-  window.arrSecDblClick = function(idx) {
-    if (typeof seqOpenManagerModal === 'function') seqOpenManagerModal();
-  };
 
   // ═══════════════════════════════════════════════════════════════
   // 28b. STRIP PLAY + MANAGER BUTTONS
@@ -75837,27 +75687,6 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     document.querySelectorAll('.arr-lane-group-spacer').forEach(function(el) { el.style.height = ARR_LANE_H + 'px'; });
   };
 
-  // ═══════════════════════════════════════════════════════════════
-  // 28f. FIX ADD SECTION — also add to sectionOrder
-  // ═══════════════════════════════════════════════════════════════
-
-  window.arrAddSection = function() {
-    var song = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
-    if (!song) return;
-    var seqs = typeof getSongSequences === 'function' ? getSongSequences(song) : [];
-    var partId = typeof _seqNextAvailablePartId === 'function' ? _seqNextAvailablePartId(seqs) : 'section-' + Date.now();
-    var newSeq = { id: 'seq_' + Date.now() + '_' + seqs.length, partId: partId };
-    seqs.push(newSeq);
-    song.sequences = seqs;
-    // Also add to sectionOrder
-    if (!song.sectionOrder) song.sectionOrder = [];
-    if (song.sectionOrder.indexOf(partId) < 0) song.sectionOrder.push(partId);
-    if (typeof seqActiveIdx !== 'undefined') window.seqActiveIdx = seqs.length - 1;
-    if (typeof save === 'function') save();
-    if (typeof seqRenderSequenceTabs === 'function') seqRenderSequenceTabs();
-    arrRenderAll();
-    if (typeof showToast === 'function') showToast('Section added', 'success', 1200);
-  };
 
   // ═══════════════════════════════════════════════════════════════
   // 28g. EDIT TOOLS — POINTER, MARQUEE, SCISSORS, GLUE
