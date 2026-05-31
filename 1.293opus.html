@@ -17046,6 +17046,23 @@ body.arr-view-open .uc-bar {
 }
 .arr-section-add:hover { color: #fff; }
 
+/* ── Shared strip relocated into Arrange (grid mode): behave like the old #arrSectionsRow.
+   Mounted as first child of #arrTimelineInner by _arrMountStrip(); sticky-pinned on vertical
+   scroll, moves with lanes on horizontal scroll. Bars start at x=0 to align with ruler/lanes. ── */
+.global-seq-strip[data-strip-mode="grid"] {
+  height: 22px; min-width: 100%; background: #141418;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  position: sticky; top: 0; z-index: 4;
+}
+/* Leading play button would offset the bars from x=0 — hide it in grid (Arrange has its own transport) */
+.global-seq-strip[data-strip-mode="grid"] .seq-strip-play-btn { display: none; }
+/* Bars lay out at fixed pixel widths (bars×ARR_PPB) and scroll with the timeline, not independently */
+.global-seq-strip[data-strip-mode="grid"] .seq-strip-bars { overflow: visible; flex: 0 0 auto; }
+.global-seq-strip[data-strip-mode="grid"] .seq-strip-mgr-btn {
+  width: 28px; min-width: 28px; flex: 0 0 auto; color: #2dd4bf;
+  background: none; border: none; cursor: pointer;
+}
+
 /* Bar ruler */
 .arr-bar-ruler {
   height: 18px; background: #111118; border-bottom: 1px solid rgba(245,166,35,0.25);
@@ -25821,14 +25838,16 @@ function _drUpdatePartLabel() {
 
 // Unified proportional sequence strip. mode: 'fit' (proportional-to-container + min-width + scroll)
 // or 'grid' (bars×ARR_PPB, used inside Arrange and scroll-synced to the lanes).
-function seqStripRender(mode) {
+function seqStripRender(mode, ppbArg) {
   mode = mode || 'fit';
   var strip = document.getElementById('globalSeqStrip');
   if (!strip) return;
   var song = getCurrentSong();
   if (!song) { strip.innerHTML = ''; return; }
   var seqs = getSongSequences(song);
-  var ppb = (typeof ARR_PPB !== 'undefined') ? ARR_PPB : 16;
+  // grid mode needs Arrange's live pixels-per-bar (ARR_PPB is module-scoped — read it via the getter so
+  // bars stay pixel-locked to the lanes/ruler across zoom). fit mode ignores ppb.
+  var ppb = ppbArg || (typeof window._arrPPB === 'function' ? window._arrPPB() : 40);
   var MIN_W = 64; // min tap width per section in fit mode
   var nowIdx = (typeof _seqPlayMode !== 'undefined' && _seqPlayMode === 'song' && seqIsPlaying
                 && _seqSongSectionIdx < _seqSongSections.length) ? _seqSongSections[_seqSongSectionIdx]._seqIdx : -1;
@@ -66094,7 +66113,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     <!-- Timeline (rendered by JS) -->
     <div class="arr-timeline-wrap" id="arrTimelineWrap">
       <div class="arr-timeline-inner" id="arrTimelineInner">
-        <div class="arr-sections-row" id="arrSectionsRow"></div>
+        <!-- #arrSectionsRow retired: shared #globalSeqStrip is mounted here in grid mode (see _arrMountStrip) -->
         <div class="arr-bar-ruler" id="arrBarRuler"></div>
         <div class="arr-lanes" id="arrLanes">
           <div class="arr-playhead" id="arrPlayhead" style="left:0"></div>
@@ -73963,6 +73982,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   // ═══════════════════════════════════════════════════════════════
 
   var ARR_PPB = 40; // pixels per bar (zoom level)
+  // Expose the live per-bar pixel width so the shared strip (seqStripRender 'grid') stays pixel-locked
+  // to the lanes/ruler across zoom. Module-scoped closure → always returns the current value.
+  window._arrPPB = function() { return ARR_PPB; };
   var _arrOpen = false;
   var _arrTickRaf = null;
   var _arrDragRegion = null;
@@ -74061,6 +74083,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     if (drawer) drawer.classList.remove('open');
     document.body.classList.remove('arr-view-open');
     document.body.style.overflow = '';
+    // Return the shared strip to its home under the header and re-render in fit mode.
+    _arrUnmountStrip();
+    if (typeof seqStripRender === 'function') seqStripRender('fit');
     _arrTickStop();
     // Dismiss any unlink modal
     _arrDismissUnlink();
@@ -74069,6 +74094,20 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
   function arrIsOpen() { return _arrOpen; }
   function arrToggle() { _arrOpen ? arrClose() : arrOpen(); }
+
+  // Relocate the shared #globalSeqStrip into the Arrange timeline (top of #arrTimelineInner),
+  // where the retired #arrSectionsRow used to live, so it scrolls with the lanes for free.
+  function _arrMountStrip() {
+    var strip = document.getElementById('globalSeqStrip');
+    var inner = document.getElementById('arrTimelineInner');
+    if (strip && inner && strip.parentNode !== inner) inner.insertBefore(strip, inner.firstChild);
+  }
+  // Move the strip back to its home spot under the header (just before the toggle button).
+  function _arrUnmountStrip() {
+    var strip = document.getElementById('globalSeqStrip');
+    var tgl = document.getElementById('seqStripToggleBtn');
+    if (strip && tgl && tgl.parentNode && strip.nextSibling !== tgl) tgl.parentNode.insertBefore(strip, tgl);
+  }
 
   // ═══════════════════════════════════════════════════════════════
   // 3. RENDER ALL
@@ -74107,8 +74146,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     // Render headers
     _arrRenderHeaders();
 
-    // Render sections row
-    _arrRenderSections(sections);
+    // Sections row: render the shared strip in grid mode, mounted at the top of the timeline.
+    _arrMountStrip();
+    if (typeof seqStripRender === 'function') seqStripRender('grid');
 
     // Render bar ruler
     _arrRenderBarRuler(totalBars);
@@ -74236,40 +74276,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // 6. RENDER SECTIONS ROW (draggable)
+  // 6. RENDER SECTIONS ROW — retired: the shared #globalSeqStrip (grid mode) now
+  //    serves as the Arrange sections row (see _arrMountStrip / seqStripRender).
   // ═══════════════════════════════════════════════════════════════
-
-  function _arrRenderSections(sections) {
-    var el = document.getElementById('arrSectionsRow');
-    if (!el) return;
-
-    var html = '';
-
-    sections.forEach(function(sec, i) {
-      var w = sec.bars * ARR_PPB;
-      var bgColor = sec.color.replace(')', ',0.12)').replace('rgb', 'rgba');
-      if (sec.color.charAt(0) === '#') {
-        var r = parseInt(sec.color.substr(1,2), 16);
-        var g = parseInt(sec.color.substr(3,2), 16);
-        var b = parseInt(sec.color.substr(5,2), 16);
-        bgColor = 'rgba(' + r + ',' + g + ',' + b + ',0.12)';
-      }
-      var selClass = _arrSelectedSecIdx === i ? ' arr-sec-selected' : '';
-      html += '<div class="arr-section' + selClass + '" style="width:' + w + 'px;background:' + bgColor + ';color:' + sec.color + '"'
-        + ' draggable="true"'
-        + ' data-arr-sec="' + i + '"'
-        + ' onclick="arrSecClick(' + i + ',event)"'
-        + ' ondblclick="arrSecDblClick(' + i + ')"'
-        + ' ondragstart="arrSecDragStart(event,' + i + ')"'
-        + ' ondragover="arrSecDragOver(event,' + i + ')"'
-        + ' ondrop="arrSecDrop(event,' + i + ')"'
-        + ' ondragend="arrSecDragEnd(event)"'
-        + '><span>' + sec.label + '</span></div>';
-    });
-
-    html += '<button class="arr-section-add" onclick="arrAddSection()" title="Add a section to the arrangement">+</button>';
-    el.innerHTML = html;
-  }
 
   // ═══════════════════════════════════════════════════════════════
   // 7. RENDER BAR RULER
