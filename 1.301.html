@@ -25864,8 +25864,8 @@ function seqStripPlayToggle() {
     return;
   }
   _seqStripPlaying = true;
-  // Use sharedPlaySong which plays all sections in order and loops
-  if (typeof sharedPlaySong === 'function') sharedPlaySong();
+  // Use sharedPlaySong which plays sections from the selected one onward, then loops
+  if (typeof sharedPlaySong === 'function') sharedPlaySong({ fromSelected: true });
   _seqStripSyncPlayBtn();
 }
 // Sync the strip play button state (called from sharedStop and seqRenderSequenceTabs)
@@ -25875,7 +25875,9 @@ function _seqStripSyncPlayBtn() {
   var isPlaying = _seqStripPlaying && seqIsPlaying;
   btn.classList.toggle('seq-strip-playing', isPlaying);
   btn.textContent = isPlaying ? '■ Stop' : '▶ Play Sequence';
-  btn.title = isPlaying ? 'Stop full sequence playback' : 'Play everything — all sections in order, looping';
+  btn.title = isPlaying ? 'Stop full sequence playback' : 'Play from the selected section onward';
+  var _nedPb = document.getElementById('nedPlayBtn');
+  if (_nedPb) _nedPb.textContent = (typeof seqIsPlaying!=='undefined' && seqIsPlaying) ? '■' : '▶';
 }
 
 // ── Sync UCB dropdown borders to active pill color ─────────────────────────
@@ -33768,7 +33770,7 @@ function sharedPlay() {
 }
 
 // Full song play — SEQ full-song mode; also coordinates 4-track if visible
-async function sharedPlaySong() {
+async function sharedPlaySong(opts) {
   if (seqIsPlaying) { console.warn('[SHARED-PLAY-SONG] already playing → stopping. Caller:', new Error().stack?.split('\n').slice(1,3).join(' | ')); sharedStop(); return; }
   // If takes exist but buffers aren't loaded yet, await preload before starting
   if (typeof _mtTracks !== 'undefined') {
@@ -33829,7 +33831,7 @@ async function sharedPlaySong() {
       if (el) { el.classList.remove('mt-loop-active'); el.title = 'Loop playback (L)'; }
     });
   }
-  await seqPlaySong();
+  await seqPlaySong(opts);
   // If user stopped during the async seqPlaySong, don't start anything else
   if (!seqIsPlaying) return;
   const vrOpen = document.getElementById('vrOverlay')?.classList.contains('vr-open');
@@ -34260,7 +34262,7 @@ function seqPlay() {
   // In loop mode the user is previewing just drums/chords — don't cross-trigger.
 }
 
-async function seqPlaySong() {
+async function seqPlaySong(opts) {
   if (seqIsPlaying) { seqStop(); return; }
   var _myGen = _seqStopGen;  // snapshot: if seqStop() bumps this, our async work is stale
   var _t0 = performance.now();
@@ -34305,6 +34307,16 @@ async function seqPlaySong() {
   // Unassigned sequences play first (as an intro), followed by assigned parts in order
   const sorted = [...unassigned, ...assigned];
 
+  // v1.301: sequence-strip ▶ plays from the SELECTED section ONWARD (global — mobile + desktop).
+  // Default (no opts) keeps the original behaviour: full song from the top.
+  let _ssStart = 0;
+  if (opts && opts.fromSelected && typeof seqActiveIdx === 'number') {
+    const _selSeq = seqs[seqActiveIdx];
+    const _si = sorted.indexOf(_selSeq);
+    if (_si > 0) _ssStart = _si;
+  }
+  const _playList = _ssStart > 0 ? sorted.slice(_ssStart) : sorted;
+
   console.log('[STRIP-PLAY] sorted sections:', sorted.length, sorted.map(s => (s.partId||s.part||'?') + '(' + s.bars + 'bars)').join(' → '));
   if (sorted.length < 1) { showToast('No sequences to play.', 'info', 3000); return; }
 
@@ -34315,7 +34327,7 @@ async function seqPlaySong() {
   const key  = seqCurrentKey();
   const mode = seqCurrentMode();
   const _songWideBpm = parseFloat(song?.bpm || 100);
-  _seqSongSections = sorted.map(seq => {
+  _seqSongSections = _playList.map(seq => {
     // Ensure pianoRoll exists (migrate from chordSlots if needed)
     _migrateChordSlotsToPR(seq, key, mode);
     const bpm  = _songWideBpm;
@@ -46712,6 +46724,15 @@ function mprCleanup() {
     const active = (typeof _urIsRecording!=='undefined' && _urIsRecording) || (typeof _urCountingIn!=='undefined' && _urCountingIn);
     if (active){ if(typeof _urStopRecording==='function') _urStopRecording(); }
     else { if(typeof _urStartRecording==='function') _urStartRecording(); }
+  };
+
+  window._nedPlayToggle = function(){
+    if (typeof seqIsPlaying!=='undefined' && seqIsPlaying){
+      if (typeof sharedStop==='function') sharedStop(); else if (typeof seqStop==='function') seqStop();
+    } else {
+      if (typeof seqPlay==='function') seqPlay(); // plays + loops the active (selected) section
+    }
+    const b=document.getElementById('nedPlayBtn'); if(b) b.textContent = (typeof seqIsPlaying!=='undefined'&&seqIsPlaying) ? '■' : '▶';
   };
 
   function nedInit() {
