@@ -4830,7 +4830,9 @@ button, select, input, textarea { touch-action: manipulation; }
   .ned-bpm { height:38px; border:1px solid #2a2c36; border-radius:8px; display:flex; align-items:center; background:#16171d; overflow:hidden; }
   .ned-bpm input { width:40px; height:36px; background:transparent; border:none; color:#e8e8ee; font-family:inherit; font-size:14px; text-align:center; font-weight:700; outline:none; }
   .ned-bpm-lbl { font-size:8px; color:#7a80a0; padding:0 7px 0 1px; letter-spacing:.08em; }
-  .ned-qc { position:absolute; left:8px; right:8px; bottom:0; background:#15161c; border:1px solid #2a2c36; border-bottom:none; border-radius:8px 8px 0 0; box-shadow:0 -6px 18px rgba(0,0,0,0.55); overflow:hidden; display:flex; flex-direction:column; z-index:5; }
+  .ned-qc { position:absolute; left:8px; right:8px; bottom:0; background:#15161c; border:1px solid #2a2c36; border-bottom:none; border-radius:8px 8px 0 0; box-shadow:0 -6px 18px rgba(0,0,0,0.55); overflow:hidden; display:flex; flex-direction:column; z-index:5; transition:transform 0.15s ease; touch-action:none; }
+  .ned-qc.ned-qc-hidden { transform:translateY(110%); }
+  .ned-ghost { position:absolute; top:0; left:0; right:0; bottom:0; pointer-events:none; z-index:6; }
   .ned-qc-handle { display:flex; align-items:flex-start; padding:5px 10px 3px; cursor:grab; flex-shrink:0; touch-action:none; }
   .ned-qc-lbl { flex:1; font-size:8px; color:#f5a623; font-weight:700; letter-spacing:.08em; padding-top:3px; }
   .ned-qc-lbl-voice { text-align:right; }
@@ -46561,7 +46563,7 @@ function mprCleanup() {
     // Diatonic row (fixed, purple)
     let html = '<div class="ned-qc-diatonic">' + dia.map((n,i)=>{
       const disp = n.replace('_viii','⁸');
-      return `<button class="ned-chip ned-chip-dia" data-chord="${disp}"><span class="ned-chip-deg">${_nedRoman(n,i)}</span>${disp}</button>`;
+      return `<button class="ned-chip ned-chip-dia" data-chord="${disp}" data-deg="${i}"><span class="ned-chip-deg">${_nedRoman(n,i)}</span>${disp}</button>`;
     }).join('') + '</div>';
     // Scrollable variations (cream) + borrowed (teal)
     html += '<div class="ned-qc-scroll">';
@@ -46577,9 +46579,8 @@ function mprCleanup() {
     }
     html += '</div>';
     body.innerHTML = html;
-    // tap a pill = preview (drag-to-staff is a later task)
     body.querySelectorAll('.ned-chip').forEach(btn=>{
-      btn.addEventListener('click', ()=>{ const c=btn.dataset.chord; if(typeof seqPlayChordByName==='function') seqPlayChordByName(c); });
+      btn.addEventListener('pointerdown', e=>{ e.preventDefault(); _nedChipDragStart(btn, e); });
     });
   }
   // gold-handle drag to resize (adjust overlay top between 25% and 78%)
@@ -46612,10 +46613,57 @@ function mprCleanup() {
     const seq=_nedSeq(); if (seq){ seq.instrument=v; const s=getCurrentSong(); if (s && s.sequencer) s.sequencer.instrument=v; if (typeof save==='function') save(); if (typeof scheduleSyncToSheet==='function'){ const sg=getCurrentSong(); if(sg) scheduleSyncToSheet(sg); } }
   };
 
+  window._nedDropChordAt = function(name, degree, col){
+    const seq=_nedSeq(); if(!seq) return;
+    if(!seq.pianoRoll) seq.pianoRoll=[];
+    const midis = (typeof _chordToMidi==='function') ? _chordToMidi(name) : [];
+    if(!midis.length) return;
+    const durCols=_nedDurToCols(seq);
+    midis.forEach(m=>{ seq.pianoRoll.push({ id:_nedNextId(), midi:m, startCol:col, durCols, chordName:name, degree:(degree!=null?degree:-1), isPencil:false, vel:0.8 }); });
+    if(typeof seqPlayChordByName==='function') seqPlayChordByName(name);
+    nedRender(); _nedSave();
+  };
+  function _nedShowGhost(name, col){
+    const staff=document.getElementById('nedStaff'); if(!staff) return;
+    let g=document.getElementById('nedGhost');
+    if(!g){ g=document.createElement('div'); g.id='nedGhost'; g.className='ned-ghost'; staff.appendChild(g); }
+    const seq=_nedSeq(); const cpb=_nedColsPerBar(seq);
+    const barW=parseFloat(staff.dataset.barw)||((staff.clientWidth-NED_BAR_PAD*2)/2);
+    const colPx=barW/cpb; const winStartCol=_nedScrollBar*cpb;
+    const cx=NED_BAR_PAD+(col-winStartCol)*colPx+colPx/2;
+    const midis=(typeof _chordToMidi==='function')?_chordToMidi(name):[];
+    let svg=`<svg width="${staff.clientWidth||390}" height="386" style="position:absolute;top:0;left:0;pointer-events:none;">`;
+    midis.forEach(m=>{ const cy=_nedMidiToY(m); svg+=`<ellipse cx="${cx}" cy="${cy}" rx="7" ry="5" fill="#c8a0ff" opacity="0.5" stroke="#c8a0ff" stroke-width="2" transform="rotate(-15,${cx},${cy})"/>`; });
+    svg+=`</svg>`;
+    g.innerHTML=svg;
+  }
+  function _nedHideGhost(){ const g=document.getElementById('nedGhost'); if(g) g.remove(); }
+  function _nedChipDragStart(btn, ev){
+    const name=btn.dataset.chord; const deg = (btn.dataset.deg!=null && btn.dataset.deg!=='') ? parseInt(btn.dataset.deg) : -1;
+    const startX=ev.clientX, startY=ev.clientY; let dragging=false;
+    const qc=document.getElementById('nedQC');
+    const move=e=>{
+      if(!dragging){ if(Math.abs(e.clientX-startX)<10 && Math.abs(e.clientY-startY)<14) return; dragging=true; if(qc) qc.classList.add('ned-qc-hidden'); }
+      _nedShowGhost(name, _nedXToCol(e.clientX,false));
+    };
+    const up=e=>{
+      document.removeEventListener('pointermove',move); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up);
+      _nedHideGhost(); if(qc) qc.classList.remove('ned-qc-hidden');
+      if(dragging){
+        const staff=document.getElementById('nedStaff'); const r=staff&&staff.getBoundingClientRect();
+        if(r && e.clientY>=r.top && e.clientY<=r.bottom) window._nedDropChordAt(name, deg, _nedXToCol(e.clientX,false));
+      } else if(typeof seqPlayChordByName==='function') {
+        seqPlayChordByName(name); // pure tap = preview
+      }
+    };
+    document.addEventListener('pointermove',move); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
+  }
+
   function nedInit() {
     const wrap = document.getElementById('nedWrap');
     if (!wrap) return;
     _nedMounted = true;
+    const _initSeq = _nedSeq(); if (_initSeq && !_initSeq.pianoRoll) _initSeq.pianoRoll = [];
     nedRender();
     const staffEl = document.getElementById('nedStaff');
     if (staffEl && !staffEl._nedSwipeBound) {
