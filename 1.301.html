@@ -46463,8 +46463,8 @@ function mprCleanup() {
     return s;
   }
   function _nedRest(cx){
-    const y = (NED_TREBLE_TOP + NED_BASS_TOP)/2;
-    return `<text x="${cx-4}" y="${y+5}" font-size="18" fill="#6a6f82" font-family="serif">𝄽</text>`;
+    const y = (NED_TREBLE_TOP + NED_BASS_TOP)/2 - 11;
+    return `<path class="ned-rest" d="M${cx},${y} l5,6 l-5,6 q6,2 3,8" fill="none" stroke="#8b90a3" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>`;
   }
 
   let _nedSelectedSet = new Set(); // ids of pointer-selected notes (tap toggles; drag moves the group)
@@ -46862,14 +46862,18 @@ function mprCleanup() {
         svg += `<path d="M${cx},${cy+8} Q${(cx+barX)/2},${cy+16} ${barX},${cy+8}" fill="none" stroke="${color}" stroke-width="1.6" opacity="0.8"/>`;
       }
     });
-    // rests: for each beat slot in the window with no note sounding, draw a rest
+    // rests: one rest per empty beat-group (6/8 → 2, 4/4 → 4, 3/4 → 3)
     const _m = _nedMeter(seq);
     for (let b=0;b<winBars;b++){
-      for (let beat=0; beat<_m.num; beat++){
-        const slotCol = winStartCol + b*cpb + Math.round(beat*_m.beatUnit*NED_SNAP);
-        const occupied = cols.some(n => n.startCol <= slotCol && (n.startCol+n.durCols) > slotCol);
-        if (!occupied) svg += _nedRest(NED_BAR_PAD + (slotCol - winStartCol)*colPx + colPx/2);
-      }
+      let gStartCol = winStartCol + b*cpb;
+      _m.groups.forEach(gBeats=>{
+        const gCols = Math.round(gBeats*NED_SNAP);
+        const gEnd = gStartCol + gCols;
+        // group is "empty" only if NO note overlaps any of its columns
+        const occupied = cols.some(n => n.startCol < gEnd && (n.startCol + n.durCols) > gStartCol);
+        if (!occupied){ const cx = NED_BAR_PAD + (gStartCol + gCols/2 - winStartCol)*colPx; svg += _nedRest(cx); }
+        gStartCol = gEnd;
+      });
     }
     svg += _beamSvg;
     svg += `</svg>`;
