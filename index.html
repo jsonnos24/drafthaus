@@ -67312,9 +67312,11 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   // ── Constants ──
   const PR_NOTES_ALL = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
   const PR_BLACK = new Set(['C#','D#','F#','G#','A#']);
-  const PR_MIN_MIDI = 12; // C0
-  const PR_MAX_MIDI = 96; // C7
-  const PR_TOTAL_ROWS = PR_MAX_MIDI - PR_MIN_MIDI + 1; // 85 rows
+  // Mobile uses the narrower C2–C6 range (49 rows) — the exact range that
+  // rendered correctly on iOS in 1.146. Desktop keeps the full C0–C7 range.
+  const PR_MIN_MIDI = (window.innerWidth >= 768) ? 12 : 36; // desktop C0, mobile C2
+  const PR_MAX_MIDI = (window.innerWidth >= 768) ? 96 : 84; // desktop C7, mobile C6
+  const PR_TOTAL_ROWS = PR_MAX_MIDI - PR_MIN_MIDI + 1; // desktop 85, mobile 49
   let PR_ROW_H = (window.innerWidth >= 768) ? 26 : 22;
   const PR_KEY_W = 44;
   let PR_COL_W = (window.innerWidth >= 768) ? 12 : 28; // desktop: ~6 bars visible; mobile: wider cells
@@ -68343,27 +68345,14 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const renderRight = Math.min(gridW, scrollX + vpW + buffer);
     const renderW = renderRight - renderLeft;
 
-    // Vertical viewport slice (mirrors the horizontal slice above): keeps the
-    // canvas only as tall as the visible band + buffer, so a full 85-row grid
-    // (~1870px) never allocates an over-budget backing store that iOS Safari
-    // refuses to paint. The context is translated by -renderTop so every draw
-    // below can keep using full-grid Y coordinates unchanged.
-    const vpH = scrollEl.clientHeight;
-    const scrollY = scrollEl.scrollTop;
-    const renderTop = Math.max(0, scrollY - buffer);
-    const renderBottom = Math.min(gridH, scrollY + vpH + buffer);
-    const renderH = renderBottom - renderTop;
-
     canvas.width = renderW;
-    canvas.height = renderH;
+    canvas.height = gridH;
     canvas.style.width = renderW + 'px';
-    canvas.style.height = renderH + 'px';
+    canvas.style.height = gridH + 'px';
     canvas.style.left = renderLeft + 'px';
-    canvas.style.top = renderTop + 'px';
 
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, renderW, renderH);
-    ctx.translate(0, -renderTop); // map full-grid Y → this slice's canvas space
+    ctx.clearRect(0, 0, renderW, gridH);
 
     // ── Draw row backgrounds ──
     if (prViewMode === 'drum') {
