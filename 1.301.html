@@ -4830,6 +4830,29 @@ button, select, input, textarea { touch-action: manipulation; }
   .ned-bpm { height:38px; border:1px solid #2a2c36; border-radius:8px; display:flex; align-items:center; background:#16171d; overflow:hidden; }
   .ned-bpm input { width:40px; height:36px; background:transparent; border:none; color:#e8e8ee; font-family:inherit; font-size:14px; text-align:center; font-weight:700; outline:none; }
   .ned-bpm-lbl { font-size:8px; color:#7a80a0; padding:0 7px 0 1px; letter-spacing:.08em; }
+  .ned-qc { position:absolute; left:8px; right:8px; bottom:0; background:#15161c; border:1px solid #2a2c36; border-bottom:none; border-radius:8px 8px 0 0; box-shadow:0 -6px 18px rgba(0,0,0,0.55); overflow:hidden; display:flex; flex-direction:column; z-index:5; }
+  .ned-qc-handle { display:flex; align-items:flex-start; padding:5px 10px 3px; cursor:grab; flex-shrink:0; touch-action:none; }
+  .ned-qc-lbl { flex:1; font-size:8px; color:#f5a623; font-weight:700; letter-spacing:.08em; padding-top:3px; }
+  .ned-qc-lbl-voice { text-align:right; }
+  .ned-qc-grip { text-align:center; flex-shrink:0; }
+  .ned-qc-grip-bar { width:44px; height:5px; border-radius:3px; background:#f5a623; margin:0 auto; box-shadow:0 0 6px rgba(245,166,35,0.4); }
+  .ned-qc-grip-hint { font-size:7px; color:#6a6f82; margin-top:2px; }
+  .ned-qc-controls { display:flex; align-items:center; gap:6px; padding:0 10px 7px; flex-shrink:0; }
+  .ned-qc-key, .ned-qc-voice { flex:1; min-width:0; background:#16171d; border:1px solid #2a2c36; border-radius:5px; padding:4px 6px; font-size:11px; color:#e8e8ee; font-family:inherit; }
+  .ned-qc-voice { text-align:right; }
+  .ned-qc-toggle { display:flex; border:1px solid #2a2c36; border-radius:7px; overflow:hidden; flex-shrink:0; }
+  .ned-qc-toggle button { font-size:10px; padding:5px 13px; color:#9aa0b4; background:transparent; border:none; font-family:inherit; }
+  .ned-qc-toggle button.ned-on { background:#c8a0ff; color:#0d0e13; font-weight:700; }
+  .ned-qc-diatonic { display:flex; padding:0 8px; flex-shrink:0; }
+  .ned-qc-scroll { flex:1; min-height:0; overflow-y:auto; padding:0 8px 6px; }
+  .ned-qc-varrow, .ned-qc-borrowed { display:flex; }
+  .ned-chip { flex:1; min-width:0; text-align:center; padding:7px 2px; font-size:10px; border:1px solid #2a2c36; background:transparent; font-family:inherit; }
+  .ned-chip-dia { background:rgba(120,60,200,0.25); border-color:rgba(160,100,240,0.5); color:#d8b4fe; font-size:12px; font-weight:600; padding:8px 2px; }
+  .ned-chip-deg { font-size:8px; opacity:.7; display:block; }
+  .ned-chip-var { background:rgba(240,220,170,0.07); border-color:rgba(240,220,170,0.22); border-top:none; color:#eaddbe; }
+  .ned-chip-bor { background:rgba(45,212,191,0.08); border-color:rgba(45,212,191,0.3); color:#2dd4bf; }
+  .ned-qc-sectlabel { font-size:8px; color:#2dd4bf; font-weight:700; letter-spacing:.12em; text-align:center; padding:8px 0 4px; }
+  .ned-qc-keys-todo { color:#5a5f72; font-size:11px; text-align:center; padding:30px; }
   /* ═══════════════════ MOBILE PIANO ROLL (replaces old key-button grid) ═══════════════════ */
   .mpr-wrap {
     display: flex; flex-direction: column; height: 100%; overflow: hidden;
@@ -44534,6 +44557,22 @@ function renderKeyboardDrawerHtml(song) {
           </div>
         </div>
         <div class="ned-staff" id="nedStaff"></div>
+        <div class="ned-qc" id="nedQC" style="top:55%;">
+          <div class="ned-qc-handle" id="nedQCHandle">
+            <span class="ned-qc-lbl ned-qc-lbl-key">KEY</span>
+            <div class="ned-qc-grip"><div class="ned-qc-grip-bar"></div><div class="ned-qc-grip-hint">drag ↕ to resize</div></div>
+            <span class="ned-qc-lbl ned-qc-lbl-voice">VOICE</span>
+          </div>
+          <div class="ned-qc-controls">
+            <select class="ned-qc-key" id="nedQCKey" onchange="window._nedQCKeyChange&&window._nedQCKeyChange(this.value)"></select>
+            <div class="ned-qc-toggle">
+              <button class="ned-qc-tog-chords ned-on" id="nedQCTogChords" onclick="window._nedSetQCMode&&window._nedSetQCMode('chords')">Chords</button>
+              <button class="ned-qc-tog-keys" id="nedQCTogKeys" onclick="window._nedSetQCMode&&window._nedSetQCMode('keys')">Keys</button>
+            </div>
+            <select class="ned-qc-voice" id="nedQCVoice" onchange="window._nedQCVoiceChange&&window._nedQCVoiceChange(this.value)"></select>
+          </div>
+          <div class="ned-qc-body" id="nedQCBody"></div>
+        </div>
       </div>`;
     }
     const _mprNoteDur = (typeof _kbdNoteDuration !== 'undefined') ? _kbdNoteDuration : 0.25;
@@ -46481,6 +46520,95 @@ function mprCleanup() {
     });
   }
 
+  let _nedQCMode = 'chords';
+  const _NED_QUAL_VARIANTS = {'':['sus2','sus4','add9','maj7','7'], 'm':['m7','m9','madd9','msus4'], 'dim':['dim7','m7b5','dimM7']};
+  const _NED_ROMAN = ['I','II','III','IV','V','VI','VII'];
+  function _nedRoman(name, i){
+    const lower = /m(?!aj)/.test(name) || /dim/.test(name); // minor or diminished → lowercase
+    let r = _NED_ROMAN[i % 7]; if (lower) r = r.toLowerCase();
+    if (/dim/.test(name)) r += '°';
+    return r;
+  }
+  function _nedChordRootQual(name){
+    const clean = name.replace('_viii','');
+    const root = (clean.length >= 2 && clean[1] === '#') ? clean.slice(0,2) : clean[0];
+    return { root, qual: clean.slice(root.length) };
+  }
+  // populate the Key + Voice dropdowns from the song
+  function _nedFillQCDropdowns(){
+    const keySel = document.getElementById('nedQCKey');
+    if (keySel){
+      const cur = (typeof seqCurrentKey==='function')?seqCurrentKey():'C';
+      const KEYS = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+      keySel.innerHTML = KEYS.map(k=>`<option value="${k}"${k===cur?' selected':''}>${k}</option>`).join('');
+    }
+    const voiceSel = document.getElementById('nedQCVoice');
+    if (voiceSel){
+      const seq=_nedSeq(); const cur=(seq&&seq.instrument)||'piano';
+      // chord-instrument options; synth relabeled "Drafthaus" (value stays 'synth'), mobile-only
+      const OPTS = [['synth','Drafthaus'],['piano','Grand Piano'],['piano2','Upright Piano'],['guitar','Guitar'],['piano+synth','Grand + Drafthaus'],['piano2+synth','Upright + Drafthaus']];
+      voiceSel.innerHTML = OPTS.map(([v,l])=>`<option value="${v}"${v===cur?' selected':''}>${l}</option>`).join('');
+    }
+  }
+  function _nedRenderQC(){
+    const body = document.getElementById('nedQCBody');
+    if (!body) return;
+    if (_nedQCMode === 'keys'){ if (typeof _nedRenderKeys==='function') _nedRenderKeys(body); else body.innerHTML='<div class="ned-qc-keys-todo">Keys mode — next task</div>'; return; }
+    const key=(typeof seqCurrentKey==='function')?seqCurrentKey():'C';
+    const mode=(typeof seqCurrentMode==='function')?seqCurrentMode():'major';
+    const dia=(typeof seqGetScaleChords==='function')?seqGetScaleChords(key,mode):[];
+    // Diatonic row (fixed, purple)
+    let html = '<div class="ned-qc-diatonic">' + dia.map((n,i)=>{
+      const disp = n.replace('_viii','⁸');
+      return `<button class="ned-chip ned-chip-dia" data-chord="${disp}"><span class="ned-chip-deg">${_nedRoman(n,i)}</span>${disp}</button>`;
+    }).join('') + '</div>';
+    // Scrollable variations (cream) + borrowed (teal)
+    html += '<div class="ned-qc-scroll">';
+    dia.forEach(n=>{
+      const { root, qual } = _nedChordRootQual(n);
+      const vs = (_NED_QUAL_VARIANTS[qual]||[]).map(sfx=>root+sfx);
+      html += '<div class="ned-qc-varrow">' + vs.map(v=>`<button class="ned-chip ned-chip-var" data-chord="${v}">${v}</button>`).join('') + '</div>';
+    });
+    const borrowed=(typeof getBorrowedChords==='function')?getBorrowedChords(key,mode):[];
+    if (borrowed && borrowed.length){
+      html += '<div class="ned-qc-sectlabel">BORROWED</div><div class="ned-qc-borrowed">'
+        + borrowed.map(b=>`<button class="ned-chip ned-chip-bor" data-chord="${b}">${b}</button>`).join('') + '</div>';
+    }
+    html += '</div>';
+    body.innerHTML = html;
+    // tap a pill = preview (drag-to-staff is a later task)
+    body.querySelectorAll('.ned-chip').forEach(btn=>{
+      btn.addEventListener('click', ()=>{ const c=btn.dataset.chord; if(typeof seqPlayChordByName==='function') seqPlayChordByName(c); });
+    });
+  }
+  // gold-handle drag to resize (adjust overlay top between 25% and 78%)
+  function _nedBindQCResize(){
+    const h=document.getElementById('nedQCHandle'), qc=document.getElementById('nedQC'), staff=document.getElementById('nedStaff');
+    if (!h||!qc||!staff||h._nedBound) return; h._nedBound=true;
+    h.addEventListener('pointerdown', ev=>{
+      ev.preventDefault();
+      const move=e=>{ const r=staff.getBoundingClientRect(); let pct=((e.clientY-r.top)/r.height)*100; pct=Math.max(25,Math.min(78,pct)); qc.style.top=pct+'%'; };
+      const up=()=>{ document.removeEventListener('pointermove',move); document.removeEventListener('pointerup',up); };
+      document.addEventListener('pointermove',move); document.addEventListener('pointerup',up);
+    });
+  }
+  window._nedSetQCMode = function(m){
+    _nedQCMode = m;
+    const tc=document.getElementById('nedQCTogChords'), tk=document.getElementById('nedQCTogKeys');
+    if (tc) tc.classList.toggle('ned-on', m==='chords');
+    if (tk) tk.classList.toggle('ned-on', m==='keys');
+    _nedRenderQC();
+  };
+  window._nedQCKeyChange = function(v){
+    const keyEl=document.getElementById('seqKeySelect');
+    if (keyEl){ keyEl.value=v; if (typeof seqKeySelectChanged==='function') seqKeySelectChanged(keyEl); }
+    else { const s=getCurrentSong(); if (s){ s.key=v; if (typeof save==='function') save(); } }
+    _nedRenderQC(); nedRender();
+  };
+  window._nedQCVoiceChange = function(v){
+    const seq=_nedSeq(); if (seq){ seq.instrument=v; const s=getCurrentSong(); if (s && s.sequencer) s.sequencer.instrument=v; if (typeof save==='function') save(); if (typeof scheduleSyncToSheet==='function'){ const sg=getCurrentSong(); if(sg) scheduleSyncToSheet(sg); } }
+  };
+
   function nedInit() {
     const wrap = document.getElementById('nedWrap');
     if (!wrap) return;
@@ -46499,6 +46627,9 @@ function mprCleanup() {
       }, {passive:true});
     }
     _nedBindEntry();
+    _nedFillQCDropdowns();
+    _nedRenderQC();
+    _nedBindQCResize();
   }
   function nedCleanup() { _nedMounted = false; }
   function nedRender() {
