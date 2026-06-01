@@ -41,6 +41,7 @@ the app already uses, so playback + Firestore sync are unchanged.
    (red) · **▶ Play** (centered, wider; toggles to **■ Stop** while playing — no separate
    stop button) · **TAP** (tap tempo, wide) · **BPM** (manual entry). Maps to
    `rtTapTempo` / `rtMetroSetBpm` / `htBpmInput` and play/record transport.
+   See **Transport, looping & timing** below for Play/REC behavior.
 5. **Grand staff** — dark (black bg, white lines). **Clefs & time signature REMOVED**
    (unicode glyphs rendered badly; bars get full width). **2 bars at a time**, smooth
    **horizontal scroll** for more. Green **bar numbers** at each bar start. Notes
@@ -49,6 +50,28 @@ the app already uses, so playback + Firestore sync are unchanged.
 
 > Reference mockups (gitignored, persist on disk): `.superpowers/brainstorm/91902-*/content/`
 > — `layout-v15.html` (full chrome) and `keyboard-A-final.html` (keyboard mode).
+
+## Transport, looping & timing
+
+- **UCB ▶ Play = loop the SELECTED section.** Plays only the currently selected
+  section, looping it (section-scoped playback — cf. `arrStripPlayToggle` /
+  `window._arrSetSelectedSec(i)`). Toggles to ■ Stop while playing.
+- **Sequence-strip ▶ Play = play from the SELECTED section ONWARD** (through the rest of
+  the song, not looping a single section, and not always-from-the-top). Uses the
+  start-section index (`_startSectionIdx` / `seqActiveIdx`).
+  - ⚠️ **Cross-cutting:** the sequence strip is the **shared global strip** (desktop too).
+    Today `seqStripPlayToggle()` deliberately plays *everything* (`sharedPlaySong`,
+    ignores selection — see CLAUDE.md). Changing it to "from selected onward" affects
+    **all views incl. desktop**, which collides with the *mobile-only / desktop-untouched*
+    constraint. **DECIDE: make this global (accept desktop change) or scope it.** Flag for
+    the plan.
+- **Recording = 2-bar count-in.** Pressing ● REC gives a **2-bar count-in** (metronome)
+  before capture starts, so you can prepare.
+- **Time-signature-aware everywhere.** All bar math uses the section's actual time
+  signature (`seq.time`: 4/4, 3/4, 6/8, 5/4, …), NOT a hard-coded 4/4 — bar width, the
+  "2 bars" window, rest filling, tie/barline crossing, beat snapping, count-in length, and
+  beaming groups (e.g. compound 6/8 beams in threes). One bar = `time × prSnap` columns
+  for simple meters; compound meters handled per their beat grouping.
 
 ## Grand staff rendering — relaxed "notation-styled piano roll"
 
