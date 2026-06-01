@@ -46271,6 +46271,30 @@ function mprCleanup() {
     return seqs[Math.min(seqActiveIdx, seqs.length - 1)] || null;
   }
 
+  const NED_SNAP = 4; // cols per beat — MUST equal prSnap (1/16 grid)
+
+  // Parse seq.time → { num, den, compound, beatsPerBar, beatUnit, groups }
+  // seq.time is a string: '4' meaning 4/4, or 'n/d' like '6/8','3/4','5/4'.
+  function _nedMeter(seq) {
+    const raw = String((seq && seq.time) || '4');
+    let num, den;
+    if (raw.indexOf('/') >= 0) { const p = raw.split('/'); num = parseInt(p[0]); den = parseInt(p[1]); }
+    else { num = parseInt(raw) || 4; den = 4; }
+    const compound = (den === 8 && num % 3 === 0 && num > 3); // 6/8, 9/8, 12/8
+    // beatsPerBar in QUARTER-NOTE beats (NED_SNAP is per quarter): each 1/den note = 4/den quarters
+    const beatsPerBar = num * (4 / den);
+    // beaming groups, in quarter-beats: compound → groups of 3 eighths (1.5 quarters); simple → per beat
+    const groups = compound ? Array(num / 3).fill(1.5) : Array(num).fill(4 / den);
+    return { num, den, compound, beatsPerBar, beatUnit: 4 / den, groups };
+  }
+
+  // columns per bar (integer, for the grid)
+  function _nedColsPerBar(seq) { return Math.round(_nedMeter(seq).beatsPerBar * NED_SNAP); }
+  // selected note length (beats) → columns
+  function _nedDurToCols(seq) { return Math.max(1, Math.round(_nedDur * NED_SNAP)); }
+  // total bars in the section (from seq.bars), min 1
+  function _nedBarCount(seq) { return Math.max(1, parseInt((seq && seq.bars) || '4') || 4); }
+
   function nedInit() {
     const wrap = document.getElementById('nedWrap');
     if (!wrap) return;
@@ -46290,6 +46314,10 @@ function mprCleanup() {
   window.nedRender = nedRender;
   window._nedSetTool = function(t){ _nedTool = t; nedRender(); };
   window._nedSetDur  = function(d){ _nedDur = parseFloat(d); nedRender(); };
+
+  window.__nedMeterTest = function(){
+    return ['4','3/4','6/8','5/4'].map(t => { const m=_nedMeter({time:t}); return t+'→bpb='+m.beatsPerBar+' cols='+_nedColsPerBar({time:t})+' compound='+m.compound+' groups='+m.groups.join(','); });
+  };
 })();
 
 function mprSetTool(tool) {
