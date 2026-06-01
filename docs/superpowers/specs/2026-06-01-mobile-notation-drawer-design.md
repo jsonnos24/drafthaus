@@ -1,6 +1,23 @@
 # Mobile Notation Keyboard Drawer — design
 
-**Status:** design complete (brainstorm). Awaiting final spec review → implementation plan.
+**Status:** IMPLEMENTED in `1.301.html` (2026-06-01, unpushed/un-promoted). Built via the
+plan `docs/superpowers/plans/2026-06-01-mobile-notation-drawer.md` (subagent-driven, every
+task spec+quality reviewed). Desktop verified UNCHANGED (drawer-body diff) except the one
+sanctioned `seqStripPlayToggle` global change. `index.html`/`1.3.html` untouched; promotion
+(copy `1.301.html`→`index.html` + push) awaits user sign-off after a real-browser drive.
+
+**Deferred (NOT implemented — see notes):**
+- **Pointer marquee multi-select + group resize** — single-select + move + resize-on-length-tap
+  shipped; true marquee relies on the pr-IIFE-local `prMultiSelected` (unreachable from ned).
+- **Global new-song instrument default piano2/synth** — would change `_defSeq` for ALL new
+  songs incl. desktop (a 2nd desktop change beyond the sanctioned one), so left out. Mobile
+  correctly READS existing per-section `instrument`/`melodyInstrument` and never overwrites
+  (verified). Needs a user call on whether to change the global default.
+- **Relaxed-notation polish** (non-blocking, tracked): multi-bar tie continuation noteheads;
+  off-left notes clipped at negative cx; beat-quantised rest occupancy can overlap off-beat
+  notes; 6/8 shows 6 eighth-rests/bar (should group dotted-quarter rests); rest glyph 𝄽 is
+  astral-plane unicode (consider SVG path); 1-bar section fills only the left half; flat/
+  mono-colour beams.
 **Date:** 2026-06-01
 **Scope constraint:** **MOBILE PORTRAIT ONLY. Desktop must be untouched.**
 
@@ -107,12 +124,22 @@ NOT strict multi-voice engraving. It reads as a grand staff but follows relaxed 
   selection too).
 - **Added notes inherit the tapped pitch.** Audio feedback on place/drag/drop.
 
-### OPEN — pencil note-length / bar-fill deep-dive (revisit before building this part)
-User's lean: when adding a shorter note, **if it lands where it mathematically fits, keep
-its length and leave the others alone** (free placement, not auto-redistribute). Earlier
-idea (whole→half→quarter cascade) was softened. Exact rule still to be pinned down
-(replace-from-tap vs subdivide-uniform vs free-placement-if-valid) — needs a short
-working session.
+### DECIDED — pencil note-length / bar-fill rule (2026-06-01)
+**Pure free-placement.** Placing a note (tap or drag-paint) **only ever ADDS it** — it
+never trims, shortens, or repartitions any existing note. This is exactly what the current
+PR pencil engine already does (`prNotes.push(newNote)` at `1.301.html:68960` / `:68996`,
+append-only — no neighbor inspection, no bar-fill cascade anywhere), so it's also the
+least code. "Bar completeness" is **not a data constraint** in this polyphonic
+notation-styled roll; it's purely the **renderer's** job: empty beats draw as **rests**,
+notes crossing the barline draw as **ties**, overlaps **stack as a chord**. (Rejected:
+subdivide-uniform and the old whole→half→quarter repartition cascade.)
+
+**One deliberate exception — same-pitch de-dupe:** if the pencil drops a note on the
+**exact same pitch** that is already sounding at that beat (time overlap, same `midi`),
+the **new note replaces** the old overlapping one (new wins / retrigger) rather than
+doubling it. This is the *only* case where placement removes another note; it is a
+phantom-double guard, **not** bar-fill. Different pitch at the same beat still stacks
+(polyphony preserved).
 
 ## Quick Chords overlay
 
@@ -172,8 +199,8 @@ Map to existing `melodyInstrument` / `chordInstrument`:
 1. Mobile-portrait gate + drawer chrome (strip, toolbar, tools+close, UCB w/ REC).
 2. Staff renderer (relaxed notation from `pianoRoll`: noteheads/rests/ties/beams, colours,
    2-bar window + h-scroll, bar numbers).
-3. Note entry (pencil/pointer/eraser, snapping, marquee resize, audio) — *resolve the
-   open bar-fill rule first*.
+3. Note entry (pencil/pointer/eraser, snapping, marquee resize, audio) — bar-fill rule
+   DECIDED: pure free-placement + same-pitch de-dupe (see above).
 4. Quick Chords overlay (toggle header, scroll list, drag-handle resize).
 5. Chord-pill drag-with-ghost.
 6. Keys mode (coloured keyboard, Key Lock, glissando, record).
