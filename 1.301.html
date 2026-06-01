@@ -46538,9 +46538,10 @@ function mprCleanup() {
   function _nedFillQCDropdowns(){
     const keySel = document.getElementById('nedQCKey');
     if (keySel){
-      const cur = (typeof seqCurrentKey==='function')?seqCurrentKey():'C';
-      const KEYS = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-      keySel.innerHTML = KEYS.map(k=>`<option value="${k}"${k===cur?' selected':''}>${k}</option>`).join('');
+      // Clone the real key select's options so our values match exactly (its labels are full
+      // strings like "C major" / "C# / Db major"); a bare-note value would reset song.key to "".
+      const src = document.getElementById('seqKeySelect');
+      if (src && src.options.length) keySel.innerHTML = src.innerHTML;
     }
     const voiceSel = document.getElementById('nedQCVoice');
     if (voiceSel){
@@ -46588,8 +46589,8 @@ function mprCleanup() {
     h.addEventListener('pointerdown', ev=>{
       ev.preventDefault();
       const move=e=>{ const r=staff.getBoundingClientRect(); let pct=((e.clientY-r.top)/r.height)*100; pct=Math.max(25,Math.min(78,pct)); qc.style.top=pct+'%'; };
-      const up=()=>{ document.removeEventListener('pointermove',move); document.removeEventListener('pointerup',up); };
-      document.addEventListener('pointermove',move); document.addEventListener('pointerup',up);
+      const up=()=>{ document.removeEventListener('pointermove',move); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up); };
+      document.addEventListener('pointermove',move); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
     });
   }
   window._nedSetQCMode = function(m){
@@ -46600,10 +46601,12 @@ function mprCleanup() {
     _nedRenderQC();
   };
   window._nedQCKeyChange = function(v){
+    // v is a full key string ("C major", "C# / Db major", ...) cloned from #seqKeySelect, so it
+    // matches a real option — drive the real (transposing) key-change handler.
     const keyEl=document.getElementById('seqKeySelect');
     if (keyEl){ keyEl.value=v; if (typeof seqKeySelectChanged==='function') seqKeySelectChanged(keyEl); }
     else { const s=getCurrentSong(); if (s){ s.key=v; if (typeof save==='function') save(); } }
-    _nedRenderQC(); nedRender();
+    _nedFillQCDropdowns(); _nedRenderQC(); nedRender();
   };
   window._nedQCVoiceChange = function(v){
     const seq=_nedSeq(); if (seq){ seq.instrument=v; const s=getCurrentSong(); if (s && s.sequencer) s.sequencer.instrument=v; if (typeof save==='function') save(); if (typeof scheduleSyncToSheet==='function'){ const sg=getCurrentSong(); if(sg) scheduleSyncToSheet(sg); } }
