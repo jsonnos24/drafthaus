@@ -33483,6 +33483,11 @@ function _ucSetRecState(recording) {
       _ucSyncRecLabel(); // restore "REC · T2" etc.
     }
   });
+  // Keep the mobile-portrait notation-editor REC button (#nedRecBtn) in sync — it only
+  // exists in that drawer, so this is a no-op on desktop. Covers count-in start, natural
+  // loop-end, and external UCB stop (which _nedRecToggle alone couldn't observe).
+  var _nedRb = document.getElementById('nedRecBtn');
+  if (_nedRb) _nedRb.classList.toggle('ned-on', !!recording);
   // Dim/undim other buttons during recording
   var dimIds = ['ucClickBtn','ucClickBtnM'];
   document.querySelectorAll('.uc-play, .uc-everything').forEach(function(el) {
@@ -46700,9 +46705,13 @@ function mprCleanup() {
     };
     kb.addEventListener('pointerdown',start);
   }
-  window._nedRecToggle = function(el){
-    if (typeof _urIsRecording!=='undefined' && _urIsRecording){ if(typeof _urStopRecording==='function') _urStopRecording(); if(el) el.classList.remove('ned-on'); }
-    else { if(typeof _urStartRecording==='function') _urStartRecording(); if(el) el.classList.add('ned-on'); }
+  window._nedRecToggle = function(){
+    // Active = recording OR mid count-in (so a second press cancels the count-in too).
+    // The button's .ned-on class is owned by _ucSetRecState, which fires on every
+    // start/cancel/stop — so we don't toggle it here (avoids the stuck-on state).
+    const active = (typeof _urIsRecording!=='undefined' && _urIsRecording) || (typeof _urCountingIn!=='undefined' && _urCountingIn);
+    if (active){ if(typeof _urStopRecording==='function') _urStopRecording(); }
+    else { if(typeof _urStartRecording==='function') _urStartRecording(); }
   };
 
   function nedInit() {
