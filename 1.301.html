@@ -4807,6 +4807,8 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ═══════════════════ MOBILE-PORTRAIT NOTATION EDITOR (ned*) ═══════════════════ */
   .ned-wrap { display:flex; flex-direction:column; height:100%; background:#0d0e13; color:#e8e8ee; font-family:'IBM Plex Mono',monospace; }
   .ned-staff { position:relative; flex:1; min-height:0; background:#0d0e13; overflow:hidden; }
+  .ned-scrollhint { position:absolute; left:0; right:0; bottom:6px; text-align:center; color:#5a5f72; font-size:10px; pointer-events:none; }
+  .ned-svg { display:block; position:absolute; top:0; left:0; }
   /* ═══════════════════ MOBILE PIANO ROLL (replaces old key-button grid) ═══════════════════ */
   .mpr-wrap {
     display: flex; flex-direction: column; height: 100%; overflow: hidden;
@@ -46295,17 +46297,61 @@ function mprCleanup() {
   // total bars in the section (from seq.bars), min 1
   function _nedBarCount(seq) { return Math.max(1, parseInt((seq && seq.bars) || '4') || 4); }
 
+  // staff geometry (per the layout-v15 mockup)
+  const NED_LINE_GAP = 15;   // px between adjacent staff positions (line→space)
+  const NED_TREBLE_TOP = 44; // y of top treble line
+  const NED_BASS_TOP   = 254;// y of top bass line
+  const NED_BAR_PAD = 12;    // left/right inset
+  const _NED_LETTER = [0,0,1,1,2,3,3,4,4,5,5,6]; // C C# D D# E F F# G G# A A# B → letter index
+  function _nedDiatonic(midi){ const oct=Math.floor(midi/12)-1; const l=_NED_LETTER[((midi%12)+12)%12]; return oct*7 + l; }
+  // F5 (midi 77) sits at NED_TREBLE_TOP; each diatonic step = half a line-gap
+  function _nedMidiToY(midi){ const ref=_nedDiatonic(77); const steps=ref-_nedDiatonic(midi); return NED_TREBLE_TOP + steps*(NED_LINE_GAP/2); }
+
   function nedInit() {
     const wrap = document.getElementById('nedWrap');
     if (!wrap) return;
     _nedMounted = true;
     nedRender();
+    const staffEl = document.getElementById('nedStaff');
+    if (staffEl && !staffEl._nedSwipeBound) {
+      staffEl._nedSwipeBound = true;
+      let sx=0;
+      staffEl.addEventListener('touchstart', e=>{ sx=e.touches[0].clientX; }, {passive:true});
+      staffEl.addEventListener('touchend', e=>{
+        const dx=(e.changedTouches[0].clientX)-sx; if (Math.abs(dx)<40) return;
+        const seq=_nedSeq(); const total=_nedBarCount(seq);
+        _nedScrollBar = Math.max(0, Math.min(total-2, _nedScrollBar - Math.sign(dx)*2));
+        nedRender();
+      }, {passive:true});
+    }
   }
   function nedCleanup() { _nedMounted = false; }
   function nedRender() {
     if (!_nedMounted) return;
     const staff = document.getElementById('nedStaff');
-    if (staff) staff.innerHTML = '<div style="color:#5a5f72;font-size:11px;text-align:center;padding:40px;">notation editor — staff renders in Milestone B</div>';
+    const seq = _nedSeq();
+    if (!staff || !seq) return;
+    const cpb = _nedColsPerBar(seq);
+    const totalBars = _nedBarCount(seq);
+    const W = staff.clientWidth || 390;
+    const barW = (W - NED_BAR_PAD*2) / 2;      // 2 bars across the viewport
+    const winBars = Math.min(2, totalBars);
+    let svg = `<svg width="${W}" height="386" viewBox="0 0 ${W} 386" class="ned-svg">`;
+    // staff lines (treble 5 + bass 5)
+    svg += `<g stroke="#fff" stroke-width="1.1">`;
+    for (let i=0;i<5;i++){ const y=NED_TREBLE_TOP+i*NED_LINE_GAP*2; svg+=`<line x1="${NED_BAR_PAD}" y1="${y}" x2="${W-NED_BAR_PAD}" y2="${y}"/>`; }
+    for (let i=0;i<5;i++){ const y=NED_BASS_TOP+i*NED_LINE_GAP*2; svg+=`<line x1="${NED_BAR_PAD}" y1="${y}" x2="${W-NED_BAR_PAD}" y2="${y}"/>`; }
+    svg += `</g>`;
+    // barlines + green bar numbers for the visible window
+    svg += `<g stroke="#fff" stroke-width="1.1">`;
+    for (let b=0;b<=winBars;b++){ const x=NED_BAR_PAD+b*barW; svg+=`<line x1="${x}" y1="${NED_TREBLE_TOP}" x2="${x}" y2="${NED_BASS_TOP+4*NED_LINE_GAP*2}"/>`; }
+    svg += `</g>`;
+    for (let b=0;b<winBars;b++){ const x=NED_BAR_PAD+b*barW+4; svg+=`<text x="${x}" y="27" font-size="14" fill="#6ee89a" font-family="monospace" font-weight="700">${_nedScrollBar+b+1}</text>`; }
+    svg += `</svg>`;
+    staff.innerHTML = svg
+      + `<div class="ned-scrollhint">‹ bars ${_nedScrollBar+1}–${Math.min(_nedScrollBar+winBars,totalBars)} of ${totalBars} · swipe ›</div>`;
+    // expose px-per-column for later layers
+    staff.dataset.barw = barW; staff.dataset.cpb = cpb;
   }
 
   // expose
