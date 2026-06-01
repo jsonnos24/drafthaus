@@ -92,8 +92,11 @@ working session.
 - **Bottom overlay over the staff.** Resting top edge covers the **bottom 3 bass-staff
   lines** (full treble + top 2 bass lines stay visible). **Gold drag-handle**: drag UP =
   reveal more, DOWN = less.
-- **Header:** **Key dropdown** left · **Chords | Keys** segmented toggle center ·
-  **Voice dropdown** right. (In Chords mode title can read "Quick Chords".)
+- **Header (two rows):** a **label row** — `KEY` left · the gold **drag-handle** +
+  "drag to resize" centered · `VOICE` right — sitting above a **controls row** —
+  **Key dropdown** left · **Chords | Keys** toggle center · **Voice dropdown** right.
+  Labels go *above* their dropdowns (not inline) so the Voice value (e.g. "Drafthaus")
+  doesn't wrap.
 - **Content (Chords mode):** desktop Quick Chords palette — **Diatonic** row fixed on top
   (purple), then a **scrollable** list of **Variations** (cream) and a labeled
   **Borrowed** section (teal). Everything reachable by scroll; nothing stranded.
