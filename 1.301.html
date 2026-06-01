@@ -46465,7 +46465,7 @@ function mprCleanup() {
     return `<text x="${cx-4}" y="${y+5}" font-size="18" fill="#6a6f82" font-family="serif">𝄽</text>`;
   }
 
-  let _nedSelected = null; // id of the pointer-selected note (single-select; marquee deferred)
+  let _nedSelectedSet = new Set(); // ids of pointer-selected notes (tap toggles; drag moves the group)
   let _nedIdc = 0;
   function _nedNextId(){ const seq=_nedSeq(); let max=0; (seq&&seq.pianoRoll||[]).forEach(n=>{ if((n.id|0)>max) max=n.id|0; }); _nedIdc=Math.max(_nedIdc,max); return ++_nedIdc; }
   function _nedSave(){
@@ -46533,15 +46533,33 @@ function mprCleanup() {
         const mv=e=>del(e.clientX,e.clientY);
         const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up); _nedSave(); };
         document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
-      } else { // pointer: select + drag-move on fine grid
+      } else { // pointer: tap toggles selection; drag moves the whole selection (fine 1/16 grid)
         const h=_nedHitNote(ev.clientX,ev.clientY);
-        _nedSelected = h ? h.id : null;
-        if(h && typeof window.prPreviewNote==='function') window.prPreviewNote({midi:h.midi});
-        nedRender();
-        if(!h) return;
+        if(!h){ _nedSelectedSet.clear(); nedRender(); return; } // tap empty space → clear
         ev.preventDefault();
-        const mv=e=>{ const seq=_nedSeq(); const n=seq&&seq.pianoRoll.find(x=>x.id===_nedSelected); if(!n) return; n.startCol=_nedXToCol(e.clientX,true); n.midi=_nedYToMidi(e.clientY); nedRender(); };
-        const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up); _nedSave(); };
+        const startCol=_nedXToCol(ev.clientX,true), startMidi=_nedYToMidi(ev.clientY);
+        let moved=false, origs=null;
+        const mv=e=>{
+          if(!moved){
+            if(Math.abs(e.clientX-ev.clientX)<6 && Math.abs(e.clientY-ev.clientY)<8) return; // tap threshold
+            moved=true;
+            if(!_nedSelectedSet.has(h.id)){ _nedSelectedSet.clear(); _nedSelectedSet.add(h.id); } // dragging an unselected note → select just it
+            const seq=_nedSeq(); origs={};
+            (seq&&seq.pianoRoll||[]).forEach(n=>{ if(_nedSelectedSet.has(n.id)) origs[n.id]={startCol:n.startCol, midi:n.midi}; });
+          }
+          const seq=_nedSeq(); if(!seq||!origs) return;
+          const colD=_nedXToCol(e.clientX,true)-startCol, midiD=_nedYToMidi(e.clientY)-startMidi;
+          seq.pianoRoll.forEach(n=>{ const o=origs[n.id]; if(o){ n.startCol=Math.max(0,o.startCol+colD); n.midi=o.midi+midiD; } });
+          nedRender();
+        };
+        const up=()=>{
+          document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up);
+          if(!moved){ // pure tap → toggle membership
+            if(_nedSelectedSet.has(h.id)) _nedSelectedSet.delete(h.id);
+            else { _nedSelectedSet.add(h.id); if(typeof window.prPreviewNote==='function') window.prPreviewNote({midi:h.midi}); }
+            nedRender();
+          } else { _nedSave(); }
+        };
         document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
       }
     });
@@ -46738,7 +46756,7 @@ function mprCleanup() {
   // Re-sync the editor when the active section changes via the global sequence strip (portrait only).
   window._nedRefresh = function(){
     if (!_nedMounted || !document.getElementById('nedWrap')) return;
-    _nedScrollBar = 0; _nedSelected = null;
+    _nedScrollBar = 0; _nedSelectedSet.clear();
     _nedFillQCDropdowns(); _nedRenderQC(); nedRender();
   };
 
@@ -46834,7 +46852,7 @@ function mprCleanup() {
       const cy = _nedMidiToY(n.midi);
       const color = _nedColor(n);
       svg += _nedNotehead(cx, cy, n.durCols|0, color, _beamedIds.has(n.id));
-      if (n.id===_nedSelected) svg += `<circle cx="${cx}" cy="${cy}" r="12" fill="none" stroke="#fff" stroke-width="1" opacity="0.7"/>`;
+      if (_nedSelectedSet.has(n.id)) svg += `<circle cx="${cx}" cy="${cy}" r="12" fill="none" stroke="#fff" stroke-width="1" opacity="0.7"/>`;
       // tie arc if the note crosses a barline within the window
       const crossesBar = Math.floor(start / cpb) !== Math.floor((end-1) / cpb);
       if (crossesBar) {
@@ -46865,7 +46883,7 @@ function mprCleanup() {
   window.nedRender = nedRender;
   window._nedSetTool = function(t, el){
     _nedTool = t;
-    _nedSelected = null; // drop any selection so its highlight ring doesn't linger across tools
+    _nedSelectedSet.clear(); // drop any selection so its highlight rings don't linger across tools
     document.querySelectorAll('#nedWrap .ned-tool-btn').forEach(b => b.classList.toggle('ned-tool-active', b === el || (!el && b.dataset.tool === t)));
     nedRender();
   };
@@ -46873,7 +46891,7 @@ function mprCleanup() {
     _nedDur = parseFloat(d);
     document.querySelectorAll('#nedWrap .ned-dur-btn').forEach(b => b.classList.toggle('ned-dur-active', b === el || (!el && b.dataset.dur === String(d))));
     const seq=_nedSeq();
-    if (_nedSelected!=null && seq){ const n=seq.pianoRoll.find(x=>x.id===_nedSelected); if(n){ n.durCols=_nedDurToCols(seq); _nedSave(); } }
+    if (_nedSelectedSet.size && seq){ const d=_nedDurToCols(seq); seq.pianoRoll.forEach(n=>{ if(_nedSelectedSet.has(n.id)) n.durCols=d; }); _nedSave(); }
     nedRender();
   };
   window._nedToggleKeyLock = function(el){
