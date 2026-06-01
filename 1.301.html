@@ -46805,8 +46805,8 @@ function mprCleanup() {
     const totalBars = _nedBarCount(seq);
     _nedScrollBar = Math.max(0, Math.min(_nedScrollBar, Math.max(0, totalBars - 2))); // clamp (section may be shorter than where we'd scrolled)
     const W = staff.clientWidth || 390;
-    const barW = (W - NED_BAR_PAD*2) / 2;      // 2 bars across the viewport
     const winBars = Math.min(2, totalBars);
+    const barW = (W - NED_BAR_PAD*2) / winBars; // fill the viewport: 2 bars → half each; a 1-bar section → full width
     let svg = `<svg width="${W}" height="386" viewBox="0 0 ${W} 386" class="ned-svg">`;
     // staff lines (treble 5 + bass 5)
     svg += `<g stroke="#fff" stroke-width="1.1">`;
@@ -46833,15 +46833,19 @@ function mprCleanup() {
         _bm.groups.forEach(gBeats => {
           const gCols = Math.round(gBeats*NED_SNAP);
           const gStart = winStartCol + b*cpb + groupStartCol;
-          const run = cols.filter(n => (n.durCols|0)<=2 && n.startCol>=gStart && n.startCol<gStart+gCols)
-                          .sort((a,c)=>a.startCol-c.startCol);
-          if (run.length>=2){
+          const run = cols.filter(n => (n.durCols|0)<=2 && n.startCol>=gStart && n.startCol<gStart+gCols);
+          // Beam across DISTINCT beat positions — a chord (stack at one startCol) is a single
+          // beam-point and shares the beam, rather than beaming its own stacked notes together.
+          const posCols = [...new Set(run.map(n=>n.startCol))].sort((a,c)=>a-c);
+          if (posCols.length>=2){
             run.forEach(n=>_beamedIds.add(n.id));
-            const x1 = NED_BAR_PAD+(run[0].startCol-winStartCol)*colPx+colPx/2+6;
-            const xN = NED_BAR_PAD+(run[run.length-1].startCol-winStartCol)*colPx+colPx/2+6;
-            const yTop = Math.min(...run.map(n=>_nedMidiToY(n.midi)))-26;
-            _beamSvg += `<line x1="${x1}" y1="${yTop}" x2="${xN}" y2="${yTop}" stroke="${_nedColor(run[0])}" stroke-width="3"/>`;
-            if (run.every(n=>(n.durCols|0)===1)) _beamSvg += `<line x1="${x1}" y1="${yTop+5}" x2="${xN}" y2="${yTop+5}" stroke="${_nedColor(run[0])}" stroke-width="3"/>`;
+            const xAt = c => NED_BAR_PAD+(c-winStartCol)*colPx+colPx/2+6;       // stem x
+            const yAt = c => Math.min(...run.filter(n=>n.startCol===c).map(n=>_nedMidiToY(n.midi)))-26; // top stem at that beat
+            const x1=xAt(posCols[0]), y1=yAt(posCols[0]);
+            const xN=xAt(posCols[posCols.length-1]), yN=yAt(posCols[posCols.length-1]);
+            const color=_nedColor(run.find(n=>n.startCol===posCols[0])); // melody note's colour at the first beat
+            _beamSvg += `<line x1="${x1}" y1="${y1}" x2="${xN}" y2="${yN}" stroke="${color}" stroke-width="3"/>`; // sloped beam
+            if (run.every(n=>(n.durCols|0)===1)) _beamSvg += `<line x1="${x1}" y1="${y1+5}" x2="${xN}" y2="${yN+5}" stroke="${color}" stroke-width="3"/>`; // 2nd beam (16ths)
           }
           groupStartCol += gCols;
         });
