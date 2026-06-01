@@ -46849,17 +46849,29 @@ function mprCleanup() {
     }
     cols.forEach(n => {
       const start = n.startCol|0, end = start + (n.durCols|0);
-      if (end <= winStartCol || start >= winEndCol) return; // off-window
-      const cx = NED_BAR_PAD + (start - winStartCol) * colPx + colPx/2;
+      if (end <= winStartCol || start >= winEndCol) return; // fully off-window
       const cy = _nedMidiToY(n.midi);
       const color = _nedColor(n);
-      svg += _nedNotehead(cx, cy, n.durCols|0, color, _beamedIds.has(n.id));
-      if (_nedSelectedSet.has(n.id)) svg += `<circle cx="${cx}" cy="${cy}" r="12" fill="none" stroke="#fff" stroke-width="1" opacity="0.7"/>`;
-      // tie arc if the note crosses a barline within the window
-      const crossesBar = Math.floor(start / cpb) !== Math.floor((end-1) / cpb);
-      if (crossesBar) {
-        const barX = NED_BAR_PAD + (Math.ceil(start/cpb)*cpb - winStartCol) * colPx;
-        svg += `<path d="M${cx},${cy+8} Q${(cx+barX)/2},${cy+16} ${barX},${cy+8}" fill="none" stroke="${color}" stroke-width="1.6" opacity="0.8"/>`;
+      const selected = _nedSelectedSet.has(n.id);
+      // Split the note at every barline it crosses → one tied segment per bar.
+      // boundaries = [start, ...crossed barlines..., end]; segment i spans [boundaries[i], boundaries[i+1]).
+      const boundaries = [start];
+      for (let bl=(Math.floor(start/cpb)+1)*cpb; bl<end; bl+=cpb) boundaries.push(bl);
+      boundaries.push(end);
+      let prevX=null, prevVisible=false;
+      for (let i=0;i<boundaries.length-1;i++){
+        const segCol=boundaries[i], segDur=boundaries[i+1]-segCol;
+        const visible = segCol>=winStartCol && segCol<winEndCol;
+        const cx = NED_BAR_PAD + (segCol - winStartCol)*colPx + colPx/2;
+        if (visible){
+          svg += _nedNotehead(cx, cy, segDur, color, _beamedIds.has(n.id) && i===0); // beam only the original (1st) segment
+          if (selected) svg += `<circle cx="${cx}" cy="${cy}" r="12" fill="none" stroke="#fff" stroke-width="1" opacity="0.7"/>`;
+          if (i>0){ // tie arc into this continuation head (from prev head, or from the left edge if prev is off-window-left)
+            const fromX = prevVisible ? prevX : NED_BAR_PAD;
+            svg += `<path d="M${fromX},${cy+8} Q${(fromX+cx)/2},${cy+16} ${cx},${cy+8}" fill="none" stroke="${color}" stroke-width="1.6" opacity="0.8"/>`;
+          }
+        }
+        prevX=cx; prevVisible=visible;
       }
     });
     // rests: one rest per empty beat-group (6/8 → 2, 4/4 → 4, 3/4 → 3)
