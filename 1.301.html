@@ -4855,6 +4855,12 @@ button, select, input, textarea { touch-action: manipulation; }
   .ned-chip-bor { background:rgba(45,212,191,0.08); border-color:rgba(45,212,191,0.3); color:#2dd4bf; }
   .ned-qc-sectlabel { font-size:8px; color:#2dd4bf; font-weight:700; letter-spacing:.12em; text-align:center; padding:8px 0 4px; }
   .ned-qc-keys-todo { color:#5a5f72; font-size:11px; text-align:center; padding:30px; }
+  .ned-qc-body { flex:1; min-height:0; display:flex; flex-direction:column; }
+  .ned-keys-hint { font-size:8px; color:#6a6f82; text-align:center; padding:4px 0 5px; flex-shrink:0; }
+  .ned-keys { flex:1; min-height:0; margin:0 8px 8px; position:relative; border-radius:6px; overflow:hidden; display:flex; background:#222; touch-action:none; }
+  .ned-key-white { flex:1; border-right:1px solid rgba(0,0,0,0.25); }
+  .ned-key-black { position:absolute; top:0; width:5%; height:60%; border-radius:0 0 2px 2px; z-index:2; }
+  .ned-key-dim { opacity:0.5; }
   /* ═══════════════════ MOBILE PIANO ROLL (replaces old key-button grid) ═══════════════════ */
   .mpr-wrap {
     display: flex; flex-direction: column; height: 100%; overflow: hidden;
@@ -46547,7 +46553,7 @@ function mprCleanup() {
     }
     const voiceSel = document.getElementById('nedQCVoice');
     if (voiceSel){
-      const seq=_nedSeq(); const cur=(seq&&seq.instrument)||'piano';
+      const seq=_nedSeq(); const cur = (_nedQCMode==='keys') ? ((seq&&seq.melodyInstrument)||'piano') : ((seq&&seq.instrument)||'piano');
       // chord-instrument options; synth relabeled "Drafthaus" (value stays 'synth'), mobile-only
       const OPTS = [['synth','Drafthaus'],['piano','Grand Piano'],['piano2','Upright Piano'],['guitar','Guitar'],['piano+synth','Grand + Drafthaus'],['piano2+synth','Upright + Drafthaus']];
       voiceSel.innerHTML = OPTS.map(([v,l])=>`<option value="${v}"${v===cur?' selected':''}>${l}</option>`).join('');
@@ -46599,6 +46605,7 @@ function mprCleanup() {
     const tc=document.getElementById('nedQCTogChords'), tk=document.getElementById('nedQCTogKeys');
     if (tc) tc.classList.toggle('ned-on', m==='chords');
     if (tk) tk.classList.toggle('ned-on', m==='keys');
+    _nedFillQCDropdowns();
     _nedRenderQC();
   };
   window._nedQCKeyChange = function(v){
@@ -46610,7 +46617,11 @@ function mprCleanup() {
     _nedFillQCDropdowns(); _nedRenderQC(); nedRender();
   };
   window._nedQCVoiceChange = function(v){
-    const seq=_nedSeq(); if (seq){ seq.instrument=v; const s=getCurrentSong(); if (s && s.sequencer) s.sequencer.instrument=v; if (typeof save==='function') save(); if (typeof scheduleSyncToSheet==='function'){ const sg=getCurrentSong(); if(sg) scheduleSyncToSheet(sg); } }
+    const seq=_nedSeq(); if(!seq) return;
+    if (_nedQCMode==='keys'){ seq.melodyInstrument=v; }
+    else { seq.instrument=v; const s=getCurrentSong(); if(s&&s.sequencer) s.sequencer.instrument=v; }
+    if (typeof save==='function') save();
+    if (typeof scheduleSyncToSheet==='function'){ const sg=getCurrentSong(); if(sg) scheduleSyncToSheet(sg); }
   };
 
   window._nedDropChordAt = function(name, degree, col){
@@ -46658,6 +46669,41 @@ function mprCleanup() {
     };
     document.addEventListener('pointermove',move); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
   }
+
+  // ── Keys mode: 2-octave rainbow mini-piano ───────────────────────────────
+  const _NED_WHITE_MIDI = [60,62,64,65,67,69,71,72,74,76];
+  // black key: [midi, leftPercent] (positions from the mockup)
+  const _NED_BLACK = [[61,7.5],[63,17.5],[66,37.5],[68,47.5],[70,57.5],[73,77.5],[75,87.5]];
+  function _nedKeyInScale(midi){ const deg=_nedKeyDeg[_NED_NOTES[((midi%12)+12)%12]]; return deg!=null; }
+  function _nedKeyColor(midi, black){ const deg=_nedKeyDeg[_NED_NOTES[((midi%12)+12)%12]]; if(deg==null) return black?'#2a2a2a':'#3a3d47'; return (black?_NED_RBB:_NED_RBW)[deg%7]; }
+  function _nedRenderKeys(body){
+    _nedKeyDeg = _nedBuildKeyDeg();
+    const lock = (typeof _prKeyLock!=='undefined') && _prKeyLock;
+    let html = '<div class="ned-keys-hint">'+(lock?'🔒 Key Lock on — out-of-scale keys dimmed':'press & drag to glide')+'</div>';
+    html += '<div class="ned-keys" id="nedKeys">';
+    _NED_WHITE_MIDI.forEach(m=>{ const dim=lock && !_nedKeyInScale(m); html += `<div class="ned-key ned-key-white${dim?' ned-key-dim':''}" data-midi="${m}" style="background:${dim?'#22242c':_nedKeyColor(m,false)};"></div>`; });
+    _NED_BLACK.forEach(([m,left])=>{ const dim=lock && !_nedKeyInScale(m); html += `<div class="ned-key ned-key-black${dim?' ned-key-dim':''}" data-midi="${m}" style="left:${left}%;background:${dim?'#1a1a1f':_nedKeyColor(m,true)};"></div>`; });
+    html += '</div>';
+    body.innerHTML = html;
+    _nedBindKeys();
+  }
+  function _nedKeyHit(x,y){ const el=document.elementFromPoint(x,y); if(el && el.classList && el.classList.contains('ned-key') && !el.classList.contains('ned-key-dim')) return el; return null; }
+  function _nedKeyDown(midi){ if(typeof window.prPreviewNote==='function') window.prPreviewNote({midi}); if((typeof _urIsRecording!=='undefined'&&_urIsRecording) && typeof window.prRecordNoteOn==='function') window.prRecordNoteOn(midi,'',-1); }
+  function _nedKeyUp(midi){ if((typeof _urIsRecording!=='undefined'&&_urIsRecording) && typeof window.prRecordNoteOff==='function') window.prRecordNoteOff(midi); }
+  function _nedBindKeys(){
+    const kb=document.getElementById('nedKeys'); if(!kb || kb._nedBound) return; kb._nedBound=true;
+    let active=false, lastMidi=null;
+    const start=e=>{ const el=_nedKeyHit(e.clientX,e.clientY); if(!el) return; e.preventDefault(); active=true; lastMidi=parseInt(el.dataset.midi); _nedKeyDown(lastMidi);
+      const mv=ev=>{ if(!active) return; const k=_nedKeyHit(ev.clientX,ev.clientY); if(!k) return; const m=parseInt(k.dataset.midi); if(m!==lastMidi){ if(lastMidi!=null) _nedKeyUp(lastMidi); lastMidi=m; _nedKeyDown(m); } };
+      const up=()=>{ active=false; if(lastMidi!=null) _nedKeyUp(lastMidi); lastMidi=null; document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up); };
+      document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
+    };
+    kb.addEventListener('pointerdown',start);
+  }
+  window._nedRecToggle = function(el){
+    if (typeof _urIsRecording!=='undefined' && _urIsRecording){ if(typeof _urStopRecording==='function') _urStopRecording(); if(el) el.classList.remove('ned-on'); }
+    else { if(typeof _urStartRecording==='function') _urStartRecording(); if(el) el.classList.add('ned-on'); }
+  };
 
   function nedInit() {
     const wrap = document.getElementById('nedWrap');
