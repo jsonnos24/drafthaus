@@ -33,8 +33,10 @@ the app already uses, so playback + Firestore sync are unchanged.
    sixteenth — reuse the desktop `pr-dur-btn` SVG noteheads + `prSetDuration`); on the
    right **🔒 Key** (KeyLock, `_prKeyLock`) sitting beside **🎲 Vel** (randomize velocity,
    `prRandomizeVelocity`; shows toast "randomized velocity").
-3. **Tools + Close row:** **▸ pointer · ✎ pencil · ✕ erase** left-aligned & large
+3. **Tools + Close row:** **pointer · ✎ pencil · ✕ erase** left-aligned & large
    (~46×38, easily tappable); **⌄ Close** (closes drawer) right-aligned.
+   - **Pointer icon = a mouse-cursor arrow** (classic angled cursor, e.g. an SVG arrow
+     pointing up-left). **NOT** a `▸` play/triangle glyph — that reads as Play.
 4. **Stripped UCB transport:** **Click** (metronome toggle, text only) left · **● REC**
    (red) · **▶ Play** (centered, wider; toggles to **■ Stop** while playing — no separate
    stop button) · **TAP** (tap tempo, wide) · **BPM** (manual entry). Maps to
