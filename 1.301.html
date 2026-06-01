@@ -46360,9 +46360,27 @@ function mprCleanup() {
 
   const _NED_RBW = ['#e53e3e','#ed8936','#ecc94b','#48bb78','#4fd1c5','#4299e1','#9f7aea'];
   const _NED_RBB = ['#7f1d1d','#7c2d12','#713f12','#14532d','#134e4a','#1e3a5f','#3b1f6e'];
+  const _NED_NOTES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  let _nedKeyDeg = {}; // note-name → scale-degree index for the current key; rebuilt each render
+  // Build the key→degree map the same way the desktop PR does (seqCurrentKey/Mode + SEQ_SCALES).
+  function _nedBuildKeyDeg(){
+    const deg = {};
+    try {
+      const k = (typeof seqCurrentKey === 'function') ? seqCurrentKey() : 'C';
+      const m = (typeof seqCurrentMode === 'function') ? seqCurrentMode() : 'major';
+      const ri = _NED_NOTES.indexOf(k);
+      const steps = (typeof SEQ_SCALES !== 'undefined' && SEQ_SCALES[m]) ? SEQ_SCALES[m].steps : [0,2,4,5,7,9,11];
+      steps.forEach((s, i) => { const n = _NED_NOTES[(ri + s) % 12]; if (!(n in deg)) deg[n] = i; });
+    } catch(e) {}
+    return deg;
+  }
+  // Colour by scale degree (computed from pitch + current key, like desktop) — pencil notes store degree:-1,
+  // so we derive it here. Out-of-scale pitches get a neutral so they stay visible on the dark staff.
   function _nedColor(n){
-    const deg = (typeof n.degree==='number' && n.degree>=0) ? n.degree : 0;
-    const isBlack = [1,3,6,8,10].indexOf(((n.midi%12)+12)%12) >= 0;
+    const pc = ((n.midi % 12) + 12) % 12;
+    const isBlack = [1,3,6,8,10].indexOf(pc) >= 0;
+    const deg = _nedKeyDeg[_NED_NOTES[pc]];
+    if (deg == null) return isBlack ? '#5a5f72' : '#c9ccd6'; // out-of-scale neutral
     return (isBlack ? _NED_RBB : _NED_RBW)[deg % 7];
   }
   // notehead at (cx,cy), coloured, shaped by durCols (1/16 cols): >=16 whole(open,no stem),
@@ -46405,6 +46423,7 @@ function mprCleanup() {
     const staff = document.getElementById('nedStaff');
     const seq = _nedSeq();
     if (!staff || !seq) return;
+    _nedKeyDeg = _nedBuildKeyDeg();
     const cpb = _nedColsPerBar(seq);
     const totalBars = _nedBarCount(seq);
     const W = staff.clientWidth || 390;
