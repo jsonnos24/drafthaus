@@ -46316,13 +46316,13 @@ function mprCleanup() {
   }
   // notehead at (cx,cy), coloured, shaped by durCols (1/16 cols): >=16 whole(open,no stem),
   // 8 half(open+stem), 4 quarter(filled+stem), 2 eighth(+flag), 1 sixteenth(+2 flags)
-  function _nedNotehead(cx, cy, durCols, color){
+  function _nedNotehead(cx, cy, durCols, color, beamed){
     const open = durCols >= 8;
     const fill = open ? 'none' : color;
     let s = `<ellipse cx="${cx}" cy="${cy}" rx="7" ry="5" fill="${fill}" stroke="${color}" stroke-width="2.2" transform="rotate(-15,${cx},${cy})"/>`;
     if (durCols < 16) s += `<line x1="${cx+6}" y1="${cy}" x2="${cx+6}" y2="${cy-26}" stroke="${color}" stroke-width="1.8"/>`; // stem (not on whole)
-    if (durCols === 2) s += `<path d="M${cx+6},${cy-26} c5,2 7,6 4,11" fill="none" stroke="${color}" stroke-width="1.8"/>`; // 8th flag
-    if (durCols === 1) s += `<path d="M${cx+6},${cy-26} c5,2 7,6 4,11 M${cx+6},${cy-19} c5,2 7,6 4,11" fill="none" stroke="${color}" stroke-width="1.8"/>`; // 16th
+    if (!beamed && durCols === 2) s += `<path d="M${cx+6},${cy-26} c5,2 7,6 4,11" fill="none" stroke="${color}" stroke-width="1.8"/>`; // 8th flag
+    if (!beamed && durCols === 1) s += `<path d="M${cx+6},${cy-26} c5,2 7,6 4,11 M${cx+6},${cy-19} c5,2 7,6 4,11" fill="none" stroke="${color}" stroke-width="1.8"/>`; // 16th
     return s;
   }
   function _nedRest(cx){
@@ -46374,13 +46374,38 @@ function mprCleanup() {
     const winStartCol = _nedScrollBar * cpb;
     const winEndCol   = winStartCol + winBars * cpb;
     const colPx = barW / cpb;
+    // BEAMING: within each beat-group, join runs (>=2) of 8ths/16ths (durCols<=2) with a beam line.
+    // Compound meters (6/8 etc.) group in threes automatically via _nedMeter().groups.
+    const _beamedIds = new Set();
+    let _beamSvg = '';
+    {
+      const _bm = _nedMeter(seq);
+      for (let b=0;b<winBars;b++){
+        let groupStartCol = 0;
+        _bm.groups.forEach(gBeats => {
+          const gCols = Math.round(gBeats*NED_SNAP);
+          const gStart = winStartCol + b*cpb + groupStartCol;
+          const run = cols.filter(n => (n.durCols|0)<=2 && n.startCol>=gStart && n.startCol<gStart+gCols)
+                          .sort((a,c)=>a.startCol-c.startCol);
+          if (run.length>=2){
+            run.forEach(n=>_beamedIds.add(n.id));
+            const x1 = NED_BAR_PAD+(run[0].startCol-winStartCol)*colPx+colPx/2+6;
+            const xN = NED_BAR_PAD+(run[run.length-1].startCol-winStartCol)*colPx+colPx/2+6;
+            const yTop = Math.min(...run.map(n=>_nedMidiToY(n.midi)))-26;
+            _beamSvg += `<line x1="${x1}" y1="${yTop}" x2="${xN}" y2="${yTop}" stroke="${_nedColor(run[0])}" stroke-width="3"/>`;
+            if (run.every(n=>(n.durCols|0)===1)) _beamSvg += `<line x1="${x1}" y1="${yTop+5}" x2="${xN}" y2="${yTop+5}" stroke="${_nedColor(run[0])}" stroke-width="3"/>`;
+          }
+          groupStartCol += gCols;
+        });
+      }
+    }
     cols.forEach(n => {
       const start = n.startCol|0, end = start + (n.durCols|0);
       if (end <= winStartCol || start >= winEndCol) return; // off-window
       const cx = NED_BAR_PAD + (start - winStartCol) * colPx + colPx/2;
       const cy = _nedMidiToY(n.midi);
       const color = _nedColor(n);
-      svg += _nedNotehead(cx, cy, n.durCols|0, color);
+      svg += _nedNotehead(cx, cy, n.durCols|0, color, _beamedIds.has(n.id));
       // tie arc if the note crosses a barline within the window
       const crossesBar = Math.floor(start / cpb) !== Math.floor((end-1) / cpb);
       if (crossesBar) {
@@ -46397,6 +46422,7 @@ function mprCleanup() {
         if (!occupied) svg += _nedRest(NED_BAR_PAD + (slotCol - winStartCol)*colPx + colPx/2);
       }
     }
+    svg += _beamSvg;
     svg += `</svg>`;
     staff.innerHTML = svg
       + `<div class="ned-scrollhint">‹ bars ${_nedScrollBar+1}–${Math.min(_nedScrollBar+winBars,totalBars)} of ${totalBars} · swipe ›</div>`;
