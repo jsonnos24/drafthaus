@@ -68343,14 +68343,27 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     const renderRight = Math.min(gridW, scrollX + vpW + buffer);
     const renderW = renderRight - renderLeft;
 
+    // Vertical viewport slice (mirrors the horizontal slice above): keeps the
+    // canvas only as tall as the visible band + buffer, so a full 85-row grid
+    // (~1870px) never allocates an over-budget backing store that iOS Safari
+    // refuses to paint. The context is translated by -renderTop so every draw
+    // below can keep using full-grid Y coordinates unchanged.
+    const vpH = scrollEl.clientHeight;
+    const scrollY = scrollEl.scrollTop;
+    const renderTop = Math.max(0, scrollY - buffer);
+    const renderBottom = Math.min(gridH, scrollY + vpH + buffer);
+    const renderH = renderBottom - renderTop;
+
     canvas.width = renderW;
-    canvas.height = gridH;
+    canvas.height = renderH;
     canvas.style.width = renderW + 'px';
-    canvas.style.height = gridH + 'px';
+    canvas.style.height = renderH + 'px';
     canvas.style.left = renderLeft + 'px';
+    canvas.style.top = renderTop + 'px';
 
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, renderW, gridH);
+    ctx.clearRect(0, 0, renderW, renderH);
+    ctx.translate(0, -renderTop); // map full-grid Y → this slice's canvas space
 
     // ── Draw row backgrounds ──
     if (prViewMode === 'drum') {
