@@ -26856,6 +26856,8 @@ function seqSwitchToSequence(idx) {
     window._drRollRender();
     if (typeof window._drRollScrollToSection === 'function') window._drRollScrollToSection(idx);
   }
+  // Refresh the mobile-portrait notation editor if it's open (no-op otherwise)
+  if (typeof window._nedRefresh === 'function') window._nedRefresh();
 }
 
 function seqSaveAllToCurrent(song) {
@@ -46522,15 +46524,15 @@ function mprCleanup() {
         let last=_nedXToCol(ev.clientX,false)+':'+_nedYToMidi(ev.clientY);
         _nedPencilPlace(ev.clientX,ev.clientY);
         const mv=e=>{ const k=_nedXToCol(e.clientX,false)+':'+_nedYToMidi(e.clientY); if(k===last) return; last=k; _nedPencilPlace(e.clientX,e.clientY); };
-        const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); _nedSave(); };
-        document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
+        const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up); _nedSave(); };
+        document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
       } else if(_nedTool==='eraser'){
         ev.preventDefault();
         const del=(x,y)=>{ const seq=_nedSeq(); const h=_nedHitNote(x,y); if(h && seq){ seq.pianoRoll=seq.pianoRoll.filter(n=>n.id!==h.id); nedRender(); } };
         del(ev.clientX,ev.clientY);
         const mv=e=>del(e.clientX,e.clientY);
-        const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); _nedSave(); };
-        document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
+        const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up); _nedSave(); };
+        document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
       } else { // pointer: select + drag-move on fine grid
         const h=_nedHitNote(ev.clientX,ev.clientY);
         _nedSelected = h ? h.id : null;
@@ -46539,8 +46541,8 @@ function mprCleanup() {
         if(!h) return;
         ev.preventDefault();
         const mv=e=>{ const seq=_nedSeq(); const n=seq&&seq.pianoRoll.find(x=>x.id===_nedSelected); if(!n) return; n.startCol=_nedXToCol(e.clientX,true); n.midi=_nedYToMidi(e.clientY); nedRender(); };
-        const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); _nedSave(); };
-        document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
+        const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up); _nedSave(); };
+        document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
       }
     });
   }
@@ -46726,6 +46728,20 @@ function mprCleanup() {
     else { if(typeof _urStartRecording==='function') _urStartRecording(); }
   };
 
+  // UCB "Click" = metronome toggle (reuses the shared ucToggleClick/seqToggleMet + seqMetOn state)
+  window._nedClickToggle = function(el){
+    if (typeof ucToggleClick==='function') ucToggleClick();
+    else if (typeof seqToggleMet==='function') seqToggleMet();
+    if (el) el.classList.toggle('ned-on', (typeof seqMetOn!=='undefined') ? !!seqMetOn : el.classList.contains('ned-on'));
+  };
+
+  // Re-sync the editor when the active section changes via the global sequence strip (portrait only).
+  window._nedRefresh = function(){
+    if (!_nedMounted || !document.getElementById('nedWrap')) return;
+    _nedScrollBar = 0; _nedSelected = null;
+    _nedFillQCDropdowns(); _nedRenderQC(); nedRender();
+  };
+
   window._nedPlayToggle = function(){
     if (typeof seqIsPlaying!=='undefined' && seqIsPlaying){
       if (typeof sharedStop==='function') sharedStop(); else if (typeof seqStop==='function') seqStop();
@@ -46767,6 +46783,7 @@ function mprCleanup() {
     _nedKeyDeg = _nedBuildKeyDeg();
     const cpb = _nedColsPerBar(seq);
     const totalBars = _nedBarCount(seq);
+    _nedScrollBar = Math.max(0, Math.min(_nedScrollBar, Math.max(0, totalBars - 2))); // clamp (section may be shorter than where we'd scrolled)
     const W = staff.clientWidth || 390;
     const barW = (W - NED_BAR_PAD*2) / 2;      // 2 bars across the viewport
     const winBars = Math.min(2, totalBars);
