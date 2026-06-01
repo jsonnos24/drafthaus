@@ -19,7 +19,11 @@ the app already uses, so playback + Firestore sync are unchanged.
   keyboard drawer, desktop piano roll (`prBodyInner`), and the existing desktop Notation
   View (`#notationContainer`, `.nt-*`) stay exactly as-is. Gate the new code behind a
   width check (same pattern Arrange uses: it fully stubs when `innerWidth < 900`).
-  **Verification: diff desktop rendering before/after — zero change.**
+  **Verification: diff desktop rendering before/after — zero change** (except the one
+  sanctioned change below).
+  - **One sanctioned exception:** the **shared sequence-strip ▶ Play** behavior changes
+    *globally* (desktop included) to "play from the selected section onward" — see
+    Transport. That's the only intentional desktop change; everything else stays untouched.
 - **Same data model, "replace, same data."** Reads/writes the existing per-section
   `pianoRoll` notes (`{id, midi, startCol, durCols, chordName, degree, isPencil, vel}`,
   on a 1/16 grid: `prSnap=4` cols/beat → 16 cols/bar in 4/4) and `chordSlots`. No new
@@ -59,12 +63,12 @@ the app already uses, so playback + Firestore sync are unchanged.
 - **Sequence-strip ▶ Play = play from the SELECTED section ONWARD** (through the rest of
   the song, not looping a single section, and not always-from-the-top). Uses the
   start-section index (`_startSectionIdx` / `seqActiveIdx`).
-  - ⚠️ **Cross-cutting:** the sequence strip is the **shared global strip** (desktop too).
-    Today `seqStripPlayToggle()` deliberately plays *everything* (`sharedPlaySong`,
-    ignores selection — see CLAUDE.md). Changing it to "from selected onward" affects
-    **all views incl. desktop**, which collides with the *mobile-only / desktop-untouched*
-    constraint. **DECIDE: make this global (accept desktop change) or scope it.** Flag for
-    the plan.
+  - **DECIDED — apply GLOBALLY.** Change `seqStripPlayToggle()` so it plays from the
+    selected section onward on **both mobile and desktop** (replaces today's always-
+    `sharedPlaySong`/play-everything behavior). This is the **one sanctioned desktop
+    behavior change** (see Hard constraints). When implemented, **update CLAUDE.md**'s
+    "Buttons & playhead" note (it currently documents the strip ▶ as "always plays
+    everything").
 - **Recording = 2-bar count-in.** Pressing ● REC gives a **2-bar count-in** (metronome)
   before capture starts, so you can prepare.
 - **Time-signature-aware everywhere.** All bar math uses the section's actual time
