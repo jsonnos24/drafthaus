@@ -6,18 +6,22 @@ task spec+quality reviewed). Desktop verified UNCHANGED (drawer-body diff) excep
 sanctioned `seqStripPlayToggle` global change. `index.html`/`1.3.html` untouched; promotion
 (copy `1.301.html`→`index.html` + push) awaits user sign-off after a real-browser drive.
 
-**Deferred (NOT implemented — see notes):**
-- **Pointer marquee multi-select + group resize** — single-select + move + resize-on-length-tap
-  shipped; true marquee relies on the pr-IIFE-local `prMultiSelected` (unreachable from ned).
-- **Global new-song instrument default piano2/synth** — would change `_defSeq` for ALL new
-  songs incl. desktop (a 2nd desktop change beyond the sanctioned one), so left out. Mobile
-  correctly READS existing per-section `instrument`/`melodyInstrument` and never overwrites
-  (verified). Needs a user call on whether to change the global default.
-- **Relaxed-notation polish** (non-blocking, tracked): multi-bar tie continuation noteheads;
-  off-left notes clipped at negative cx; beat-quantised rest occupancy can overlap off-beat
-  notes; 6/8 shows 6 eighth-rests/bar (should group dotted-quarter rests); rest glyph 𝄽 is
-  astral-plane unicode (consider SVG path); 1-bar section fills only the left half; flat/
-  mono-colour beams.
+**Batch 2 follow-ups — DONE (2026-06-01, user-directed):**
+- **Multi-select** — tap-to-toggle (Model A, `_nedSelectedSet`): tap notes to add/remove, drag
+  moves the whole selection, length button resizes all selected, ring per selected note.
+  Replaces the drag-box marquee (user accepted this in lieu of true marquee).
+- **Global new-song default** — Upright (`piano2`) melody + Drafthaus (`synth`) chords, applied
+  globally via `_defSeq` (user decision); existing songs read their saved values unchanged.
+- **Duration fix** — `_nedDurToCols` was 4× short (whole rendered as a filled quarter); now
+  whole=16/half=8/quarter=4/eighth=2/sixteenth=1 cols, shapes correct.
+- **Rests per empty beat-group** (6/8→2, 4/4→4, 3/4→3) + **SVG-path rest glyph** (replaced the
+  astral-plane 𝄽 — Android-safe).
+- **Tied continuation noteheads** across barlines (a head per bar + tie arcs); also fixes notes
+  sustaining INTO the window from before (left-edge tie — no longer invisible).
+
+**Still deferred (truly cosmetic, non-blocking):** 1-bar section fills only the left half of the
+staff; flat/single-colour beams (no contour slope); selection ring draws on each tied segment of
+a multi-bar selected note (arguably correct).
 **Date:** 2026-06-01
 **Scope constraint:** **MOBILE PORTRAIT ONLY. Desktop must be untouched.**
 
