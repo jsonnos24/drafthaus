@@ -4806,9 +4806,20 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* ═══════════════════ MOBILE-PORTRAIT NOTATION EDITOR (ned*) ═══════════════════ */
   .ned-wrap { display:flex; flex-direction:column; height:100%; background:#0d0e13; color:#e8e8ee; font-family:'IBM Plex Mono',monospace; }
-  .ned-staff { position:relative; flex:1; min-height:0; background:#0d0e13; overflow:hidden; }
+  .ned-staff { position:relative; flex:1; min-height:0; background:#0d0e13; overflow:hidden; touch-action:none; }
+  /* Bar-nav row — paging lives here (outside the note surface), so it never fights the pencil */
+  .ned-barnav { display:flex; align-items:center; gap:8px; padding:5px 10px; background:#0d0e13; border-bottom:1px solid #23252e; flex-shrink:0; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+  .ned-barnav-arrow { width:46px; height:30px; display:flex; align-items:center; justify-content:center; background:#1a1c24; border:1px solid #2a2c36; border-radius:6px; color:#6ee89a; font-size:18px; font-weight:700; line-height:1; flex-shrink:0; }
+  .ned-barnav-arrow:active { background:#252833; }
+  .ned-barnav-arrow:disabled { opacity:.28; }
+  .ned-barnav-lbl { flex:1; text-align:center; color:#9aa0b4; font-size:12px; font-family:'IBM Plex Mono',monospace; font-weight:600; letter-spacing:.04em; }
   .ned-scrollhint { position:absolute; left:0; right:0; bottom:6px; text-align:center; color:#5a5f72; font-size:10px; pointer-events:none; }
   .ned-svg { display:block; position:absolute; top:0; left:0; }
+  /* Quick directional flip when paging bars (set in nedRender via _nedFlipDir) */
+  @keyframes nedFlipNext { from { transform:translateX(12px); opacity:.35; } to { transform:translateX(0); opacity:1; } }
+  @keyframes nedFlipPrev { from { transform:translateX(-12px); opacity:.35; } to { transform:translateX(0); opacity:1; } }
+  .ned-svg.ned-flip-next { animation:nedFlipNext .13s ease-out; }
+  .ned-svg.ned-flip-prev { animation:nedFlipPrev .13s ease-out; }
   .ned-toolbar, .ned-tools-row, .ned-ucb { display:flex; align-items:center; gap:6px; padding:7px 10px; border-bottom:1px solid #23252e; flex-shrink:0; background:#0d0e13; }
   .ned-dur-row { display:flex; gap:3px; }
   .ned-tb-spacer { flex:1; }
@@ -44583,6 +44594,11 @@ function renderKeyboardDrawerHtml(song) {
             <span class="ned-bpm"><input id="nedBpmInput" value="120" inputmode="numeric" onchange="if(typeof rtMetroSetBpm==='function')rtMetroSetBpm(this.value)"><span class="ned-bpm-lbl">BPM</span></span>
           </div>
         </div>
+        <div class="ned-barnav" id="nedBarNav">
+          <button class="ned-barnav-arrow" id="nedBarPrev" onclick="window._nedPageBars&&window._nedPageBars(-1)" title="Previous bars">‹</button>
+          <span class="ned-barnav-lbl" id="nedBarLbl">Bars 1–2</span>
+          <button class="ned-barnav-arrow" id="nedBarNext" onclick="window._nedPageBars&&window._nedPageBars(1)" title="Next bars">›</button>
+        </div>
         <div class="ned-staff" id="nedStaff"></div>
         <div class="ned-qc" id="nedQC" style="top:55%;">
           <div class="ned-qc-handle" id="nedQCHandle">
@@ -46382,6 +46398,16 @@ function mprCleanup() {
   let _nedDur = 1;            // selected note length in beats (whole=default per spec)
   let _nedTool = 'pencil';    // 'pointer' | 'pencil' | 'eraser'
   let _nedScrollBar = 0;      // leftmost visible bar (2-bar window)
+  let _nedFlipDir = 0;        // one-shot: +1 advance / -1 back; consumed by nedRender to flip-animate
+  // Page the 2-bar window. dir>0 = next bars, dir<0 = prev. Used by the bar-nav arrows + swipe.
+  window._nedPageBars = function(dir){
+    const seq=_nedSeq(); const total=_nedBarCount(seq);
+    const prev=_nedScrollBar;
+    _nedScrollBar = Math.max(0, Math.min(Math.max(0,total-2), _nedScrollBar + (dir>0?2:-2)));
+    if (_nedScrollBar===prev) return;          // already at an edge
+    _nedFlipDir = dir>0 ? 1 : -1;
+    nedRender();
+  };
 
   function _nedSeq() {
     const song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
@@ -46777,16 +46803,15 @@ function mprCleanup() {
     _nedMounted = true;
     const _initSeq = _nedSeq(); if (_initSeq && !_initSeq.pianoRoll) _initSeq.pianoRoll = [];
     nedRender();
-    const staffEl = document.getElementById('nedStaff');
-    if (staffEl && !staffEl._nedSwipeBound) {
-      staffEl._nedSwipeBound = true;
-      let sx=0;
-      staffEl.addEventListener('touchstart', e=>{ sx=e.touches[0].clientX; }, {passive:true});
-      staffEl.addEventListener('touchend', e=>{
-        const dx=(e.changedTouches[0].clientX)-sx; if (Math.abs(dx)<40) return;
-        const seq=_nedSeq(); const total=_nedBarCount(seq);
-        _nedScrollBar = Math.max(0, Math.min(total-2, _nedScrollBar - Math.sign(dx)*2));
-        nedRender();
+    // Bar-nav row is the swipe handle (lives outside the staff, so it never fights the pencil).
+    const barNav = document.getElementById('nedBarNav');
+    if (barNav && !barNav._nedSwipeBound) {
+      barNav._nedSwipeBound = true;
+      let bx=0;
+      barNav.addEventListener('touchstart', e=>{ bx=e.touches[0].clientX; }, {passive:true});
+      barNav.addEventListener('touchend', e=>{
+        const dx=(e.changedTouches[0].clientX)-bx; if (Math.abs(dx)<40) return;
+        window._nedPageBars(dx<0 ? 1 : -1);   // swipe left → next bars
       }, {passive:true});
     }
     _nedBindEntry();
@@ -46893,8 +46918,21 @@ function mprCleanup() {
     }
     svg += _beamSvg;
     svg += `</svg>`;
-    staff.innerHTML = svg
-      + `<div class="ned-scrollhint">‹ bars ${_nedScrollBar+1}–${Math.min(_nedScrollBar+winBars,totalBars)} of ${totalBars} · swipe ›</div>`;
+    staff.innerHTML = svg;
+    // one-shot directional flip animation on the fresh SVG (set by _nedPageBars)
+    if (_nedFlipDir) {
+      const svgEl = staff.querySelector('.ned-svg');
+      if (svgEl) svgEl.classList.add(_nedFlipDir>0 ? 'ned-flip-next' : 'ned-flip-prev');
+      _nedFlipDir = 0;
+    }
+    // bar-nav row: label + arrow enable/disable
+    const _lbl=document.getElementById('nedBarLbl');
+    if (_lbl) _lbl.textContent = totalBars>1
+      ? `Bars ${_nedScrollBar+1}–${Math.min(_nedScrollBar+winBars,totalBars)} of ${totalBars}`
+      : `Bar 1 of 1`;
+    const _pv=document.getElementById('nedBarPrev'), _nx=document.getElementById('nedBarNext');
+    if (_pv) _pv.disabled = _nedScrollBar<=0;
+    if (_nx) _nx.disabled = _nedScrollBar>=Math.max(0,totalBars-2);
     // expose px-per-column for later layers
     staff.dataset.barw = barW; staff.dataset.cpb = cpb;
   }
@@ -67106,7 +67144,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
 
       drawer.addEventListener('touchstart', function(e) {
         // Don't intercept touches on interactive elements that use their own gestures
-        if (e.target.closest('.seq-key, .seq-chord-pill, .seq-chord-var-pill, .pr-chord-pill, .pr-chord-pill-var, .qc-pill, .mco-pill, .mco-body, .mco-handle, .mpr-chord-overlay, .seq-slot, .seq-grid, .seq-chords-row, .kbd-chord-group, input, select, button, [contenteditable], .mt-waveform-wrap, .mt-vol-slider, .mt-pan-slider, .mix-fader-wrap, .mix-fader-cap, .mix-fader-classic, .mix-pan-knob, .mix-row-strips, .mix-strip, .mix-meter, .mix-tiny-btn, .mix-btn-primary, .mix-btn-ghost, .mix-chip')) return;
+        if (e.target.closest('.seq-key, .seq-chord-pill, .seq-chord-var-pill, .pr-chord-pill, .pr-chord-pill-var, .qc-pill, .mco-pill, .mco-body, .mco-handle, .mpr-chord-overlay, .seq-slot, .seq-grid, .seq-chords-row, .kbd-chord-group, .ned-staff, .ned-chip, .ned-qc, .ned-keys, .ned-barnav, input, select, button, [contenteditable], .mt-waveform-wrap, .mt-vol-slider, .mt-pan-slider, .mix-fader-wrap, .mix-fader-cap, .mix-fader-classic, .mix-pan-knob, .mix-row-strips, .mix-strip, .mix-meter, .mix-tiny-btn, .mix-btn-primary, .mix-btn-ghost, .mix-chip')) return;
         var t = e.touches[0];
         x0 = x1 = t.clientX;
         y0 = y1 = t.clientY;
