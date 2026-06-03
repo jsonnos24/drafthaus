@@ -24245,6 +24245,8 @@ async function initMidi(silent) {
     if (_instrHas('guitar') || _melodyInstrHas('guitar')) loadGuitarSamples();
     if (_instrHas('bassgtr') || _melodyInstrHas('bassgtr')) loadBassgtrSamples();
     if (_instrHas('violin') || _melodyInstrHas('violin')) loadViolinSamples();
+    if (_instrHas('pad') || _melodyInstrHas('pad')) loadPadSamples();
+    if (_instrHas('lead') || _melodyInstrHas('lead')) loadLeadSamples();
     console.log('[MIDI] initMidi — loading samples for chordInstr:' + _activeInstrument + ' melodyInstr:' + _kbdMelodyInstrument);
 
     // Show status modal only if no device is connected yet (skip for auto-reconnect)
@@ -24491,7 +24493,17 @@ function _midiNoteOn(midiNote, velocity) {
     samplerPlayed = true;
     console.log('[MIDI] → played via violin sampler');
   }
-  if (_melodyInstrHas('synth') || (!samplerPlayed && !_anyPianoMelodyReady() && (!_melodyInstrHas('guitar') || !_guitarLoaded) && (!_melodyInstrHas('bassgtr') || !_bassgtrLoaded) && (!_melodyInstrHas('violin') || !_violinLoaded))) {
+  if (_melodyInstrHas('pad') && _padLoaded) {
+    playPadNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
+    samplerPlayed = true;
+    console.log('[MIDI] → played via pad voice');
+  }
+  if (_melodyInstrHas('lead') && _leadLoaded) {
+    playLeadNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
+    samplerPlayed = true;
+    console.log('[MIDI] → played via lead voice');
+  }
+  if (_melodyInstrHas('synth') || (!samplerPlayed && !_anyPianoMelodyReady() && (!_melodyInstrHas('guitar') || !_guitarLoaded) && (!_melodyInstrHas('bassgtr') || !_bassgtrLoaded) && (!_melodyInstrHas('violin') || !_violinLoaded) && (!_melodyInstrHas('pad') || !_padLoaded) && (!_melodyInstrHas('lead') || !_leadLoaded))) {
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
     const ctx = getSeqAudioCtx();
     const o = ctx.createOscillator(), g = ctx.createGain();
@@ -25580,6 +25592,8 @@ function initSequencer(song) {
   if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   if (_instrHas('bassgtr') && !_bassgtrLoaded && !_bassgtrLoading) loadBassgtrSamples();
   if (_instrHas('violin') && !_violinLoaded && !_violinLoading) loadViolinSamples();
+  if (_instrHas('pad') && !_padLoaded && !_padLoading) loadPadSamples();
+  if (_instrHas('lead') && !_leadLoaded && !_leadLoading) loadLeadSamples();
   setTimeout(seqApplyMixer, 0);
 
   // Load humanize state
@@ -27712,6 +27726,8 @@ function seqInstrumentChanged() {
   if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   if (_instrHas('bassgtr') && !_bassgtrLoaded && !_bassgtrLoading) loadBassgtrSamples();
   if (_instrHas('violin') && !_violinLoaded && !_violinLoading) loadViolinSamples();
+  if (_instrHas('pad') && !_padLoaded && !_padLoading) loadPadSamples();
+  if (_instrHas('lead') && !_leadLoaded && !_leadLoading) loadLeadSamples();
   seqSaveSettings();
 }
 
@@ -32538,8 +32554,10 @@ function seqPlayChordByName(name) {
   if (_instrHas('guitar') && _guitarLoaded && midiNotes && midiNotes.length) { seqPlayChordGuitar(midiNotes, t, 0.8); samplerPlayed = true; }
   if (_instrHas('bassgtr') && _bassgtrLoaded && midiNotes && midiNotes.length) { seqPlayChordBassgtr(midiNotes, t, 0.8); samplerPlayed = true; }
   if (_instrHas('violin') && _violinLoaded && midiNotes && midiNotes.length) { seqPlayChordViolin(midiNotes, t, 0.8); samplerPlayed = true; }
+  if (_instrHas('pad') && _padLoaded && midiNotes && midiNotes.length) { seqPlayChordPad(midiNotes, t, 0.8); samplerPlayed = true; }
+  if (_instrHas('lead') && _leadLoaded && midiNotes && midiNotes.length) { seqPlayChordLead(midiNotes, t, 0.8); samplerPlayed = true; }
   // Fall back to synth if: synth is explicitly selected, OR no sampler played
-  if (_instrHas('synth') || (!samplerPlayed && !_anyPianoChordReady() && (!_instrHas('guitar') || !_guitarLoaded) && (!_instrHas('bassgtr') || !_bassgtrLoaded) && (!_instrHas('violin') || !_violinLoaded))) {
+  if (_instrHas('synth') || (!samplerPlayed && !_anyPianoChordReady() && (!_instrHas('guitar') || !_guitarLoaded) && (!_instrHas('bassgtr') || !_bassgtrLoaded) && (!_instrHas('violin') || !_violinLoaded) && (!_instrHas('pad') || !_padLoaded) && (!_instrHas('lead') || !_leadLoaded))) {
     const chords = seqGenChords(key, mode);
     if (chords[name]) {
       seqPlayChord(chords[name], t, 0.8);
@@ -34094,7 +34112,7 @@ async function sharedPlaySong(opts) {
   var _pfSong = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
   if (_pfSong) {
     var _pfSeqs = typeof getSongSequences === 'function' ? getSongSequences(_pfSong) : (_pfSong.sequences || []);
-    var _pfNeedPiano = false, _pfNeedPiano2 = false, _pfNeedGuitar = false, _pfNeedBassgtr = false, _pfNeedViolin = false;
+    var _pfNeedPiano = false, _pfNeedPiano2 = false, _pfNeedGuitar = false, _pfNeedBassgtr = false, _pfNeedViolin = false, _pfNeedPad = false, _pfNeedLead = false;
     // Check chord + melody instruments across ALL sequences
     _pfSeqs.forEach(function(sq) {
       var ci = (sq.instrument || 'piano').split('+');
@@ -34105,6 +34123,8 @@ async function sharedPlaySong(opts) {
       if (all.indexOf('guitar') >= 0) _pfNeedGuitar = true;
       if (all.indexOf('bassgtr') >= 0) _pfNeedBassgtr = true;
       if (all.indexOf('violin') >= 0) _pfNeedViolin = true;
+      if (all.indexOf('pad') >= 0) _pfNeedPad = true;
+      if (all.indexOf('lead') >= 0) _pfNeedLead = true;
     });
     var _pfLoading = [];
     if (_pfNeedPiano  && !_pianoLoaded  && !_pianoLoading)  { loadPianoSamples();  _pfLoading.push('piano'); }
@@ -34112,6 +34132,8 @@ async function sharedPlaySong(opts) {
     if (_pfNeedGuitar && !_guitarLoaded && !_guitarLoading) { loadGuitarSamples(); _pfLoading.push('guitar'); }
     if (_pfNeedBassgtr && !_bassgtrLoaded && !_bassgtrLoading) { loadBassgtrSamples(); _pfLoading.push('bassgtr'); }
     if (_pfNeedViolin && !_violinLoaded && !_violinLoading) { loadViolinSamples(); _pfLoading.push('violin'); }
+    if (_pfNeedPad && !_padLoaded && !_padLoading) { loadPadSamples(); _pfLoading.push('pad'); }
+    if (_pfNeedLead && !_leadLoaded && !_leadLoading) { loadLeadSamples(); _pfLoading.push('lead'); }
     // Also ensure drum samples are loaded
     if (typeof seqDrumMode !== 'undefined') {
       if (seqDrumMode === 'lacer' && typeof _acousticLoadState !== 'undefined' && _acousticLoadState === 'idle') {
@@ -34442,6 +34464,8 @@ function seqPlay() {
   if (_spAll.indexOf('guitar') >= 0 && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
   if (_spAll.indexOf('bassgtr') >= 0 && !_bassgtrLoaded && !_bassgtrLoading) loadBassgtrSamples();
   if (_spAll.indexOf('violin') >= 0 && !_violinLoaded && !_violinLoading) loadViolinSamples();
+  if (_spAll.indexOf('pad') >= 0 && !_padLoaded && !_padLoading) loadPadSamples();
+  if (_spAll.indexOf('lead') >= 0 && !_leadLoaded && !_leadLoading) loadLeadSamples();
   if (typeof seqDrumMode !== 'undefined') {
     if (seqDrumMode === 'lacer' && typeof _acousticLoadState !== 'undefined' && _acousticLoadState === 'idle') loadAcousticSamples();
     else if (seqDrumMode === 'hargreaves' && typeof _acoustic2LoadState !== 'undefined' && _acoustic2LoadState === 'idle') loadAcoustic2Samples();
@@ -34840,8 +34864,10 @@ function seqScheduleNotes() {
     const _hasGuitar = _instrHas('guitar');
     const _hasBassgtr = _instrHas('bassgtr');
     const _hasViolin = _instrHas('violin');
+    const _hasPad = _instrHas('pad');
+    const _hasLead = _instrHas('lead');
     const _hasSynth  = _instrHas('synth');
-    const _useSampler = _anyPianoChordReady() || (_hasGuitar && _guitarLoaded) || (_hasBassgtr && _bassgtrLoaded) || (_hasViolin && _violinLoaded);
+    const _useSampler = _anyPianoChordReady() || (_hasGuitar && _guitarLoaded) || (_hasBassgtr && _bassgtrLoaded) || (_hasViolin && _violinLoaded) || (_hasPad && _padLoaded) || (_hasLead && _leadLoaded);
     const loopChordsMidi = _useSampler ? seqGenChordMidi(loopKey, loopMode) : null;
     while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
       if (_seqSongSectionIdx >= _seqSongSections.length) { _seqSongSectionIdx = 0; _seqSongSectionStep = 0; }
@@ -35039,8 +35065,10 @@ function seqScheduleNotes() {
   const _hasGuitar = _instrHas('guitar');
   const _hasBassgtr = _instrHas('bassgtr');
   const _hasViolin = _instrHas('violin');
+  const _hasPad = _instrHas('pad');
+  const _hasLead = _instrHas('lead');
   const _hasSynth  = _instrHas('synth');
-  const _useSampler = _anyPianoChordReady() || (_hasGuitar && _guitarLoaded) || (_hasBassgtr && _bassgtrLoaded) || (_hasViolin && _violinLoaded);
+  const _useSampler = _anyPianoChordReady() || (_hasGuitar && _guitarLoaded) || (_hasBassgtr && _bassgtrLoaded) || (_hasViolin && _violinLoaded) || (_hasPad && _padLoaded) || (_hasLead && _leadLoaded);
   const loopChordsMidi = _useSampler ? seqGenChordMidi(loopKey, loopMode) : null;
 
   const chordSlots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
@@ -35081,8 +35109,10 @@ function seqScheduleNotes() {
     const _kHasGuitar  = _instrHas('guitar');
     const _kHasBassgtr = _instrHas('bassgtr');
     const _kHasViolin  = _instrHas('violin');
+    const _kHasPad = _instrHas('pad');
+    const _kHasLead = _instrHas('lead');
     const _kHasSynth   = _instrHas('synth');
-    const _kUseSampler = _anyPianoChordReady() || (_kHasGuitar && _guitarLoaded) || (_kHasBassgtr && _bassgtrLoaded) || (_kHasViolin && _violinLoaded);
+    const _kUseSampler = _anyPianoChordReady() || (_kHasGuitar && _guitarLoaded) || (_kHasBassgtr && _bassgtrLoaded) || (_kHasViolin && _violinLoaded) || (_kHasPad && _padLoaded) || (_kHasLead && _leadLoaded);
     const _kLoopChordsMidi = _kUseSampler ? seqGenChordMidi(_kLoopKey, _kLoopMode) : null;
     const _kVel = parseFloat(document.getElementById('seqVel')?.value || 0.8);
     while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
@@ -36344,7 +36374,15 @@ function kbdPlayNote(note, octave, sustained = false) {
       samplerPlayed = true;
     }
   }
-  if (_melodyInstrHas('synth') || (!samplerPlayed && !_anyPianoMelodyReady() && (!_melodyInstrHas('guitar') || !_guitarLoaded) && (!_melodyInstrHas('bassgtr') || !_bassgtrLoaded) && (!_melodyInstrHas('violin') || !_violinLoaded))) {
+  if (_melodyInstrHas('pad') && _padLoaded) {
+    playPadNote(midiNote, t, 0.8, sustained ? 3.0 : 1.4);
+    samplerPlayed = true;
+  }
+  if (_melodyInstrHas('lead') && _leadLoaded) {
+    playLeadNote(midiNote, t, 0.8, sustained ? 3.0 : 0.9);
+    samplerPlayed = true;
+  }
+  if (_melodyInstrHas('synth') || (!samplerPlayed && !_anyPianoMelodyReady() && (!_melodyInstrHas('guitar') || !_guitarLoaded) && (!_melodyInstrHas('bassgtr') || !_bassgtrLoaded) && (!_melodyInstrHas('violin') || !_violinLoaded) && (!_melodyInstrHas('pad') || !_padLoaded) && (!_melodyInstrHas('lead') || !_leadLoaded))) {
     const baseFreq = seqFreq(note);
     const f = baseFreq * Math.pow(2, octave - 4);
     const wave = document.getElementById('seqWave')?.value || 'triangle';
@@ -36623,6 +36661,8 @@ function melodyInstrumentChanged() {
   if (_melodyInstrHas('guitar') && !_guitarLoaded && !_guitarLoading) { loadGuitarSamples(); loading = true; }
   if (_melodyInstrHas('bassgtr') && !_bassgtrLoaded && !_bassgtrLoading) { loadBassgtrSamples(); loading = true; }
   if (_melodyInstrHas('violin') && !_violinLoaded && !_violinLoading) { loadViolinSamples(); loading = true; }
+  if (_melodyInstrHas('pad') && !_padLoaded && !_padLoading) { loadPadSamples(); loading = true; }
+  if (_melodyInstrHas('lead') && !_leadLoaded && !_leadLoading) { loadLeadSamples(); loading = true; }
   if (lbl) lbl.style.display = loading ? 'inline' : 'none';
   // Persist to song — prefer the keyboard drawer's loaded song (seqSongId) over the detail view's _songCurrentId
   const song = (seqSongId && songs.find(s => s.id === seqSongId)) || getCurrentSong();
@@ -36909,6 +36949,8 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
   const hasGuitar = _inst.split('+').includes('guitar');
   const hasBassgtr = _inst.split('+').includes('bassgtr');
   const hasViolin = _inst.split('+').includes('violin');
+  const hasPad = _inst.split('+').includes('pad');
+  const hasLead = _inst.split('+').includes('lead');
   const hasSynth  = _inst.split('+').includes('synth');
 
   notes.forEach(n => {
@@ -37015,6 +37057,14 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
         _melodyScheduledNodes.push(src);
         samplerPlayed = true;
       }
+    }
+    if (hasPad && _padLoaded) {
+      playPadNote(midiNote, t, noteVel, dur2);
+      samplerPlayed = true;
+    }
+    if (hasLead && _leadLoaded) {
+      playLeadNote(midiNote, t, noteVel, dur2);
+      samplerPlayed = true;
     }
     if (hasSynth || !samplerPlayed) {
       const baseFreq = seqFreq(n.note);
@@ -43321,6 +43371,9 @@ async function exportBounce() {
     const _bnGuitarOk = _bnInst.includes('guitar') && typeof _guitarLoaded !== 'undefined' && _guitarLoaded && Object.keys(_guitarBuffers || {}).length > 0;
     const _bnBassgtrOk = _bnInst.includes('bassgtr') && typeof _bassgtrLoaded !== 'undefined' && _bassgtrLoaded && Object.keys(_bassgtrBuffers || {}).length > 0;
     const _bnViolinOk = _bnInst.includes('violin') && typeof _violinLoaded !== 'undefined' && _violinLoaded && Object.keys(_violinBuffers || {}).length > 0;
+    // Pad/Lead are oscillator voices (no offline buffers) — they bounce via the synth fallback below.
+    const _bnPadOk  = false;
+    const _bnLeadOk = false;
     const _bnSynth    = _bnInst.includes('synth');
 
     function schedChord(midiNotes, t, vel, dur) {
@@ -46328,11 +46381,15 @@ function openKeyboardDrawer() {
     if (_melodyInstrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
     if (_melodyInstrHas('bassgtr') && !_bassgtrLoaded && !_bassgtrLoading) loadBassgtrSamples();
     if (_melodyInstrHas('violin') && !_violinLoaded && !_violinLoading) loadViolinSamples();
+    if (_melodyInstrHas('pad') && !_padLoaded && !_padLoading) loadPadSamples();
+    if (_melodyInstrHas('lead') && !_leadLoaded && !_leadLoading) loadLeadSamples();
     if (_instrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  loadPianoSamples();
     if (_instrHas('piano2') && !_piano2Loaded && !_piano2Loading) loadPiano2Samples();
     if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
     if (_instrHas('bassgtr') && !_bassgtrLoaded && !_bassgtrLoading) loadBassgtrSamples();
     if (_instrHas('violin') && !_violinLoaded && !_violinLoading) loadViolinSamples();
+    if (_instrHas('pad') && !_padLoaded && !_padLoading) loadPadSamples();
+    if (_instrHas('lead') && !_leadLoaded && !_leadLoading) loadLeadSamples();
   }
 
   const body = document.getElementById('keyboardDrawerBody');
@@ -55957,14 +56014,19 @@ async function mixBounceShareRun() {
     const _bncHasGuitar = _bncInst.includes('guitar');
     const _bncHasBassgtr = _bncInst.includes('bassgtr');
     const _bncHasViolin = _bncInst.includes('violin');
+    const _bncHasPad = _bncInst.includes('pad');
+    const _bncHasLead = _bncInst.includes('lead');
     const _bncHasSynth  = _bncInst.includes('synth');
     const _bncPianoOk   = _bncHasPiano  && typeof _pianoLoaded !== 'undefined' && _pianoLoaded && typeof _pianoBuffers !== 'undefined' && Object.keys(_pianoBuffers).length > 0;
     const _bncPiano2Ok  = _bncHasPiano2 && typeof _piano2Loaded !== 'undefined' && _piano2Loaded && typeof _piano2Buffers !== 'undefined' && Object.keys(_piano2Buffers).length > 0;
     const _bncGuitarOk  = _bncHasGuitar && typeof _guitarLoaded !== 'undefined' && _guitarLoaded && typeof _guitarBuffers !== 'undefined' && Object.keys(_guitarBuffers).length > 0;
     const _bncBassgtrOk = _bncHasBassgtr && typeof _bassgtrLoaded !== 'undefined' && _bassgtrLoaded && typeof _bassgtrBuffers !== 'undefined' && Object.keys(_bassgtrBuffers).length > 0;
     const _bncViolinOk  = _bncHasViolin && typeof _violinLoaded !== 'undefined' && _violinLoaded && typeof _violinBuffers !== 'undefined' && Object.keys(_violinBuffers).length > 0;
+    // Pad/Lead are oscillator voices (no offline buffers) — they bounce via the synth fallback below.
+    const _bncPadOk  = false;
+    const _bncLeadOk = false;
 
-    console.log('[BOUNCE] Instrument: ' + _bncInst + ' | piano=' + _bncPianoOk + ' piano2=' + _bncPiano2Ok + ' guitar=' + _bncGuitarOk + ' bassgtr=' + _bncBassgtrOk + ' violin=' + _bncViolinOk + ' synth=' + _bncHasSynth);
+    console.log('[BOUNCE] Instrument: ' + _bncInst + ' | piano=' + _bncPianoOk + ' piano2=' + _bncPiano2Ok + ' guitar=' + _bncGuitarOk + ' bassgtr=' + _bncBassgtrOk + ' violin=' + _bncViolinOk + ' pad=' + _bncHasPad + ' lead=' + _bncHasLead + ' synth=' + _bncHasSynth);
 
     // Schedule a chord using the active instrument(s) — mirrors seqPlayChordByName
     function schedChordInstr(midiNotes, t, vel, holdDur) {
@@ -71224,6 +71286,14 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
           seqPlayChordViolin([midi], t, vel);
           played = true;
         }
+        if (_instrHas('pad') && typeof _padLoaded !== 'undefined' && _padLoaded && typeof seqPlayChordPad === 'function') {
+          seqPlayChordPad([midi], t, vel);
+          played = true;
+        }
+        if (_instrHas('lead') && typeof _leadLoaded !== 'undefined' && _leadLoaded && typeof seqPlayChordLead === 'function') {
+          seqPlayChordLead([midi], t, vel);
+          played = true;
+        }
       }
 
       // Synth fallback
@@ -71854,6 +71924,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         if (_instrHas('guitar') && typeof _guitarLoaded !== 'undefined' && _guitarLoaded && midis.length) { seqPlayChordGuitar(midis, t, v, chordDurS); samplerPlayed = true; }
         if (_instrHas('bassgtr') && typeof _bassgtrLoaded !== 'undefined' && _bassgtrLoaded && midis.length) { seqPlayChordBassgtr(midis, t, v, chordDurS); samplerPlayed = true; }
         if (_instrHas('violin') && typeof _violinLoaded !== 'undefined' && _violinLoaded && midis.length) { seqPlayChordViolin(midis, t, v, chordDurS); samplerPlayed = true; }
+        if (_instrHas('pad') && typeof _padLoaded !== 'undefined' && _padLoaded && midis.length) { seqPlayChordPad(midis, t, v, chordDurS); samplerPlayed = true; }
+        if (_instrHas('lead') && typeof _leadLoaded !== 'undefined' && _leadLoaded && midis.length) { seqPlayChordLead(midis, t, v, chordDurS); samplerPlayed = true; }
         if (_instrHas('synth') || !samplerPlayed) {
           var freqs = midis.map(function(m) { return 440 * Math.pow(2, (m - 69) / 12); });
           if (typeof seqPlayChord === 'function') seqPlayChord(freqs, t, v, chordDurS);
@@ -74547,6 +74619,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       if (_instrHas('guitar') && typeof _guitarLoaded !== 'undefined' && _guitarLoaded && typeof seqPlayChordGuitar === 'function') { seqPlayChordGuitar(midiNotes, t, velocity); samplerPlayed = true; }
       if (_instrHas('bassgtr') && typeof _bassgtrLoaded !== 'undefined' && _bassgtrLoaded && typeof seqPlayChordBassgtr === 'function') { seqPlayChordBassgtr(midiNotes, t, velocity); samplerPlayed = true; }
       if (_instrHas('violin') && typeof _violinLoaded !== 'undefined' && _violinLoaded && typeof seqPlayChordViolin === 'function') { seqPlayChordViolin(midiNotes, t, velocity); samplerPlayed = true; }
+      if (_instrHas('pad') && typeof _padLoaded !== 'undefined' && _padLoaded && typeof seqPlayChordPad === 'function') { seqPlayChordPad(midiNotes, t, velocity); samplerPlayed = true; }
+      if (_instrHas('lead') && typeof _leadLoaded !== 'undefined' && _leadLoaded && typeof seqPlayChordLead === 'function') { seqPlayChordLead(midiNotes, t, velocity); samplerPlayed = true; }
       if (_instrHas('synth') || !samplerPlayed) {
         if (typeof seqGenChords === 'function' && typeof seqPlayChord === 'function') {
           var chords = seqGenChords(seqCurrentKey(), seqCurrentMode());
