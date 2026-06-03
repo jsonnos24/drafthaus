@@ -35534,7 +35534,7 @@ var _fkbDragging = false;
 var _fkbTouchActiveKey = null;
 var _fkbOctaves = [3, 4]; // v1.232: default 2 octaves
 var _fkbEl = null;
-var _fkbMinimized = false;
+var _fkbMinimized = (window.innerWidth >= 900); // desktop: boot minimized to inline strip
 
 function fkbInit() {
   if (_fkbEl) return;
@@ -35569,7 +35569,7 @@ function fkbInit() {
         '<button class="fkb-oct-btn" id="fkbShrink" title="Remove octave">−</button>' +
         '<span class="fkb-oct-label" id="fkbOctLabel">2 oct</span>' +
         '<button class="fkb-oct-btn" id="fkbGrow" title="Add octave">+</button>' +
-        '<button class="fkb-oct-btn" id="fkbMinBtn" title="Minimize keyboard" style="margin-left:6px;font-size:13px;">▾</button>' +
+        '<button class="fkb-oct-btn" id="fkbMinBtn" title="Minimize keyboard" style="margin-left:6px;font-size:13px;">▲</button>' +
       '</div>' +
       '<div class="fkb-body" id="fkbBody"></div>' +
     '</div>';
@@ -35620,8 +35620,19 @@ function fkbShow() {
   if (!_fkbEl) fkbInit();
   if (!_fkbEl) return;
   _fkbOpen = true;
-  _fkbEl.classList.add('fkb-open');
-  fkbRender();
+  if (_fkbMinimized) {
+    // Boot minimized: hide floating panel, show inline strip
+    _fkbEl.style.display = 'none';
+    var _inlineRow = document.getElementById('fkbInlineRow');
+    if (_inlineRow) { _inlineRow.style.display = 'flex'; fkbRenderInline(); }
+    // Ensure fkbMinBtn reflects minimized state
+    var _btn = document.getElementById('fkbMinBtn');
+    if (_btn) { _btn.textContent = '▾'; _btn.title = 'Restore keyboard'; }
+  } else {
+    _fkbEl.style.display = '';
+    _fkbEl.classList.add('fkb-open');
+    fkbRender();
+  }
 }
 function fkbHide() {
   if (!_fkbEl) return;
@@ -35630,11 +35641,11 @@ function fkbHide() {
 }
 
 function fkbResize(delta) {
-  var allOct = [1,2,3,4,5,6,7];
+  var allOct = [1,2,3,4,5,6];
   var lo = _fkbOctaves[0];
   var hi = _fkbOctaves[_fkbOctaves.length - 1];
   if (delta > 0) {
-    if (hi < 7) hi++;
+    if (hi < 6) hi++;
     else if (lo > 1) lo--;
     else return;
   } else {
@@ -35654,7 +35665,7 @@ function fkbToggleMinimize() {
   var btn = document.getElementById('fkbMinBtn');
   var panel = document.getElementById('fkbPanel');
   if (body) body.style.display = _fkbMinimized ? 'none' : '';
-  if (btn) { btn.textContent = _fkbMinimized ? '▴' : '▾'; btn.title = _fkbMinimized ? 'Restore keyboard' : 'Minimize keyboard'; }
+  if (btn) { btn.textContent = _fkbMinimized ? '▾' : '▲'; btn.title = _fkbMinimized ? 'Restore keyboard' : 'Minimize keyboard'; }
   if (panel) panel.style.minHeight = _fkbMinimized ? '0' : '';
   // v1.225: Show/hide inline mini keys in toolbar row
   var inlineRow = document.getElementById('fkbInlineRow');
@@ -35662,8 +35673,11 @@ function fkbToggleMinimize() {
     inlineRow.style.display = _fkbMinimized ? 'flex' : 'none';
     if (_fkbMinimized) fkbRenderInline();
   }
-  // Hide floating panel when minimized to inline
-  if (_fkbEl) _fkbEl.style.display = _fkbMinimized ? 'none' : '';
+  // Hide floating panel when minimized to inline; restore when expanding
+  if (_fkbEl) {
+    _fkbEl.style.display = _fkbMinimized ? 'none' : '';
+    if (!_fkbMinimized) { _fkbEl.classList.add('fkb-open'); fkbRender(); }
+  }
 }
 
 // v1.227: Render responsive mini inline keyboard — rainbow colors, drag-play, touch-slide, Pop-Out
@@ -35710,13 +35724,13 @@ function fkbRenderInline() {
     {note:'F#',offset:3.67},{note:'G#',offset:4.67},{note:'A#',offset:5.67}
   ];
 
-  // Reserve space for Pop-Out button (56px)
-  var popOutW = 56;
+  // Reserve space for Pop-Out button (56px) + voice label + dropdown (~220px)
+  var popOutW = 276;
   var board = document.createElement('div');
   board.className = 'fkb-inline-board';
 
   // Responsive sizing: compute key widths from available space
-  var totalWhiteKeys = 7 * 7; // 7 octaves × 7 white keys
+  var totalWhiteKeys = 6 * 7; // 6 octaves × 7 white keys (C1–B6)
   function layoutKeys() {
     var availW = el.clientWidth - popOutW;
     if (availW < 100) availW = 100;
@@ -35738,8 +35752,8 @@ function fkbRenderInline() {
     });
   }
 
-  // Build keys for octaves 1-7
-  for (var oi = 0; oi < 7; oi++) {
+  // Build keys for octaves 1-6 (C1–B6)
+  for (var oi = 0; oi < 6; oi++) {
     var oct = oi + 1;
     KBD_WHITE_NOTES.forEach(function(note, wi) {
       var deg = noteDegree[note];
@@ -35795,6 +35809,41 @@ function fkbRenderInline() {
   popBtn.title = 'Restore floating keyboard';
   popBtn.addEventListener('click', function() { fkbPopOut(); });
   el.appendChild(popBtn);
+
+  // Keyboard Voice label + mirrored instrument dropdown (absolutely positioned right of board, left of Pop-Out)
+  var voiceWrap = document.createElement('span');
+  voiceWrap.style.cssText = 'position:absolute;right:56px;top:0;height:32px;display:inline-flex;align-items:center;gap:4px;padding:0 6px;white-space:nowrap;background:rgba(17,17,17,0.95);z-index:4;';
+  var voiceLbl = document.createElement('span');
+  voiceLbl.textContent = 'Keyboard Voice:';
+  voiceLbl.style.cssText = 'font-size:10px;color:var(--faint,#999);';
+  var voiceSel = document.createElement('select');
+  voiceSel.id = 'fkbInlineInstrSel';
+  voiceSel.style.cssText = 'font-size:10px;background:var(--card2,#1e1e2e);color:var(--text,#eee);border:1px solid var(--border2,#333);border-radius:4px;padding:2px 4px;cursor:pointer;';
+  voiceSel.title = 'Keyboard Voice';
+  var instrOptions = [
+    ['synth','Synth'],['piano','Grand Piano'],['piano2','Upright Piano'],
+    ['piano+piano2','Grand + Upright'],['guitar','Guitar'],['bassgtr','Bass Guitar'],
+    ['violin','Violins'],['pad','Analog Pad'],['lead','Analog Lead'],
+    ['guitar+piano','Guitar + Grand'],['guitar+piano2','Guitar + Upright'],
+    ['guitar+synth','Guitar + Synth'],['piano+synth','Grand + Synth'],
+    ['piano2+synth','Upright + Synth'],['guitar+piano+synth','Guitar + Grand + Synth'],
+    ['guitar+piano2+synth','Guitar + Upright + Synth']
+  ];
+  instrOptions.forEach(function(o) {
+    var opt = document.createElement('option');
+    opt.value = o[0]; opt.textContent = o[1]; voiceSel.appendChild(opt);
+  });
+  // Sync to current value
+  if (typeof _kbdMelodyInstrument !== 'undefined') voiceSel.value = _kbdMelodyInstrument;
+  voiceSel.addEventListener('change', function() {
+    // Sync the canonical melodyInstrumentSelect so melodyInstrumentChanged() reads the right value
+    var canonical = document.getElementById('melodyInstrumentSelect');
+    if (canonical) canonical.value = voiceSel.value;
+    if (typeof melodyInstrumentChanged === 'function') melodyInstrumentChanged();
+  });
+  voiceWrap.appendChild(voiceLbl);
+  voiceWrap.appendChild(voiceSel);
+  el.appendChild(voiceWrap);
 
   // Initial layout + resize observer
   layoutKeys();
@@ -35893,7 +35942,7 @@ function fkbPopOut() {
   var btn = document.getElementById('fkbMinBtn');
   var panel = document.getElementById('fkbPanel');
   if (body) body.style.display = '';
-  if (btn) { btn.textContent = '▾'; btn.title = 'Minimize keyboard'; }
+  if (btn) { btn.textContent = '▲'; btn.title = 'Minimize keyboard'; }
   if (panel) panel.style.minHeight = '';
   if (!_fkbOpen) fkbShow();
 }
@@ -35908,8 +35957,8 @@ function fkbRender() {
   if (!el) return;
   if (typeof seqCurrentKey !== 'function') return;
   var W = 38, BW = 24, WH = 140, BH = 88;
-  // v1.232: Render all 7 octaves; horizontal scroll in fkb-body reveals full range
-  var _fkbAllOctaves = [1,2,3,4,5,6,7];
+  // v1.232: Render 6 octaves (C1–B6); horizontal scroll in fkb-body reveals full range
+  var _fkbAllOctaves = [1,2,3,4,5,6];
   var totalWidth = 7 * _fkbAllOctaves.length * W;
   var key  = seqCurrentKey();
   var mode = seqCurrentMode();
@@ -36655,6 +36704,9 @@ function melodyInstrumentChanged() {
   // Always update the playback variable first — even if no song is currently open
   const val = document.getElementById('melodyInstrumentSelect')?.value || 'piano';
   _kbdMelodyInstrument = val;
+  // Keep inline strip voice dropdown in sync
+  var _fkbIIS = document.getElementById('fkbInlineInstrSel');
+  if (_fkbIIS) _fkbIIS.value = val;
   // Trigger sample loading if needed (works regardless of song state)
   const lbl = document.getElementById('melodyInstrumentLoading');
   let loading = false;
