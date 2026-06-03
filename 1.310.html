@@ -16367,6 +16367,10 @@ body.split-4track-active .ft-overlay { display: none !important; }
 .pr-chord-pill[data-degree] { color: #c084fc; border-color: rgba(192,132,252,0.35); }
 .pr-chord-pill.pr-pill-borrowed { color: #68d391; border-color: rgba(72,187,120,0.35); }
 
+/* v1.310: mirrored "Use Keys" palette inline in the desktop params bar */
+.params-keys-slots .pr-chord-pill { min-width: 30px; padding: 2px 5px; font-size: 9px; text-align: center; line-height: 1.2; cursor: pointer; margin-bottom: 0; }
+.kbd-stage-toolbar-row .kps-label { font-family: 'IBM Plex Mono', monospace; font-size: 8px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); white-space: nowrap; }
+
 /* ── grid area ── */
 .pr-grid-wrap {
   flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; background: #141420;
@@ -45395,6 +45399,8 @@ function renderKeyboardDrawerHtml(song) {
           <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;max-width:140px;border:1.5px solid var(--gold, #f5a623);box-shadow:0 0 4px rgba(245,166,35,0.25);">
             ${_keyOptions}
           </select>
+          <span class="kps-label" style="margin-left:6px;">Use Keys</span>
+          <div id="paramsKeysSlots" class="params-keys-slots" style="display:inline-flex;gap:3px;align-items:center;"></div>
           <select class="seq-select" id="kbdKeysTimeSig" onchange="kbdTimeSigChanged(this.value)" style="font-size:10px;width:52px;" title="Time Signature">
             <option value="4"${timeSig==='4'?' selected':''}>4/4</option>
             <option value="3"${timeSig==='3'?' selected':''}>3/4</option>
@@ -69600,6 +69606,24 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     }
 
     pal.innerHTML = html;
+
+    // ── Mirror the diatonic "Keys 1-9" pills into the desktop params bar ──
+    // No-ops on mobile (host absent). Clones carry the original pills' inline
+    // onclick/onmousedown/ontouchstart attributes, so clicks invoke the same
+    // prPalPreview/prPalDragStart handlers. Number keys 1-9 are handled by a
+    // separate degree-based keydown listener (seqClickKeySlot), independent of
+    // these clones' DOM location.
+    const slotsHost = document.getElementById('paramsKeysSlots');
+    if (slotsHost) {
+      slotsHost.innerHTML = '';
+      pal.querySelectorAll('.pr-chord-pill:not(.pr-chord-pill-var)').forEach(pill => {
+        const deg = parseInt(pill.dataset.degree || '-1', 10);
+        if (deg < 0) return; // diatonic scale-degree pills only
+        const clone = pill.cloneNode(true);
+        clone.removeAttribute('draggable'); // inline chips aren't grid drop sources
+        slotsHost.appendChild(clone);
+      });
+    }
   }
 
   // ── Render ──
