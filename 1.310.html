@@ -17046,6 +17046,15 @@ body.arr-view-open .uc-bar {
   background: none; border: none; cursor: pointer;
 }
 
+/* ── Shared strip relocated into the DESKTOP Piano Roll (grid mode): sits inside
+   #prGridScroll as a sibling above #prGridContainer, so it scrolls horizontally with
+   the grid for free and pins on vertical scroll. A left pad equal to the key gutter
+   (#prKeys width, 44px) shifts bar 1 to where the grid's notes start (x=44) so the
+   section boundaries land exactly on the grid's bar lines. ── */
+.global-seq-strip.pr-strip-mounted[data-strip-mode="grid"] {
+  padding-left: 44px; z-index: 6; min-width: 0;
+}
+
 /* Bar ruler */
 .arr-bar-ruler {
   height: 18px; background: #111118; border-bottom: 1px solid rgba(245,166,35,0.25);
@@ -26041,6 +26050,56 @@ function _seqStripBarBg(color) {
   return color.replace(')', ',0.16)').replace('rgb', 'rgba');
 }
 window.seqStripRender = seqStripRender;
+
+// ── DESKTOP Piano-Roll strip mount (mirror of Arrange's _arrMountStrip/_arrUnmountStrip) ──
+// Relocate the shared #globalSeqStrip into the PR's horizontal scroll container so its
+// section bars stay pixel-locked to the grid's bars and scroll/zoom with the grid for free.
+// stepsPerBar = prGetTimeSig() * prGetSnap() (the SAME factors the PR ruler uses to draw bar
+// lines: a bar line falls where (col/snap) % timeSig === 0, i.e. every timeSig*snap columns);
+// ppb (pixels per bar) = prGetColW() * stepsPerBar.
+function _prStripPPB() {
+  var colW = (typeof window.prGetColW === 'function') ? window.prGetColW() : 12;
+  var ts   = (typeof window.prGetTimeSig === 'function') ? window.prGetTimeSig() : 4;
+  var snap = (typeof window.prGetSnap === 'function') ? window.prGetSnap() : 4;
+  return colW * ts * snap;
+}
+var _prStripMounted = false;
+window._prStripIsMounted = function() { return _prStripMounted; };
+function _prMountStrip() {
+  if (window.innerWidth < 900) return;                 // desktop only
+  if (typeof arrIsOpen === 'function' && arrIsOpen()) return; // Arrange owns the strip there
+  var strip  = document.getElementById('globalSeqStrip');
+  var scroll = document.getElementById('prGridScroll');
+  var cont   = document.getElementById('prGridContainer');
+  if (!strip || !scroll || !cont) return;
+  // Mount as a sibling directly before #prGridContainer (in-flow), so the container — and all
+  // its absolutely-positioned children (keys/canvas/notes) — shift down together as one block,
+  // keeping their internal top:0 coordinate math intact. Lives inside #prGridScroll → scrolls
+  // horizontally with the grid; position:sticky;top:0 pins it on vertical scroll.
+  if (strip.parentNode !== scroll || strip.nextSibling !== cont) {
+    scroll.insertBefore(strip, cont);
+  }
+  strip.classList.add('pr-strip-mounted');
+  _prStripMounted = true;
+  if (typeof seqStripRender === 'function') seqStripRender('grid', _prStripPPB());
+}
+function _prUnmountStrip() {
+  var strip = document.getElementById('globalSeqStrip');
+  if (strip) strip.classList.remove('pr-strip-mounted');
+  _prStripMounted = false;
+  var tgl = document.getElementById('seqStripToggleBtn');
+  // Return to home spot (just before the toggle button) and revert to fit mode.
+  if (strip && tgl && tgl.parentNode && strip.nextSibling !== tgl) tgl.parentNode.insertBefore(strip, tgl);
+  if (typeof seqStripRender === 'function') seqStripRender('fit');
+}
+// Re-render the mounted strip at the current pixels-per-bar (called after a horizontal-zoom change).
+function _prStripResync() {
+  if (!_prStripMounted) return;
+  if (typeof seqStripRender === 'function') seqStripRender('grid', _prStripPPB());
+}
+window._prMountStrip   = _prMountStrip;
+window._prUnmountStrip = _prUnmountStrip;
+window._prStripResync  = _prStripResync;
 
 // Tap a bar → select/activate (loads into current tool + syncs Arrange selection).
 window.seqStripSelect = function(i, ev) {
@@ -68947,12 +69006,17 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         // Enable auto-sync now that initial render is done
         setTimeout(() => { _prSyncEnabled = true; }, 50);
         if (typeof window._prBgDebug === 'function') setTimeout(window._prBgDebug, 200);
+        // Desktop: relocate the shared sequence strip into the PR scroll container so its
+        // section bars stay pixel-locked to the grid (mirror of Arrange). No-op on mobile / in Arrange.
+        if (typeof window._prMountStrip === 'function') window._prMountStrip();
       });
     });
   };
 
   window.prClose = function() {
     prOpen = false;
+    // Return the shared sequence strip to its home spot (fit mode) when leaving the PR.
+    if (typeof window._prUnmountStrip === 'function') window._prUnmountStrip();
     _prFlushToFirestore(); // flush any pending PR changes on close
     const overlay = document.getElementById('prOverlay');
     if (overlay) overlay.classList.remove('open');
@@ -69117,6 +69181,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     PR_COL_W = val;
     prRender();
     _prSaveZoom();
+    // Keep the mounted sequence strip's section bars pixel-locked to the grid as it zooms.
+    if (typeof window._prStripResync === 'function') window._prStripResync();
   };
   window.prSetZoomV = function(val) {
     console.log('[PR-zoom] V=' + val + 'px (was ' + PR_ROW_H + ')');
@@ -71638,6 +71704,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   window.prGetTimeSig = function() { return prTimeSig; };
   window.prGetBars = function() { return prBars; };
   window.prGetTotalCols = function() { return prTotalCols; };
+  window.prGetSectionLayout = function() { return _prSectionLayout.map(function(s){ return { seqIdx: s.seqIdx, colOffset: s.colOffset, sectionCols: s.sectionCols }; }); };
   window.prDeleteNoteById = function(id) { _prNodesNeedKill = true; prNotes = prNotes.filter(n => n.id != id); prRenderNotes(); };
   window.prUpdateNote = function(id, props) { var n = prNotes.find(x => x.id == id); if (n) Object.assign(n, props); prRenderNotes(); };
 
