@@ -18032,6 +18032,7 @@ if (window.innerWidth < 900) {
         <span></span><span></span><span></span>
       </button>
       <div class="mobile-menu-panel" id="mobileMenuPanel">
+        <button id="menuSignInBtn" class="mobile-menu-item" style="display:none;font-weight:700;color:#64dcb4;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;padding-bottom:10px;" onclick="v4RequireAuth();closeMobileMenu()">↪ Sign In / Create Account</button>
         <button title="Go back to the song list view. Browse and switch between your drafts." class="mobile-menu-item" onclick="showList();closeMobileMenu()" style="font-weight:700;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;padding-bottom:10px;">← Song List</button>
         <div class="mobile-menu-user" id="mobileMenuUser"></div>
         <div class="mobile-menu-item mobile-menu-quota" id="mobileMenuQuota" style="display:none;">Quota: —</div>
@@ -18529,6 +18530,13 @@ try {
 // ── Centralized auth accessors ─────────────────────────────────
 function _authUid()  { return auth.currentUser ? auth.currentUser.uid : null; }
 function _authUser() { return auth.currentUser || null; }
+function _updateMenuSignIn() {
+  var btn = document.getElementById('menuSignInBtn');
+  if (!btn) return;
+  var u = (typeof auth !== 'undefined' && auth.currentUser) ? auth.currentUser : null;
+  var signedOut = !u || u.isAnonymous;
+  btn.style.display = signedOut ? '' : 'none';
+}
 
 // _ensureStorage is a no-op when storage is pre-loaded (all SDKs now load at boot)
 async function _ensureStorage() {
@@ -37915,6 +37923,7 @@ let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestor
 
 /* @lock:start — Auth Lifecycle */
 auth.onAuthStateChanged(user => {
+  _updateMenuSignIn();
   _dhMark(user ? 'auth-signed-in' : 'auth-signed-out');
   // Re-evaluate Roll Hero visibility based on auth state
   if (typeof v4RestoreRollHero === 'function') v4RestoreRollHero();
@@ -42183,6 +42192,7 @@ function _buildOwnerBaseline(song) {
 
 // Hook into auth state for collab join — separate handler, does NOT modify the locked auth lifecycle
 auth.onAuthStateChanged(user => {
+  _updateMenuSignIn();
   if (user && !user.isAnonymous && _pendingCollabJoin) {
     // Dismiss all public view / signup UI
     const pv = document.getElementById('publicViewOverlay');
@@ -44494,6 +44504,7 @@ document.addEventListener('change', function(e) {
 });
 
 function toggleMobileMenu() {
+  _updateMenuSignIn();
   const panel = document.getElementById('mobileMenuPanel');
   const wrap  = document.getElementById('mobileMenuWrap');
   if (!panel) return;
