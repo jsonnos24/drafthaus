@@ -172,6 +172,11 @@ CLAUDE.md bypasses: EULA → `signInAsGuest()` → `_createAndLoadSong` →
 
 ## Out of scope
 
-- Mobile (this batch is desktop-only).
+- Mobile — **must remain untouched** (hard requirement). This is desktop-only
+  work; all edits are scoped to desktop containers/variants or gated behind a
+  desktop check (`innerWidth >= 900`), and a mobile-viewport regression pass
+  confirms the mobile UI is identical to 1.309. Shared elements (the menu, the
+  instrument dropdowns) may carry the requested cleanup/new voices but must not
+  break mobile.
 - Promoting 1.310 → `index.html` (separate user-approved deploy step).
 - Any unrelated refactor of the PR/strip engines beyond what these tasks require.
