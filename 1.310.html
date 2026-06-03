@@ -74132,6 +74132,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   var _qcOpen = false;
   var _qcBuilt = false;
   var _qcMinimized = false;
+  // Session flag: set to true when the user explicitly closes the overlay;
+  // prevents the default-open logic from forcing it back open on subsequent PR opens.
+  var _qcUserClosed = false;
 
   var QC_QUAL_VARIANTS = {
     '': ['sus2','sus4','add9','maj7','7'],
@@ -74223,10 +74226,16 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     var parent = container ? container.parentElement : null;
     if (!container || !parent) return;
     var pw = parent.offsetWidth || 1, ph = parent.offsetHeight || 1;
-    _qcPos.left = parseInt(container.style.left) / pw;
-    _qcPos.top = parseInt(container.style.top) / ph;
-    _qcPos.width = parseInt(container.style.width) / pw;
-    _qcPos.height = parseInt(container.style.height) / ph;
+    // Only update fractional state when the container has explicit inline dimensions;
+    // guard against NaN (parseInt("") === NaN) corrupting the defaults.
+    var _pL = parseInt(container.style.left)   / pw;
+    var _pT = parseInt(container.style.top)    / ph;
+    var _pW = parseInt(container.style.width)  / pw;
+    var _pH = parseInt(container.style.height) / ph;
+    if (isFinite(_pL)) _qcPos.left   = _pL;
+    if (isFinite(_pT)) _qcPos.top    = _pT;
+    if (isFinite(_pW)) _qcPos.width  = _pW;
+    if (isFinite(_pH)) _qcPos.height = _pH;
   }
 
   function _qcSaveState() {
@@ -74244,6 +74253,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       // Hide
       _qcOpen = false;
       _qcMinimized = false;
+      _qcUserClosed = true; // user explicitly closed; suppress auto-reopen for this session
       qcEl.classList.add('qc-hidden');
       if (btn) btn.classList.remove('qc-active');
     } else {
@@ -74265,6 +74275,58 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       _qcInitDrag();
       _qcInitResize();
     }
+  }
+
+  // ── Desktop default-open: right-aligned, clear of side tabs ──
+  // Called on every PR open when _qcUserClosed is false and we're on desktop.
+  // Side tabs are position:fixed right:0, ~44px wide (padding 8px each side + icon ~28px).
+  // We offset 48px from the right edge of .pr-body so QC never overlaps them.
+  var _QC_RIGHT_OFFSET = 48; // px gap from right edge of pr-body (clears side tabs + small gap)
+  function _qcDefaultOpen() {
+    if (window.innerWidth < 900) return; // desktop only — never auto-open on mobile
+    if (_qcUserClosed) return;           // respect explicit session close
+    if (_qcOpen) return;                 // already open
+
+    var qcEl = document.getElementById('qcContainer');
+    var btn = document.getElementById('qcToggleBtn');
+    if (!qcEl) return;
+
+    _qcOpen = true;
+    _qcMinimized = false;
+    if (!_qcBuilt) qcBuild();
+
+    // Position right-aligned: compute left = parentWidth - qcWidth - _QC_RIGHT_OFFSET
+    var parent = qcEl.parentElement;
+    var pw = (parent && parent.offsetWidth > 0) ? parent.offsetWidth : window.innerWidth;
+    var ph = (parent && parent.offsetHeight > 0) ? parent.offsetHeight : window.innerHeight;
+    // Use the stored fractional width (default 0.45) or fall back to defaults if NaN/invalid
+    var _safeW = (isFinite(_qcPos.width)  && _qcPos.width  > 0) ? _qcPos.width  : 0.45;
+    var _safeH = (isFinite(_qcPos.height) && _qcPos.height > 0) ? _qcPos.height : 0.42;
+    var _safeT = (isFinite(_qcPos.top)    && _qcPos.top    >= 0) ? _qcPos.top   : 0.04;
+    var qcW = Math.max(200, Math.round(_safeW * pw));
+    var qcH = Math.max(100, Math.round(_safeH * ph));
+    var qcL = Math.max(0, pw - qcW - _QC_RIGHT_OFFSET);
+    var qcT = Math.max(0, Math.round(_safeT * ph));
+
+    qcEl.style.left   = qcL + 'px';
+    qcEl.style.top    = qcT + 'px';
+    qcEl.style.width  = qcW + 'px';
+    qcEl.style.height = qcH + 'px';
+
+    // Keep internal fractional state in sync (so drag-save works from the new position)
+    if (pw > 0) _qcPos.left = qcL / pw;
+    if (ph > 0) _qcPos.top  = qcT / ph;
+
+    qcEl.classList.remove('qc-hidden');
+    qcEl.style.display = '';
+    var body = document.getElementById('qcFloatBody');
+    if (body) body.style.display = '';
+    var handles = qcEl.querySelectorAll('.qc-resize-handle');
+    handles.forEach(function(h) { h.style.display = ''; });
+    if (btn) btn.classList.add('qc-active');
+    qcBuild(); // refresh chords for current key
+    _qcInitDrag();
+    _qcInitResize();
   }
 
   function qcMinimize() {
@@ -74427,17 +74489,19 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
     if (song && song.uiState && song.uiState.qcFloat) {
       var s = song.uiState.qcFloat;
-      if (typeof s.left === 'number') _qcPos.left = s.left;
-      if (typeof s.top === 'number') _qcPos.top = s.top;
-      if (typeof s.width === 'number') _qcPos.width = s.width;
-      if (typeof s.height === 'number') _qcPos.height = s.height;
+      // Guard against NaN persisted from old sessions (typeof NaN === 'number')
+      if (typeof s.left   === 'number' && isFinite(s.left))   _qcPos.left   = s.left;
+      if (typeof s.top    === 'number' && isFinite(s.top))    _qcPos.top    = s.top;
+      if (typeof s.width  === 'number' && isFinite(s.width))  _qcPos.width  = s.width;
+      if (typeof s.height === 'number' && isFinite(s.height)) _qcPos.height = s.height;
     }
   }
 
   // ── Hook into PR open ──
   var _qcInitDone = false;
   function _qcHookPrOpen() {
-    var obs = new MutationObserver(function(mutations) {
+    // Observe #prOverlay for the fullscreen-overlay path (non-split desktop / mobile overlay)
+    var overlayObs = new MutationObserver(function(mutations) {
       mutations.forEach(function(m) {
         if (m.target.id === 'prOverlay' && m.target.classList.contains('open')) {
           if (!_qcInitDone) { _qcInitDone = true; _qcInitHighlight(); _qcInitDrag(); _qcInitResize(); }
@@ -74447,7 +74511,31 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       });
     });
     var overlay = document.getElementById('prOverlay');
-    if (overlay) obs.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+    if (overlay) overlayObs.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+
+    // Observe document.body for the 'pr-open' class, which is added by prOpen_() in BOTH
+    // the fullscreen-overlay path AND the split-pr path.  This is the unified hook point
+    // for the desktop default-open logic.
+    var bodyObs = new MutationObserver(function(mutations) {
+      mutations.forEach(function(m) {
+        if (m.target === document.body) {
+          var hasPrOpen = document.body.classList.contains('pr-open');
+          if (hasPrOpen) {
+            if (!_qcInitDone) { _qcInitDone = true; _qcInitHighlight(); _qcInitDrag(); _qcInitResize(); }
+            _qcRestoreState();
+            qcRefreshIfNeeded();
+            // Default-open on desktop if user hasn't explicitly closed it this session.
+            // Double-rAF: first frame is the render triggered by the class change, second
+            // frame guarantees the PR panel has been laid out and its offsetWidth is non-zero
+            // before we compute right-aligned positioning.
+            requestAnimationFrame(function() {
+              requestAnimationFrame(function() { _qcDefaultOpen(); });
+            });
+          }
+        }
+      });
+    });
+    bodyObs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
   }
 
   // Periodic refresh for key changes
@@ -74467,6 +74555,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   window.qcRefreshIfNeeded = qcRefreshIfNeeded;
   window._qcGetPos = function() { _qcCapturePos(); return _qcPos; };
   window._qcIsOpen = function() { return _qcOpen; };
+  // Expose session-close flag (read/write) for tests and external tooling
+  window._qcSetUserClosed = function(v) { _qcUserClosed = !!v; };
+  window._qcGetUserClosed = function() { return _qcUserClosed; };
 })();
 
 </script>
