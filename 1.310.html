@@ -17055,6 +17055,15 @@ body.arr-view-open .uc-bar {
   padding-left: 44px; z-index: 6; min-width: 0;
 }
 
+/* ── Shared strip relocated into the DESKTOP standalone Drum Roll (grid mode): sits inside
+   #drRollScroll as a sibling above #drRollContainer, so it scrolls horizontally with the
+   grid for free and pins on vertical scroll. A left pad equal to the label gutter
+   (#drRollLabels width, 100px) shifts bar 1 to where the grid's notes start (canvas/
+   notes-layer left:100px) so the section boundaries land exactly on the grid's bar lines. ── */
+.global-seq-strip.dr-strip-mounted[data-strip-mode="grid"] {
+  padding-left: 100px; z-index: 11; min-width: 0;
+}
+
 /* Bar ruler */
 .arr-bar-ruler {
   height: 18px; background: #111118; border-bottom: 1px solid rgba(245,166,35,0.25);
@@ -26068,6 +26077,10 @@ window._prStripIsMounted = function() { return _prStripMounted; };
 function _prMountStrip() {
   if (window.innerWidth < 900) return;                 // desktop only
   if (typeof arrIsOpen === 'function' && arrIsOpen()) return; // Arrange owns the strip there
+  if (typeof window._drumStripIsMounted === 'function' && window._drumStripIsMounted()) {
+    // Drum drawer currently owns the strip — release it first so only one host owns #globalSeqStrip.
+    if (typeof window._drumUnmountStrip === 'function') window._drumUnmountStrip();
+  }
   var strip  = document.getElementById('globalSeqStrip');
   var scroll = document.getElementById('prGridScroll');
   var cont   = document.getElementById('prGridContainer');
@@ -26100,6 +26113,67 @@ function _prStripResync() {
 window._prMountStrip   = _prMountStrip;
 window._prUnmountStrip = _prUnmountStrip;
 window._prStripResync  = _prStripResync;
+
+// ── DESKTOP Drum-Roll strip mount (mirror of the PR / Arrange strip mounts) ──
+// Relocate the shared #globalSeqStrip into the standalone Drum Roll's horizontal scroll
+// container (#drRollScroll, before #drRollContainer) so its section bars stay pixel-locked
+// to the drum grid's bars and scroll/zoom with the grid for free.
+//   ppb (pixels per bar) = drumColW * drumStepsPerBar, where:
+//     drumColW       = the Drum Roll's per-step (column) pixel width  → window._drRollGetColW()
+//     drumStepsPerBar = time * drumGrid                               → _drRollGetParams().stepsPerBar
+//   gutter           = the Drum Roll's left label column width (#drRollLabels, 100px) so bar 1
+//                      starts where the grid's notes/canvas begin (canvas/notes-layer left:100px).
+function _drumStripPPB() {
+  var colW = (typeof window._drRollGetColW === 'function') ? window._drRollGetColW() : 40;
+  // Derive stepsPerBar exactly the way the Drum Roll grid does (time * drumGrid).
+  var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+  var sd   = (song && song.sequencer) ? song.sequencer : {};
+  var time = parseInt(sd.time || '4') || 4;
+  var grid = parseInt(sd.drumSteps || sd.grid || '4') || 4;
+  return colW * (time * grid);
+}
+var _drumStripMounted = false;
+window._drumStripIsMounted = function() { return _drumStripMounted; };
+function _drumMountStrip() {
+  if (window.innerWidth < 900) return;                          // desktop only — mobile drum drawer untouched
+  if (typeof arrIsOpen === 'function' && arrIsOpen()) return;   // Arrange owns the strip there
+  if (typeof window._prStripIsMounted === 'function' && window._prStripIsMounted()) {
+    // PR currently owns the strip — release it first so only one host owns #globalSeqStrip.
+    if (typeof window._prUnmountStrip === 'function') window._prUnmountStrip();
+  }
+  var strip  = document.getElementById('globalSeqStrip');
+  var scroll = document.getElementById('drRollScroll');
+  var cont   = document.getElementById('drRollContainer');
+  if (!strip || !scroll || !cont) return;
+  // Mount as a sibling directly before #drRollContainer (in-flow), inside #drRollScroll → it
+  // scrolls horizontally with the grid; position:sticky;top:0 pins it on vertical scroll. A left
+  // pad equal to the label gutter (100px) shifts bar 1 to where the grid's notes start (x=100).
+  if (strip.parentNode !== scroll || strip.nextSibling !== cont) {
+    scroll.insertBefore(strip, cont);
+  }
+  strip.classList.add('dr-strip-mounted');
+  _drumStripMounted = true;
+  if (typeof seqStripRender === 'function') seqStripRender('grid', _drumStripPPB());
+}
+function _drumUnmountStrip() {
+  var strip = document.getElementById('globalSeqStrip');
+  if (strip) strip.classList.remove('dr-strip-mounted');
+  _drumStripMounted = false;
+  var tgl = document.getElementById('seqStripToggleBtn');
+  // Return to home spot (just before the toggle button) and revert to fit mode.
+  if (strip && tgl && tgl.parentNode && strip.nextSibling !== tgl) tgl.parentNode.insertBefore(strip, tgl);
+  if (typeof seqStripRender === 'function') seqStripRender('fit');
+}
+// Re-render the mounted strip at the current pixels-per-bar (called after a horizontal-zoom /
+// grid-density / step-count change that resizes the drum grid).
+function _drumStripResync() {
+  if (!_drumStripMounted) return;
+  if (window.innerWidth < 900) return;
+  if (typeof seqStripRender === 'function') seqStripRender('grid', _drumStripPPB());
+}
+window._drumMountStrip   = _drumMountStrip;
+window._drumUnmountStrip = _drumUnmountStrip;
+window._drumStripResync  = _drumStripResync;
 
 // Tap a bar → select/activate (loads into current tool + syncs Arrange selection).
 window.seqStripSelect = function(i, ev) {
@@ -29043,6 +29117,8 @@ function seqBuildGrids(song) {
       if (parseInt(hs.value) !== Math.round(_drRollColW)) hs.value = Math.round(_drRollColW);
     }
     _drRollSaveZoom();
+    // Keep the mounted desktop seq strip pixel-locked after a horizontal-zoom change.
+    if (typeof window._drumStripResync === 'function') window._drumStripResync();
   };
   window._drRollSetZoomV = function(v) {
     _drRollRowH = Math.max(24, Math.min(120, v));
@@ -30287,12 +30363,19 @@ function seqBuildGrids(song) {
       }
       _drRollFullRender();
       _drRollRefreshMuteButtons();
+      // Desktop: relocate the shared sequence strip into the Drum Roll scroll container so its
+      // section bars stay pixel-locked to the grid (mirror of PR / Arrange). No-op on mobile / in Arrange.
+      if (typeof window._drumMountStrip === 'function') window._drumMountStrip();
     });
     if (!_drRollPlayRAF) _drRollPlayRAF = requestAnimationFrame(_drRollPlayheadTick);
   }
 
   function _drCloseDrumRoll() {
     if (!_drRollActive) return;
+    // Return the shared sequence strip to its home spot (fit mode) before tearing down the roll
+    // DOM, so it isn't left orphaned inside the (about-to-be-hidden) Drum Roll scroll container.
+    if (typeof window._drumStripIsMounted === 'function' && window._drumStripIsMounted()
+        && typeof window._drumUnmountStrip === 'function') window._drumUnmountStrip();
     var container = document.getElementById('drPrContainer');
     if (container) { container.style.display = 'none'; container.classList.add('dr-hidden'); }
     _drRollActive = false;
@@ -48581,6 +48664,10 @@ function closeSeqDrawer() {
   } catch (e) { console.warn('closeSeqDrawer save error:', e); }
 
   if (_activeTool === 'drums') _activeTool = null;
+  // Desktop: return the shared sequence strip home (fit mode) when leaving the drum drawer,
+  // so it isn't left mounted inside the Drum Roll scroll container.
+  if (typeof window._drumStripIsMounted === 'function' && window._drumStripIsMounted()
+      && typeof window._drumUnmountStrip === 'function') window._drumUnmountStrip();
   _setNavOpen('nav-sequencer', false);
   const drawer = document.getElementById('seqDrawer');
   if (drawer) { drawer.style.transform = ''; drawer.style.zIndex = ''; }
@@ -75395,6 +75482,10 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   // Relocate the shared #globalSeqStrip into the Arrange timeline (top of #arrTimelineInner),
   // where the retired #arrSectionsRow used to live, so it scrolls with the lanes for free.
   function _arrMountStrip() {
+    // If the drum drawer currently owns the strip, clear its mounted flag/class so it
+    // doesn't think it still hosts #globalSeqStrip after Arrange relocates it.
+    if (typeof window._drumStripIsMounted === 'function' && window._drumStripIsMounted()
+        && typeof window._drumUnmountStrip === 'function') window._drumUnmountStrip();
     var strip = document.getElementById('globalSeqStrip');
     var inner = document.getElementById('arrTimelineInner');
     if (strip && inner && strip.parentNode !== inner) inner.insertBefore(strip, inner.firstChild);
