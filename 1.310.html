@@ -23873,6 +23873,59 @@ function playViolinNote(midiNote, time, velocity, durationS) {
   if (typeof _prChordScheduledNodes !== 'undefined') _prChordScheduledNodes.push(src);
 }
 
+// ── Analog Pad (oscillator synth voice — no samples to load) ─────────
+var _padLoaded = true, _padLoading = false;
+function loadPadSamples() { /* oscillator voice — nothing to load */ }
+function _padUpdateUI() {}
+function playPadNote(midiNote, time, velocity, durationS) {
+  const ctx  = getSeqAudioCtx();
+  const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+  const dur  = Math.max(0.40, (durationS || 1.4) * 1.15);
+  const vol  = Math.min(0.5, (velocity || 0.8) * 0.42);
+  const filt = ctx.createBiquadFilter();
+  filt.type = 'lowpass'; filt.frequency.value = 1400; filt.Q.value = 0.6;
+  const gain = ctx.createGain();
+  var _relT = 0.6;
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.linearRampToValueAtTime(vol, time + 0.28);   // slow attack (pad)
+  gain.gain.setValueAtTime(vol, time + dur);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + dur + _relT);
+  const oscs = [];
+  [-6, 6].forEach(function(detune) {
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth'; o.frequency.value = freq; o.detune.value = detune;
+    o.connect(filt); o.start(time); o.stop(time + dur + _relT + 0.05);
+    oscs.push(o);
+  });
+  filt.connect(gain); gain.connect(seqGetChordsOut());
+  if (typeof _prChordScheduledNodes !== 'undefined') oscs.forEach(function(o){ _prChordScheduledNodes.push(o); });
+}
+function _padClosestMidi(t) { return t; }
+
+// ── Analog Lead (oscillator synth voice — no samples to load) ─────────
+var _leadLoaded = true, _leadLoading = false;
+function loadLeadSamples() { /* oscillator voice — nothing to load */ }
+function _leadUpdateUI() {}
+function playLeadNote(midiNote, time, velocity, durationS) {
+  const ctx  = getSeqAudioCtx();
+  const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+  const dur  = Math.max(0.20, (durationS || 0.9) * 1.05);
+  const vol  = Math.min(0.6, (velocity || 0.8) * 0.5);
+  const filt = ctx.createBiquadFilter();
+  filt.type = 'lowpass'; filt.frequency.value = 2600; filt.Q.value = 1.2;
+  const gain = ctx.createGain();
+  var _relT = 0.18;
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.linearRampToValueAtTime(vol, time + 0.02);   // fast attack (lead)
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.01, vol * 0.55), time + dur);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + dur + _relT);
+  const o1 = ctx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = freq; o1.detune.value = -4;
+  const o2 = ctx.createOscillator(); o2.type = 'square';   o2.frequency.value = freq; o2.detune.value = 5;
+  o1.connect(filt); o2.connect(filt); filt.connect(gain); gain.connect(seqGetChordsOut());
+  [o1, o2].forEach(function(o){ o.start(time); o.stop(time + dur + _relT + 0.05); if (typeof _prChordScheduledNodes !== 'undefined') _prChordScheduledNodes.push(o); });
+}
+function _leadClosestMidi(t) { return t; }
+
 // Salamander Grand Piano — one sample every 6 semitones.
 // Pitch-shift ±3 semitones max, which is imperceptible on piano.
 const PIANO_SAMPLE_MAP = {
@@ -32459,6 +32512,13 @@ function seqPlayChordViolin(midiNotes, time, velocity, durS) {
   midiNotes.forEach((midi, i) => {
     playViolinNote(midi, time + i * 0.028, velocity, d);
   });
+}
+
+function seqPlayChordPad(midiNotes, time, velocity, durS) {
+  midiNotes.forEach(function(m){ playPadNote(m, time, velocity, durS || 1.6); });
+}
+function seqPlayChordLead(midiNotes, time, velocity, durS) {
+  midiNotes.forEach(function(m){ playLeadNote(m, time, velocity, durS || 1.0); });
 }
 
 function seqPlayChordByName(name) {
