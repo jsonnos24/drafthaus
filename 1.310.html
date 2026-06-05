@@ -32607,6 +32607,18 @@ window.kbdStageInitInlinePR = function() {
       var c4row = (84 - 60);
       scroll.scrollTop = Math.max(0, c4row * rowH - scroll.clientHeight / 2);
       if (typeof prSetSyncEnabled === 'function') setTimeout(function() { prSetSyncEnabled(true); }, 50);
+      // Desktop: relocate the shared sequence strip into the PR scroll container (mirror of
+      // the prOpen / Arrange path) so its section bars stay pixel-locked to the grid and
+      // scroll/zoom with it. The grid + #prGridScroll/#prGridContainer now exist. No-op on
+      // mobile / in Arrange / when the drum drawer owns the strip.
+      // Guard: only mount when the keyboard drawer is actually the live tool. A late re-init
+      // of this rAF loop can fire AFTER the user has switched to another split tool (e.g. via
+      // a queued kbdStageReturnPRInline); without this check it would yank the strip back out
+      // of the new tool's view and re-mount it into the now-hidden keyboard PR.
+      var _kbdIsLiveTool = (typeof _splitActive !== 'undefined' && _splitActive)
+        ? (typeof _splitCurrentTool !== 'undefined' && _splitCurrentTool === 'keyboard')
+        : !!(document.getElementById('keyboardDrawer') && document.getElementById('keyboardDrawer').classList.contains('open'));
+      if (_kbdIsLiveTool && typeof window._prMountStrip === 'function') window._prMountStrip();
     } else if (_prInlineRetries < 20) {
       _prInlineRetries++;
       requestAnimationFrame(_prInlineTryRender);
@@ -44787,6 +44799,11 @@ function _splitReturnDrawer() {
   }
   // Clean up body classes and nav highlights left by each drawer type
   if (_splitCurrentTool === 'keyboard') {
+    // Desktop: return the shared sequence strip home (fit mode) — it was mounted inside the
+    // kbd-stage PR scroll container, which just rode back into the relocated drawer above.
+    // (_prUnmountStrip recovers it by id and re-homes it before #seqStripToggleBtn.)
+    if (typeof window._prStripIsMounted === 'function' && window._prStripIsMounted()
+        && typeof window._prUnmountStrip === 'function') window._prUnmountStrip();
     document.body.classList.remove('keyboard-drawer-open', 'kbd-expanded', 'ft-drawer-open');
     _setNavOpen('nav-keyboard', false);
     var _kTab = document.getElementById('keyboardDrawerTab');
@@ -46728,6 +46745,11 @@ function openKeyboardDrawer() {
 }
 
 function closeKeyboardDrawer() {
+  // Return the shared sequence strip to its home spot (fit mode) before any reparenting, so it
+  // isn't carried into a hidden drawer/overlay when the PR panel is moved out. Idempotent; the
+  // desktop split path also unmounts in _splitReturnDrawer. No-op on mobile (never mounted).
+  if (typeof window._prStripIsMounted === 'function' && window._prStripIsMounted()
+      && typeof window._prUnmountStrip === 'function') window._prUnmountStrip();
   if (_splitActive && _splitCurrentTool === 'keyboard') { closeSplitMode(); return; }
 
   // ── Mobile PR cleanup (returns prPanel to overlay) ──
