@@ -8703,6 +8703,18 @@ body.split-expanded-right #splitRightContent > #songViewRunthrough {
 /* Dark text on the white "page card" contexts (desktop edit + perform mode), so default lyric text is readable */
 body.split-expanded-right #splitRightContent > #songViewRunthrough .il-lyrics-doc,
 #songViewRunthrough.il-perf-mode .il-lyrics-doc { color: #1a1d24; }
+/* Recovery banner: offer to restore original per-section lyrics */
+.il-restore-banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 8px 0 4px; padding: 9px 12px;
+  background: rgba(245,166,35,0.12); border: 1px solid rgba(245,166,35,0.45);
+  border-radius: 8px; color: #f5a623; font-size: 13px;
+}
+.il-restore-banner button {
+  background: #f5a623; color: #1a1208; border: none; border-radius: 6px;
+  padding: 5px 12px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.il-restore-banner button:hover { background: #ffba3d; }
 .il-fmt-bar {
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; gap: 4px;
@@ -52920,6 +52932,11 @@ function ilRenderBody(song) {
   const title   = esc(song.title || song.workingTitle || 'Untitled');
 
   const docHtml = ilSanitizeDocHtml(ilGetDocHtml(song));
+  // Recovery: if the song still has original per-section lyrics that aren't already
+  // in the current doc, offer a one-tap restore (non-destructive — appends).
+  const _legacyTxt = ilDocToPlainText(ilMigrateLyricsToDoc(song));
+  const _docTxt    = ilDocToPlainText(docHtml);
+  const _showRestore = _legacyTxt.length > 0 && !_docTxt.includes(_legacyTxt.slice(0, 40));
   inner.innerHTML = `
     <div class="il-perf-title">${title}</div>
     <h1 class="il-song-title" contenteditable="true" spellcheck="false"
@@ -52928,6 +52945,8 @@ function ilRenderBody(song) {
       onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
       style="outline:none;cursor:text;min-width:60px;"
       title="Click to edit title">${title}</h1>
+    ${_showRestore ? `<div class="il-restore-banner">Found your original lyrics for this song.
+      <button type="button" onclick="ilRestoreOriginalLyrics()">↺ Restore them</button></div>` : ''}
     <div class="il-fmt-bar" id="ilFmtBar" role="toolbar" aria-label="Formatting">
       <button type="button" class="il-fmt-btn" data-cmd="bold" title="Bold (⌘B)" onmousedown="event.preventDefault()" onclick="ilFmtCmd('bold')"><b>B</b></button>
       <button type="button" class="il-fmt-btn" data-cmd="italic" title="Italic (⌘I)" onmousedown="event.preventDefault()" onclick="ilFmtCmd('italic')"><i>I</i></button>
@@ -52970,6 +52989,23 @@ function ilDocFlush() {
   if (el && song) { song.lyricsDoc = ilSanitizeDocHtml(el.innerHTML); song.lyricsDocInit = true; }
   clearTimeout(_ilDocSaveTimer);
   if (song) { save(); if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song); }
+}
+// Restore the original per-section lyrics into the current doc (non-destructive — appends).
+function ilRestoreOriginalLyrics() {
+  const song = getCurrentSong();
+  if (!song) return;
+  const legacy = ilMigrateLyricsToDoc(song);
+  if (!ilDocHasContent(legacy)) { if (typeof showToast === 'function') showToast('No original lyrics found for this song', 'info', 2200); return; }
+  const docEl = document.getElementById('ilLyricsDoc');
+  const cur = docEl ? ilSanitizeDocHtml(docEl.innerHTML) : (song.lyricsDoc || '');
+  song.lyricsDoc = ilDocHasContent(cur)
+    ? cur + '<div><br></div><div style="opacity:0.55;font-style:italic">— restored original lyrics —</div>' + legacy
+    : legacy;
+  song.lyricsDocInit = true;
+  save();
+  if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
+  ilRenderBody(song);
+  if (typeof showToast === 'function') showToast('Original lyrics restored', 'success', 2500);
 }
 function _ilDocFocus() {
   const el = document.getElementById('ilLyricsDoc');
