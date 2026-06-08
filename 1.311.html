@@ -37667,6 +37667,7 @@ async function syncToSheet(song) {
       seqLinksLoop:   song.seqLinksLoop   || {},
       lyrics:         song.lyrics         || {},
       lyricsDoc:      song.lyricsDoc      || '',
+      lyricsDocInit:  song.lyricsDocInit  || false,
       chordPositions: song.chordPositions || {},
       updatedAt:      song.updatedAt      || Date.now(),
       createdAt:      song.createdAt      || Date.now(),
@@ -52895,14 +52896,21 @@ function ilMigrateLyricsToDoc(song) {
   return ilSanitizeDocHtml(blocks.join(''));
 }
 
-// Canonical accessor: returns lyricsDoc, lazily migrating legacy lyrics on first read.
+// Canonical accessor: returns the doc, migrating legacy per-section lyrics on the fly.
+// PURE — never persists/saves on read, so a partially-loaded song (lyrics not yet
+// arrived) can NEVER lock in an empty doc. The doc only becomes canonical once the
+// user actually edits it (ilDocInput sets song.lyricsDocInit = true).
 function ilGetDocHtml(song) {
   if (!song) return '';
-  if (typeof song.lyricsDoc === 'string') return song.lyricsDoc;
-  const migrated = ilMigrateLyricsToDoc(song);
-  song.lyricsDoc = migrated; // populate once; never destroys song.lyrics
-  if (typeof save === 'function') save();
-  return migrated;
+  // Once the editor has been used for this song, the doc is canonical (even if empty).
+  if (song.lyricsDocInit) return song.lyricsDoc || '';
+  // A non-empty doc is canonical.
+  if (typeof song.lyricsDoc === 'string' && song.lyricsDoc.trim()) return song.lyricsDoc;
+  // Otherwise migrate from legacy per-section lyrics (recomputed each render; the
+  // original song.lyrics is the durable source until the user edits the doc).
+  const hasLegacy = song.lyrics && Object.values(song.lyrics).some(v => v && String(v).trim());
+  if (hasLegacy) return ilMigrateLyricsToDoc(song);
+  return song.lyricsDoc || '';
 }
 
 function ilRenderBody(song) {
@@ -52948,6 +52956,7 @@ function ilDocInput(el) {
   const song = getCurrentSong();
   if (!song) return;
   song.lyricsDoc = ilSanitizeDocHtml(el.innerHTML);
+  song.lyricsDocInit = true; // doc is now canonical (an empty doc stays empty, won't re-migrate)
   clearTimeout(_ilDocSaveTimer);
   _ilDocSaveTimer = setTimeout(() => {
     save();
@@ -52958,7 +52967,7 @@ function ilDocInput(el) {
 function ilDocFlush() {
   const el = document.getElementById('ilLyricsDoc');
   const song = getCurrentSong();
-  if (el && song) song.lyricsDoc = ilSanitizeDocHtml(el.innerHTML);
+  if (el && song) { song.lyricsDoc = ilSanitizeDocHtml(el.innerHTML); song.lyricsDocInit = true; }
   clearTimeout(_ilDocSaveTimer);
   if (song) { save(); if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song); }
 }
