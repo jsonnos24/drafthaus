@@ -52862,6 +52862,93 @@ document.addEventListener('DOMContentLoaded', function() {
   }, { passive: false });
 });
 
+// ── Lyrics doc: single rich-text document model (replaces per-section song.lyrics) ──
+// Whitelist sanitizer for contenteditable HTML (untrusted on paste / cross-device sync).
+function ilSanitizeDocHtml(html) {
+  if (!html) return '';
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(html);
+  const ALLOWED_TAGS = new Set(['B','I','U','STRONG','EM','SPAN','DIV','BR','H1','H2','H3','P','FONT']);
+  const ALLOWED_STYLE = ['color','background-color','background','font-size','font-family','font-weight','font-style','text-decoration'];
+  const walk = (node) => {
+    const kids = Array.from(node.childNodes);
+    for (const el of kids) {
+      if (el.nodeType === Node.COMMENT_NODE) { el.remove(); continue; }
+      if (el.nodeType !== Node.ELEMENT_NODE) continue;
+      if (!ALLOWED_TAGS.has(el.tagName)) {
+        // unwrap disallowed element, keep its text/children
+        while (el.firstChild) node.insertBefore(el.firstChild, el);
+        el.remove();
+        continue;
+      }
+      // strip all attributes except a filtered style + class
+      for (const attr of Array.from(el.attributes)) {
+        const n = attr.name.toLowerCase();
+        if (n === 'class') continue;
+        if (n === 'color' || n === 'face' || n === 'size') continue; // legacy <font> attrs are safe
+        if (n === 'style') {
+          const clean = attr.value.split(';').map(s => s.trim()).filter(s => {
+            const prop = s.split(':')[0].trim().toLowerCase();
+            return ALLOWED_STYLE.includes(prop);
+          }).join('; ');
+          if (clean) el.setAttribute('style', clean); else el.removeAttribute('style');
+          continue;
+        }
+        el.removeAttribute(attr.name); // drops on*, href, src, etc.
+      }
+      walk(el);
+    }
+  };
+  walk(tpl.content);
+  return tpl.innerHTML;
+}
+
+// Convert doc HTML → plain text (for sheet sync / export / has-content checks).
+function ilDocToPlainText(html) {
+  if (!html) return '';
+  const div = document.createElement('div');
+  div.innerHTML = String(html);
+  div.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+  div.querySelectorAll('div,p,h1,h2,h3').forEach(b => b.append('\n'));
+  return (div.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function ilDocHasContent(html) {
+  return ilDocToPlainText(html).length > 0;
+}
+
+// One-time migration: build lyricsDoc from legacy per-section song.lyrics, in arrangement order.
+function ilMigrateLyricsToDoc(song) {
+  const legacy = song.lyrics || {};
+  const order = (song.sectionOrder && song.sectionOrder.length)
+    ? song.sectionOrder
+    : (typeof getActiveParts === 'function' ? getActiveParts(song).map(p => p.id) : Object.keys(legacy));
+  const blocks = [];
+  for (const pid of order) {
+    const text = (legacy[pid] || '').trim();
+    if (!text) continue;
+    const part = (typeof STRUCTURE_PARTS !== 'undefined') ? STRUCTURE_PARTS.find(p => p.id === pid) : null;
+    const label = part ? part.label : pid;
+    const color = part ? part.color : '#c8a96e';
+    blocks.push(`<div style="font-weight: 700; color: ${color}">${esc(label)}</div>`);
+    for (const line of text.split('\n')) {
+      blocks.push(line.trim() ? `<div>${esc(line)}</div>` : '<div><br></div>');
+    }
+    blocks.push('<div><br></div>');
+  }
+  return ilSanitizeDocHtml(blocks.join(''));
+}
+
+// Canonical accessor: returns lyricsDoc, lazily migrating legacy lyrics on first read.
+function ilGetDocHtml(song) {
+  if (!song) return '';
+  if (typeof song.lyricsDoc === 'string') return song.lyricsDoc;
+  const migrated = ilMigrateLyricsToDoc(song);
+  song.lyricsDoc = migrated; // populate once; never destroys song.lyrics
+  if (typeof save === 'function') save();
+  return migrated;
+}
+
 function ilRenderBody(song) {
   const inner = document.getElementById('rtBodyInlineInner');
   if (!inner || !song) return;
