@@ -22149,7 +22149,6 @@ function renderInstSections(song) {
   container.innerHTML = active.map(part => {
     const idata = song.instruments[inst.id][part.id] || { chords: [], tab: '' };
     const mode = inst.hasChords ? getInstMode(inst.id, part.id) : 'tabs';
-    const lyric = song.lyrics?.[part.id] || '';
 
     const modeToggle = `<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);">TAB</span>`;
 
@@ -22179,7 +22178,7 @@ function renderInstSections(song) {
 
     const chordsHtml = ''; // layout handled directly in section HTML
 
-    const hasContent = (idata.chords||[]).length || (idata.beats||[]).length || (song.lyrics?.[part.id] || '').trim();
+    const hasContent = (idata.chords||[]).length || (idata.beats||[]).length;
     return `<div class="inst-section-block collapsed" id="isb-${inst.id}-${part.id}">
       <div class="inst-section-header" onclick="toggleInstPart('${inst.id}','${part.id}')">
         <div class="inst-section-dot" style="background:${part.color}"></div>
@@ -22190,15 +22189,6 @@ function renderInstSections(song) {
       <div class="inst-section-body">
       <div style="display:flex;gap:16px;align-items:flex-start;">
         <div style="flex:1;min-width:0;">
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.15em;color:var(--faint);margin-bottom:5px;">Lyrics / Notes</div>
-          <textarea
-            class="notes-area"
-            name="section-notes-${part.id}"
-            data-part-id="${part.id}"
-            oninput="saveSectionLyric(this,'${part.id}')"
-            placeholder="${part.label} lyrics or notes…"
-            style="min-height:90px;resize:vertical;font-size:12px;line-height:1.6;"
-          >${lyric.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</textarea>
           ${chordPillsHtml}
         </div>
         <div style="flex:2;min-width:0;">
@@ -22221,15 +22211,6 @@ function renderInstSections(song) {
 }
 
 
-function saveSectionLyric(el, partId) {
-  const song = getCurrentSong();
-  if (!song) return;
-  if (!song.lyrics) song.lyrics = {};
-  song.lyrics[partId] = el.value;
-  song.updatedAt = Date.now();
-  save();
-  scheduleSyncToSheet(song);
-}
 
 
 
@@ -39228,7 +39209,6 @@ function rtRenderBody() {
   const bpmChip = song.bpm ? `<span class="rt-meta-chip">${esc(String(song.bpm))} bpm</span>` : '';
 
   const partsHtml = _rtActiveParts.map(part => {
-    const lyric  = (song.lyrics?.[part.id] || '').trim();
     const chords = _rtChordEdits[part.id] || [];
     const chordsHtml = chords.length
       ? `<div class="rt-chords" id="rtchords-${part.id}">${rtMakeChordPillsHtml(part.id, chords)}</div>`
@@ -39239,8 +39219,6 @@ function rtRenderBody() {
         <button class="rt-chord-act-btn" title="Repeat last chord" onclick="rtRepeatChord('${part.id}')">↩</button>
         <button class="rt-chord-act-btn" title="Undo last added chord" onclick="rtUndoChord('${part.id}')">↺</button>
       </div>`;
-    const lyricHtml = `<div class="rt-lyrics${lyric ? '' : ' rt-empty'}" contenteditable="true"
-        data-rt-part="${part.id}" spellcheck="false">${lyric.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>`;
     return `<div class="rt-part" data-rt-part-block="${part.id}">
       <div class="rt-part-header">
         <span class="rt-part-dot" style="background:${part.color}"></span>
@@ -39250,7 +39228,6 @@ function rtRenderBody() {
         </div>
       </div>
       <div class="rt-chord-area" id="rtca-${part.id}">${chordsHtml}${addRowHtml}</div>
-      ${lyricHtml}
     </div>`;
   }).join('');
 
@@ -39355,12 +39332,6 @@ function rtSaveEdits() {
   if (!song.structure)   song.structure   = {};
   if (!song.instruments) song.instruments = {};
 
-  // Save lyrics
-  document.querySelectorAll('[data-rt-part]').forEach(el => {
-    const partId = el.dataset.rtPart;
-    song.lyrics[partId] = el.innerText.trimEnd();
-  });
-
   // Save chords back to guitar instrument
   if (!song.instruments.guitar) song.instruments.guitar = {};
   Object.entries(_rtChordEdits).forEach(([partId, labels]) => {
@@ -39444,12 +39415,9 @@ function rtAddSection(sel) {
         <button class="rt-chord-act-btn" title="Repeat last chord" onclick="rtRepeatChord('${partId}')">↩</button>
         <button class="rt-chord-act-btn" title="Undo last added chord" onclick="rtUndoChord('${partId}')">↺</button>
       </div>
-    </div>
-    <div class="rt-lyrics rt-empty" contenteditable="true" data-rt-part="${partId}" spellcheck="false"></div>`;
+    </div>`;
   inner.insertBefore(block, addWrap);
 
-  const lyricsDiv = block.querySelector('[data-rt-part]');
-  if (lyricsDiv) setTimeout(() => lyricsDiv.focus(), 50);
   block.scrollIntoView({ behavior: 'smooth', block: 'center' });
   rtMarkDirty();
   rtBuildAddOptions();
