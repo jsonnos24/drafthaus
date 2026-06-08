@@ -8723,6 +8723,22 @@ body.split-expanded-right #splitRightContent > #songViewRunthrough {
   box-shadow: 0 1px 4px rgba(0,0,0,0.12);
   padding: 28px 36px 80px !important;
 }
+.il-lyrics-doc {
+  outline: none;
+  min-height: 50vh;
+  padding: 18px 22px;
+  line-height: 1.7;
+  font-size: 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.il-lyrics-doc:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(255,255,255,0.25);
+  pointer-events: none;
+}
+#songViewRunthrough.il-perf-mode .il-lyrics-doc:empty::before { color: rgba(0,0,0,0.25); }
+.il-lyrics-doc [data-mono], .il-lyrics-doc .il-mono { font-family: 'IBM Plex Mono', monospace; }
 #splitRightContent > #vrOverlay {
   position: relative !important;
   inset: auto !important;
@@ -52954,17 +52970,8 @@ function ilRenderBody(song) {
   if (!inner || !song) return;
 
   const title   = esc(song.title || song.workingTitle || 'Untitled');
-  const keyChip = ''; // removed from Edit Lyrics header — visible in song fields panel
-  const bpmChip = ''; // removed from Edit Lyrics header — visible in song fields panel
 
-  let partsHtml = '';
-  if (_rtActiveParts.length === 0) {
-    partsHtml = '';
-  } else {
-    partsHtml = _rtActiveParts.map(part => ilMakePartHtml(part, song)).join('');
-  }
-
-  const addSelHtml = ilBuildAddOptions();
+  const docHtml = ilSanitizeDocHtml(ilGetDocHtml(song));
   inner.innerHTML = `
     <div class="il-perf-title">${title}</div>
     <h1 class="il-song-title" contenteditable="true" spellcheck="false"
@@ -52973,25 +52980,50 @@ function ilRenderBody(song) {
       onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
       style="outline:none;cursor:text;min-width:60px;"
       title="Click to edit title">${title}</h1>
-    <div class="il-meta">${keyChip}${bpmChip}
-      <button class="il-import-btn" onclick="ilOpenImportModal()" title="Paste your full lyrics — sections split automatically at blank lines">⇩ Write/Paste</button>
-      <span id="ilAddWrap" style="display:inline-flex;">
-        <select class="il-add-sel" id="ilAddSel" onchange="ilAddSection(this)">${addSelHtml}</select>
-      </span>
-      <select class="il-add-sel" id="ilArrangeSel" onchange="ilApplyArrangement(this)">${ilBuildArrangementOptions()}</select>
+    <div class="il-fmt-bar" id="ilFmtBar" role="toolbar" aria-label="Formatting">
+      <button type="button" class="il-fmt-btn" data-cmd="bold" title="Bold (⌘B)" onmousedown="event.preventDefault()" onclick="ilFmtCmd('bold')"><b>B</b></button>
+      <button type="button" class="il-fmt-btn" data-cmd="italic" title="Italic (⌘I)" onmousedown="event.preventDefault()" onclick="ilFmtCmd('italic')"><i>I</i></button>
+      <button type="button" class="il-fmt-btn" data-cmd="underline" title="Underline (⌘U)" onmousedown="event.preventDefault()" onclick="ilFmtCmd('underline')"><u>U</u></button>
+      <button type="button" class="il-fmt-btn" data-cmd="mono" title="Monospace (chords)" onmousedown="event.preventDefault()" onclick="ilFmtCmd('mono')">&lt;M&gt;</button>
+      <span class="il-fmt-sep"></span>
+      <select class="il-fmt-size" id="ilFmtSize" title="Text size" onmousedown="event.stopPropagation()" onchange="ilFmtSetSize(this.value)">
+        <option value="">Size</option>
+        <option value="title">Title</option>
+        <option value="heading">Heading</option>
+        <option value="body">Body</option>
+        <option value="small">Small</option>
+      </select>
+      <span class="il-fmt-sep"></span>
+      <button type="button" class="il-fmt-btn" title="Text color" onmousedown="event.preventDefault()" onclick="ilFmtOpenSwatches('fore', this)">A<span class="il-fmt-swatch-ind" style="background:#e0504f"></span></button>
+      <button type="button" class="il-fmt-btn" title="Highlight" onmousedown="event.preventDefault()" onclick="ilFmtOpenSwatches('back', this)">▮<span class="il-fmt-swatch-ind" style="background:#f5d76e"></span></button>
     </div>
-    ${partsHtml}`;
+    <div class="il-lyrics-doc" id="ilLyricsDoc" contenteditable="true" spellcheck="true"
+      data-placeholder="Write your lyrics…"
+      oninput="ilDocInput(this)">${docHtml}</div>`;
 
-  const addWrap = document.getElementById('ilAddWrap');
-  if (addWrap) {
-    const sel = document.getElementById('ilAddSel');
-    addWrap.style.display = (sel && sel.options.length <= 1) ? 'none' : 'inline-flex';
-  }
-  // Keep split preview in sync
-  ilRenderSplitPreview(song);
   // v1.5: sync mobile modal title with song title
   const mobTitle = document.getElementById('ilMobLyricsTitle');
   if (mobTitle) mobTitle.textContent = song.title || song.workingTitle || 'Untitled';
+}
+
+let _ilDocSaveTimer = null;
+function ilDocInput(el) {
+  const song = getCurrentSong();
+  if (!song) return;
+  song.lyricsDoc = ilSanitizeDocHtml(el.innerHTML);
+  clearTimeout(_ilDocSaveTimer);
+  _ilDocSaveTimer = setTimeout(() => {
+    save();
+    if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song);
+  }, 600);
+}
+// Flush pending lyrics save immediately (call on blur / view-close).
+function ilDocFlush() {
+  const el = document.getElementById('ilLyricsDoc');
+  const song = getCurrentSong();
+  if (el && song) song.lyricsDoc = ilSanitizeDocHtml(el.innerHTML);
+  clearTimeout(_ilDocSaveTimer);
+  if (song) { save(); if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song); }
 }
 
 function ilRelabelPart(partId) {
