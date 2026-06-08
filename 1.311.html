@@ -7488,45 +7488,6 @@ body:has(#landingOverlay:not(.hidden)) .bottom-nav {
   flex-shrink: 0; vertical-align: middle; margin-left: 6px;
 }
 
-/* ── Mobile full-screen lyrics editor modal ─────────────────── */
-#ilMobLyricsModal {
-  display: none; position: fixed; inset: 0; z-index: 10200;
-  background: #0a0c10;
-  flex-direction: column;
-}
-#ilMobLyricsModal.open { display: flex; }
-.il-mob-lyrics-header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px 10px; padding-top: calc(12px + env(safe-area-inset-top, 0px));
-  background: #0d0f18; border-bottom: 1px solid #2a2d38;
-  flex-shrink: 0;
-}
-.il-mob-lyrics-back {
-  background: none; border: none; border-radius: 8px;
-  color: #888; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
-  padding: 5px 8px; cursor: pointer; flex-shrink: 0;
-}
-.il-mob-lyrics-back:hover { color: #c8a96e; }
-.il-mob-lyrics-title {
-  font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600;
-  color: #e0e0e0; flex: 1; text-align: center;
-}
-.il-mob-lyrics-save-btn {
-  background: rgba(200,169,110,0.14); border: 1px solid rgba(200,169,110,0.45);
-  border-radius: 8px; color: #c8a96e;
-  font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700;
-  letter-spacing: 0.05em; padding: 5px 12px; cursor: pointer; flex-shrink: 0;
-  white-space: nowrap;
-}
-.il-mob-lyrics-save-btn:active { background: rgba(200,169,110,0.28); }
-.il-mob-lyrics-ta {
-  flex: 1; background: #0a0c10; color: #e8e0d4;
-  font-family: 'Courier New', 'Courier', monospace; font-size: 16px; line-height: 1.75;
-  border: none; outline: none; resize: none;
-  padding: 24px 22px; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-  caret-color: #c8a96e;
-}
-.il-mob-lyrics-ta::placeholder { color: rgba(255,255,255,0.15); }
 
 /* ── Song list content badges ────────────────────────────────── */
 .sl-checks { display: inline-flex; gap: 4px; align-items: center; margin-left: 6px; flex-shrink: 0; vertical-align: middle; }
@@ -8767,6 +8728,12 @@ body.split-expanded-right #splitRightContent > #songViewRunthrough {
 .il-fmt-swatch-none { background: var(--surface); color: var(--text); font-size:13px; }
 /* perf mode: format bar hidden, doc read-only (set via JS) */
 #songViewRunthrough.il-perf-mode .il-fmt-bar { display: none; }
+@media (max-width: 600px) {
+  .il-fmt-bar { gap: 2px; padding: 5px 8px; }
+  .il-fmt-btn { min-width: 28px; height: 30px; padding: 0 6px; }
+  .il-fmt-size { height: 30px; }
+  .il-fmt-swatches { grid-template-columns: repeat(4, 24px); }
+}
 #splitRightContent > #vrOverlay {
   position: relative !important;
   inset: auto !important;
@@ -16665,7 +16632,6 @@ body.split-pr-active .pr-overlay { display: none !important; }
 
   /* ── 8. Lyrics: hide header, fullscreen ── */
   .il-mob-header { height: 36px !important; min-height: 36px !important; }
-  .il-mob-lyrics-title { font-size: 14px !important; }
   .il-content { padding-bottom: 12px !important; }
 }
 
@@ -52869,33 +52835,11 @@ function ilSaveTitleEdit(el) {
   renderGrid();
 }
 
-/* v1.5: Mobile lyrics modal title edit — saves title from the modal header span */
-window.ilMobSaveTitleEdit = function(el) {
-  const song = getCurrentSong();
-  if (!song) return;
-  const newTitle = (el.textContent || '').trim();
-  if (!newTitle) { el.textContent = song.title || song.workingTitle || 'Untitled'; return; }
-  if (newTitle === (song.title || song.workingTitle || 'Untitled')) return;
-  song.title = newTitle;
-  song.updatedAt = Date.now();
-  const fTitle = document.getElementById('fTitle');
-  if (fTitle) fTitle.value = newTitle;
-  updatePanelTitles(song);
-  const stickyTitle = document.getElementById('stickyTitle');
-  if (stickyTitle) stickyTitle.textContent = newTitle;
-  // Sync the inline title in runthrough view
-  const ilTitle = document.getElementById('ilSongTitleEl');
-  if (ilTitle) ilTitle.textContent = newTitle;
-  _updateDraftingHeader();
-  save();
-  scheduleSyncToSheet(song);
-  renderGrid();
-};
 
 /* v1.5: Ensure iOS can focus contenteditable title — attach touchend listener */
 document.addEventListener('DOMContentLoaded', function() {
   document.addEventListener('touchend', function(e) {
-    const title = e.target.closest('.il-song-title, #ilMobLyricsTitle');
+    const title = e.target.closest('.il-song-title');
     if (title && title.contentEditable === 'true') {
       e.preventDefault();
       title.focus();
@@ -53026,9 +52970,6 @@ function ilRenderBody(song) {
       data-placeholder="Write your lyrics…"
       oninput="ilDocInput(this)">${docHtml}</div>`;
 
-  // v1.5: sync mobile modal title with song title
-  const mobTitle = document.getElementById('ilMobLyricsTitle');
-  if (mobTitle) mobTitle.textContent = song.title || song.workingTitle || 'Untitled';
 }
 
 let _ilDocSaveTimer = null;
@@ -53916,23 +53857,6 @@ document.addEventListener('click', function(e) {
   }
 });
 
-// ── Mobile full-screen lyrics editor modal ────────────────────
-window._ilMobLyricsPartId = null;
-window.ilCloseMobileLyricsModal = function() {
-  const modal = document.getElementById('ilMobLyricsModal');
-  if (modal) modal.classList.remove('open');
-  // Save the value back to the inline textarea so auto-save fires
-  const partId = window._ilMobLyricsPartId;
-  if (!partId) return;
-  const ta = document.getElementById('ilMobLyricsTa');
-  const inlineTa = document.getElementById('illyricsedit-' + partId);
-  if (ta && inlineTa) {
-    inlineTa.value = ta.value;
-    // Fire input event so auto-save triggers
-    inlineTa.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-  window._ilMobLyricsPartId = null;
-};
 
 // ── Remap chord positions when lyrics change ───────────────────────
 // Instead of wiping all positions, try to match old lines to new lines
@@ -66884,21 +66808,6 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   </svg>
   <span class="mix-edge-label">Mix</span>
 </button>
-
-<!-- ── Mobile full-screen lyrics editor ── -->
-<div id="ilMobLyricsModal">
-  <div class="il-mob-lyrics-header">
-    <button title="Go back without saving lyric changes. Your edits will be discarded." class="il-mob-lyrics-back" onclick="ilCloseMobileLyricsModal()">← Back</button>
-    <span class="il-mob-lyrics-title" id="ilMobLyricsTitle"
-      contenteditable="true" spellcheck="false"
-      style="outline:none;cursor:text;min-width:60px;-webkit-user-select:text;user-select:text;"
-      onblur="ilMobSaveTitleEdit(this)"
-      onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">Edit Lyrics</span>
-    <button title="Save your lyric edits and close the editor. Changes are synced to the cloud." class="il-mob-lyrics-save-btn" onclick="ilCloseMobileLyricsModal()">Update Section</button>
-  </div>
-  <textarea id="ilMobLyricsTa" class="il-mob-lyrics-ta" placeholder="Write your lyrics here…&#10;&#10;No distractions. Just words."
-    oninput="(function(ta){const pid=window._ilMobLyricsPartId;if(!pid)return;const inlineTa=document.getElementById('illyricsedit-'+pid);if(inlineTa){inlineTa.value=ta.value;inlineTa.dispatchEvent(new Event('input',{bubbles:true}))}})(this)"></textarea>
-</div>
 
 
 <!-- ── Recording countdown overlay ─────────────────────────────── -->
