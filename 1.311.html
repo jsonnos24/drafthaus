@@ -8739,6 +8739,34 @@ body.split-expanded-right #splitRightContent > #songViewRunthrough {
 }
 #songViewRunthrough.il-perf-mode .il-lyrics-doc:empty::before { color: rgba(0,0,0,0.25); }
 .il-lyrics-doc [data-mono], .il-lyrics-doc .il-mono { font-family: 'IBM Plex Mono', monospace; }
+.il-fmt-bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 10px; margin-bottom: 6px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.il-fmt-btn {
+  position: relative; min-width: 30px; height: 28px; padding: 0 7px;
+  background: transparent; color: var(--text);
+  border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+  font-size: 14px; line-height: 1; white-space: nowrap;
+}
+.il-fmt-btn:hover { background: rgba(255,255,255,0.06); }
+.il-fmt-btn.il-fmt-active { background: rgba(200,169,110,0.22); border-color: rgba(200,169,110,0.5); }
+.il-fmt-swatch-ind { display:inline-block; width:7px; height:7px; border-radius:2px; margin-left:3px; vertical-align:middle; }
+.il-fmt-sep { width:1px; height:18px; background: var(--border); margin:0 4px; flex:0 0 auto; }
+.il-fmt-size { height:28px; background: var(--surface); color: var(--text); border:1px solid var(--border); border-radius:6px; font-size:12px; }
+.il-fmt-swatches {
+  position: absolute; top: 32px; left: 0; z-index: 20;
+  display: grid; grid-template-columns: repeat(3, 22px); gap: 5px;
+  padding: 8px; background: var(--surface); border:1px solid var(--border); border-radius:8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+}
+.il-fmt-swatch { width:22px; height:22px; border-radius:5px; border:1px solid rgba(255,255,255,0.25); cursor:pointer; }
+.il-fmt-swatch-none { background: var(--surface); color: var(--text); font-size:13px; }
+/* perf mode: format bar hidden, doc read-only (set via JS) */
+#songViewRunthrough.il-perf-mode .il-fmt-bar { display: none; }
 #splitRightContent > #vrOverlay {
   position: relative !important;
   inset: auto !important;
@@ -53025,6 +53053,78 @@ function ilDocFlush() {
   clearTimeout(_ilDocSaveTimer);
   if (song) { save(); if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song); }
 }
+function _ilDocFocus() {
+  const el = document.getElementById('ilLyricsDoc');
+  if (el) el.focus();
+  return el;
+}
+function ilFmtCmd(cmd) {
+  const el = _ilDocFocus();
+  if (!el) return;
+  if (cmd === 'mono') {
+    // Toggle monospace on the selection by wrapping in a styled span via fontName.
+    document.execCommand('fontName', false, 'IBM Plex Mono, monospace');
+  } else {
+    document.execCommand(cmd, false, null);
+  }
+  ilDocInput(el);
+  ilFmtSyncToolbar();
+}
+const IL_FMT_SIZES = { title: '28px', heading: '20px', body: '16px', small: '13px' };
+function ilFmtSetSize(key) {
+  const el = _ilDocFocus();
+  if (!el || !IL_FMT_SIZES[key]) { const s = document.getElementById('ilFmtSize'); if (s) s.value = ''; return; }
+  // execCommand fontSize only accepts 1–7; apply real px by styling the resulting font elements.
+  document.execCommand('fontSize', false, '7');
+  el.querySelectorAll('font[size="7"]').forEach(f => {
+    f.removeAttribute('size');
+    f.style.fontSize = IL_FMT_SIZES[key];
+  });
+  const s = document.getElementById('ilFmtSize'); if (s) s.value = '';
+  ilDocInput(el);
+}
+const IL_FORE_SWATCHES = ['#ffffff','#e0504f','#f5a623','#f5d76e','#7ed957','#4a9eff','#c8a96e','#b06ff5'];
+const IL_BACK_SWATCHES = ['#fff3a0','#ffd1d1','#d1ffd6','#d1e8ff','#f0d1ff','#ffe0b3','#e6e6e6','transparent'];
+function ilFmtOpenSwatches(kind, anchorBtn) {
+  document.querySelector('.il-fmt-swatches')?.remove();
+  const swatches = kind === 'fore' ? IL_FORE_SWATCHES : IL_BACK_SWATCHES;
+  const pop = document.createElement('div');
+  pop.className = 'il-fmt-swatches';
+  pop.innerHTML = swatches.map(c =>
+    `<button type="button" class="il-fmt-swatch" style="background:${c === 'transparent' ? 'repeating-conic-gradient(#888 0 25%, #ccc 0 50%) 50%/8px 8px' : c}"
+      onmousedown="event.preventDefault()" onclick="ilFmtColor('${kind}','${c}')"></button>`
+  ).join('') + `<button type="button" class="il-fmt-swatch il-fmt-swatch-none" onmousedown="event.preventDefault()" onclick="ilFmtColor('${kind}','none')">⦸</button>`;
+  anchorBtn.style.position = 'relative';
+  anchorBtn.appendChild(pop);
+  const open = Date.now();
+  const close = e => { if (Date.now() - open < 200) return; if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('click', close, true); } };
+  setTimeout(() => document.addEventListener('click', close, true), 10);
+}
+function ilFmtColor(kind, color) {
+  document.querySelector('.il-fmt-swatches')?.remove();
+  const el = _ilDocFocus();
+  if (!el) return;
+  if (kind === 'fore') {
+    document.execCommand('foreColor', false, color === 'none' ? '#ffffff' : color);
+  } else {
+    document.execCommand('hiliteColor', false, color === 'none' ? 'transparent' : color);
+  }
+  ilDocInput(el);
+}
+function ilFmtSyncToolbar() {
+  const bar = document.getElementById('ilFmtBar');
+  if (!bar) return;
+  ['bold','italic','underline'].forEach(cmd => {
+    const btn = bar.querySelector(`[data-cmd="${cmd}"]`);
+    if (btn) btn.classList.toggle('il-fmt-active', document.queryCommandState(cmd));
+  });
+}
+document.addEventListener('selectionchange', () => {
+  const sel = document.getSelection();
+  if (sel && sel.anchorNode && document.getElementById('ilLyricsDoc')?.contains(sel.anchorNode)) {
+    ilFmtSyncToolbar();
+  }
+});
 
 function ilRelabelPart(partId) {
   const song = getCurrentSong();
