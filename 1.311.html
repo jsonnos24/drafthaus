@@ -52911,15 +52911,28 @@ function ilMigrateLyricsToDoc(song) {
 // user actually edits it (ilDocInput sets song.lyricsDocInit = true).
 function ilGetDocHtml(song) {
   if (!song) return '';
-  // Once the editor has been used for this song, the doc is canonical (even if empty).
-  if (song.lyricsDocInit) return song.lyricsDoc || '';
   // A non-empty doc is canonical.
   if (typeof song.lyricsDoc === 'string' && song.lyricsDoc.trim()) return song.lyricsDoc;
-  // Otherwise migrate from legacy per-section lyrics (recomputed each render; the
-  // original song.lyrics is the durable source until the user edits the doc).
+  // Doc empty/missing → ALWAYS prefer recovering the original per-section lyrics over
+  // showing blank, even if the doc was previously flagged "init" (a mistimed flush
+  // during a not-yet-loaded render could have blanked it). song.lyrics is the durable
+  // source and is never deleted, so this self-heals.
   const hasLegacy = song.lyrics && Object.values(song.lyrics).some(v => v && String(v).trim());
   if (hasLegacy) return ilMigrateLyricsToDoc(song);
   return song.lyricsDoc || '';
+}
+// Commit doc HTML to the song — but NEVER let an empty editor overwrite existing
+// lyrics (prevents a not-yet-loaded or spurious render from wiping data). A genuine
+// "clear everything" on a song that has originals is refused (they'd just self-heal).
+function _ilCommitDoc(html, song) {
+  if (!ilDocHasContent(html)) {
+    const hadDoc = typeof song.lyricsDoc === 'string' && song.lyricsDoc.trim();
+    const hasLegacy = song.lyrics && Object.values(song.lyrics).some(v => v && String(v).trim());
+    if (hadDoc || hasLegacy) return false;
+  }
+  song.lyricsDoc = html;
+  song.lyricsDocInit = true;
+  return true;
 }
 
 function ilRenderBody(song) {
@@ -52971,8 +52984,7 @@ let _ilDocSaveTimer = null;
 function ilDocInput(el) {
   const song = getCurrentSong();
   if (!song) return;
-  song.lyricsDoc = ilSanitizeDocHtml(el.innerHTML);
-  song.lyricsDocInit = true; // doc is now canonical (an empty doc stays empty, won't re-migrate)
+  _ilCommitDoc(ilSanitizeDocHtml(el.innerHTML), song);
   clearTimeout(_ilDocSaveTimer);
   _ilDocSaveTimer = setTimeout(() => {
     save();
@@ -52983,7 +52995,7 @@ function ilDocInput(el) {
 function ilDocFlush() {
   const el = document.getElementById('ilLyricsDoc');
   const song = getCurrentSong();
-  if (el && song) { song.lyricsDoc = ilSanitizeDocHtml(el.innerHTML); song.lyricsDocInit = true; }
+  if (el && song) _ilCommitDoc(ilSanitizeDocHtml(el.innerHTML), song);
   clearTimeout(_ilDocSaveTimer);
   if (song) { save(); if (typeof scheduleSyncToSheet === 'function') scheduleSyncToSheet(song); }
 }
