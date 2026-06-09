@@ -8692,17 +8692,14 @@ body.split-expanded-right #splitRightContent > #songViewRunthrough {
   font-size: 16px;
   white-space: pre-wrap;
   word-break: break-word;
+  color: #16181d; /* near-black: the lyrics page is white in every context (desktop + mobile + perform) */
 }
 .il-lyrics-doc:empty::before {
   content: attr(data-placeholder);
-  color: rgba(255,255,255,0.25);
+  color: rgba(0,0,0,0.3);
   pointer-events: none;
 }
-#songViewRunthrough.il-perf-mode .il-lyrics-doc:empty::before { color: rgba(0,0,0,0.25); }
 .il-lyrics-doc [data-mono], .il-lyrics-doc .il-mono { font-family: 'IBM Plex Mono', monospace; }
-/* Dark text on the white "page card" contexts (desktop edit + perform mode), so default lyric text is readable */
-body.split-expanded-right #splitRightContent > #songViewRunthrough .il-lyrics-doc,
-#songViewRunthrough.il-perf-mode .il-lyrics-doc { color: #1a1d24; }
 /* Recovery banner: offer to restore original per-section lyrics */
 .il-restore-banner {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -8734,7 +8731,7 @@ body.split-expanded-right #splitRightContent > #songViewRunthrough .il-lyrics-do
 .il-fmt-sep { width:1px; height:18px; background: var(--border); margin:0 4px; flex:0 0 auto; }
 .il-fmt-size { height:28px; background: var(--surface); color: var(--text); border:1px solid var(--border); border-radius:6px; font-size:12px; }
 .il-fmt-swatches {
-  position: absolute; top: 32px; left: 0; z-index: 20;
+  position: fixed; z-index: 10600;
   display: grid; grid-template-columns: repeat(3, 22px); gap: 5px;
   padding: 8px; background: var(--surface); border:1px solid var(--border); border-radius:8px;
   box-shadow: 0 6px 24px rgba(0,0,0,0.4);
@@ -53048,10 +53045,15 @@ function ilFmtOpenSwatches(kind, anchorBtn) {
     `<button type="button" class="il-fmt-swatch" style="background:${c === 'transparent' ? 'repeating-conic-gradient(#888 0 25%, #ccc 0 50%) 50%/8px 8px' : c}"
       onmousedown="event.preventDefault()" onclick="ilFmtColor('${kind}','${c}')"></button>`
   ).join('') + `<button type="button" class="il-fmt-swatch il-fmt-swatch-none" onmousedown="event.preventDefault()" onclick="ilFmtColor('${kind}','none')">⦸</button>`;
-  anchorBtn.style.position = 'relative';
-  anchorBtn.appendChild(pop);
+  // Attach to <body> with fixed positioning so the format bar's overflow-x:auto
+  // (mobile horizontal scroll) can't clip the popover.
+  document.body.appendChild(pop);
+  const r = anchorBtn.getBoundingClientRect();
+  pop.style.position = 'fixed';
+  pop.style.top = (r.bottom + 5) + 'px';
+  pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8)) + 'px';
   const open = Date.now();
-  const close = e => { if (Date.now() - open < 200) return; if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('click', close, true); } };
+  const close = e => { if (Date.now() - open < 200) return; if (!pop.contains(e.target) && e.target !== anchorBtn) { pop.remove(); document.removeEventListener('click', close, true); } };
   setTimeout(() => document.addEventListener('click', close, true), 10);
 }
 function ilFmtColor(kind, color) {
