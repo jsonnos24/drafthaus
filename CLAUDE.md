@@ -1,9 +1,9 @@
 # Drafthaus — developer guide
 
 Single-file HTML web app (vanilla JS + Web Audio + Firestore sync). The deployed
-build is `index.html`, currently byte-identical to `1.307.html` (mobile
-notation-drawer with the dedicated bar-nav row for paging); `1.301.html` is the
-prior snapshot and `1.3.html` an older stable one. Versioning is by
+build is `index.html`, currently byte-identical to `1.311.html` (single rich-text
+lyrics editor — `song.lyricsDoc`, replacing the per-section lyrics model);
+`1.310.html` is the prior snapshot and `1.307.html` an older stable one. Versioning is by
 **copying the whole file** to a new numbered name, not branching; work lands
 directly on `main` (pushing `main` deploys `drafthaus.ca` via GitHub Pages). The file is ~76k lines — **re-locate code by
 searching quoted strings / function names, not line numbers** (they drift).
