@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD: 1.288mobilefix -->
+<!-- BUILD: 1.309 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -4462,7 +4462,10 @@ button, select, input, textarea { touch-action: manipulation; }
   .kbd-stage-toolbar .right-cluster { display: flex; gap: 8px; align-items: center; }
   .kbd-stage-grid {
     display: grid;
-    grid-template-columns: auto auto minmax(0, 1fr);
+    /* v1.310: palette-col + fingers-col ("Keys 1–9") are both display:none on the
+       desktop stage, so the inline piano roll is the only visible child — give it the
+       full width with a single 1fr track instead of leaving dead auto columns. */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 1fr;
     gap: 0;
     padding: 0;
@@ -4534,10 +4537,14 @@ button, select, input, textarea { touch-action: manipulation; }
 
   /* ── Center column: Finger Chord Slots (vertical) ── */
   .kbd-stage-fingers-col {
+    /* v1.310: hidden on the desktop stage — the "Keys 1–9" triggers now live as the
+       mirrored "Use Keys" chips in the params toolbar (#paramsKeysSlots). The hidden
+       #seqKeyTriggerRow inside stays in the DOM so number-key flashes still resolve. */
+    display: none;
     width: 72px; min-width: 64px; flex-shrink: 0;
     border-right: 1px solid var(--border, #28283a);
     overflow-y: auto; padding: 10px 6px;
-    display: flex; flex-direction: column; gap: 4px;
+    flex-direction: column; gap: 4px;
     background: #141420;
   }
   .kbd-stage-fingers-col .seq-key-slot {
@@ -4805,7 +4812,7 @@ button, select, input, textarea { touch-action: manipulation; }
   /* ═══════════════════ END KEYBOARD DRAWER MOBILE LANDSCAPE ═══════════════════ */
 
   /* ═══════════════════ MOBILE-PORTRAIT NOTATION EDITOR (ned*) ═══════════════════ */
-  .ned-wrap { display:flex; flex-direction:column; height:100%; background:#0d0e13; color:#e8e8ee; font-family:'IBM Plex Mono',monospace; }
+  .ned-wrap { position:relative; display:flex; flex-direction:column; height:100%; background:#0d0e13; color:#e8e8ee; font-family:'IBM Plex Mono',monospace; }
   .ned-staff { position:relative; flex:1; min-height:0; background:#0d0e13; overflow:hidden; touch-action:none; }
   /* Bar-nav row — paging lives here (outside the note surface), so it never fights the pencil */
   .ned-barnav { display:flex; align-items:center; gap:8px; padding:5px 10px; background:#0d0e13; border-bottom:1px solid #23252e; flex-shrink:0; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
@@ -4844,18 +4851,53 @@ button, select, input, textarea { touch-action: manipulation; }
   .ned-qc { position:absolute; left:8px; right:8px; bottom:0; background:#15161c; border:1px solid #2a2c36; border-bottom:none; border-radius:8px 8px 0 0; box-shadow:0 -6px 18px rgba(0,0,0,0.55); overflow:hidden; display:flex; flex-direction:column; z-index:5; transition:transform 0.15s ease; }
   .ned-qc.ned-qc-hidden { transform:translateY(110%); }
   .ned-ghost { position:absolute; top:0; left:0; right:0; bottom:0; pointer-events:none; z-index:6; }
-  .ned-qc-handle { display:flex; align-items:flex-start; padding:5px 10px 3px; cursor:grab; flex-shrink:0; touch-action:none; }
+  .ned-qc-handle { display:flex; align-items:flex-start; padding:9px 10px 7px; min-height:30px; cursor:grab; flex-shrink:0; touch-action:none; }
   .ned-qc-lbl { flex:1; font-size:8px; color:#f5a623; font-weight:700; letter-spacing:.08em; padding-top:3px; }
   .ned-qc-lbl-voice { text-align:right; }
-  .ned-qc-grip { text-align:center; flex-shrink:0; }
-  .ned-qc-grip-bar { width:44px; height:5px; border-radius:3px; background:#f5a623; margin:0 auto; box-shadow:0 0 6px rgba(245,166,35,0.4); }
+  .ned-qc-grip { text-align:center; flex-shrink:0; position:relative; }
+  /* v1.308: bigger invisible tap zone so near-misses still grab the handle on mobile */
+  .ned-qc-grip::before { content:''; position:absolute; inset:-12px -16px; }
+  .ned-qc-grip-bar { width:52px; height:6px; border-radius:3px; background:#f5a623; margin:0 auto; box-shadow:0 0 6px rgba(245,166,35,0.4); }
   .ned-qc-grip-hint { font-size:7px; color:#6a6f82; margin-top:2px; }
+  /* v1.309 — dedicated bass-clef pan handle (right gutter, above the QC overlay z-index:5) */
+  .ned-bass-handle { position:absolute; right:6px; width:20px; z-index:8; border-radius:10px;
+    background:rgba(20,22,28,0.82); border:1px solid #2a2c36; touch-action:none; box-shadow:0 2px 8px rgba(0,0,0,0.4); }
+  .ned-bass-thumb { position:absolute; left:2px; right:2px; height:44px; top:2px; border-radius:8px;
+    background:rgba(192,132,252,0.32); border:1px solid #c084fc; color:#e8d9ff; font-size:12px; line-height:42px;
+    text-align:center; cursor:grab; user-select:none; -webkit-user-select:none; }
+  /* v1.309 — eraser marquee rectangle */
+  .ned-marquee { position:absolute; z-index:3; pointer-events:none; border:1px solid #c084fc; background:rgba(192,132,252,0.12); border-radius:2px; }
+  /* v1.308 — first-open hint animation */
+  .ned-hint { position:absolute; inset:0; z-index:7; pointer-events:none; overflow:hidden; }
+  .ned-hint-cap { position:absolute; left:0; right:0; top:8px; text-align:center; font-size:11px; font-weight:700; color:#e8e8ee;
+    text-shadow:0 1px 3px rgba(0,0,0,0.8); opacity:0; }
+  .ned-hint-cap.cap1 { animation:nedHintCap1 2.4s ease forwards; }
+  .ned-hint-cap.cap2 { animation:nedHintCap2 2.4s ease forwards; }
+  .ned-hint-finger { position:absolute; width:22px; height:22px; border-radius:50%; background:rgba(255,255,255,0.9);
+    box-shadow:0 0 0 4px rgba(255,255,255,0.25); left:28%; top:70px; margin:-11px 0 0 -11px; opacity:0; animation:nedHintFinger 2.4s ease forwards; }
+  .ned-hint-note { position:absolute; width:14px; height:10px; border-radius:50%; background:#c8a0ff; left:28%; top:70px;
+    margin:-5px 0 0 -7px; transform:rotate(-15deg) scale(0); opacity:0; animation:nedHintNote 2.4s ease forwards; }
+  .ned-hint-chord { position:absolute; left:28%; top:70px; margin-left:-7px; opacity:0; animation:nedHintChord 2.4s ease forwards; }
+  .ned-hint-chord span { display:block; width:14px; height:10px; border-radius:50%; background:rgba(200,160,255,0.65);
+    border:1.5px solid #c8a0ff; transform:rotate(-15deg); margin:5px 0; }
+  @keyframes nedHintCap1 { 0%,4%{opacity:0} 10%,38%{opacity:1} 46%,100%{opacity:0} }
+  @keyframes nedHintCap2 { 0%,48%{opacity:0} 56%,90%{opacity:1} 100%{opacity:0} }
+  @keyframes nedHintFinger { 0%,4%{opacity:0; transform:scale(0.7)} 12%{opacity:1; transform:scale(1)} 22%{transform:scale(0.82)} 32%{opacity:1; transform:scale(1)} 44%,100%{opacity:0} }
+  @keyframes nedHintNote { 0%,20%{opacity:0; transform:rotate(-15deg) scale(0)} 30%{opacity:1; transform:rotate(-15deg) scale(1)} 44%,100%{opacity:0; transform:rotate(-15deg) scale(1)} }
+  @keyframes nedHintChord { 0%,50%{opacity:0; transform:translateY(150px) scale(0.9)} 60%{opacity:1; transform:translateY(150px) scale(1)} 86%{opacity:0.9; transform:translateY(0) scale(1)} 100%{opacity:0; transform:translateY(0) scale(1)} }
   .ned-qc-controls { display:flex; align-items:center; gap:6px; padding:0 10px 7px; flex-shrink:0; }
   .ned-qc-key, .ned-qc-voice { flex:1; min-width:0; background:#16171d; border:1px solid #2a2c36; border-radius:5px; padding:4px 6px; font-size:11px; color:#e8e8ee; font-family:inherit; }
   .ned-qc-voice { text-align:right; }
   .ned-qc-toggle { display:flex; border:1px solid #2a2c36; border-radius:7px; overflow:hidden; flex-shrink:0; }
   .ned-qc-toggle button { font-size:10px; padding:5px 13px; color:#9aa0b4; background:transparent; border:none; font-family:inherit; }
   .ned-qc-toggle button.ned-on { background:#c8a0ff; color:#0d0e13; font-weight:700; }
+  /* v1.309: columns — diatonic chord on top, its variations stacked beneath (desktop-style). */
+  .ned-qc-cols { display:flex; flex:1; min-height:0; overflow:auto; padding:0 8px 6px; gap:5px; align-items:flex-start; }
+  .ned-qc-col { display:flex; flex-direction:column; flex:1 0 46px; min-width:46px; }
+  .ned-qc-varstack { display:flex; flex-direction:column; }
+  .ned-qc-col .ned-chip { flex:0 0 auto; width:100%; box-sizing:border-box; }
+  .ned-qc-col .ned-chip-var { border-top:none; }
+  /* legacy (dormant): single diatonic row + scroll band */
   .ned-qc-diatonic { display:flex; padding:0 8px; flex-shrink:0; }
   .ned-qc-scroll { flex:1; min-height:0; overflow-y:auto; padding:0 8px 6px; }
   .ned-qc-varrow, .ned-qc-borrowed { display:flex; }
@@ -6666,6 +6708,9 @@ button, select, input, textarea { touch-action: manipulation; }
     position: relative; display: flex; align-items: center; box-sizing: border-box;
     border-right: 1px solid var(--dh-color-border, #2a3242); cursor: pointer;
     font: 600 var(--dh-font-xs,10px)/1 ui-monospace, monospace; padding: 0 6px; overflow: hidden; white-space: nowrap;
+    border-left: 1px solid rgba(255,255,255,0.28);
+    border-right: 1px solid rgba(0,0,0,0.35);
+    box-sizing: border-box;
   }
   .seq-strip-bar-label { pointer-events: none; }
   .seq-strip-bar-active { outline: 2px solid currentColor; outline-offset: -2px; filter: brightness(1.25); }
@@ -7962,6 +8007,9 @@ body.split-active #splitTransportDock { display: flex; }
   body.songlist-active .uc-bar {
     bottom: calc(54px + env(safe-area-inset-bottom, 0px) + 4px);
   }
+  /* v1.308: the global UCB bar is excessive inside the keyboard drawer — hide it there
+     (the in-drawer .ned-ucb transport row stays). Mobile-only via this media block. */
+  body.keyboard-drawer-open .uc-bar { display: none !important; }
   .uc-desktop { display: none; }
   .uc-mobile {
     display: flex; flex-direction: column;
@@ -8449,6 +8497,20 @@ body.split-active #splitRightContent {
 }
 @media (max-width: 768px) {
   body.split-active #splitRightContent { padding-bottom: 0; }
+}
+/* Desktop Piano Roll split: the only bottom transport here is the floating
+   .uc-bar pill (48px tall, sits at bottom:8px). The legacy 104px reservation
+   over-reserves by ~48px and leaves dead space below the grid. Tighten it so
+   the grid fills down to just above the pill. Desktop-only (mobile keeps 0). */
+@media (min-width: 769px) {
+  body.split-active.split-pr-active #splitRightContent,
+  /* Same situation for the desktop keyboard stage: its inline piano roll lives in the
+     split right pane but the body has split-active WITHOUT split-pr-active, so it kept the
+     legacy 104px reservation and the grid stopped ~48px above the floating .uc-bar pill.
+     Tighten it the same way so the kbd-stage PR fills down to just above the pill. */
+  body.split-active #splitRightContent:has(.kbd-stage-pr-col) {
+    padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  }
 }
 /* Strip overlay/drawer behavior from any drawer moved into split panel */
 #splitRightContent > .keyboard-drawer,
@@ -9891,8 +9953,9 @@ body.looper-drawer-open #songViewRunthrough {
   .side-tab:hover .side-tab-label { color: var(--st-color); opacity: 1; }
   .side-tab-key {
     font-weight: 800;
-    opacity: 0.55;
+    opacity: 1;
   }
+  .side-tab .st-rest { opacity: 0.6; }
   /* Active state — tool-colored left edge + bright text + glow */
   .side-tab.st-active { background: rgba(255,255,255,0.07); box-shadow: inset 0 0 12px rgba(255,255,255,0.06), 0 0 10px color-mix(in srgb, var(--st-color) 40%, transparent); }
   .side-tab.st-active::before {
@@ -16324,6 +16387,10 @@ body.split-4track-active .ft-overlay { display: none !important; }
   width: 130px; min-width: 100px; flex-shrink: 0; overflow-y: auto;
   border-right: 1px solid var(--border2, #333); background: #16162a; padding: 6px;
 }
+/* v1.310: desktop overlay's Keys 1-9 column now lives in the params bar; hide
+   the left column so the grid reclaims the width. Scoped to .pr-overlay so the
+   mobile #mprChordPalette (inside .mpr-chord-sidebar, not .pr-overlay) is untouched. */
+.pr-overlay .pr-chord-palette { display: none; }
 .pr-chord-palette-title {
   font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700;
   color: var(--muted, #aaa); text-transform: uppercase; letter-spacing: 0.1em;
@@ -16347,6 +16414,10 @@ body.split-4track-active .ft-overlay { display: none !important; }
 /* v1.217: uniform purple for diatonic PR chord pills */
 .pr-chord-pill[data-degree] { color: #c084fc; border-color: rgba(192,132,252,0.35); }
 .pr-chord-pill.pr-pill-borrowed { color: #68d391; border-color: rgba(72,187,120,0.35); }
+
+/* v1.310: mirrored "Use Keys" palette inline in the desktop params bar */
+.params-keys-slots .pr-chord-pill { min-width: 30px; padding: 2px 5px; font-size: 9px; text-align: center; line-height: 1.2; cursor: pointer; margin-bottom: 0; }
+.kbd-stage-toolbar-row .kps-label { font-family: 'IBM Plex Mono', monospace; font-size: 8px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); white-space: nowrap; }
 
 /* ── grid area ── */
 .pr-grid-wrap {
@@ -17018,6 +17089,24 @@ body.arr-view-open .uc-bar {
   background: none; border: none; cursor: pointer;
 }
 
+/* ── Shared strip relocated into the DESKTOP Piano Roll (grid mode): sits inside
+   #prGridScroll as a sibling above #prGridContainer, so it scrolls horizontally with
+   the grid for free and pins on vertical scroll. A left pad equal to the key gutter
+   (#prKeys width, 44px) shifts bar 1 to where the grid's notes start (x=44) so the
+   section boundaries land exactly on the grid's bar lines. ── */
+.global-seq-strip.pr-strip-mounted[data-strip-mode="grid"] {
+  padding-left: 44px; z-index: 6; min-width: 0;
+}
+
+/* ── Shared strip relocated into the DESKTOP standalone Drum Roll (grid mode): sits inside
+   #drRollScroll as a sibling above #drRollContainer, so it scrolls horizontally with the
+   grid for free and pins on vertical scroll. A left pad equal to the label gutter
+   (#drRollLabels width, 100px) shifts bar 1 to where the grid's notes start (canvas/
+   notes-layer left:100px) so the section boundaries land exactly on the grid's bar lines. ── */
+.global-seq-strip.dr-strip-mounted[data-strip-mode="grid"] {
+  padding-left: 100px; z-index: 11; min-width: 0;
+}
+
 /* Bar ruler */
 .arr-bar-ruler {
   height: 18px; background: #111118; border-bottom: 1px solid rgba(245,166,35,0.25);
@@ -17369,6 +17458,18 @@ body.song-loaded:not(.songlist-active):not(.il-perf-active) {
   & #splitDivider    { top: calc(45px + var(--dh-strip-h) + env(safe-area-inset-top, 0px)) !important; }
 }
 
+/* Desktop Piano Roll split: the shared sequence strip is mounted INSIDE the PR
+   grid scroll (sticky), not in the band below the site header — so the
+   --dh-strip-h top reservation above the right panel is now dead space. Drop it
+   in the PR split so the panel butts directly under the 45px site header.
+   Desktop-only (PR split is ≥900px); other split tools keep the reservation. */
+@media (min-width: 900px) {
+  body.song-loaded:not(.songlist-active):not(.il-perf-active).split-pr-active {
+    & #splitRightPanel { top: calc(48px + env(safe-area-inset-top, 0px)) !important; }
+    & #splitDivider    { top: calc(48px + env(safe-area-inset-top, 0px)) !important; }
+  }
+}
+
 /* Mobile (<900px): drawers start at header height (43px) — add strip clearance */
 @media (max-width: 899px) {
   body.song-loaded:not(.songlist-active):not(.il-perf-active) {
@@ -17383,6 +17484,48 @@ body.song-loaded:not(.songlist-active):not(.il-perf-active) {
     }
     & #splitRightPanel { top: calc(43px + var(--dh-strip-h) + env(safe-area-inset-top, 0px)) !important; }
   }
+}
+
+/* ── v1.309: in tool drawers, hide the site header and stack the seq strip directly above the
+   drawer (strip → drawer, no header, no gap). Mobile only; scoped to an open tool drawer so the
+   song list and plain song-detail view keep their header. ── */
+@media (max-width: 899px) {
+  body.keyboard-drawer-open .site-header,
+  body.seq-drawer-open .site-header,
+  body.looper-drawer-open .site-header,
+  body.ft-drawer-open .site-header,
+  body.mix-drawer-open .site-header { transform: translateY(calc(-100% - 4px)) !important; }
+
+  /* strip pins to the very top once the header is gone */
+  body.keyboard-drawer-open .global-seq-strip,
+  body.seq-drawer-open .global-seq-strip,
+  body.looper-drawer-open .global-seq-strip,
+  body.ft-drawer-open .global-seq-strip,
+  body.mix-drawer-open .global-seq-strip {
+    position: fixed; top: env(safe-area-inset-top, 0px); left: 0; right: 0;
+  }
+  /* the mix drawer is z-index:9101 (above the strip's 975) — lift the strip over it so it shows */
+  body.mix-drawer-open .global-seq-strip { z-index: 9200; }
+
+  /* drawers start right below the strip (drop the 43px header offset) */
+  body.song-loaded.keyboard-drawer-open:not(.songlist-active):not(.il-perf-active) .keyboard-drawer,
+  body.song-loaded.seq-drawer-open:not(.songlist-active):not(.il-perf-active) .seq-drawer,
+  body.song-loaded.looper-drawer-open:not(.songlist-active):not(.il-perf-active) .looper-drawer,
+  body.song-loaded.ft-drawer-open:not(.songlist-active):not(.il-perf-active) .ft-drawer {
+    top: calc(var(--dh-strip-h) + env(safe-area-inset-top, 0px)) !important;
+    height: calc(100dvh - var(--dh-strip-h) - env(safe-area-inset-top, 0px)) !important;
+  }
+  body.mix-drawer-open .mix-drawer { top: calc(var(--dh-strip-h) + env(safe-area-inset-top, 0px)) !important; }
+
+  /* strip collapsed (▲) → drawers reclaim the strip's space, no empty gap (higher specificity wins) */
+  body.song-loaded.seq-strip-collapsed.keyboard-drawer-open:not(.songlist-active):not(.il-perf-active) .keyboard-drawer,
+  body.song-loaded.seq-strip-collapsed.seq-drawer-open:not(.songlist-active):not(.il-perf-active) .seq-drawer,
+  body.song-loaded.seq-strip-collapsed.looper-drawer-open:not(.songlist-active):not(.il-perf-active) .looper-drawer,
+  body.song-loaded.seq-strip-collapsed.ft-drawer-open:not(.songlist-active):not(.il-perf-active) .ft-drawer {
+    top: env(safe-area-inset-top, 0px) !important;
+    height: calc(100dvh - env(safe-area-inset-top, 0px)) !important;
+  }
+  body.seq-strip-collapsed.mix-drawer-open .mix-drawer { top: env(safe-area-inset-top, 0px) !important; }
 }
 
 </style>
@@ -17751,7 +17894,7 @@ if (window.innerWidth < 900) {
     <div id="headerDimGroup" style="display:flex;align-items:center;gap:10px;">
     <div style="display:flex;flex-direction:column;gap:1px;cursor:pointer;" onclick="document.body.classList.contains('songlist-active')&&_songCurrentId?showDetail():showList()" title="Back to drafts">
       <span class="header-logo">Drafthaus<span class="header-version">v1.287</span></span>
-      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.287</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;color:#f5a623;opacity:1;"><span class="header-beta" style="margin-right:5px;">Beta</span>Build 1.312</span>
     </div>
     <!-- New Idea + Roll (moved from center; hidden on mobile by CSS class rules) -->
     <button title="Create a new blank song draft. Start fresh with an empty canvas for your next idea." class="hla-newdraft-btn" onclick="newSong()"
@@ -17912,8 +18055,8 @@ if (window.innerWidth < 900) {
       <span class="trash-badge" id="trashBadge" style="display:none;">0</span>
     </button>
     <!-- Tutorial button -->
-    <button class="hdr-tutorial-btn" id="hdrTutorialBtn" onclick="_tutOpenOverlay()" title="Open the Tutorial">Tutorial</button>
-    <button class="hdr-tutorial-btn" id="hdrHelpBtn" onclick="_tutStartWalkthrough()" title="Start guided walkthrough" style="background:rgba(255,107,107,0.12);border-color:rgba(255,107,107,0.4);color:#ff6b6b;">Help me, I'm stuck!</button>
+    <button class="hdr-tutorial-btn" id="hdrTutorialBtn" onclick="_tutOpenOverlay()" title="Open the Tutorial" style="display:none;">Tutorial</button>
+    <button class="hdr-tutorial-btn" id="hdrHelpBtn" onclick="_tutStartWalkthrough()" title="Start guided walkthrough" style="display:none;background:rgba(255,107,107,0.12);border-color:rgba(255,107,107,0.4);color:#ff6b6b;">Help me, I'm stuck!</button>
     <!-- MIDI status pill -->
     <div class="hdr-midi-pill" id="hdrMidiPill" title="Click to see MIDI devices" style="cursor:pointer;" onclick="_midiShowDeviceList(event)">
       <div id="hdrMidiDot"></div>
@@ -17973,16 +18116,14 @@ if (window.innerWidth < 900) {
         <span></span><span></span><span></span>
       </button>
       <div class="mobile-menu-panel" id="mobileMenuPanel">
-        <button title="Go back to the song list view. Browse and switch between your drafts." class="mobile-menu-item" onclick="showList();closeMobileMenu()" style="font-weight:700;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;padding-bottom:10px;">← Song List</button>
+        <button id="menuSignInBtn" class="mobile-menu-item" style="display:none;font-weight:700;color:#64dcb4;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;padding-bottom:10px;" onclick="v4RequireAuth();closeMobileMenu()">↪ Sign In / Create Account</button>
+        <button title="Go back to the song list view. Browse and switch between your drafts." class="mobile-menu-item" onclick="showList();closeMobileMenu()" style="color:var(--gold,#f5a623);font-weight:700;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;padding-bottom:10px;">← Song List</button>
         <div class="mobile-menu-user" id="mobileMenuUser"></div>
-        <div class="mobile-menu-item mobile-menu-quota" id="mobileMenuQuota">Quota: —</div>
+        <div class="mobile-menu-item mobile-menu-quota" id="mobileMenuQuota" style="display:none;">Quota: —</div>
         <button title="View your storage usage and manage saved recordings. See how much space you have left." class="mobile-menu-item" onclick="openStorageModal();closeMobileMenu()">🗄 Storage</button>
         <button title="Force re-sync all songs with the cloud. Use this if songs appear out of date or stuck." class="mobile-menu-item" onclick="resyncAllSongs();closeMobileMenu()">↑ Re-Sync All</button>
-        <button title="Cycle through available color themes. Switch between Dark, Slate, and Warm modes." class="mobile-menu-item" id="menuThemeToggle" onclick="cycleTheme()">◑ Theme: <span id="menuThemeLabel">Dark</span></button>
         <button title="View all keyboard shortcuts for Drafthaus. Learn hotkeys for faster workflow." class="mobile-menu-item desktop-only-menu" onclick="closeMobileMenu();setTimeout(()=>toggleKsPanel(document.getElementById('mobileMenuWrap')),50)">⌨ Keyboard Shortcuts</button>
-        <button title="Connect a MIDI controller to play the keyboard sampler. Requires a USB or Bluetooth MIDI device." class="mobile-menu-item" onclick="initMidi();closeMobileMenu()">🎹 MIDI Connect</button>
 
-        <button title="Learn about Drafthaus — what it is and who made it. See version info and credits." class="mobile-menu-item" onclick="openAbout();closeMobileMenu()">ℹ About</button>
         <button title="Read the Terms of Use agreement. Covers your rights and responsibilities as a user." class="mobile-menu-item" onclick="showEulaModal();closeMobileMenu()">📄 Terms of Use</button>
         <button title="Read the Privacy Policy. Learn how your data is stored and protected." class="mobile-menu-item" onclick="showPrivacyModal();closeMobileMenu()">🔒 Privacy Policy</button>
         <button title="Send a bug report email to the developer. Describe what went wrong and we will look into it." class="mobile-menu-item" onclick="closeMobileMenu()" style="padding-top:8px;padding-bottom:8px;"><a href="mailto:hellojasoncraig@gmail.com?subject=Drafthaus%20Bug%20Report" style="color:inherit;text-decoration:none;">✉ Report a Bug</a></button>
@@ -18473,6 +18614,13 @@ try {
 // ── Centralized auth accessors ─────────────────────────────────
 function _authUid()  { return auth.currentUser ? auth.currentUser.uid : null; }
 function _authUser() { return auth.currentUser || null; }
+function _updateMenuSignIn() {
+  var btn = document.getElementById('menuSignInBtn');
+  if (!btn) return;
+  var u = (typeof auth !== 'undefined' && auth.currentUser) ? auth.currentUser : null;
+  var signedOut = !u || u.isAnonymous;
+  btn.style.display = signedOut ? '' : 'none';
+}
 
 // _ensureStorage is a no-op when storage is pre-loaded (all SDKs now load at boot)
 async function _ensureStorage() {
@@ -20740,7 +20888,7 @@ function _showNewSongOverlay(defaultTitle) {
 function _createAndLoadSong(title) {
   // v1.250: Random BPM 120-180 for new songs, default drum grid 1/16
   const _rndBpm = String(Math.floor(Math.random() * 61) + 120);
-  const _defSeq = { id: 'seq_' + Date.now(), partId:'section-1', bpm:_rndBpm, time:'4', bars:'4', grid:'4', drumSteps:'4', chordSteps:'1', swing:'0', vel:'0.8', wave:'triangle', instrument:'synth', melodyInstrument:'piano2', chordSlots:[], chordDegrees:[], kick:[], snare:[], hat:[], crash:[], clap:[], hitom:[], lotom:[], melody:[] };
+  const _defSeq = { id: 'seq_' + Date.now(), partId:'section-1', bpm:_rndBpm, time:'4', bars:'4', grid:'4', drumSteps:'4', chordSteps:'1', swing:'0', vel:'0.8', wave:'triangle', instrument:'piano2', melodyInstrument:'piano2', chordSlots:[], chordDegrees:[], kick:[], snare:[], hat:[], crash:[], clap:[], hitom:[], lotom:[], melody:[], melodyQuantize: false };
   const song = {
     id: genId(), workingTitle:'', title: title, bpm:_rndBpm, key:'C major', tuning:'', drumSteps:'4', chordSteps:'1',
     project:'', status:'idea', structure:{'section-1':{checked:true}}, sectionOrder:['section-1'], chords:{}, instruments:{}, sequencer: _defSeq, sequences: [_defSeq], notes:'', moods:[],
@@ -23674,6 +23822,173 @@ function _guitarUpdateUI() {
   // Guitar samples load silently in the background — no top-of-screen banner needed.
 }
 
+// ── Bass Guitar sampler (nbrosowsky bass-electric) ─────────────────
+var _bassgtrBuffers = {};     // MIDI number → AudioBuffer
+var _bassgtrLoaded  = false;
+var _bassgtrLoading = false;
+
+const BASSGTR_SAMPLE_MAP = { 28:'E1', 31:'G1', 34:'As1', 37:'Cs2', 40:'E2', 43:'G2', 46:'As2', 49:'Cs3', 52:'E3', 55:'G3', 58:'As3', 61:'Cs4', 64:'E4', 67:'G4', 70:'As4' };
+const BASSGTR_BASE_URL = 'https://cdn.jsdelivr.net/gh/nbrosowsky/tonejs-instruments@master/samples/bass-electric/';
+
+async function loadBassgtrSamples() {
+  if (_bassgtrLoaded || _bassgtrLoading) return;
+  _bassgtrLoading = true;
+  const ctx = getSeqAudioCtx();
+  await Promise.all(Object.entries(BASSGTR_SAMPLE_MAP).map(async ([midi, name]) => {
+    try {
+      let ab = await _mtAudioCache.get('bassgtr_' + name);
+      if (!ab) {
+        const resp = await fetch(BASSGTR_BASE_URL + name + '.mp3');
+        if (!resp.ok) throw new Error(resp.status);
+        ab = await resp.arrayBuffer();
+        _mtAudioCache.set('bassgtr_' + name, ab.slice(0)).catch(() => {});
+      }
+      _bassgtrBuffers[Number(midi)] = await ctx.decodeAudioData(ab);
+    } catch(e) { console.warn('Bass guitar sample load failed:', name, e); }
+  }));
+  _bassgtrLoaded  = Object.keys(_bassgtrBuffers).length > 0;
+  _bassgtrLoading = false;
+}
+
+function _bassgtrClosestMidi(target) {
+  const keys = Object.keys(_bassgtrBuffers).map(Number);
+  if (!keys.length) return null;
+  return keys.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+}
+
+function playBassgtrNote(midiNote, time, velocity, durationS) {
+  const ctx     = getSeqAudioCtx();
+  const closest = _bassgtrClosestMidi(midiNote);
+  if (closest === null) return;
+  const buf  = _bassgtrBuffers[closest];
+  const src  = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  src.buffer = buf;
+  src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+  const dur = Math.max(0.30, (durationS || 1.2) * 1.12);
+  const vol = Math.min(1, (velocity || 0.8) * 0.9);
+  var _relT = 0.45;
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.linearRampToValueAtTime(vol, time + 0.06);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.01, vol * 0.40), time + dur);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + dur + _relT);
+  src.connect(gain);
+  gain.connect(seqGetChordsOut());
+  src.start(time);
+  src.stop(time + dur + _relT + 0.05);
+  if (typeof _prChordScheduledNodes !== 'undefined') _prChordScheduledNodes.push(src);
+}
+
+// ── Violin sampler (nbrosowsky violin) ─────────────────────────────
+var _violinBuffers = {};     // MIDI number → AudioBuffer
+var _violinLoaded  = false;
+var _violinLoading = false;
+
+const VIOLIN_SAMPLE_MAP = { 55:'G3', 57:'A3', 60:'C4', 64:'E4', 67:'G4', 69:'A4', 72:'C5', 76:'E5', 79:'G5', 81:'A5', 84:'C6', 88:'E6', 91:'G6', 93:'A6', 96:'C7' };
+const VIOLIN_BASE_URL = 'https://cdn.jsdelivr.net/gh/nbrosowsky/tonejs-instruments@master/samples/violin/';
+
+async function loadViolinSamples() {
+  if (_violinLoaded || _violinLoading) return;
+  _violinLoading = true;
+  const ctx = getSeqAudioCtx();
+  await Promise.all(Object.entries(VIOLIN_SAMPLE_MAP).map(async ([midi, name]) => {
+    try {
+      let ab = await _mtAudioCache.get('violin_' + name);
+      if (!ab) {
+        const resp = await fetch(VIOLIN_BASE_URL + name + '.mp3');
+        if (!resp.ok) throw new Error(resp.status);
+        ab = await resp.arrayBuffer();
+        _mtAudioCache.set('violin_' + name, ab.slice(0)).catch(() => {});
+      }
+      _violinBuffers[Number(midi)] = await ctx.decodeAudioData(ab);
+    } catch(e) { console.warn('Violin sample load failed:', name, e); }
+  }));
+  _violinLoaded  = Object.keys(_violinBuffers).length > 0;
+  _violinLoading = false;
+}
+
+function _violinClosestMidi(target) {
+  const keys = Object.keys(_violinBuffers).map(Number);
+  if (!keys.length) return null;
+  return keys.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+}
+
+function playViolinNote(midiNote, time, velocity, durationS) {
+  const ctx     = getSeqAudioCtx();
+  const closest = _violinClosestMidi(midiNote);
+  if (closest === null) return;
+  const buf  = _violinBuffers[closest];
+  const src  = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  src.buffer = buf;
+  src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+  const dur = Math.max(0.30, (durationS || 1.2) * 1.12);
+  const vol = Math.min(1, (velocity || 0.8) * 0.9);
+  var _relT = 0.45;
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.linearRampToValueAtTime(vol, time + 0.06);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.01, vol * 0.40), time + dur);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + dur + _relT);
+  src.connect(gain);
+  gain.connect(seqGetChordsOut());
+  src.start(time);
+  src.stop(time + dur + _relT + 0.05);
+  if (typeof _prChordScheduledNodes !== 'undefined') _prChordScheduledNodes.push(src);
+}
+
+// ── Analog Pad (oscillator synth voice — no samples to load) ─────────
+var _padLoaded = true, _padLoading = false;
+function loadPadSamples() { /* oscillator voice — nothing to load */ }
+function _padUpdateUI() {}
+function playPadNote(midiNote, time, velocity, durationS) {
+  const ctx  = getSeqAudioCtx();
+  const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+  const dur  = Math.max(0.40, (durationS || 1.4) * 1.15);
+  const vol  = Math.min(0.5, (velocity || 0.8) * 0.42);
+  const filt = ctx.createBiquadFilter();
+  filt.type = 'lowpass'; filt.frequency.value = 1400; filt.Q.value = 0.6;
+  const gain = ctx.createGain();
+  var _relT = 0.6;
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.linearRampToValueAtTime(vol, time + 0.28);   // slow attack (pad)
+  gain.gain.setValueAtTime(vol, time + dur);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + dur + _relT);
+  const oscs = [];
+  [-6, 6].forEach(function(detune) {
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth'; o.frequency.value = freq; o.detune.value = detune;
+    o.connect(filt); o.start(time); o.stop(time + dur + _relT + 0.05);
+    oscs.push(o);
+  });
+  filt.connect(gain); gain.connect(seqGetChordsOut());
+  if (typeof _prChordScheduledNodes !== 'undefined') oscs.forEach(function(o){ _prChordScheduledNodes.push(o); });
+}
+function _padClosestMidi(t) { return t; }
+
+// ── Analog Lead (oscillator synth voice — no samples to load) ─────────
+var _leadLoaded = true, _leadLoading = false;
+function loadLeadSamples() { /* oscillator voice — nothing to load */ }
+function _leadUpdateUI() {}
+function playLeadNote(midiNote, time, velocity, durationS) {
+  const ctx  = getSeqAudioCtx();
+  const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+  const dur  = Math.max(0.20, (durationS || 0.9) * 1.05);
+  const vol  = Math.min(0.6, (velocity || 0.8) * 0.5);
+  const filt = ctx.createBiquadFilter();
+  filt.type = 'lowpass'; filt.frequency.value = 2600; filt.Q.value = 1.2;
+  const gain = ctx.createGain();
+  var _relT = 0.18;
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.linearRampToValueAtTime(vol, time + 0.02);   // fast attack (lead)
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.01, vol * 0.55), time + dur);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + dur + _relT);
+  const o1 = ctx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = freq; o1.detune.value = -4;
+  const o2 = ctx.createOscillator(); o2.type = 'square';   o2.frequency.value = freq; o2.detune.value = 5;
+  o1.connect(filt); o2.connect(filt); filt.connect(gain); gain.connect(seqGetChordsOut());
+  [o1, o2].forEach(function(o){ o.start(time); o.stop(time + dur + _relT + 0.05); if (typeof _prChordScheduledNodes !== 'undefined') _prChordScheduledNodes.push(o); });
+}
+function _leadClosestMidi(t) { return t; }
+
 // Salamander Grand Piano — one sample every 6 semitones.
 // Pitch-shift ±3 semitones max, which is imperceptible on piano.
 const PIANO_SAMPLE_MAP = {
@@ -23991,6 +24306,10 @@ async function initMidi(silent) {
     if (_instrHas('piano')  || _melodyInstrHas('piano'))  loadPianoSamples();
     if (_instrHas('piano2') || _melodyInstrHas('piano2')) loadPiano2Samples();
     if (_instrHas('guitar') || _melodyInstrHas('guitar')) loadGuitarSamples();
+    if (_instrHas('bassgtr') || _melodyInstrHas('bassgtr')) loadBassgtrSamples();
+    if (_instrHas('violin') || _melodyInstrHas('violin')) loadViolinSamples();
+    if (_instrHas('pad') || _melodyInstrHas('pad')) loadPadSamples();
+    if (_instrHas('lead') || _melodyInstrHas('lead')) loadLeadSamples();
     console.log('[MIDI] initMidi — loading samples for chordInstr:' + _activeInstrument + ' melodyInstr:' + _kbdMelodyInstrument);
 
     // Show status modal only if no device is connected yet (skip for auto-reconnect)
@@ -24227,7 +24546,27 @@ function _midiNoteOn(midiNote, velocity) {
     samplerPlayed = true;
     console.log('[MIDI] → played via guitar sampler');
   }
-  if (_melodyInstrHas('synth') || (!samplerPlayed && !_anyPianoMelodyReady() && (!_melodyInstrHas('guitar') || !_guitarLoaded))) {
+  if (_melodyInstrHas('bassgtr') && _bassgtrLoaded) {
+    playBassgtrNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
+    samplerPlayed = true;
+    console.log('[MIDI] → played via bassgtr sampler');
+  }
+  if (_melodyInstrHas('violin') && _violinLoaded) {
+    playViolinNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
+    samplerPlayed = true;
+    console.log('[MIDI] → played via violin sampler');
+  }
+  if (_melodyInstrHas('pad') && _padLoaded) {
+    playPadNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
+    samplerPlayed = true;
+    console.log('[MIDI] → played via pad voice');
+  }
+  if (_melodyInstrHas('lead') && _leadLoaded) {
+    playLeadNote(midiNote, seqAudioCtx.currentTime, velocity, 2.0);
+    samplerPlayed = true;
+    console.log('[MIDI] → played via lead voice');
+  }
+  if (_melodyInstrHas('synth') || (!samplerPlayed && !_anyPianoMelodyReady() && (!_melodyInstrHas('guitar') || !_guitarLoaded) && (!_melodyInstrHas('bassgtr') || !_bassgtrLoaded) && (!_melodyInstrHas('violin') || !_violinLoaded) && (!_melodyInstrHas('pad') || !_padLoaded) && (!_melodyInstrHas('lead') || !_leadLoaded))) {
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
     const ctx = getSeqAudioCtx();
     const o = ctx.createOscillator(), g = ctx.createGain();
@@ -25314,6 +25653,10 @@ function initSequencer(song) {
   if (_instrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  loadPianoSamples();
   if (_instrHas('piano2') && !_piano2Loaded && !_piano2Loading) loadPiano2Samples();
   if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
+  if (_instrHas('bassgtr') && !_bassgtrLoaded && !_bassgtrLoading) loadBassgtrSamples();
+  if (_instrHas('violin') && !_violinLoaded && !_violinLoading) loadViolinSamples();
+  if (_instrHas('pad') && !_padLoaded && !_padLoading) loadPadSamples();
+  if (_instrHas('lead') && !_leadLoaded && !_leadLoading) loadLeadSamples();
   setTimeout(seqApplyMixer, 0);
 
   // Load humanize state
@@ -25753,6 +26096,121 @@ function _seqStripBarBg(color) {
   return color.replace(')', ',0.16)').replace('rgb', 'rgba');
 }
 window.seqStripRender = seqStripRender;
+
+// ── DESKTOP Piano-Roll strip mount (mirror of Arrange's _arrMountStrip/_arrUnmountStrip) ──
+// Relocate the shared #globalSeqStrip into the PR's horizontal scroll container so its
+// section bars stay pixel-locked to the grid's bars and scroll/zoom with the grid for free.
+// stepsPerBar = prGetTimeSig() * prGetSnap() (the SAME factors the PR ruler uses to draw bar
+// lines: a bar line falls where (col/snap) % timeSig === 0, i.e. every timeSig*snap columns);
+// ppb (pixels per bar) = prGetColW() * stepsPerBar.
+function _prStripPPB() {
+  var colW = (typeof window.prGetColW === 'function') ? window.prGetColW() : 12;
+  var ts   = (typeof window.prGetTimeSig === 'function') ? window.prGetTimeSig() : 4;
+  var snap = (typeof window.prGetSnap === 'function') ? window.prGetSnap() : 4;
+  return colW * ts * snap;
+}
+var _prStripMounted = false;
+window._prStripIsMounted = function() { return _prStripMounted; };
+function _prMountStrip() {
+  if (window.innerWidth < 900) return;                 // desktop only
+  if (typeof arrIsOpen === 'function' && arrIsOpen()) return; // Arrange owns the strip there
+  if (typeof window._drumStripIsMounted === 'function' && window._drumStripIsMounted()) {
+    // Drum drawer currently owns the strip — release it first so only one host owns #globalSeqStrip.
+    if (typeof window._drumUnmountStrip === 'function') window._drumUnmountStrip();
+  }
+  var strip  = document.getElementById('globalSeqStrip');
+  var scroll = document.getElementById('prGridScroll');
+  var cont   = document.getElementById('prGridContainer');
+  if (!strip || !scroll || !cont) return;
+  // Mount as a sibling directly before #prGridContainer (in-flow), so the container — and all
+  // its absolutely-positioned children (keys/canvas/notes) — shift down together as one block,
+  // keeping their internal top:0 coordinate math intact. Lives inside #prGridScroll → scrolls
+  // horizontally with the grid; position:sticky;top:0 pins it on vertical scroll.
+  if (strip.parentNode !== scroll || strip.nextSibling !== cont) {
+    scroll.insertBefore(strip, cont);
+  }
+  strip.classList.add('pr-strip-mounted');
+  _prStripMounted = true;
+  if (typeof seqStripRender === 'function') seqStripRender('grid', _prStripPPB());
+}
+function _prUnmountStrip() {
+  var strip = document.getElementById('globalSeqStrip');
+  if (strip) strip.classList.remove('pr-strip-mounted');
+  _prStripMounted = false;
+  var tgl = document.getElementById('seqStripToggleBtn');
+  // Return to home spot (just before the toggle button) and revert to fit mode.
+  if (strip && tgl && tgl.parentNode && strip.nextSibling !== tgl) tgl.parentNode.insertBefore(strip, tgl);
+  if (typeof seqStripRender === 'function') seqStripRender('fit');
+}
+// Re-render the mounted strip at the current pixels-per-bar (called after a horizontal-zoom change).
+function _prStripResync() {
+  if (!_prStripMounted) return;
+  if (typeof seqStripRender === 'function') seqStripRender('grid', _prStripPPB());
+}
+window._prMountStrip   = _prMountStrip;
+window._prUnmountStrip = _prUnmountStrip;
+window._prStripResync  = _prStripResync;
+
+// ── DESKTOP Drum-Roll strip mount (mirror of the PR / Arrange strip mounts) ──
+// Relocate the shared #globalSeqStrip into the standalone Drum Roll's horizontal scroll
+// container (#drRollScroll, before #drRollContainer) so its section bars stay pixel-locked
+// to the drum grid's bars and scroll/zoom with the grid for free.
+//   ppb (pixels per bar) = drumColW * drumStepsPerBar, where:
+//     drumColW       = the Drum Roll's per-step (column) pixel width  → window._drRollGetColW()
+//     drumStepsPerBar = time * drumGrid                               → _drRollGetParams().stepsPerBar
+//   gutter           = the Drum Roll's left label column width (#drRollLabels, 100px) so bar 1
+//                      starts where the grid's notes/canvas begin (canvas/notes-layer left:100px).
+function _drumStripPPB() {
+  var colW = (typeof window._drRollGetColW === 'function') ? window._drRollGetColW() : 40;
+  // Derive stepsPerBar exactly the way the Drum Roll grid does (time * drumGrid).
+  var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
+  var sd   = (song && song.sequencer) ? song.sequencer : {};
+  var time = parseInt(sd.time || '4') || 4;
+  var grid = parseInt(sd.drumSteps || sd.grid || '4') || 4;
+  return colW * (time * grid);
+}
+var _drumStripMounted = false;
+window._drumStripIsMounted = function() { return _drumStripMounted; };
+function _drumMountStrip() {
+  if (window.innerWidth < 900) return;                          // desktop only — mobile drum drawer untouched
+  if (typeof arrIsOpen === 'function' && arrIsOpen()) return;   // Arrange owns the strip there
+  if (typeof window._prStripIsMounted === 'function' && window._prStripIsMounted()) {
+    // PR currently owns the strip — release it first so only one host owns #globalSeqStrip.
+    if (typeof window._prUnmountStrip === 'function') window._prUnmountStrip();
+  }
+  var strip  = document.getElementById('globalSeqStrip');
+  var scroll = document.getElementById('drRollScroll');
+  var cont   = document.getElementById('drRollContainer');
+  if (!strip || !scroll || !cont) return;
+  // Mount as a sibling directly before #drRollContainer (in-flow), inside #drRollScroll → it
+  // scrolls horizontally with the grid; position:sticky;top:0 pins it on vertical scroll. A left
+  // pad equal to the label gutter (100px) shifts bar 1 to where the grid's notes start (x=100).
+  if (strip.parentNode !== scroll || strip.nextSibling !== cont) {
+    scroll.insertBefore(strip, cont);
+  }
+  strip.classList.add('dr-strip-mounted');
+  _drumStripMounted = true;
+  if (typeof seqStripRender === 'function') seqStripRender('grid', _drumStripPPB());
+}
+function _drumUnmountStrip() {
+  var strip = document.getElementById('globalSeqStrip');
+  if (strip) strip.classList.remove('dr-strip-mounted');
+  _drumStripMounted = false;
+  var tgl = document.getElementById('seqStripToggleBtn');
+  // Return to home spot (just before the toggle button) and revert to fit mode.
+  if (strip && tgl && tgl.parentNode && strip.nextSibling !== tgl) tgl.parentNode.insertBefore(strip, tgl);
+  if (typeof seqStripRender === 'function') seqStripRender('fit');
+}
+// Re-render the mounted strip at the current pixels-per-bar (called after a horizontal-zoom /
+// grid-density / step-count change that resizes the drum grid).
+function _drumStripResync() {
+  if (!_drumStripMounted) return;
+  if (window.innerWidth < 900) return;
+  if (typeof seqStripRender === 'function') seqStripRender('grid', _drumStripPPB());
+}
+window._drumMountStrip   = _drumMountStrip;
+window._drumUnmountStrip = _drumUnmountStrip;
+window._drumStripResync  = _drumStripResync;
 
 // Tap a bar → select/activate (loads into current tool + syncs Arrange selection).
 window.seqStripSelect = function(i, ev) {
@@ -27444,6 +27902,10 @@ function seqInstrumentChanged() {
   if (_instrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  loadPianoSamples();
   if (_instrHas('piano2') && !_piano2Loaded && !_piano2Loading) loadPiano2Samples();
   if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
+  if (_instrHas('bassgtr') && !_bassgtrLoaded && !_bassgtrLoading) loadBassgtrSamples();
+  if (_instrHas('violin') && !_violinLoaded && !_violinLoading) loadViolinSamples();
+  if (_instrHas('pad') && !_padLoaded && !_padLoading) loadPadSamples();
+  if (_instrHas('lead') && !_leadLoaded && !_leadLoading) loadLeadSamples();
   seqSaveSettings();
 }
 
@@ -28692,6 +29154,8 @@ function seqBuildGrids(song) {
       if (parseInt(hs.value) !== Math.round(_drRollColW)) hs.value = Math.round(_drRollColW);
     }
     _drRollSaveZoom();
+    // Keep the mounted desktop seq strip pixel-locked after a horizontal-zoom change.
+    if (typeof window._drumStripResync === 'function') window._drumStripResync();
   };
   window._drRollSetZoomV = function(v) {
     _drRollRowH = Math.max(24, Math.min(120, v));
@@ -29936,12 +30400,19 @@ function seqBuildGrids(song) {
       }
       _drRollFullRender();
       _drRollRefreshMuteButtons();
+      // Desktop: relocate the shared sequence strip into the Drum Roll scroll container so its
+      // section bars stay pixel-locked to the grid (mirror of PR / Arrange). No-op on mobile / in Arrange.
+      if (typeof window._drumMountStrip === 'function') window._drumMountStrip();
     });
     if (!_drRollPlayRAF) _drRollPlayRAF = requestAnimationFrame(_drRollPlayheadTick);
   }
 
   function _drCloseDrumRoll() {
     if (!_drRollActive) return;
+    // Return the shared sequence strip to its home spot (fit mode) before tearing down the roll
+    // DOM, so it isn't left orphaned inside the (about-to-be-hidden) Drum Roll scroll container.
+    if (typeof window._drumStripIsMounted === 'function' && window._drumStripIsMounted()
+        && typeof window._drumUnmountStrip === 'function') window._drumUnmountStrip();
     var container = document.getElementById('drPrContainer');
     if (container) { container.style.display = 'none'; container.classList.add('dr-hidden'); }
     _drRollActive = false;
@@ -32145,6 +32616,18 @@ window.kbdStageInitInlinePR = function() {
       var c4row = (84 - 60);
       scroll.scrollTop = Math.max(0, c4row * rowH - scroll.clientHeight / 2);
       if (typeof prSetSyncEnabled === 'function') setTimeout(function() { prSetSyncEnabled(true); }, 50);
+      // Desktop: relocate the shared sequence strip into the PR scroll container (mirror of
+      // the prOpen / Arrange path) so its section bars stay pixel-locked to the grid and
+      // scroll/zoom with it. The grid + #prGridScroll/#prGridContainer now exist. No-op on
+      // mobile / in Arrange / when the drum drawer owns the strip.
+      // Guard: only mount when the keyboard drawer is actually the live tool. A late re-init
+      // of this rAF loop can fire AFTER the user has switched to another split tool (e.g. via
+      // a queued kbdStageReturnPRInline); without this check it would yank the strip back out
+      // of the new tool's view and re-mount it into the now-hidden keyboard PR.
+      var _kbdIsLiveTool = (typeof _splitActive !== 'undefined' && _splitActive)
+        ? (typeof _splitCurrentTool !== 'undefined' && _splitCurrentTool === 'keyboard')
+        : !!(document.getElementById('keyboardDrawer') && document.getElementById('keyboardDrawer').classList.contains('open'));
+      if (_kbdIsLiveTool && typeof window._prMountStrip === 'function') window._prMountStrip();
     } else if (_prInlineRetries < 20) {
       _prInlineRetries++;
       requestAnimationFrame(_prInlineTryRender);
@@ -32232,6 +32715,27 @@ function seqPlayChordGuitar(midiNotes, time, velocity, durS) {
   });
 }
 
+function seqPlayChordBassgtr(midiNotes, time, velocity, durS) {
+  var d = durS || 2.4;
+  midiNotes.forEach((midi, i) => {
+    playBassgtrNote(midi, time + i * 0.028, velocity, d);
+  });
+}
+
+function seqPlayChordViolin(midiNotes, time, velocity, durS) {
+  var d = durS || 2.4;
+  midiNotes.forEach((midi, i) => {
+    playViolinNote(midi, time + i * 0.028, velocity, d);
+  });
+}
+
+function seqPlayChordPad(midiNotes, time, velocity, durS) {
+  midiNotes.forEach(function(m){ playPadNote(m, time, velocity, durS || 1.6); });
+}
+function seqPlayChordLead(midiNotes, time, velocity, durS) {
+  midiNotes.forEach(function(m){ playLeadNote(m, time, velocity, durS || 1.0); });
+}
+
 function seqPlayChordByName(name) {
   // Always called from a user gesture (chord pill tap/click) — safe to resume
   const _ctx = getSeqAudioCtx();
@@ -32247,8 +32751,12 @@ function seqPlayChordByName(name) {
   if (_instrHas('piano')  && _pianoLoaded  && midiNotes && midiNotes.length) { seqPlayChordPiano(midiNotes, t, 0.8);  samplerPlayed = true; }
   if (_instrHas('piano2') && _piano2Loaded && midiNotes && midiNotes.length) { seqPlayChordPiano2(midiNotes, t, 0.8); samplerPlayed = true; }
   if (_instrHas('guitar') && _guitarLoaded && midiNotes && midiNotes.length) { seqPlayChordGuitar(midiNotes, t, 0.8); samplerPlayed = true; }
+  if (_instrHas('bassgtr') && _bassgtrLoaded && midiNotes && midiNotes.length) { seqPlayChordBassgtr(midiNotes, t, 0.8); samplerPlayed = true; }
+  if (_instrHas('violin') && _violinLoaded && midiNotes && midiNotes.length) { seqPlayChordViolin(midiNotes, t, 0.8); samplerPlayed = true; }
+  if (_instrHas('pad') && _padLoaded && midiNotes && midiNotes.length) { seqPlayChordPad(midiNotes, t, 0.8); samplerPlayed = true; }
+  if (_instrHas('lead') && _leadLoaded && midiNotes && midiNotes.length) { seqPlayChordLead(midiNotes, t, 0.8); samplerPlayed = true; }
   // Fall back to synth if: synth is explicitly selected, OR no sampler played
-  if (_instrHas('synth') || (!samplerPlayed && !_anyPianoChordReady() && (!_instrHas('guitar') || !_guitarLoaded))) {
+  if (_instrHas('synth') || (!samplerPlayed && !_anyPianoChordReady() && (!_instrHas('guitar') || !_guitarLoaded) && (!_instrHas('bassgtr') || !_bassgtrLoaded) && (!_instrHas('violin') || !_violinLoaded) && (!_instrHas('pad') || !_padLoaded) && (!_instrHas('lead') || !_leadLoaded))) {
     const chords = seqGenChords(key, mode);
     if (chords[name]) {
       seqPlayChord(chords[name], t, 0.8);
@@ -33803,7 +34311,7 @@ async function sharedPlaySong(opts) {
   var _pfSong = typeof getCurrentSong === 'function' ? getCurrentSong() : null;
   if (_pfSong) {
     var _pfSeqs = typeof getSongSequences === 'function' ? getSongSequences(_pfSong) : (_pfSong.sequences || []);
-    var _pfNeedPiano = false, _pfNeedPiano2 = false, _pfNeedGuitar = false;
+    var _pfNeedPiano = false, _pfNeedPiano2 = false, _pfNeedGuitar = false, _pfNeedBassgtr = false, _pfNeedViolin = false, _pfNeedPad = false, _pfNeedLead = false;
     // Check chord + melody instruments across ALL sequences
     _pfSeqs.forEach(function(sq) {
       var ci = (sq.instrument || 'piano').split('+');
@@ -33812,11 +34320,19 @@ async function sharedPlaySong(opts) {
       if (all.indexOf('piano') >= 0)  _pfNeedPiano  = true;
       if (all.indexOf('piano2') >= 0) _pfNeedPiano2 = true;
       if (all.indexOf('guitar') >= 0) _pfNeedGuitar = true;
+      if (all.indexOf('bassgtr') >= 0) _pfNeedBassgtr = true;
+      if (all.indexOf('violin') >= 0) _pfNeedViolin = true;
+      if (all.indexOf('pad') >= 0) _pfNeedPad = true;
+      if (all.indexOf('lead') >= 0) _pfNeedLead = true;
     });
     var _pfLoading = [];
     if (_pfNeedPiano  && !_pianoLoaded  && !_pianoLoading)  { loadPianoSamples();  _pfLoading.push('piano'); }
     if (_pfNeedPiano2 && !_piano2Loaded && !_piano2Loading) { loadPiano2Samples(); _pfLoading.push('piano2'); }
     if (_pfNeedGuitar && !_guitarLoaded && !_guitarLoading) { loadGuitarSamples(); _pfLoading.push('guitar'); }
+    if (_pfNeedBassgtr && !_bassgtrLoaded && !_bassgtrLoading) { loadBassgtrSamples(); _pfLoading.push('bassgtr'); }
+    if (_pfNeedViolin && !_violinLoaded && !_violinLoading) { loadViolinSamples(); _pfLoading.push('violin'); }
+    if (_pfNeedPad && !_padLoaded && !_padLoading) { loadPadSamples(); _pfLoading.push('pad'); }
+    if (_pfNeedLead && !_leadLoaded && !_leadLoading) { loadLeadSamples(); _pfLoading.push('lead'); }
     // Also ensure drum samples are loaded
     if (typeof seqDrumMode !== 'undefined') {
       if (seqDrumMode === 'lacer' && typeof _acousticLoadState !== 'undefined' && _acousticLoadState === 'idle') {
@@ -34145,6 +34661,10 @@ function seqPlay() {
   if (_spAll.indexOf('piano') >= 0  && !_pianoLoaded  && !_pianoLoading)  loadPianoSamples();
   if (_spAll.indexOf('piano2') >= 0 && !_piano2Loaded && !_piano2Loading) loadPiano2Samples();
   if (_spAll.indexOf('guitar') >= 0 && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
+  if (_spAll.indexOf('bassgtr') >= 0 && !_bassgtrLoaded && !_bassgtrLoading) loadBassgtrSamples();
+  if (_spAll.indexOf('violin') >= 0 && !_violinLoaded && !_violinLoading) loadViolinSamples();
+  if (_spAll.indexOf('pad') >= 0 && !_padLoaded && !_padLoading) loadPadSamples();
+  if (_spAll.indexOf('lead') >= 0 && !_leadLoaded && !_leadLoading) loadLeadSamples();
   if (typeof seqDrumMode !== 'undefined') {
     if (seqDrumMode === 'lacer' && typeof _acousticLoadState !== 'undefined' && _acousticLoadState === 'idle') loadAcousticSamples();
     else if (seqDrumMode === 'hargreaves' && typeof _acoustic2LoadState !== 'undefined' && _acoustic2LoadState === 'idle') loadAcoustic2Samples();
@@ -34541,8 +35061,12 @@ function seqScheduleNotes() {
     const loopChords = seqGenChords(loopKey, loopMode);
     const _hasPiano  = _instrHas('piano') || _instrHas('piano2');
     const _hasGuitar = _instrHas('guitar');
+    const _hasBassgtr = _instrHas('bassgtr');
+    const _hasViolin = _instrHas('violin');
+    const _hasPad = _instrHas('pad');
+    const _hasLead = _instrHas('lead');
     const _hasSynth  = _instrHas('synth');
-    const _useSampler = _anyPianoChordReady() || (_hasGuitar && _guitarLoaded);
+    const _useSampler = _anyPianoChordReady() || (_hasGuitar && _guitarLoaded) || (_hasBassgtr && _bassgtrLoaded) || (_hasViolin && _violinLoaded) || (_hasPad && _padLoaded) || (_hasLead && _leadLoaded);
     const loopChordsMidi = _useSampler ? seqGenChordMidi(loopKey, loopMode) : null;
     while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
       if (_seqSongSectionIdx >= _seqSongSections.length) { _seqSongSectionIdx = 0; _seqSongSectionStep = 0; }
@@ -34738,8 +35262,12 @@ function seqScheduleNotes() {
   const loopChords     = seqGenChords(loopKey, loopMode);
   const _hasPiano  = _instrHas('piano') || _instrHas('piano2');
   const _hasGuitar = _instrHas('guitar');
+  const _hasBassgtr = _instrHas('bassgtr');
+  const _hasViolin = _instrHas('violin');
+  const _hasPad = _instrHas('pad');
+  const _hasLead = _instrHas('lead');
   const _hasSynth  = _instrHas('synth');
-  const _useSampler = _anyPianoChordReady() || (_hasGuitar && _guitarLoaded);
+  const _useSampler = _anyPianoChordReady() || (_hasGuitar && _guitarLoaded) || (_hasBassgtr && _bassgtrLoaded) || (_hasViolin && _violinLoaded) || (_hasPad && _padLoaded) || (_hasLead && _leadLoaded);
   const loopChordsMidi = _useSampler ? seqGenChordMidi(loopKey, loopMode) : null;
 
   const chordSlots = [...document.querySelectorAll('#seqChordGrid .seq-slot')];
@@ -34778,8 +35306,12 @@ function seqScheduleNotes() {
     const _kLoopChords = seqGenChords(_kLoopKey, _kLoopMode);
     const _kHasPiano   = _instrHas('piano') || _instrHas('piano2');
     const _kHasGuitar  = _instrHas('guitar');
+    const _kHasBassgtr = _instrHas('bassgtr');
+    const _kHasViolin  = _instrHas('violin');
+    const _kHasPad = _instrHas('pad');
+    const _kHasLead = _instrHas('lead');
     const _kHasSynth   = _instrHas('synth');
-    const _kUseSampler = _anyPianoChordReady() || (_kHasGuitar && _guitarLoaded);
+    const _kUseSampler = _anyPianoChordReady() || (_kHasGuitar && _guitarLoaded) || (_kHasBassgtr && _bassgtrLoaded) || (_kHasViolin && _violinLoaded) || (_kHasPad && _padLoaded) || (_kHasLead && _leadLoaded);
     const _kLoopChordsMidi = _kUseSampler ? seqGenChordMidi(_kLoopKey, _kLoopMode) : null;
     const _kVel = parseFloat(document.getElementById('seqVel')?.value || 0.8);
     while (_seqNextNoteTime < ctx.currentTime + LOOKAHEAD) {
@@ -35201,7 +35733,7 @@ var _fkbDragging = false;
 var _fkbTouchActiveKey = null;
 var _fkbOctaves = [3, 4]; // v1.232: default 2 octaves
 var _fkbEl = null;
-var _fkbMinimized = false;
+var _fkbMinimized = (window.innerWidth >= 900); // desktop: boot minimized to inline strip
 
 function fkbInit() {
   if (_fkbEl) return;
@@ -35219,6 +35751,10 @@ function fkbInit() {
           '<option value="piano2">Upright Piano</option>' +
           '<option value="piano+piano2">Grand + Upright</option>' +
           '<option value="guitar">Guitar</option>' +
+          '<option value="bassgtr">Bass Guitar</option>' +
+          '<option value="violin">Violins</option>' +
+          '<option value="pad">Analog Pad</option>' +
+          '<option value="lead">Analog Lead</option>' +
           '<option value="guitar+piano">Guitar + Grand</option>' +
           '<option value="guitar+piano2">Guitar + Upright</option>' +
           '<option value="guitar+synth">Guitar + Synth</option>' +
@@ -35232,7 +35768,7 @@ function fkbInit() {
         '<button class="fkb-oct-btn" id="fkbShrink" title="Remove octave">−</button>' +
         '<span class="fkb-oct-label" id="fkbOctLabel">2 oct</span>' +
         '<button class="fkb-oct-btn" id="fkbGrow" title="Add octave">+</button>' +
-        '<button class="fkb-oct-btn" id="fkbMinBtn" title="Minimize keyboard" style="margin-left:6px;font-size:13px;">▾</button>' +
+        '<button class="fkb-oct-btn" id="fkbMinBtn" title="Minimize keyboard" style="margin-left:6px;font-size:13px;">▲</button>' +
       '</div>' +
       '<div class="fkb-body" id="fkbBody"></div>' +
     '</div>';
@@ -35283,8 +35819,19 @@ function fkbShow() {
   if (!_fkbEl) fkbInit();
   if (!_fkbEl) return;
   _fkbOpen = true;
-  _fkbEl.classList.add('fkb-open');
-  fkbRender();
+  if (_fkbMinimized) {
+    // Boot minimized: hide floating panel, show inline strip
+    _fkbEl.style.display = 'none';
+    var _inlineRow = document.getElementById('fkbInlineRow');
+    if (_inlineRow) { _inlineRow.style.display = 'flex'; fkbRenderInline(); }
+    // Ensure fkbMinBtn reflects minimized state
+    var _btn = document.getElementById('fkbMinBtn');
+    if (_btn) { _btn.textContent = '▾'; _btn.title = 'Restore keyboard'; }
+  } else {
+    _fkbEl.style.display = '';
+    _fkbEl.classList.add('fkb-open');
+    fkbRender();
+  }
 }
 function fkbHide() {
   if (!_fkbEl) return;
@@ -35293,11 +35840,11 @@ function fkbHide() {
 }
 
 function fkbResize(delta) {
-  var allOct = [1,2,3,4,5,6,7];
+  var allOct = [1,2,3,4,5,6];
   var lo = _fkbOctaves[0];
   var hi = _fkbOctaves[_fkbOctaves.length - 1];
   if (delta > 0) {
-    if (hi < 7) hi++;
+    if (hi < 6) hi++;
     else if (lo > 1) lo--;
     else return;
   } else {
@@ -35317,7 +35864,7 @@ function fkbToggleMinimize() {
   var btn = document.getElementById('fkbMinBtn');
   var panel = document.getElementById('fkbPanel');
   if (body) body.style.display = _fkbMinimized ? 'none' : '';
-  if (btn) { btn.textContent = _fkbMinimized ? '▴' : '▾'; btn.title = _fkbMinimized ? 'Restore keyboard' : 'Minimize keyboard'; }
+  if (btn) { btn.textContent = _fkbMinimized ? '▾' : '▲'; btn.title = _fkbMinimized ? 'Restore keyboard' : 'Minimize keyboard'; }
   if (panel) panel.style.minHeight = _fkbMinimized ? '0' : '';
   // v1.225: Show/hide inline mini keys in toolbar row
   var inlineRow = document.getElementById('fkbInlineRow');
@@ -35325,8 +35872,11 @@ function fkbToggleMinimize() {
     inlineRow.style.display = _fkbMinimized ? 'flex' : 'none';
     if (_fkbMinimized) fkbRenderInline();
   }
-  // Hide floating panel when minimized to inline
-  if (_fkbEl) _fkbEl.style.display = _fkbMinimized ? 'none' : '';
+  // Hide floating panel when minimized to inline; restore when expanding
+  if (_fkbEl) {
+    _fkbEl.style.display = _fkbMinimized ? 'none' : '';
+    if (!_fkbMinimized) { _fkbEl.classList.add('fkb-open'); fkbRender(); }
+  }
 }
 
 // v1.227: Render responsive mini inline keyboard — rainbow colors, drag-play, touch-slide, Pop-Out
@@ -35373,13 +35923,13 @@ function fkbRenderInline() {
     {note:'F#',offset:3.67},{note:'G#',offset:4.67},{note:'A#',offset:5.67}
   ];
 
-  // Reserve space for Pop-Out button (56px)
-  var popOutW = 56;
+  // Reserve space for Pop-Out button (56px) + voice label + dropdown (~220px)
+  var popOutW = 276;
   var board = document.createElement('div');
   board.className = 'fkb-inline-board';
 
   // Responsive sizing: compute key widths from available space
-  var totalWhiteKeys = 7 * 7; // 7 octaves × 7 white keys
+  var totalWhiteKeys = 6 * 7; // 6 octaves × 7 white keys (C1–B6)
   function layoutKeys() {
     var availW = el.clientWidth - popOutW;
     if (availW < 100) availW = 100;
@@ -35401,8 +35951,8 @@ function fkbRenderInline() {
     });
   }
 
-  // Build keys for octaves 1-7
-  for (var oi = 0; oi < 7; oi++) {
+  // Build keys for octaves 1-6 (C1–B6)
+  for (var oi = 0; oi < 6; oi++) {
     var oct = oi + 1;
     KBD_WHITE_NOTES.forEach(function(note, wi) {
       var deg = noteDegree[note];
@@ -35458,6 +36008,41 @@ function fkbRenderInline() {
   popBtn.title = 'Restore floating keyboard';
   popBtn.addEventListener('click', function() { fkbPopOut(); });
   el.appendChild(popBtn);
+
+  // Keyboard Voice label + mirrored instrument dropdown (absolutely positioned right of board, left of Pop-Out)
+  var voiceWrap = document.createElement('span');
+  voiceWrap.style.cssText = 'position:absolute;right:56px;top:0;height:32px;display:inline-flex;align-items:center;gap:4px;padding:0 6px;white-space:nowrap;background:rgba(17,17,17,0.95);z-index:4;';
+  var voiceLbl = document.createElement('span');
+  voiceLbl.textContent = 'Keyboard Voice:';
+  voiceLbl.style.cssText = 'font-size:10px;color:var(--faint,#999);';
+  var voiceSel = document.createElement('select');
+  voiceSel.id = 'fkbInlineInstrSel';
+  voiceSel.style.cssText = 'font-size:10px;background:var(--card2,#1e1e2e);color:var(--text,#eee);border:1px solid var(--border2,#333);border-radius:4px;padding:2px 4px;cursor:pointer;';
+  voiceSel.title = 'Keyboard Voice';
+  var instrOptions = [
+    ['synth','Synth'],['piano','Grand Piano'],['piano2','Upright Piano'],
+    ['piano+piano2','Grand + Upright'],['guitar','Guitar'],['bassgtr','Bass Guitar'],
+    ['violin','Violins'],['pad','Analog Pad'],['lead','Analog Lead'],
+    ['guitar+piano','Guitar + Grand'],['guitar+piano2','Guitar + Upright'],
+    ['guitar+synth','Guitar + Synth'],['piano+synth','Grand + Synth'],
+    ['piano2+synth','Upright + Synth'],['guitar+piano+synth','Guitar + Grand + Synth'],
+    ['guitar+piano2+synth','Guitar + Upright + Synth']
+  ];
+  instrOptions.forEach(function(o) {
+    var opt = document.createElement('option');
+    opt.value = o[0]; opt.textContent = o[1]; voiceSel.appendChild(opt);
+  });
+  // Sync to current value
+  if (typeof _kbdMelodyInstrument !== 'undefined') voiceSel.value = _kbdMelodyInstrument;
+  voiceSel.addEventListener('change', function() {
+    // Sync the canonical melodyInstrumentSelect so melodyInstrumentChanged() reads the right value
+    var canonical = document.getElementById('melodyInstrumentSelect');
+    if (canonical) canonical.value = voiceSel.value;
+    if (typeof melodyInstrumentChanged === 'function') melodyInstrumentChanged();
+  });
+  voiceWrap.appendChild(voiceLbl);
+  voiceWrap.appendChild(voiceSel);
+  el.appendChild(voiceWrap);
 
   // Initial layout + resize observer
   layoutKeys();
@@ -35556,7 +36141,7 @@ function fkbPopOut() {
   var btn = document.getElementById('fkbMinBtn');
   var panel = document.getElementById('fkbPanel');
   if (body) body.style.display = '';
-  if (btn) { btn.textContent = '▾'; btn.title = 'Minimize keyboard'; }
+  if (btn) { btn.textContent = '▲'; btn.title = 'Minimize keyboard'; }
   if (panel) panel.style.minHeight = '';
   if (!_fkbOpen) fkbShow();
 }
@@ -35571,8 +36156,8 @@ function fkbRender() {
   if (!el) return;
   if (typeof seqCurrentKey !== 'function') return;
   var W = 38, BW = 24, WH = 140, BH = 88;
-  // v1.232: Render all 7 octaves; horizontal scroll in fkb-body reveals full range
-  var _fkbAllOctaves = [1,2,3,4,5,6,7];
+  // v1.232: Render 6 octaves (C1–B6); horizontal scroll in fkb-body reveals full range
+  var _fkbAllOctaves = [1,2,3,4,5,6];
   var totalWidth = 7 * _fkbAllOctaves.length * W;
   var key  = seqCurrentKey();
   var mode = seqCurrentMode();
@@ -35993,7 +36578,61 @@ function kbdPlayNote(note, octave, sustained = false) {
       samplerPlayed = true;
     }
   }
-  if (_melodyInstrHas('synth') || (!samplerPlayed && !_anyPianoMelodyReady() && (!_melodyInstrHas('guitar') || !_guitarLoaded))) {
+  if (_melodyInstrHas('bassgtr') && _bassgtrLoaded) {
+    const closest = _bassgtrClosestMidi(midiNote);
+    if (closest !== null) {
+      const buf = _bassgtrBuffers[closest];
+      const src = ctx.createBufferSource(), gain = ctx.createGain();
+      src.buffer = buf;
+      src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+      if (sustained) {
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(1.0, t + 0.04);
+        src.connect(gain); gain.connect(seqGetMelodyOut());
+        src.start(t);
+        _kbdActiveSustain.set(sustKey, { src, gain });
+      } else {
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(1.0, t + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 3.0);
+        src.connect(gain); gain.connect(seqGetMelodyOut());
+        src.start(t); src.stop(t + 3.2);
+      }
+      samplerPlayed = true;
+    }
+  }
+  if (_melodyInstrHas('violin') && _violinLoaded) {
+    const closest = _violinClosestMidi(midiNote);
+    if (closest !== null) {
+      const buf = _violinBuffers[closest];
+      const src = ctx.createBufferSource(), gain = ctx.createGain();
+      src.buffer = buf;
+      src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+      if (sustained) {
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(1.0, t + 0.04);
+        src.connect(gain); gain.connect(seqGetMelodyOut());
+        src.start(t);
+        _kbdActiveSustain.set(sustKey, { src, gain });
+      } else {
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(1.0, t + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 3.0);
+        src.connect(gain); gain.connect(seqGetMelodyOut());
+        src.start(t); src.stop(t + 3.2);
+      }
+      samplerPlayed = true;
+    }
+  }
+  if (_melodyInstrHas('pad') && _padLoaded) {
+    playPadNote(midiNote, t, 0.8, sustained ? 3.0 : 1.4);
+    samplerPlayed = true;
+  }
+  if (_melodyInstrHas('lead') && _leadLoaded) {
+    playLeadNote(midiNote, t, 0.8, sustained ? 3.0 : 0.9);
+    samplerPlayed = true;
+  }
+  if (_melodyInstrHas('synth') || (!samplerPlayed && !_anyPianoMelodyReady() && (!_melodyInstrHas('guitar') || !_guitarLoaded) && (!_melodyInstrHas('bassgtr') || !_bassgtrLoaded) && (!_melodyInstrHas('violin') || !_violinLoaded) && (!_melodyInstrHas('pad') || !_padLoaded) && (!_melodyInstrHas('lead') || !_leadLoaded))) {
     const baseFreq = seqFreq(note);
     const f = baseFreq * Math.pow(2, octave - 4);
     const wave = document.getElementById('seqWave')?.value || 'triangle';
@@ -36264,12 +36903,19 @@ function melodyInstrumentChanged() {
   // Always update the playback variable first — even if no song is currently open
   const val = document.getElementById('melodyInstrumentSelect')?.value || 'piano';
   _kbdMelodyInstrument = val;
+  // Keep inline strip voice dropdown in sync
+  var _fkbIIS = document.getElementById('fkbInlineInstrSel');
+  if (_fkbIIS) _fkbIIS.value = val;
   // Trigger sample loading if needed (works regardless of song state)
   const lbl = document.getElementById('melodyInstrumentLoading');
   let loading = false;
   if (_melodyInstrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  { loadPianoSamples();  loading = true; }
   if (_melodyInstrHas('piano2') && !_piano2Loaded && !_piano2Loading) { loadPiano2Samples(); loading = true; }
   if (_melodyInstrHas('guitar') && !_guitarLoaded && !_guitarLoading) { loadGuitarSamples(); loading = true; }
+  if (_melodyInstrHas('bassgtr') && !_bassgtrLoaded && !_bassgtrLoading) { loadBassgtrSamples(); loading = true; }
+  if (_melodyInstrHas('violin') && !_violinLoaded && !_violinLoading) { loadViolinSamples(); loading = true; }
+  if (_melodyInstrHas('pad') && !_padLoaded && !_padLoading) { loadPadSamples(); loading = true; }
+  if (_melodyInstrHas('lead') && !_leadLoaded && !_leadLoading) { loadLeadSamples(); loading = true; }
   if (lbl) lbl.style.display = loading ? 'inline' : 'none';
   // Persist to song — prefer the keyboard drawer's loaded song (seqSongId) over the detail view's _songCurrentId
   const song = (seqSongId && songs.find(s => s.id === seqSongId)) || getCurrentSong();
@@ -36288,6 +36934,10 @@ function melodyToggleQuantize() {
   save();
   const btn = document.getElementById('melodyQuantBtn');
   if (btn) btn.classList.toggle('active', song.sequencer.melodyQuantize !== false);
+  // When toggling ON, snap existing notes immediately
+  if (song.sequencer.melodyQuantize !== false) {
+    if (typeof melodyQuantizeNotes === 'function') melodyQuantizeNotes();
+  }
 }
 
 
@@ -36550,6 +37200,10 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
   const hasPiano  = _inst.split('+').includes('piano');
   const hasPiano2 = _inst.split('+').includes('piano2');
   const hasGuitar = _inst.split('+').includes('guitar');
+  const hasBassgtr = _inst.split('+').includes('bassgtr');
+  const hasViolin = _inst.split('+').includes('violin');
+  const hasPad = _inst.split('+').includes('pad');
+  const hasLead = _inst.split('+').includes('lead');
   const hasSynth  = _inst.split('+').includes('synth');
 
   notes.forEach(n => {
@@ -36622,6 +37276,48 @@ function seqScheduleMelody(ctx, loopStartTime, loopDurMs, notesOverride, instrum
         _melodyScheduledNodes.push(src);
         samplerPlayed = true;
       }
+    }
+    if (hasBassgtr && _bassgtrLoaded) {
+      const closest = _bassgtrClosestMidi(midiNote);
+      if (closest !== null) {
+        const buf = _bassgtrBuffers[closest];
+        const src = ctx.createBufferSource(), gain = ctx.createGain();
+        src.buffer = buf;
+        src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(melVol, t + 0.06);
+        gain.gain.exponentialRampToValueAtTime(Math.max(0.01, melVol * 0.50), t + dur2);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur2 + _melRelT);
+        src.connect(gain); gain.connect(seqGetMelodyOut());
+        src.start(t); src.stop(t + dur2 + _melRelT + 0.05);
+        _melodyScheduledNodes.push(src);
+        samplerPlayed = true;
+      }
+    }
+    if (hasViolin && _violinLoaded) {
+      const closest = _violinClosestMidi(midiNote);
+      if (closest !== null) {
+        const buf = _violinBuffers[closest];
+        const src = ctx.createBufferSource(), gain = ctx.createGain();
+        src.buffer = buf;
+        src.playbackRate.value = Math.pow(2, (midiNote - closest) / 12);
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(melVol, t + 0.06);
+        gain.gain.exponentialRampToValueAtTime(Math.max(0.01, melVol * 0.50), t + dur2);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur2 + _melRelT);
+        src.connect(gain); gain.connect(seqGetMelodyOut());
+        src.start(t); src.stop(t + dur2 + _melRelT + 0.05);
+        _melodyScheduledNodes.push(src);
+        samplerPlayed = true;
+      }
+    }
+    if (hasPad && _padLoaded) {
+      playPadNote(midiNote, t, noteVel, dur2);
+      samplerPlayed = true;
+    }
+    if (hasLead && _leadLoaded) {
+      playLeadNote(midiNote, t, noteVel, dur2);
+      samplerPlayed = true;
     }
     if (hasSynth || !samplerPlayed) {
       const baseFreq = seqFreq(n.note);
@@ -37843,6 +38539,7 @@ let _lastSongIdFromFirestore = null; // last opened song ID synced from Firestor
 
 /* @lock:start — Auth Lifecycle */
 auth.onAuthStateChanged(user => {
+  _updateMenuSignIn();
   _dhMark(user ? 'auth-signed-in' : 'auth-signed-out');
   // Re-evaluate Roll Hero visibility based on auth state
   if (typeof v4RestoreRollHero === 'function') v4RestoreRollHero();
@@ -42098,6 +42795,7 @@ function _buildOwnerBaseline(song) {
 
 // Hook into auth state for collab join — separate handler, does NOT modify the locked auth lifecycle
 auth.onAuthStateChanged(user => {
+  _updateMenuSignIn();
   if (user && !user.isAnonymous && _pendingCollabJoin) {
     // Dismiss all public view / signup UI
     const pv = document.getElementById('publicViewOverlay');
@@ -42903,6 +43601,11 @@ async function exportBounce() {
     const _bnPianoOk  = _bnInst.includes('piano') && !_bnInst.includes('piano2') && typeof _pianoLoaded !== 'undefined' && _pianoLoaded && Object.keys(_pianoBuffers || {}).length > 0;
     const _bnPiano2Ok = _bnInst.includes('piano2') && typeof _piano2Loaded !== 'undefined' && _piano2Loaded && Object.keys(_piano2Buffers || {}).length > 0;
     const _bnGuitarOk = _bnInst.includes('guitar') && typeof _guitarLoaded !== 'undefined' && _guitarLoaded && Object.keys(_guitarBuffers || {}).length > 0;
+    const _bnBassgtrOk = _bnInst.includes('bassgtr') && typeof _bassgtrLoaded !== 'undefined' && _bassgtrLoaded && Object.keys(_bassgtrBuffers || {}).length > 0;
+    const _bnViolinOk = _bnInst.includes('violin') && typeof _violinLoaded !== 'undefined' && _violinLoaded && Object.keys(_violinBuffers || {}).length > 0;
+    // Pad/Lead are oscillator voices (no offline buffers) — they bounce via the synth fallback below.
+    const _bnPadOk  = false;
+    const _bnLeadOk = false;
     const _bnSynth    = _bnInst.includes('synth');
 
     function schedChord(midiNotes, t, vel, dur) {
@@ -42917,6 +43620,14 @@ async function exportBounce() {
       }
       if (_bnGuitarOk && midiNotes?.length) {
         midiNotes.forEach((midi, i) => _bnSamplerNote(_guitarBuffers, _guitarClosestMidi, midi, t + i * 0.028, vel, Math.min(dur, 2.4)));
+        samplerPlayed = true;
+      }
+      if (_bnBassgtrOk && midiNotes?.length) {
+        midiNotes.forEach((midi, i) => _bnSamplerNote(_bassgtrBuffers, _bassgtrClosestMidi, midi, t + i * 0.028, vel, Math.min(dur, 2.4)));
+        samplerPlayed = true;
+      }
+      if (_bnViolinOk && midiNotes?.length) {
+        midiNotes.forEach((midi, i) => _bnSamplerNote(_violinBuffers, _violinClosestMidi, midi, t + i * 0.028, vel, Math.min(dur, 2.4)));
         samplerPlayed = true;
       }
       if (_bnSynth || !samplerPlayed) {
@@ -44076,6 +44787,11 @@ function _splitReturnDrawer() {
   }
   // Clean up body classes and nav highlights left by each drawer type
   if (_splitCurrentTool === 'keyboard') {
+    // Desktop: return the shared sequence strip home (fit mode) — it was mounted inside the
+    // kbd-stage PR scroll container, which just rode back into the relocated drawer above.
+    // (_prUnmountStrip recovers it by id and re-homes it before #seqStripToggleBtn.)
+    if (typeof window._prStripIsMounted === 'function' && window._prStripIsMounted()
+        && typeof window._prUnmountStrip === 'function') window._prUnmountStrip();
     document.body.classList.remove('keyboard-drawer-open', 'kbd-expanded', 'ft-drawer-open');
     _setNavOpen('nav-keyboard', false);
     var _kTab = document.getElementById('keyboardDrawerTab');
@@ -44399,6 +45115,7 @@ document.addEventListener('change', function(e) {
 });
 
 function toggleMobileMenu() {
+  _updateMenuSignIn();
   const panel = document.getElementById('mobileMenuPanel');
   const wrap  = document.getElementById('mobileMenuWrap');
   if (!panel) return;
@@ -44514,6 +45231,10 @@ function renderKeyboardDrawerHtml(song) {
     <option value="piano2"${chordInstrument==='piano2'?' selected':''}>Upright Piano</option>
     <option value="piano+piano2"${chordInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
     <option value="guitar"${chordInstrument==='guitar'?' selected':''}>Guitar</option>
+    <option value="bassgtr"${chordInstrument==='bassgtr'?' selected':''}>Bass Guitar</option>
+    <option value="violin"${chordInstrument==='violin'?' selected':''}>Violins</option>
+    <option value="pad"${chordInstrument==='pad'?' selected':''}>Analog Pad</option>
+    <option value="lead"${chordInstrument==='lead'?' selected':''}>Analog Lead</option>
     <option value="guitar+piano"${chordInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
     <option value="guitar+piano2"${chordInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
     <option value="guitar+synth"${chordInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
@@ -44528,6 +45249,10 @@ function renderKeyboardDrawerHtml(song) {
     <option value="piano2"${melodyInstrument==='piano2'?' selected':''}>Upright Piano</option>
     <option value="piano+piano2"${melodyInstrument==='piano+piano2'?' selected':''}>Grand + Upright</option>
     <option value="guitar"${melodyInstrument==='guitar'?' selected':''}>Guitar</option>
+    <option value="bassgtr"${melodyInstrument==='bassgtr'?' selected':''}>Bass Guitar</option>
+    <option value="violin"${melodyInstrument==='violin'?' selected':''}>Violins</option>
+    <option value="pad"${melodyInstrument==='pad'?' selected':''}>Analog Pad</option>
+    <option value="lead"${melodyInstrument==='lead'?' selected':''}>Analog Lead</option>
     <option value="guitar+piano"${melodyInstrument==='guitar+piano'?' selected':''}>Guitar + Grand</option>
     <option value="guitar+piano2"${melodyInstrument==='guitar+piano2'?' selected':''}>Guitar + Upright</option>
     <option value="guitar+synth"${melodyInstrument==='guitar+synth'?' selected':''}>Guitar + Synth</option>
@@ -44599,6 +45324,8 @@ function renderKeyboardDrawerHtml(song) {
           </div>
           <div class="ned-qc-body" id="nedQCBody"></div>
         </div>
+        <!-- v1.309: dedicated bass-clef pan handle (paints above the QC overlay, never fights the pencil) -->
+        <div class="ned-bass-handle" id="nedBassHandle" title="Drag to reveal the bass clef"><div class="ned-bass-thumb">↕</div></div>
       </div>`;
     }
     const _mprNoteDur = (typeof _kbdNoteDuration !== 'undefined') ? _kbdNoteDuration : 0.25;
@@ -44851,6 +45578,8 @@ function renderKeyboardDrawerHtml(song) {
           <select class="seq-select" id="seqKeySelect" onchange="seqKeySelectChanged(this)" style="font-size:10px;max-width:140px;border:1.5px solid var(--gold, #f5a623);box-shadow:0 0 4px rgba(245,166,35,0.25);">
             ${_keyOptions}
           </select>
+          <span class="kps-label" style="margin-left:6px;">Use Keys</span>
+          <div id="paramsKeysSlots" class="params-keys-slots" style="display:inline-flex;gap:3px;align-items:center;"></div>
           <select class="seq-select" id="kbdKeysTimeSig" onchange="kbdTimeSigChanged(this.value)" style="font-size:10px;width:52px;" title="Time Signature">
             <option value="4"${timeSig==='4'?' selected':''}>4/4</option>
             <option value="3"${timeSig==='3'?' selected':''}>3/4</option>
@@ -45893,9 +46622,17 @@ function openKeyboardDrawer() {
     if (_melodyInstrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  loadPianoSamples();
     if (_melodyInstrHas('piano2') && !_piano2Loaded && !_piano2Loading) loadPiano2Samples();
     if (_melodyInstrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
+    if (_melodyInstrHas('bassgtr') && !_bassgtrLoaded && !_bassgtrLoading) loadBassgtrSamples();
+    if (_melodyInstrHas('violin') && !_violinLoaded && !_violinLoading) loadViolinSamples();
+    if (_melodyInstrHas('pad') && !_padLoaded && !_padLoading) loadPadSamples();
+    if (_melodyInstrHas('lead') && !_leadLoaded && !_leadLoading) loadLeadSamples();
     if (_instrHas('piano')  && !_pianoLoaded  && !_pianoLoading)  loadPianoSamples();
     if (_instrHas('piano2') && !_piano2Loaded && !_piano2Loading) loadPiano2Samples();
     if (_instrHas('guitar') && !_guitarLoaded && !_guitarLoading) loadGuitarSamples();
+    if (_instrHas('bassgtr') && !_bassgtrLoaded && !_bassgtrLoading) loadBassgtrSamples();
+    if (_instrHas('violin') && !_violinLoaded && !_violinLoading) loadViolinSamples();
+    if (_instrHas('pad') && !_padLoaded && !_padLoading) loadPadSamples();
+    if (_instrHas('lead') && !_leadLoaded && !_leadLoading) loadLeadSamples();
   }
 
   const body = document.getElementById('keyboardDrawerBody');
@@ -45996,6 +46733,11 @@ function openKeyboardDrawer() {
 }
 
 function closeKeyboardDrawer() {
+  // Return the shared sequence strip to its home spot (fit mode) before any reparenting, so it
+  // isn't carried into a hidden drawer/overlay when the PR panel is moved out. Idempotent; the
+  // desktop split path also unmounts in _splitReturnDrawer. No-op on mobile (never mounted).
+  if (typeof window._prStripIsMounted === 'function' && window._prStripIsMounted()
+      && typeof window._prUnmountStrip === 'function') window._prUnmountStrip();
   if (_splitActive && _splitCurrentTool === 'keyboard') { closeSplitMode(); return; }
 
   // ── Mobile PR cleanup (returns prPanel to overlay) ──
@@ -46381,6 +47123,11 @@ function mprCleanup() {
   let _nedDur = 1;            // selected note length in beats (whole=default per spec)
   let _nedTool = 'pencil';    // 'pointer' | 'pencil' | 'eraser'
   let _nedScrollBar = 0;      // leftmost visible bar (2-bar window)
+  let _nedPanY = 0;           // v1.308: vertical pan offset (px, content shifted up to reveal bass clef)
+  const NED_MAX_PAN = 250;    // pans far enough to bring the bass clef into the band above the QC overlay
+  let _nedTwoFinger = false;  // true during a two-finger pan gesture (suppresses single-finger note placement)
+  let _nedPencilJustPlacedId = null; // id of the note the active pencil gesture just placed (so a 2nd finger can undo it)
+  let _nedQCUserMoved = false;// true once the user has dragged the QC overlay this session (stops the computed default)
   let _nedFlipDir = 0;        // one-shot: +1 advance / -1 back; consumed by nedRender to flip-animate
   // Page the 2-bar window. dir>0 = next bars, dir<0 = prev. Used by the bar-nav arrows + swipe.
   window._nedPageBars = function(dir){
@@ -46426,9 +47173,14 @@ function mprCleanup() {
   function _nedBarCount(seq) { return Math.max(1, parseInt((seq && seq.bars) || '4') || 4); }
 
   // staff geometry (per the layout-v15 mockup)
-  const NED_LINE_GAP = 15;   // px per diatonic step (line→space); adjacent staff LINES are 2 steps = NED_LINE_GAP*2 apart
+  // v1.309: tightened "Moderate" spacing — line-gap 15→11 (noteheads fill the space more), staff height 386→320.
+  const NED_LINE_GAP = 11;   // px per diatonic step (line→space); adjacent staff LINES are 2 steps = NED_LINE_GAP*2 apart
   const NED_TREBLE_TOP = 44; // y of top treble line
-  const NED_BASS_TOP   = 254;// y of top bass line
+  // ALIGNMENT INVARIANT: bass NOTES are positioned by _nedMidiToY (uses NED_LINE_GAP) while the drawn bass
+  // lines use NED_BASS_TOP; they only stay aligned because NED_BASS_TOP === NED_TREBLE_TOP + 14*NED_LINE_GAP.
+  // Compute it from the gap so changing NED_LINE_GAP can never drift the bass clef. (44 + 14*15 = 254 in 1.308.)
+  const NED_BASS_TOP   = NED_TREBLE_TOP + 14*NED_LINE_GAP; // y of top bass line (=198 at gap 11)
+  const NED_STAFF_H = 320;   // v1.309: overall staff SVG height (was 386); bass bottom line = 198 + 4*22 = 286, ~34px margin
   const NED_BAR_PAD = 12;    // left/right inset
   const _NED_LETTER = [0,0,1,1,2,3,3,4,4,5,5,6]; // C C# D D# E F F# G G# A A# B → letter index
   function _nedDiatonic(midi){ const oct=Math.floor(midi/12)-1; const l=_NED_LETTER[((midi%12)+12)%12]; return oct*7 + l; }
@@ -46500,7 +47252,7 @@ function mprCleanup() {
   }
   function _nedYToMidi(clientY){
     const staff=document.getElementById('nedStaff'); if(!staff) return 60; const r=staff.getBoundingClientRect();
-    const y=clientY-r.top; let best=60,bd=1e9;
+    const y=clientY-r.top+_nedPanY; let best=60,bd=1e9; // +_nedPanY → map screen Y back to (un-panned) staff content coords
     for(let mi=36;mi<=96;mi++){ const d=Math.abs(_nedMidiToY(mi)-y); if(d<bd){bd=d;best=mi;} }
     return (typeof _prKeyLockSnap==='function') ? _prKeyLockSnap(best) : best;
   }
@@ -46509,7 +47261,7 @@ function mprCleanup() {
     const staff=document.getElementById('nedStaff'); if(!staff) return null; const r=staff.getBoundingClientRect();
     const cpb=_nedColsPerBar(seq); const barW=parseFloat(staff.dataset.barw)||((r.width-NED_BAR_PAD*2)/2);
     const colPx=barW/cpb; const winStartCol=_nedScrollBar*cpb;
-    const px=clientX-r.left, py=clientY-r.top; let best=null,bd=1e9;
+    const px=clientX-r.left, py=clientY-r.top+_nedPanY; let best=null,bd=1e9; // +_nedPanY → content coords
     seq.pianoRoll.forEach(n=>{ const cx=NED_BAR_PAD+(n.startCol-winStartCol)*colPx+colPx/2; const cy=_nedMidiToY(n.midi); const d=Math.hypot(cx-px,cy-py); if(d<bd){bd=d;best=n;} });
     return (best && bd<=14) ? best : null;
   }
@@ -46530,19 +47282,39 @@ function mprCleanup() {
     const staff=document.getElementById('nedStaff'); if(!staff || staff._nedEntryBound) return; staff._nedEntryBound=true;
     staff.addEventListener('pointerdown', ev=>{
       if(ev.button!=null && ev.button!==0) return;
+      if(_nedTwoFinger) return; // two-finger pan in progress → ignore single-pointer placement
       if(_nedTool==='pencil'){
         ev.preventDefault();
         let last=_nedXToCol(ev.clientX,false)+':'+_nedYToMidi(ev.clientY);
-        _nedPencilPlace(ev.clientX,ev.clientY);
-        const mv=e=>{ const k=_nedXToCol(e.clientX,false)+':'+_nedYToMidi(e.clientY); if(k===last) return; last=k; _nedPencilPlace(e.clientX,e.clientY); };
-        const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up); _nedSave(); };
+        const _pl=_nedPencilPlace(ev.clientX,ev.clientY); _nedPencilJustPlacedId=_pl?_pl.id:null; // track so a 2nd finger can undo it
+        const mv=e=>{ if(_nedTwoFinger) return; const k=_nedXToCol(e.clientX,false)+':'+_nedYToMidi(e.clientY); if(k===last) return; last=k; const _p2=_nedPencilPlace(e.clientX,e.clientY); _nedPencilJustPlacedId=_p2?_p2.id:null; };
+        const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up); _nedPencilJustPlacedId=null; _nedSave(); };
         document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
       } else if(_nedTool==='eraser'){
         ev.preventDefault();
-        const del=(x,y)=>{ const seq=_nedSeq(); const h=_nedHitNote(x,y); if(h && seq){ seq.pianoRoll=seq.pianoRoll.filter(n=>n.id!==h.id); nedRender(); } };
-        del(ev.clientX,ev.clientY);
-        const mv=e=>del(e.clientX,e.clientY);
-        const up=()=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up); _nedSave(); };
+        // v1.309: tap erases one note; drag draws a marquee and erases every note inside it on release.
+        const sx=ev.clientX, sy=ev.clientY; let marq=null, moved=false;
+        const ensureMarq=()=>{ if(marq) return; marq=document.createElement('div'); marq.className='ned-marquee'; staff.appendChild(marq); };
+        const drawMarq=(x,y)=>{ const r=staff.getBoundingClientRect();
+          const l=Math.min(sx,x)-r.left, t=Math.min(sy,y)-r.top, w=Math.abs(x-sx), h=Math.abs(y-sy);
+          marq.style.left=l+'px'; marq.style.top=t+'px'; marq.style.width=w+'px'; marq.style.height=h+'px'; };
+        const mv=e=>{ if(!moved && (Math.abs(e.clientX-sx)>6 || Math.abs(e.clientY-sy)>6)) moved=true;
+          if(moved){ ensureMarq(); drawMarq(e.clientX,e.clientY); } };
+        const up=e=>{
+          document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up);
+          const seq=_nedSeq();
+          if(moved && seq && seq.pianoRoll){ // marquee → delete enclosed notes (pan-corrected via the helpers)
+            const ex=(e&&e.clientX!=null)?e.clientX:sx, ey=(e&&e.clientY!=null)?e.clientY:sy;
+            const cA=_nedXToCol(sx,true), cB=_nedXToCol(ex,true), cMin=Math.min(cA,cB), cMax=Math.max(cA,cB);
+            const mA=_nedYToMidi(sy), mB=_nedYToMidi(ey), mMin=Math.min(mA,mB), mMax=Math.max(mA,mB);
+            seq.pianoRoll=seq.pianoRoll.filter(n=> !(n.startCol>=cMin && n.startCol<=cMax && n.midi>=mMin && n.midi<=mMax));
+            nedRender();
+          } else if(seq){ // tap → erase the single note under the finger
+            const hit=_nedHitNote(sx,sy); if(hit){ seq.pianoRoll=seq.pianoRoll.filter(n=>n.id!==hit.id); nedRender(); }
+          }
+          if(marq && marq.parentNode) marq.remove();
+          _nedSave();
+        };
         document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
       } else { // pointer: tap toggles selection; drag moves the whole selection (fine 1/16 grid)
         const h=_nedHitNote(ev.clientX,ev.clientY);
@@ -46597,13 +47369,13 @@ function mprCleanup() {
       // Clone the real key select's options so our values match exactly (its labels are full
       // strings like "C major" / "C# / Db major"); a bare-note value would reset song.key to "".
       const src = document.getElementById('seqKeySelect');
-      if (src && src.options.length) keySel.innerHTML = src.innerHTML;
+      if (src && src.options.length){ keySel.innerHTML = src.innerHTML; keySel.value = src.value; } // value isn't carried by innerHTML → set it so the current key shows
     }
     const voiceSel = document.getElementById('nedQCVoice');
     if (voiceSel){
-      const seq=_nedSeq(); const cur = (_nedQCMode==='keys') ? ((seq&&seq.melodyInstrument)||'piano') : ((seq&&seq.instrument)||'piano');
-      // chord-instrument options; synth relabeled "Drafthaus" (value stays 'synth'), mobile-only
-      const OPTS = [['synth','Drafthaus'],['piano','Grand Piano'],['piano2','Upright Piano'],['guitar','Guitar'],['piano+synth','Grand + Drafthaus'],['piano2+synth','Upright + Drafthaus']];
+      const seq=_nedSeq(); const cur = (_nedQCMode==='keys') ? ((seq&&seq.melodyInstrument)||'piano2') : ((seq&&seq.instrument)||'piano2');
+      // chord-instrument options — labels match the rest of the app ("Synth", "Grand + Synth", …)
+      const OPTS = [['synth','Synth'],['piano','Grand Piano'],['piano2','Upright Piano'],['guitar','Guitar'],['bassgtr','Bass Guitar'],['violin','Violins'],['pad','Analog Pad'],['lead','Analog Lead'],['piano+synth','Grand + Synth'],['piano2+synth','Upright + Synth']];
       voiceSel.innerHTML = OPTS.map(([v,l])=>`<option value="${v}"${v===cur?' selected':''}>${l}</option>`).join('');
     }
   }
@@ -46614,23 +47386,19 @@ function mprCleanup() {
     const key=(typeof seqCurrentKey==='function')?seqCurrentKey():'C';
     const mode=(typeof seqCurrentMode==='function')?seqCurrentMode():'major';
     const dia=(typeof seqGetScaleChords==='function')?seqGetScaleChords(key,mode):[];
-    // Diatonic row (fixed, purple)
-    let html = '<div class="ned-qc-diatonic">' + dia.map((n,i)=>{
+    // v1.309: columns — each diatonic chord (purple) on top with its variations (cream) stacked
+    // directly beneath it, mirroring the desktop stage. Borrowed chords removed from the mobile overlay.
+    let html = '<div class="ned-qc-cols">';
+    dia.forEach((n,i)=>{
       const disp = n.replace('_viii','⁸');
-      return `<button class="ned-chip ned-chip-dia" data-chord="${disp}" data-deg="${i}"><span class="ned-chip-deg">${_nedRoman(n,i)}</span>${disp}</button>`;
-    }).join('') + '</div>';
-    // Scrollable variations (cream) + borrowed (teal)
-    html += '<div class="ned-qc-scroll">';
-    dia.forEach(n=>{
       const { root, qual } = _nedChordRootQual(n);
       const vs = (_NED_QUAL_VARIANTS[qual]||[]).map(sfx=>root+sfx);
-      html += '<div class="ned-qc-varrow">' + vs.map(v=>`<button class="ned-chip ned-chip-var" data-chord="${v}">${v}</button>`).join('') + '</div>';
+      html += '<div class="ned-qc-col">'
+        + `<button class="ned-chip ned-chip-dia" data-chord="${disp}" data-deg="${i}"><span class="ned-chip-deg">${_nedRoman(n,i)}</span>${disp}</button>`
+        + '<div class="ned-qc-varstack">'
+        + vs.map(v=>`<button class="ned-chip ned-chip-var" data-chord="${v}">${v}</button>`).join('')
+        + '</div></div>';
     });
-    const borrowed=(typeof getBorrowedChords==='function')?getBorrowedChords(key,mode):[];
-    if (borrowed && borrowed.length){
-      html += '<div class="ned-qc-sectlabel">BORROWED</div><div class="ned-qc-borrowed">'
-        + borrowed.map(b=>`<button class="ned-chip ned-chip-bor" data-chord="${b}">${b}</button>`).join('') + '</div>';
-    }
     html += '</div>';
     body.innerHTML = html;
     body.querySelectorAll('.ned-chip').forEach(btn=>{
@@ -46643,7 +47411,8 @@ function mprCleanup() {
     if (!h||!qc||!staff||h._nedBound) return; h._nedBound=true;
     h.addEventListener('pointerdown', ev=>{
       ev.preventDefault();
-      const move=e=>{ const r=staff.getBoundingClientRect(); let pct=((e.clientY-r.top)/r.height)*100; pct=Math.max(25,Math.min(78,pct)); qc.style.top=pct+'%'; };
+      try{ h.setPointerCapture(ev.pointerId); }catch(_){} // keep tracking even if the finger drifts off the 1px handle
+      const move=e=>{ _nedQCUserMoved=true; const r=staff.getBoundingClientRect(); let pct=((e.clientY-r.top)/r.height)*100; pct=Math.max(25,Math.min(78,pct)); qc.style.top=pct+'%'; _nedLayoutBassHandle(); };
       const up=()=>{ document.removeEventListener('pointermove',move); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up); };
       document.addEventListener('pointermove',move); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
     });
@@ -46691,9 +47460,9 @@ function mprCleanup() {
     const colPx=barW/cpb; const winStartCol=_nedScrollBar*cpb;
     const cx=NED_BAR_PAD+(col-winStartCol)*colPx+colPx/2;
     const midis=(typeof _chordToMidi==='function')?_chordToMidi(name):[];
-    let svg=`<svg width="${staff.clientWidth||390}" height="386" style="position:absolute;top:0;left:0;pointer-events:none;">`;
+    let svg=`<svg width="${staff.clientWidth||390}" height="${NED_STAFF_H}" style="position:absolute;top:0;left:0;pointer-events:none;"><g class="ned-pan" transform="translate(0,${-_nedPanY})">`;
     midis.forEach(m=>{ const cy=_nedMidiToY(m); svg+=`<ellipse cx="${cx}" cy="${cy}" rx="7" ry="5" fill="#c8a0ff" opacity="0.5" stroke="#c8a0ff" stroke-width="2" transform="rotate(-15,${cx},${cy})"/>`; });
-    svg+=`</svg>`;
+    svg+=`</g></svg>`;
     g.innerHTML=svg;
   }
   function _nedHideGhost(){ const g=document.getElementById('nedGhost'); if(g) g.remove(); }
@@ -46767,8 +47536,9 @@ function mprCleanup() {
   // Re-sync the editor when the active section changes via the global sequence strip (portrait only).
   window._nedRefresh = function(){
     if (!_nedMounted || !document.getElementById('nedWrap')) return;
-    _nedScrollBar = 0; _nedSelectedSet.clear();
+    _nedScrollBar = 0; _nedPanY = 0; _nedSelectedSet.clear();
     _nedFillQCDropdowns(); _nedRenderQC(); nedRender();
+    _nedApplyQCDefaultTop(); // respects _nedQCUserMoved (no-op once the user has dragged it)
   };
 
   window._nedPlayToggle = function(){
@@ -46780,10 +47550,86 @@ function mprCleanup() {
     const b=document.getElementById('nedPlayBtn'); if(b) b.textContent = (typeof seqIsPlaying!=='undefined'&&seqIsPlaying) ? '■' : '▶';
   };
 
+  // ── v1.308: vertical pan (bass-clef access) ──────────────────────────────
+  function _nedApplyPan(){
+    const staff=document.getElementById('nedStaff'); if(!staff) return;
+    const g=staff.querySelector('.ned-pan'); if(g) g.setAttribute('transform','translate(0,'+(-_nedPanY)+')');
+    const gh=document.getElementById('nedGhost'); const gg=gh&&gh.querySelector('.ned-pan'); if(gg) gg.setAttribute('transform','translate(0,'+(-_nedPanY)+')');
+    _nedLayoutBassHandle();
+  }
+  // v1.309: max pan brings the bottom bass line just above the Quick Chords overlay's top edge.
+  function _nedMaxPan(){
+    const staff=document.getElementById('nedStaff'); if(!staff) return 0;
+    const sr=staff.getBoundingClientRect();
+    const qc=document.getElementById('nedQC');
+    const band = qc ? Math.max(40, qc.getBoundingClientRect().top - sr.top) : sr.height; // visible staff above QC
+    const bassBottom = NED_BASS_TOP + 4*NED_LINE_GAP*2; // y of the lowest drawn bass line
+    return Math.max(0, bassBottom - band + 24);
+  }
+  function _nedSetPanY(p){ _nedPanY=Math.max(0,Math.min(_nedMaxPan(),p)); _nedApplyPan(); }
+  // v1.309: dedicated vertical pan handle replaces the two-finger gesture. It is a sibling of the
+  // staff (in #nedWrap, after #nedQC) so it paints above the overlay and never touches the pencil.
+  function _nedLayoutBassHandle(){
+    const track=document.getElementById('nedBassHandle'), staff=document.getElementById('nedStaff'); if(!track||!staff) return;
+    const qc=document.getElementById('nedQC');
+    const sr=staff.getBoundingClientRect();
+    const band = qc ? Math.max(60, qc.getBoundingClientRect().top - sr.top) : sr.height;
+    track.style.top = (staff.offsetTop + 6) + 'px';
+    track.style.height = Math.max(60, band - 12) + 'px';
+    const thumb=track.querySelector('.ned-bass-thumb'); if(!thumb) return;
+    const mp=_nedMaxPan();
+    const travel=Math.max(0, track.clientHeight - thumb.offsetHeight - 4);
+    const frac = mp>0 ? (_nedPanY/mp) : 0;
+    thumb.style.top = (2 + frac*travel) + 'px';
+  }
+  function _nedBindBassHandle(){
+    const track=document.getElementById('nedBassHandle'); if(!track || track._nedBound) return; track._nedBound=true;
+    const thumb=track.querySelector('.ned-bass-thumb');
+    track.addEventListener('pointerdown', ev=>{
+      ev.preventDefault(); ev.stopPropagation();
+      try{ track.setPointerCapture(ev.pointerId); }catch(_){}
+      const drag=e=>{
+        const tr=track.getBoundingClientRect();
+        const travel=Math.max(1, track.clientHeight - thumb.offsetHeight - 4);
+        const rel=Math.max(0, Math.min(travel, (e.clientY - tr.top) - thumb.offsetHeight/2));
+        _nedSetPanY((rel/travel) * _nedMaxPan());
+      };
+      const up=()=>{ document.removeEventListener('pointermove',drag); document.removeEventListener('pointerup',up); document.removeEventListener('pointercancel',up); };
+      drag(ev);
+      document.addEventListener('pointermove',drag); document.addEventListener('pointerup',up); document.addEventListener('pointercancel',up);
+    });
+  }
+  // ── v1.308: QC default resting position — just below the 3rd treble line ──
+  function _nedApplyQCDefaultTop(){
+    if(_nedQCUserMoved) return;
+    const qc=document.getElementById('nedQC'), staff=document.getElementById('nedStaff'); if(!qc||!staff) return;
+    const h=staff.getBoundingClientRect().height||NED_STAFF_H;
+    const targetY=(NED_TREBLE_TOP+2*NED_LINE_GAP*2)+8; // just below the 3rd treble line
+    qc.style.top=Math.max(25,Math.min(78,(targetY/h)*100))+'%';
+    _nedLayoutBassHandle();
+  }
+  // ── v1.308: first-open hint (tap-a-note → drag-a-chord), once per song ────
+  function _nedMaybePlayHint(){
+    const song=(typeof getCurrentSong==='function')?getCurrentSong():null; const id=song&&song.id; if(!id) return;
+    const key='drafthaus-ned-hint-'+id;
+    try{ if(localStorage.getItem(key)) return; }catch(e){}
+    const staff=document.getElementById('nedStaff'); if(!staff || document.getElementById('nedHint')) return;
+    const el=document.createElement('div'); el.className='ned-hint'; el.id='nedHint';
+    el.innerHTML='<div class="ned-hint-cap cap1">Tap the staff to place a note</div>'
+      +'<div class="ned-hint-cap cap2">Drag a chord onto the staff</div>'
+      +'<div class="ned-hint-finger"></div><div class="ned-hint-note"></div>'
+      +'<div class="ned-hint-chord"><span></span><span></span><span></span></div>';
+    staff.appendChild(el);
+    let done=false;
+    const finish=()=>{ if(done) return; done=true; if(el.parentNode) el.remove(); try{localStorage.setItem(key,'1');}catch(e){} staff.removeEventListener('pointerdown',finish,true); };
+    staff.addEventListener('pointerdown',finish,true); // capture: dismiss but DON'T stop the tap from placing a note
+    setTimeout(finish,2500);
+  }
   function nedInit() {
     const wrap = document.getElementById('nedWrap');
     if (!wrap) return;
     _nedMounted = true;
+    _nedPanY = 0; _nedTwoFinger = false; _nedQCUserMoved = false;
     const _initSeq = _nedSeq(); if (_initSeq && !_initSeq.pianoRoll) _initSeq.pianoRoll = [];
     nedRender();
     // Bar-nav row is the swipe handle (lives outside the staff, so it never fights the pencil).
@@ -46798,9 +47644,11 @@ function mprCleanup() {
       }, {passive:true});
     }
     _nedBindEntry();
+    _nedBindBassHandle();
     _nedFillQCDropdowns();
     _nedRenderQC();
     _nedBindQCResize();
+    requestAnimationFrame(()=>{ _nedApplyQCDefaultTop(); _nedMaybePlayHint(); });
   }
   function nedCleanup() { _nedMounted = false; }
   function nedRender() {
@@ -46815,7 +47663,8 @@ function mprCleanup() {
     const W = staff.clientWidth || 390;
     const winBars = Math.min(2, totalBars);
     const barW = (W - NED_BAR_PAD*2) / winBars; // fill the viewport: 2 bars → half each; a 1-bar section → full width
-    let svg = `<svg width="${W}" height="386" viewBox="0 0 ${W} 386" class="ned-svg">`;
+    let svg = `<svg width="${W}" height="${NED_STAFF_H}" viewBox="0 0 ${W} ${NED_STAFF_H}" class="ned-svg">`;
+    svg += `<g class="ned-pan" transform="translate(0,${-_nedPanY})">`; // v1.308: vertical pan wrapper (bass-clef access)
     // staff lines (treble 5 + bass 5)
     svg += `<g stroke="#fff" stroke-width="1.1">`;
     for (let i=0;i<5;i++){ const y=NED_TREBLE_TOP+i*NED_LINE_GAP*2; svg+=`<line x1="${NED_BAR_PAD}" y1="${y}" x2="${W-NED_BAR_PAD}" y2="${y}"/>`; }
@@ -46900,6 +47749,7 @@ function mprCleanup() {
       });
     }
     svg += _beamSvg;
+    svg += `</g>`; // close pan wrapper
     svg += `</svg>`;
     staff.innerHTML = svg;
     // one-shot directional flip animation on the fresh SVG (set by _nedPageBars)
@@ -46918,6 +47768,8 @@ function mprCleanup() {
     if (_nx) _nx.disabled = _nedScrollBar>=Math.max(0,totalBars-2);
     // expose px-per-column for later layers
     staff.dataset.barw = barW; staff.dataset.cpb = cpb;
+    _nedApplyPan();          // re-assert pan transform on the fresh SVG (and ghost, if present)
+    _nedLayoutBassHandle();  // re-size/position the bass-pan handle to the current visible band
   }
 
   // expose
@@ -47850,6 +48702,10 @@ function closeSeqDrawer() {
   } catch (e) { console.warn('closeSeqDrawer save error:', e); }
 
   if (_activeTool === 'drums') _activeTool = null;
+  // Desktop: return the shared sequence strip home (fit mode) when leaving the drum drawer,
+  // so it isn't left mounted inside the Drum Roll scroll container.
+  if (typeof window._drumStripIsMounted === 'function' && window._drumStripIsMounted()
+      && typeof window._drumUnmountStrip === 'function') window._drumUnmountStrip();
   _setNavOpen('nav-sequencer', false);
   const drawer = document.getElementById('seqDrawer');
   if (drawer) { drawer.style.transform = ''; drawer.style.zIndex = ''; }
@@ -55595,12 +56451,21 @@ async function mixBounceShareRun() {
     const _bncHasPiano  = _bncInst.includes('piano') && !_bncInst.includes('piano2');
     const _bncHasPiano2 = _bncInst.includes('piano2');
     const _bncHasGuitar = _bncInst.includes('guitar');
+    const _bncHasBassgtr = _bncInst.includes('bassgtr');
+    const _bncHasViolin = _bncInst.includes('violin');
+    const _bncHasPad = _bncInst.includes('pad');
+    const _bncHasLead = _bncInst.includes('lead');
     const _bncHasSynth  = _bncInst.includes('synth');
     const _bncPianoOk   = _bncHasPiano  && typeof _pianoLoaded !== 'undefined' && _pianoLoaded && typeof _pianoBuffers !== 'undefined' && Object.keys(_pianoBuffers).length > 0;
     const _bncPiano2Ok  = _bncHasPiano2 && typeof _piano2Loaded !== 'undefined' && _piano2Loaded && typeof _piano2Buffers !== 'undefined' && Object.keys(_piano2Buffers).length > 0;
     const _bncGuitarOk  = _bncHasGuitar && typeof _guitarLoaded !== 'undefined' && _guitarLoaded && typeof _guitarBuffers !== 'undefined' && Object.keys(_guitarBuffers).length > 0;
+    const _bncBassgtrOk = _bncHasBassgtr && typeof _bassgtrLoaded !== 'undefined' && _bassgtrLoaded && typeof _bassgtrBuffers !== 'undefined' && Object.keys(_bassgtrBuffers).length > 0;
+    const _bncViolinOk  = _bncHasViolin && typeof _violinLoaded !== 'undefined' && _violinLoaded && typeof _violinBuffers !== 'undefined' && Object.keys(_violinBuffers).length > 0;
+    // Pad/Lead are oscillator voices (no offline buffers) — they bounce via the synth fallback below.
+    const _bncPadOk  = false;
+    const _bncLeadOk = false;
 
-    console.log('[BOUNCE] Instrument: ' + _bncInst + ' | piano=' + _bncPianoOk + ' piano2=' + _bncPiano2Ok + ' guitar=' + _bncGuitarOk + ' synth=' + _bncHasSynth);
+    console.log('[BOUNCE] Instrument: ' + _bncInst + ' | piano=' + _bncPianoOk + ' piano2=' + _bncPiano2Ok + ' guitar=' + _bncGuitarOk + ' bassgtr=' + _bncBassgtrOk + ' violin=' + _bncViolinOk + ' pad=' + _bncHasPad + ' lead=' + _bncHasLead + ' synth=' + _bncHasSynth);
 
     // Schedule a chord using the active instrument(s) — mirrors seqPlayChordByName
     function schedChordInstr(midiNotes, t, vel, holdDur) {
@@ -55623,6 +56488,20 @@ async function mixBounceShareRun() {
         var dur = Math.max(holdDur || 0.9, 2.4); // guitar rings for 2.4s minimum
         midiNotes.forEach(function(midi, i) {
           _offSamplerNote(_guitarBuffers, _guitarClosestMidi, midi, t + i * 0.028, vel, dur);
+        });
+        samplerPlayed = true;
+      }
+      if (_bncBassgtrOk && midiNotes && midiNotes.length) {
+        var dur = Math.max(holdDur || 0.9, 2.4);
+        midiNotes.forEach(function(midi, i) {
+          _offSamplerNote(_bassgtrBuffers, _bassgtrClosestMidi, midi, t + i * 0.028, vel, dur);
+        });
+        samplerPlayed = true;
+      }
+      if (_bncViolinOk && midiNotes && midiNotes.length) {
+        var dur = Math.max(holdDur || 0.9, 2.4);
+        midiNotes.forEach(function(midi, i) {
+          _offSamplerNote(_violinBuffers, _violinClosestMidi, midi, t + i * 0.028, vel, dur);
         });
         samplerPlayed = true;
       }
@@ -68100,30 +68979,13 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       <button class="pr-tool-btn" id="prZoomFitBtn" onclick="prZoomToNotes()" title="Centre view on notes">⊕ Centre</button>
       <span style="flex:1"></span>
       <button class="pr-tool-btn" onclick="prRandomizeVelocity()" title="Randomize velocities (selected or all)">🎲 Randomize Velocity</button>
-      <button class="pr-tool-btn" id="prQFlamBtn" onclick="prToggleQFlam()" title="Q-Flam: toggle enable/disable — when ON, dropdown selection applies flam" style="transition:background 0.15s,color 0.15s;">Q-Flam</button>
-      <select class="pr-tool-btn" id="prQFlamAmt" onchange="if(window._prQFlamEnabled)prApplyQFlam()" style="padding:3px 6px;font-size:9px;" title="Flam offset per note (ticks, 960 PPQ)">
-        <option value="-3840">−1/1 (3840t)</option>
-        <option value="-1920">−1/2 (1920t)</option>
-        <option value="-960">−1/4 (960t)</option>
-        <option value="-480">−1/8 (480t)</option>
-        <option value="-240">−1/16 (240t)</option>
-        <option value="-120">−1/32 (120t)</option>
-        <option value="-60">−1/64 (60t)</option>
-        <option value="-40">−1/96 (40t)</option>
-        <option value="-20">−1/192 (20t)</option>
-        <option value="0">0 ticks</option>
-        <option value="20" selected>+1/192 (20t)</option>
-        <option value="40">+1/96 (40t)</option>
-        <option value="60">+1/64 (60t)</option>
-        <option value="120">+1/32 (120t)</option>
-        <option value="240">+1/16 (240t)</option>
-        <option value="480">+1/8 (480t)</option>
-        <option value="960">+1/4 (960t)</option>
-        <option value="1920">+1/2 (1920t)</option>
-        <option value="3840">+1/1 (3840t)</option>
-      </select>
-      <span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#aaa;margin-left:6px;" title="Horizontal zoom">H<input type="range" id="prZoomH" min="6" max="60" value="12" style="width:60px;accent-color:#e8749a;cursor:pointer;" oninput="prSetZoomH(+this.value)"></span>
-      <span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#aaa;" title="Vertical zoom">V<input type="range" id="prZoomV" min="12" max="40" value="26" style="width:60px;accent-color:#e8749a;cursor:pointer;" oninput="prSetZoomV(+this.value)"></span>
+      <span style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;margin-left:6px;">
+        <span style="font-size:9px;color:#aaa;letter-spacing:0.06em;">Zoom</span>
+        <span style="display:inline-flex;align-items:center;gap:8px;">
+          <span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#aaa;" title="Horizontal zoom">H<input type="range" id="prZoomH" min="6" max="60" value="12" style="width:60px;accent-color:#e8749a;cursor:pointer;" oninput="prSetZoomH(+this.value)"></span>
+          <span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#aaa;" title="Vertical zoom">V<input type="range" id="prZoomV" min="12" max="40" value="26" style="width:60px;accent-color:#e8749a;cursor:pointer;" oninput="prSetZoomV(+this.value)"></span>
+        </span>
+      </span>
       <button class="pr-close-btn" onclick="prClose()" title="Close">✕</button>
     </div>
     <div class="pr-body" style="position:relative;">
@@ -68441,12 +69303,17 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         // Enable auto-sync now that initial render is done
         setTimeout(() => { _prSyncEnabled = true; }, 50);
         if (typeof window._prBgDebug === 'function') setTimeout(window._prBgDebug, 200);
+        // Desktop: relocate the shared sequence strip into the PR scroll container so its
+        // section bars stay pixel-locked to the grid (mirror of Arrange). No-op on mobile / in Arrange.
+        if (typeof window._prMountStrip === 'function') window._prMountStrip();
       });
     });
   };
 
   window.prClose = function() {
     prOpen = false;
+    // Return the shared sequence strip to its home spot (fit mode) when leaving the PR.
+    if (typeof window._prUnmountStrip === 'function') window._prUnmountStrip();
     _prFlushToFirestore(); // flush any pending PR changes on close
     const overlay = document.getElementById('prOverlay');
     if (overlay) overlay.classList.remove('open');
@@ -68611,6 +69478,8 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     PR_COL_W = val;
     prRender();
     _prSaveZoom();
+    // Keep the mounted sequence strip's section bars pixel-locked to the grid as it zooms.
+    if (typeof window._prStripResync === 'function') window._prStripResync();
   };
   window.prSetZoomV = function(val) {
     console.log('[PR-zoom] V=' + val + 'px (was ' + PR_ROW_H + ')');
@@ -69104,6 +69973,24 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     }
 
     pal.innerHTML = html;
+
+    // ── Mirror the diatonic "Keys 1-9" pills into the desktop params bar ──
+    // No-ops on mobile (host absent). Clones carry the original pills' inline
+    // onclick/onmousedown/ontouchstart attributes, so clicks invoke the same
+    // prPalPreview/prPalDragStart handlers. Number keys 1-9 are handled by a
+    // separate degree-based keydown listener (seqClickKeySlot), independent of
+    // these clones' DOM location.
+    const slotsHost = document.getElementById('paramsKeysSlots');
+    if (slotsHost) {
+      slotsHost.innerHTML = '';
+      pal.querySelectorAll('.pr-chord-pill:not(.pr-chord-pill-var)').forEach(pill => {
+        const deg = parseInt(pill.dataset.degree || '-1', 10);
+        if (deg < 0) return; // diatonic scale-degree pills only
+        const clone = pill.cloneNode(true);
+        clone.removeAttribute('draggable'); // inline chips aren't grid drop sources
+        slotsHost.appendChild(clone);
+      });
+    }
   }
 
   // ── Render ──
@@ -70823,6 +71710,22 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
           seqPlayChordGuitar([midi], t, vel);
           played = true;
         }
+        if (_instrHas('bassgtr') && typeof _bassgtrLoaded !== 'undefined' && _bassgtrLoaded && typeof seqPlayChordBassgtr === 'function') {
+          seqPlayChordBassgtr([midi], t, vel);
+          played = true;
+        }
+        if (_instrHas('violin') && typeof _violinLoaded !== 'undefined' && _violinLoaded && typeof seqPlayChordViolin === 'function') {
+          seqPlayChordViolin([midi], t, vel);
+          played = true;
+        }
+        if (_instrHas('pad') && typeof _padLoaded !== 'undefined' && _padLoaded && typeof seqPlayChordPad === 'function') {
+          seqPlayChordPad([midi], t, vel);
+          played = true;
+        }
+        if (_instrHas('lead') && typeof _leadLoaded !== 'undefined' && _leadLoaded && typeof seqPlayChordLead === 'function') {
+          seqPlayChordLead([midi], t, vel);
+          played = true;
+        }
       }
 
       // Synth fallback
@@ -71098,6 +72001,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   window.prGetTimeSig = function() { return prTimeSig; };
   window.prGetBars = function() { return prBars; };
   window.prGetTotalCols = function() { return prTotalCols; };
+  window.prGetSectionLayout = function() { return _prSectionLayout.map(function(s){ return { seqIdx: s.seqIdx, colOffset: s.colOffset, sectionCols: s.sectionCols }; }); };
   window.prDeleteNoteById = function(id) { _prNodesNeedKill = true; prNotes = prNotes.filter(n => n.id != id); prRenderNotes(); };
   window.prUpdateNote = function(id, props) { var n = prNotes.find(x => x.id == id); if (n) Object.assign(n, props); prRenderNotes(); };
 
@@ -71451,6 +72355,10 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
         if (_instrHas('piano')  && typeof _pianoLoaded !== 'undefined' && _pianoLoaded  && midis.length) { seqPlayChordPiano(midis, t, v, chordDurS);  samplerPlayed = true; }
         if (_instrHas('piano2') && typeof _piano2Loaded !== 'undefined' && _piano2Loaded && midis.length) { seqPlayChordPiano2(midis, t, v, chordDurS); samplerPlayed = true; }
         if (_instrHas('guitar') && typeof _guitarLoaded !== 'undefined' && _guitarLoaded && midis.length) { seqPlayChordGuitar(midis, t, v, chordDurS); samplerPlayed = true; }
+        if (_instrHas('bassgtr') && typeof _bassgtrLoaded !== 'undefined' && _bassgtrLoaded && midis.length) { seqPlayChordBassgtr(midis, t, v, chordDurS); samplerPlayed = true; }
+        if (_instrHas('violin') && typeof _violinLoaded !== 'undefined' && _violinLoaded && midis.length) { seqPlayChordViolin(midis, t, v, chordDurS); samplerPlayed = true; }
+        if (_instrHas('pad') && typeof _padLoaded !== 'undefined' && _padLoaded && midis.length) { seqPlayChordPad(midis, t, v, chordDurS); samplerPlayed = true; }
+        if (_instrHas('lead') && typeof _leadLoaded !== 'undefined' && _leadLoaded && midis.length) { seqPlayChordLead(midis, t, v, chordDurS); samplerPlayed = true; }
         if (_instrHas('synth') || !samplerPlayed) {
           var freqs = midis.map(function(m) { return 440 * Math.pow(2, (m - 69) / 12); });
           if (typeof seqPlayChord === 'function') seqPlayChord(freqs, t, v, chordDurS);
@@ -73413,6 +74321,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   var _qcOpen = false;
   var _qcBuilt = false;
   var _qcMinimized = false;
+  // Session flag: set to true when the user explicitly closes the overlay;
+  // prevents the default-open logic from forcing it back open on subsequent PR opens.
+  var _qcUserClosed = false;
 
   var QC_QUAL_VARIANTS = {
     '': ['sus2','sus4','add9','maj7','7'],
@@ -73504,10 +74415,16 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     var parent = container ? container.parentElement : null;
     if (!container || !parent) return;
     var pw = parent.offsetWidth || 1, ph = parent.offsetHeight || 1;
-    _qcPos.left = parseInt(container.style.left) / pw;
-    _qcPos.top = parseInt(container.style.top) / ph;
-    _qcPos.width = parseInt(container.style.width) / pw;
-    _qcPos.height = parseInt(container.style.height) / ph;
+    // Only update fractional state when the container has explicit inline dimensions;
+    // guard against NaN (parseInt("") === NaN) corrupting the defaults.
+    var _pL = parseInt(container.style.left)   / pw;
+    var _pT = parseInt(container.style.top)    / ph;
+    var _pW = parseInt(container.style.width)  / pw;
+    var _pH = parseInt(container.style.height) / ph;
+    if (isFinite(_pL)) _qcPos.left   = _pL;
+    if (isFinite(_pT)) _qcPos.top    = _pT;
+    if (isFinite(_pW)) _qcPos.width  = _pW;
+    if (isFinite(_pH)) _qcPos.height = _pH;
   }
 
   function _qcSaveState() {
@@ -73525,6 +74442,7 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       // Hide
       _qcOpen = false;
       _qcMinimized = false;
+      _qcUserClosed = true; // user explicitly closed; suppress auto-reopen for this session
       qcEl.classList.add('qc-hidden');
       if (btn) btn.classList.remove('qc-active');
     } else {
@@ -73546,6 +74464,58 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       _qcInitDrag();
       _qcInitResize();
     }
+  }
+
+  // ── Desktop default-open: right-aligned, clear of side tabs ──
+  // Called on every PR open when _qcUserClosed is false and we're on desktop.
+  // Side tabs are position:fixed right:0, ~44px wide (padding 8px each side + icon ~28px).
+  // We offset 48px from the right edge of .pr-body so QC never overlaps them.
+  var _QC_RIGHT_OFFSET = 48; // px gap from right edge of pr-body (clears side tabs + small gap)
+  function _qcDefaultOpen() {
+    if (window.innerWidth < 900) return; // desktop only — never auto-open on mobile
+    if (_qcUserClosed) return;           // respect explicit session close
+    if (_qcOpen) return;                 // already open
+
+    var qcEl = document.getElementById('qcContainer');
+    var btn = document.getElementById('qcToggleBtn');
+    if (!qcEl) return;
+
+    _qcOpen = true;
+    _qcMinimized = false;
+    if (!_qcBuilt) qcBuild();
+
+    // Position right-aligned: compute left = parentWidth - qcWidth - _QC_RIGHT_OFFSET
+    var parent = qcEl.parentElement;
+    var pw = (parent && parent.offsetWidth > 0) ? parent.offsetWidth : window.innerWidth;
+    var ph = (parent && parent.offsetHeight > 0) ? parent.offsetHeight : window.innerHeight;
+    // Use the stored fractional width (default 0.45) or fall back to defaults if NaN/invalid
+    var _safeW = (isFinite(_qcPos.width)  && _qcPos.width  > 0) ? _qcPos.width  : 0.45;
+    var _safeH = (isFinite(_qcPos.height) && _qcPos.height > 0) ? _qcPos.height : 0.42;
+    var _safeT = (isFinite(_qcPos.top)    && _qcPos.top    >= 0) ? _qcPos.top   : 0.04;
+    var qcW = Math.max(200, Math.round(_safeW * pw));
+    var qcH = Math.max(100, Math.round(_safeH * ph));
+    var qcL = Math.max(0, pw - qcW - _QC_RIGHT_OFFSET);
+    var qcT = Math.max(0, Math.round(_safeT * ph));
+
+    qcEl.style.left   = qcL + 'px';
+    qcEl.style.top    = qcT + 'px';
+    qcEl.style.width  = qcW + 'px';
+    qcEl.style.height = qcH + 'px';
+
+    // Keep internal fractional state in sync (so drag-save works from the new position)
+    if (pw > 0) _qcPos.left = qcL / pw;
+    if (ph > 0) _qcPos.top  = qcT / ph;
+
+    qcEl.classList.remove('qc-hidden');
+    qcEl.style.display = '';
+    var body = document.getElementById('qcFloatBody');
+    if (body) body.style.display = '';
+    var handles = qcEl.querySelectorAll('.qc-resize-handle');
+    handles.forEach(function(h) { h.style.display = ''; });
+    if (btn) btn.classList.add('qc-active');
+    qcBuild(); // refresh chords for current key
+    _qcInitDrag();
+    _qcInitResize();
   }
 
   function qcMinimize() {
@@ -73708,17 +74678,19 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
     var song = (typeof getCurrentSong === 'function') ? getCurrentSong() : null;
     if (song && song.uiState && song.uiState.qcFloat) {
       var s = song.uiState.qcFloat;
-      if (typeof s.left === 'number') _qcPos.left = s.left;
-      if (typeof s.top === 'number') _qcPos.top = s.top;
-      if (typeof s.width === 'number') _qcPos.width = s.width;
-      if (typeof s.height === 'number') _qcPos.height = s.height;
+      // Guard against NaN persisted from old sessions (typeof NaN === 'number')
+      if (typeof s.left   === 'number' && isFinite(s.left))   _qcPos.left   = s.left;
+      if (typeof s.top    === 'number' && isFinite(s.top))    _qcPos.top    = s.top;
+      if (typeof s.width  === 'number' && isFinite(s.width))  _qcPos.width  = s.width;
+      if (typeof s.height === 'number' && isFinite(s.height)) _qcPos.height = s.height;
     }
   }
 
   // ── Hook into PR open ──
   var _qcInitDone = false;
   function _qcHookPrOpen() {
-    var obs = new MutationObserver(function(mutations) {
+    // Observe #prOverlay for the fullscreen-overlay path (non-split desktop / mobile overlay)
+    var overlayObs = new MutationObserver(function(mutations) {
       mutations.forEach(function(m) {
         if (m.target.id === 'prOverlay' && m.target.classList.contains('open')) {
           if (!_qcInitDone) { _qcInitDone = true; _qcInitHighlight(); _qcInitDrag(); _qcInitResize(); }
@@ -73728,7 +74700,31 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       });
     });
     var overlay = document.getElementById('prOverlay');
-    if (overlay) obs.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+    if (overlay) overlayObs.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+
+    // Observe document.body for the 'pr-open' class, which is added by prOpen_() in BOTH
+    // the fullscreen-overlay path AND the split-pr path.  This is the unified hook point
+    // for the desktop default-open logic.
+    var bodyObs = new MutationObserver(function(mutations) {
+      mutations.forEach(function(m) {
+        if (m.target === document.body) {
+          var hasPrOpen = document.body.classList.contains('pr-open');
+          if (hasPrOpen) {
+            if (!_qcInitDone) { _qcInitDone = true; _qcInitHighlight(); _qcInitDrag(); _qcInitResize(); }
+            _qcRestoreState();
+            qcRefreshIfNeeded();
+            // Default-open on desktop if user hasn't explicitly closed it this session.
+            // Double-rAF: first frame is the render triggered by the class change, second
+            // frame guarantees the PR panel has been laid out and its offsetWidth is non-zero
+            // before we compute right-aligned positioning.
+            requestAnimationFrame(function() {
+              requestAnimationFrame(function() { _qcDefaultOpen(); });
+            });
+          }
+        }
+      });
+    });
+    bodyObs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
   }
 
   // Periodic refresh for key changes
@@ -73748,6 +74744,9 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   window.qcRefreshIfNeeded = qcRefreshIfNeeded;
   window._qcGetPos = function() { _qcCapturePos(); return _qcPos; };
   window._qcIsOpen = function() { return _qcOpen; };
+  // Expose session-close flag (read/write) for tests and external tooling
+  window._qcSetUserClosed = function(v) { _qcUserClosed = !!v; };
+  window._qcGetUserClosed = function() { return _qcUserClosed; };
 })();
 
 </script>
@@ -74142,6 +75141,10 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
       if (_instrHas('piano')  && typeof _pianoLoaded !== 'undefined' && _pianoLoaded  && typeof seqPlayChordPiano  === 'function') { seqPlayChordPiano(midiNotes, t, velocity);  samplerPlayed = true; }
       if (_instrHas('piano2') && typeof _piano2Loaded !== 'undefined' && _piano2Loaded && typeof seqPlayChordPiano2 === 'function') { seqPlayChordPiano2(midiNotes, t, velocity); samplerPlayed = true; }
       if (_instrHas('guitar') && typeof _guitarLoaded !== 'undefined' && _guitarLoaded && typeof seqPlayChordGuitar === 'function') { seqPlayChordGuitar(midiNotes, t, velocity); samplerPlayed = true; }
+      if (_instrHas('bassgtr') && typeof _bassgtrLoaded !== 'undefined' && _bassgtrLoaded && typeof seqPlayChordBassgtr === 'function') { seqPlayChordBassgtr(midiNotes, t, velocity); samplerPlayed = true; }
+      if (_instrHas('violin') && typeof _violinLoaded !== 'undefined' && _violinLoaded && typeof seqPlayChordViolin === 'function') { seqPlayChordViolin(midiNotes, t, velocity); samplerPlayed = true; }
+      if (_instrHas('pad') && typeof _padLoaded !== 'undefined' && _padLoaded && typeof seqPlayChordPad === 'function') { seqPlayChordPad(midiNotes, t, velocity); samplerPlayed = true; }
+      if (_instrHas('lead') && typeof _leadLoaded !== 'undefined' && _leadLoaded && typeof seqPlayChordLead === 'function') { seqPlayChordLead(midiNotes, t, velocity); samplerPlayed = true; }
       if (_instrHas('synth') || !samplerPlayed) {
         if (typeof seqGenChords === 'function' && typeof seqPlayChord === 'function') {
           var chords = seqGenChords(seqCurrentKey(), seqCurrentMode());
@@ -74780,6 +75783,10 @@ if (typeof _exitPerfIfMobile === 'function') window._exitPerfIfMobile = _exitPer
   // Relocate the shared #globalSeqStrip into the Arrange timeline (top of #arrTimelineInner),
   // where the retired #arrSectionsRow used to live, so it scrolls with the lanes for free.
   function _arrMountStrip() {
+    // If the drum drawer currently owns the strip, clear its mounted flag/class so it
+    // doesn't think it still hosts #globalSeqStrip after Arrange relocates it.
+    if (typeof window._drumStripIsMounted === 'function' && window._drumStripIsMounted()
+        && typeof window._drumUnmountStrip === 'function') window._drumUnmountStrip();
     var strip = document.getElementById('globalSeqStrip');
     var inner = document.getElementById('arrTimelineInner');
     if (strip && inner && strip.parentNode !== inner) inner.insertBefore(strip, inner.firstChild);
