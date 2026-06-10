@@ -1,10 +1,11 @@
 # Drafthaus — developer guide
 
 Single-file HTML web app (vanilla JS + Web Audio + Firestore sync). The deployed
-build is `index.html`, currently byte-identical to `1.312.html` (the 1.310 desktop/
-mobile batch + the single rich-text lyrics editor — `song.lyricsDoc`, replacing the
-per-section lyrics model — merged together); `1.310.html`/`1.311.html` are prior
-snapshots and `1.307.html` an older stable one. **Heads-up:** `index` is NOT always
+build is `index.html`, currently byte-identical to `1.313.html` (= `1.312.html` —
+the 1.310 desktop/mobile batch + the single rich-text lyrics editor
+(`song.lyricsDoc`, replacing the per-section lyrics model) merged together — plus a
+white background for the desktop lyrics split preview pane); `1.310.html`/`1.311.html`/
+`1.312.html` are prior snapshots and `1.307.html` an older stable one. **Heads-up:** `index` is NOT always
 the highest-numbered file (e.g. 1.310 was pushed but never promoted) — before
 branching a new build, `md5` index against the `1.3xx.html` files to find the true
 base, and diff every fresh `cp` snapshot against its source to confirm it copied
