@@ -44073,6 +44073,84 @@ function fbUpdateToggle() {
 }
 function fbShowChord(name) { _fbCurrentChord = name; if (typeof fbRender === 'function') fbRender(); }
 
+function fbRender() {
+  var host = document.getElementById('fbNeck');
+  if (!host) return;
+  fbUpdateToggle();
+  var nameEl = document.getElementById('fbChordName');
+  if (nameEl) nameEl.textContent = _fbCurrentChord || '—';
+  var nStr = (_fbInstrument === 'guitar') ? 6 : 4;
+  var model = _fbCurrentChord ? fbGetVoicing(_fbInstrument, _fbCurrentChord) : null;
+  host.innerHTML = _fbNeckSVG(model, nStr);
+}
+
+function _fbNeckSVG(model, nStr) {
+  var COLS = 5, COLW = 60, NUTX = 46, ROWGAP = 22, TOP = 20, LEFTPAD = 30;
+  var neckRight = NUTX + COLS * COLW;
+  var bottom = TOP + (nStr - 1) * ROWGAP;
+  var W = neckRight + 14, H = bottom + 34;
+  var base = (model && !model.empty) ? (model.baseFret || 0) : 0;
+  var firstFret = base === 0 ? 1 : base;
+  var INLAYS = { 3:1, 5:1, 7:1, 9:1, 12:2 };
+
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + Math.min(H, 200) + '" style="display:block">';
+  // fretboard
+  svg += '<rect x="' + NUTX + '" y="' + (TOP - 6) + '" width="' + (COLS * COLW) + '" height="' + ((nStr - 1) * ROWGAP + 12) + '" fill="#241a12" rx="3"/>';
+  // nut (only in open window) or start-fret label
+  if (base === 0) svg += '<rect x="' + (NUTX - 4) + '" y="' + (TOP - 6) + '" width="6" height="' + ((nStr - 1) * ROWGAP + 12) + '" fill="#cfcfdf"/>';
+  else svg += '<text x="' + (NUTX - 8) + '" y="' + (TOP - 9) + '" fill="#e0b450" font-size="11" font-weight="700" text-anchor="end">' + firstFret + 'fr</text>';
+  // fret lines
+  for (var c = 1; c <= COLS; c++) {
+    var fx = NUTX + c * COLW;
+    svg += '<line x1="' + fx + '" y1="' + (TOP - 6) + '" x2="' + fx + '" y2="' + (bottom + 6) + '" stroke="#5a4a38" stroke-width="2"/>';
+  }
+  // inlays
+  for (var c2 = 0; c2 < COLS; c2++) {
+    var absF = firstFret + c2;
+    if (INLAYS[absF]) {
+      var cx = NUTX + c2 * COLW + COLW / 2;
+      if (INLAYS[absF] === 2) {
+        svg += '<circle cx="' + cx + '" cy="' + (TOP + ROWGAP * 0.7) + '" r="4" fill="#3a2c1c"/>';
+        svg += '<circle cx="' + cx + '" cy="' + (bottom - ROWGAP * 0.7) + '" r="4" fill="#3a2c1c"/>';
+      } else {
+        svg += '<circle cx="' + cx + '" cy="' + ((TOP + bottom) / 2) + '" r="5" fill="#3a2c1c"/>';
+      }
+    }
+  }
+  // strings
+  for (var r = 0; r < nStr; r++) {
+    var y = TOP + r * ROWGAP;
+    svg += '<line x1="' + NUTX + '" y1="' + y + '" x2="' + neckRight + '" y2="' + y + '" stroke="#8a8a9a" stroke-width="1.3"/>';
+  }
+  // fret numbers
+  for (var c3 = 0; c3 < COLS; c3++) {
+    var nx = NUTX + c3 * COLW + COLW / 2;
+    svg += '<text x="' + nx + '" y="' + (bottom + 22) + '" fill="#6a6a7a" font-size="9" text-anchor="middle">' + (firstFret + c3) + '</text>';
+  }
+  // dots / markers
+  if (model && model.strings && model.strings.length) {
+    model.strings.forEach(function (s, r) {
+      var y = TOP + r * ROWGAP;
+      if (s.fret === null) {
+        svg += '<text x="' + (NUTX - 16) + '" y="' + (y + 4) + '" fill="#e0556e" font-size="12" text-anchor="middle">✕</text>';
+      } else if (s.fret === 0) {
+        svg += '<text x="' + (NUTX - 16) + '" y="' + (y + 4) + '" fill="#7aa2ff" font-size="12" text-anchor="middle">○</text>';
+        if (s.label) svg += '<text x="' + (NUTX - 16) + '" y="' + (y - 8) + '" fill="#5fd3a3" font-size="9" font-weight="700" text-anchor="middle">' + s.label + '</text>';
+      } else {
+        var col = s.fret - firstFret;
+        if (col < 0 || col >= COLS) return;
+        var dx = NUTX + col * COLW + COLW / 2;
+        var isBass = (s.label === 'R' || s.label === '3' || s.label === '5');
+        var fill = (s.label === 'R') ? '#e0b450' : (isBass ? '#5fd3a3' : '#e0b450');
+        svg += '<circle cx="' + dx + '" cy="' + y + '" r="10" fill="' + fill + '"/>';
+        if (s.label) svg += '<text x="' + dx + '" y="' + (y + 4) + '" fill="#1a1a1a" font-size="11" font-weight="700" text-anchor="middle">' + s.label + '</text>';
+      }
+    });
+  }
+  svg += '</svg>';
+  return svg;
+}
+
 // Chord progression MIDI track (channel 0)
 function _midiChordTrack(chordSlots, grid) {
   const TPB = 480;

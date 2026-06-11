@@ -116,6 +116,31 @@ function assert(name, cond, extra) {
   assert('default instrument guitar', (d7.def === null || d7.def === 'guitar'), d7.def);
   assert('toggle persists to localStorage', d7.bassDef === 'bass', d7.bassDef);
 
+  const d8 = await page.evaluate(() => {
+    fbSetInstrument('guitar');
+    fbShowChord(null);
+    var empty = document.getElementById('fbNeck').innerHTML;
+    var nameEmpty = document.getElementById('fbChordName').textContent;
+    fbShowChord('C');
+    var neck = document.getElementById('fbNeck').innerHTML;
+    var nameC = document.getElementById('fbChordName').textContent;
+    fbSetInstrument('bass'); fbShowChord('C');
+    var bassNeck = document.getElementById('fbNeck').innerHTML;
+    fbSetInstrument('guitar');
+    return {
+      emptyHasSvg: /<svg/.test(empty), nameEmpty: nameEmpty,
+      cHasDot: (neck.match(/<circle/g)||[]).length > 0, nameC: nameC,
+      cHasFretNums: /<text[^>]*>1<\/text>/.test(neck),
+      bassHasR: />R<\/text>/.test(bassNeck),
+    };
+  });
+  assert('empty state renders a neck svg', d8.emptyHasSvg, d8);
+  assert('empty chord name is dash', d8.nameEmpty === '—', d8.nameEmpty);
+  assert('C renders finger dots', d8.cHasDot, d8);
+  assert('C chord name shown', d8.nameC === 'C', d8.nameC);
+  assert('neck shows fret numbers', d8.cHasFretNums, d8);
+  assert('bass C renders an R label', d8.bassHasR, d8);
+
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close();
   process.exit(fail ? 1 : 0);
