@@ -72,6 +72,16 @@ function assert(name, cond, extra) {
   assert('bass marks the root (R)', t4.hasR, t4.labels);
   assert('bass labels are subset of R/3/5', t4.labels.every(l=>['R','3','5'].includes(l)), t4.labels);
 
+  const t5 = await page.evaluate(() => {
+    // strings high->low; frets: open, open, open, f2, f3, mute  (C major-ish)
+    var strings = [{fret:0,label:null},{fret:1,label:null},{fret:0,label:null},
+                   {fret:2,label:null},{fret:3,label:null},{fret:null,label:null}];
+    _fbAssignFingers(strings);
+    return strings.map(s=>s.label);
+  });
+  // strings high->low: open, f1, open, f2, f3, mute -> labels null,"1",null,"2","3",null
+  assert('fingers ascend by fret', JSON.stringify(t5) === JSON.stringify([null,"1",null,"2","3",null]), t5);
+
   // === DOM ASSERTIONS ===
 
   console.log(`\n${pass} passed, ${fail} failed`);
