@@ -34,6 +34,17 @@ function assert(name, cond, extra) {
   assert('parse Bm7b5 -> qual m7b5', t1.m7b5 && t1.m7b5.qual==='m7b5' && t1.m7b5.pcs.length===4, t1.m7b5);
   assert('parse junk -> null', t1.bad === null && t1.nul === null, t1);
 
+  const t2 = await page.evaluate(() => ({
+    cmaj: _fbLibraryVoicing('guitar', _fbParseChord('C')),
+    add9: _fbLibraryVoicing('guitar', _fbParseChord('Cadd9')),
+    bass: _fbLibraryVoicing('bass', _fbParseChord('C')),
+  }));
+  // GUITAR_OPEN_VOICINGS 'C Major' = [0,1,0,2,3,'x'] (e B G D A E)
+  assert('lib C major matches open voicing', t2.cmaj &&
+    JSON.stringify(t2.cmaj.strings.map(s=>s.fret)) === '[0,1,0,2,3,null]', t2.cmaj);
+  assert('lib add9 -> null (not in map)', t2.add9 === null, t2.add9);
+  assert('lib bass -> null (algo handles bass)', t2.bass === null, t2.bass);
+
   // === DOM ASSERTIONS ===
 
   console.log(`\n${pass} passed, ${fail} failed`);
