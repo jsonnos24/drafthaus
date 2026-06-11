@@ -150,6 +150,37 @@ function assert(name, cond, extra) {
   });
   assert('seqShowChordOnKeyboard drives the fretboard', d9.name === 'G' && d9.hasDot, d9);
 
+  // === TASK 10: sticky ===
+  const d10 = await page.evaluate(() => {
+    fbSetInstrument('guitar');
+    // Inject a minimal #seqKeyboard so seqShowChordOnKeyboard can highlight keys.
+    // (The real keyboard is built lazily by openKeyboardDrawer/song-load; it doesn't
+    //  exist in the headless test environment until explicitly created.)
+    var kbEl = document.getElementById('seqKeyboard');
+    if (!kbEl) {
+      kbEl = document.createElement('div');
+      kbEl.id = 'seqKeyboard';
+      SEQ_NOTES.forEach(function(note) {
+        var k = document.createElement('div');
+        k.className = 'seq-key';
+        k.dataset.note = note;
+        kbEl.appendChild(k);
+      });
+      document.body.appendChild(kbEl);
+    }
+    seqPillPress('A', 5);   // press
+    seqPillRelease();       // release — should NOT clear
+    var afterRelease = {
+      name: document.getElementById('fbChordName').textContent,
+      kbHl: document.querySelectorAll('#seqKeyboard .seq-key.chord-highlight').length,
+    };
+    seqPillPress('D', 1); seqPillRelease(); // next chord replaces
+    return { afterRelease: afterRelease, replacedName: document.getElementById('fbChordName').textContent };
+  });
+  assert('fretboard stays after release', d10.afterRelease.name === 'A', d10);
+  assert('keyboard glow stays after release', d10.afterRelease.kbHl > 0, d10);
+  assert('next chord replaces previous', d10.replacedName === 'D', d10);
+
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close();
   process.exit(fail ? 1 : 0);
