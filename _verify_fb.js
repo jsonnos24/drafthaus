@@ -181,6 +181,21 @@ function assert(name, cond, extra) {
   assert('keyboard glow stays after release', d10.afterRelease.kbHl > 0, d10);
   assert('next chord replaces previous', d10.replacedName === 'D', d10);
 
+  // === Task 11: regression sweep ===
+  const d11 = await page.evaluate(() => {
+    var errs = [];
+    // octave +/- still work
+    try { fkbResize(1); fkbResize(-1); } catch(e){ errs.push('resize:'+e.message); }
+    // minimize/restore still works and hides/shows fretboard with the body
+    try { fkbToggleMinimize(); fkbToggleMinimize(); } catch(e){ errs.push('min:'+e.message); }
+    // up-the-neck windowing produces an 'fr' label for a high voicing
+    fbSetInstrument('guitar'); fbShowChord('G#m7');
+    var hasFr = /fr<\/text>/.test(document.getElementById('fbNeck').innerHTML) || (fbGetVoicing('guitar','G#m7').baseFret > 0);
+    return { errs: errs, hasFr: hasFr };
+  });
+  assert('no errors from resize/minimize', d11.errs.length === 0, d11.errs);
+  assert('up-the-neck shows start-fret window', d11.hasFr, d11);
+
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close();
   process.exit(fail ? 1 : 0);
