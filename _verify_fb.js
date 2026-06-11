@@ -82,6 +82,20 @@ function assert(name, cond, extra) {
   // strings high->low: open, f1, open, f2, f3, mute -> labels null,"1",null,"2","3",null
   assert('fingers ascend by fret', JSON.stringify(t5) === JSON.stringify([null,"1",null,"2","3",null]), t5);
 
+  const t6 = await page.evaluate(() => ({
+    cOpen:  fbGetVoicing('guitar', 'C'),
+    cmaj7:  fbGetVoicing('guitar', 'Cmaj7'),
+    m7b5:   fbGetVoicing('guitar', 'Bm7b5'),
+    bassC:  fbGetVoicing('bass', 'C'),
+    junk:   fbGetVoicing('guitar', 'H'),
+  }));
+  assert('orch C open -> baseFret 0', t6.cOpen && t6.cOpen.baseFret === 0, t6.cOpen);
+  assert('orch C has finger labels', t6.cOpen && t6.cOpen.strings.some(s=>s.label && '1234'.includes(s.label)), t6.cOpen);
+  assert('orch Cmaj7 non-empty', t6.cmaj7 && t6.cmaj7.strings.some(s=>s.fret!=null), t6.cmaj7);
+  assert('orch m7b5 (algo) non-empty', t6.m7b5 && t6.m7b5.strings.some(s=>s.fret!=null), t6.m7b5);
+  assert('orch bass has R label', t6.bassC && t6.bassC.strings.some(s=>s.label==='R'), t6.bassC);
+  assert('orch junk -> empty model', t6.junk && t6.junk.empty === true, t6.junk);
+
   // === DOM ASSERTIONS ===
 
   console.log(`\n${pass} passed, ${fail} failed`);

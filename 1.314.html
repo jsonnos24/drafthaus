@@ -44019,6 +44019,28 @@ function _fbAssignFingers(strings) {
   return strings;
 }
 
+function fbGetVoicing(instrument, name) {
+  var p = _fbParseChord(name);
+  if (!p) return { strings: [], baseFret: 0, empty: true, root: null };
+  var model;
+  if (instrument === 'bass') {
+    var bv = _fbBassVoicing(p.pcs, p.rootPc, p.thirdPc, p.fifthPc);
+    model = { strings: bv ? bv.strings.slice() : [], root: p.rootPc };
+  } else {
+    var raw = _fbLibraryVoicing(instrument, p) || _fbAlgoVoicing(instrument, p.pcs, p.rootPc);
+    if (!raw || !raw.strings) return { strings: [], baseFret: 0, empty: true, root: p.rootPc };
+    var strings = raw.strings.map(function (s) { return { fret: s.fret, label: s.label || null }; });
+    _fbAssignFingers(strings);
+    model = { strings: strings, root: p.rootPc };
+  }
+  var fs = model.strings.map(function (s) { return s.fret; }).filter(function (f) { return f && f > 0; });
+  var minF = fs.length ? Math.min.apply(null, fs) : 0;
+  var maxF = fs.length ? Math.max.apply(null, fs) : 0;
+  model.baseFret = (maxF <= 4) ? 0 : minF;
+  if (!model.strings.some(function (s) { return s.fret != null; })) model.empty = true;
+  return model;
+}
+
 // Chord progression MIDI track (channel 0)
 function _midiChordTrack(chordSlots, grid) {
   const TPB = 480;
