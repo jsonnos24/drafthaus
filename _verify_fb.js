@@ -45,6 +45,23 @@ function assert(name, cond, extra) {
   assert('lib add9 -> null (not in map)', t2.add9 === null, t2.add9);
   assert('lib bass -> null (algo handles bass)', t2.bass === null, t2.bass);
 
+  const t3 = await page.evaluate(() => {
+    function pcsOf(strings, tuning) {
+      return strings.map((s,i)=> s.fret==null?null:(((tuning[i]+s.fret)%12)+12)%12);
+    }
+    var p = _fbParseChord('Cadd9');           // pcs include 0,4,7,2
+    var v = _fbAlgoVoicing('guitar', p.pcs, p.rootPc);
+    var guitarHL = [64,59,55,50,45,40];
+    return { ok: !!v, base: v && v.base,
+      pcs: v && pcsOf(v.strings, guitarHL),
+      span: v && (function(){ var fs=v.strings.map(s=>s.fret).filter(f=>f>0); return fs.length?Math.max.apply(null,fs)-Math.min.apply(null,fs):0; })(),
+      sounding: v && v.strings.filter(s=>s.fret!=null).length };
+  });
+  assert('algo returns a voicing', t3.ok, t3);
+  assert('algo notes are all chord tones', t3.ok && t3.pcs.filter(p=>p!=null).every(p=>[0,2,4,7].includes(p)), t3.pcs);
+  assert('algo span <= 4 frets', t3.span <= 4, t3.span);
+  assert('algo sounds >= 3 strings', t3.sounding >= 3, t3.sounding);
+
   // === DOM ASSERTIONS ===
 
   console.log(`\n${pass} passed, ${fail} failed`);

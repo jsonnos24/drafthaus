@@ -43943,6 +43943,37 @@ function _fbLibraryVoicing(instrument, p) {
   return { strings: arr.map(function (f) { return { fret: (f === 'x' ? null : f), label: null }; }) };
 }
 
+function _fbAlgoVoicing(instrument, pcs, rootPc) {
+  var tuning = _FB_TUNING[instrument];
+  if (!tuning) return null;
+  var pcSet = {};
+  pcs.forEach(function (p) { pcSet[((p % 12) + 12) % 12] = true; });
+  var best = null;
+  for (var base = 0; base <= 9; base++) {
+    var strings = tuning.map(function (openMidi) {
+      for (var f = base; f <= base + 4; f++) {
+        var pc = (((openMidi + f) % 12) + 12) % 12;
+        if (pcSet[pc]) return { fret: f, label: null, pc: pc };
+      }
+      var op = (((openMidi) % 12) + 12) % 12;
+      if (base <= 4 && pcSet[op]) return { fret: 0, label: null, pc: op };
+      return { fret: null, label: null, pc: null };
+    });
+    var soundPcs = {}, mutes = 0, rootLow = false, lowestSeen = false;
+    for (var i = strings.length - 1; i >= 0; i--) { // low string first
+      var s = strings[i];
+      if (s.fret === null) { mutes++; continue; }
+      soundPcs[s.pc] = true;
+      if (!lowestSeen) { lowestSeen = true; if (s.pc === rootPc) rootLow = true; }
+    }
+    var coverage = Object.keys(soundPcs).length;
+    var score = coverage * 10 + (rootLow ? 5 : 0) - mutes * 2 - base * 0.5;
+    if (!best || score > best.score) best = { score: score, base: base, strings: strings };
+  }
+  if (best) best.strings.forEach(function (s) { delete s.pc; });
+  return best;
+}
+
 // Chord progression MIDI track (channel 0)
 function _midiChordTrack(chordSlots, grid) {
   const TPB = 480;
