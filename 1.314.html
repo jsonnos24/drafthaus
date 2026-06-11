@@ -35785,6 +35785,17 @@ function fkbInit() {
         '<button class="fkb-oct-btn" id="fkbMinBtn" title="Minimize keyboard" style="margin-left:6px;font-size:13px;">▲</button>' +
       '</div>' +
       '<div class="fkb-body" id="fkbBody"></div>' +
+        '<div class="fkb-fretboard" id="fkbFretboard" style="border-top:1px solid var(--border2,#333);padding:8px 10px;">' +
+          '<div id="fbToolbar" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
+            '<div id="fbSeg" style="display:inline-flex;border:1px solid #34344a;border-radius:7px;overflow:hidden;">' +
+              '<button type="button" data-fbi="guitar" onclick="fbSetInstrument(\'guitar\')" style="background:#1a1a26;color:#9a9aae;border:none;padding:4px 12px;font-size:11px;cursor:pointer;">Guitar</button>' +
+              '<button type="button" data-fbi="ukulele" onclick="fbSetInstrument(\'ukulele\')" style="background:#1a1a26;color:#9a9aae;border:none;border-left:1px solid #34344a;padding:4px 12px;font-size:11px;cursor:pointer;">Uke</button>' +
+              '<button type="button" data-fbi="bass" onclick="fbSetInstrument(\'bass\')" style="background:#1a1a26;color:#9a9aae;border:none;border-left:1px solid #34344a;padding:4px 12px;font-size:11px;cursor:pointer;">Bass</button>' +
+            '</div>' +
+            '<span id="fbChordName" style="font-size:13px;color:#e0b450;font-weight:700;">—</span>' +
+          '</div>' +
+          '<div id="fbNeck"></div>' +
+        '</div>' +
     '</div>';
   document.body.appendChild(wrap);
   _fkbEl = wrap;
@@ -44040,6 +44051,27 @@ function fbGetVoicing(instrument, name) {
   if (!model.strings.some(function (s) { return s.fret != null; })) model.empty = true;
   return model;
 }
+
+var _fbInstrument = (function () { try { return localStorage.getItem('drafthaus-fb-instrument') || 'guitar'; } catch (e) { return 'guitar'; } })();
+var _fbCurrentChord = null;
+
+function fbSetInstrument(id) {
+  _fbInstrument = id;
+  try { localStorage.setItem('drafthaus-fb-instrument', id); } catch (e) {}
+  fbUpdateToggle();
+  if (typeof fbRender === 'function') fbRender(); // fbRender lands in Task 8; guard is permanent + harmless
+}
+function fbUpdateToggle() {
+  var seg = document.getElementById('fbSeg');
+  if (!seg) return;
+  seg.querySelectorAll('button[data-fbi]').forEach(function (b) {
+    var on = b.getAttribute('data-fbi') === _fbInstrument;
+    b.style.background = on ? '#e0b450' : '#1a1a26';
+    b.style.color = on ? '#1a1a1a' : '#9a9aae';
+    b.style.fontWeight = on ? '700' : '400';
+  });
+}
+function fbShowChord(name) { _fbCurrentChord = name; if (typeof fbRender === 'function') fbRender(); }
 
 // Chord progression MIDI track (channel 0)
 function _midiChordTrack(chordSlots, grid) {

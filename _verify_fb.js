@@ -97,6 +97,24 @@ function assert(name, cond, extra) {
   assert('orch junk -> empty model', t6.junk && t6.junk.empty === true, t6.junk);
 
   // === DOM ASSERTIONS ===
+  await page.evaluate(() => { signInAsGuest && signInAsGuest(); });
+  await page.waitForTimeout(300);
+  const d7 = await page.evaluate(() => {
+    fkbInit(); fkbShow();
+    var sec = document.getElementById('fkbFretboard');
+    var btns = document.querySelectorAll('#fbSeg button[data-fbi]');
+    var def = (function(){ try { return localStorage.getItem('drafthaus-fb-instrument'); } catch(e){ return null; } })();
+    fbSetInstrument('bass');
+    var bassDef = (function(){ try { return localStorage.getItem('drafthaus-fb-instrument'); } catch(e){ return null; } })();
+    fbSetInstrument('guitar');
+    return { hasSec: !!sec, nBtns: btns.length, def: def, bassDef: bassDef,
+             insideePanel: !!(sec && sec.closest('#fkbPanel')) };
+  });
+  assert('fretboard section exists', d7.hasSec, d7);
+  assert('section is inside #fkbPanel', d7.insideePanel, d7);
+  assert('three instrument buttons', d7.nBtns === 3, d7.nBtns);
+  assert('default instrument guitar', (d7.def === null || d7.def === 'guitar'), d7.def);
+  assert('toggle persists to localStorage', d7.bassDef === 'bass', d7.bassDef);
 
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close();
