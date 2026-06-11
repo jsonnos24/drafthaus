@@ -141,6 +141,15 @@ function assert(name, cond, extra) {
   assert('neck shows fret numbers', d8.cHasFretNums, d8);
   assert('bass C renders an R label', d8.bassHasR, d8);
 
+  // === TASK 9: hook ===
+  const d9 = await page.evaluate(() => {
+    fbSetInstrument('guitar'); fbShowChord(null);
+    seqShowChordOnKeyboard('G');
+    return { name: document.getElementById('fbChordName').textContent,
+             hasDot: (document.getElementById('fbNeck').innerHTML.match(/<circle/g)||[]).length > 0 };
+  });
+  assert('seqShowChordOnKeyboard drives the fretboard', d9.name === 'G' && d9.hasDot, d9);
+
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close();
   process.exit(fail ? 1 : 0);
