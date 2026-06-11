@@ -43974,6 +43974,36 @@ function _fbAlgoVoicing(instrument, pcs, rootPc) {
   return best;
 }
 
+function _fbBassVoicing(pcs, rootPc, thirdPc, fifthPc) {
+  var tuning = _FB_TUNING.bass; // [G,D,A,E] high->low
+  var targets = [
+    { pc: rootPc, label: 'R' },
+    { pc: thirdPc, label: '3' },
+    { pc: fifthPc, label: '5' }
+  ].filter(function (t) { return t.pc != null; });
+  var best = null;
+  for (var base = 0; base <= 7; base++) {
+    var strings = tuning.map(function () { return { fret: null, label: null }; });
+    var placed = {};
+    targets.forEach(function (t) {
+      for (var i = tuning.length - 1; i >= 0; i--) { // low string first
+        if (strings[i].fret !== null) continue;
+        for (var f = base; f <= base + 3; f++) {
+          if ((((tuning[i] + f) % 12) + 12) % 12 === (((t.pc % 12) + 12) % 12)) {
+            strings[i] = { fret: f, label: t.label };
+            placed[t.label] = true;
+            return;
+          }
+        }
+      }
+    });
+    var count = Object.keys(placed).length;
+    var score = count * 10 + (placed['R'] ? 5 : 0) - base * 0.3;
+    if (!best || score > best.score) best = { score: score, base: base, strings: strings };
+  }
+  return best;
+}
+
 // Chord progression MIDI track (channel 0)
 function _midiChordTrack(chordSlots, grid) {
   const TPB = 480;

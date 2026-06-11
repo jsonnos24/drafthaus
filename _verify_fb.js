@@ -62,6 +62,16 @@ function assert(name, cond, extra) {
   assert('algo span <= 4 frets', t3.span <= 4, t3.span);
   assert('algo sounds >= 3 strings', t3.sounding >= 3, t3.sounding);
 
+  const t4 = await page.evaluate(() => {
+    var p = _fbParseChord('C'); // rootPc 0, third 4 (E), fifth 7 (G)
+    var v = _fbBassVoicing(p.pcs, p.rootPc, p.thirdPc, p.fifthPc);
+    var labels = v ? v.strings.map(s=>s.label).filter(Boolean) : [];
+    return { ok: !!v, labels: labels, hasR: labels.indexOf('R')>=0 };
+  });
+  assert('bass returns a voicing', t4.ok, t4);
+  assert('bass marks the root (R)', t4.hasR, t4.labels);
+  assert('bass labels are subset of R/3/5', t4.labels.every(l=>['R','3','5'].includes(l)), t4.labels);
+
   // === DOM ASSERTIONS ===
 
   console.log(`\n${pass} passed, ${fail} failed`);
