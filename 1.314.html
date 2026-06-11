@@ -43903,6 +43903,35 @@ function _chordToMidi(name) {
 function _chordVariantToMidi(name) { return _chordToMidi(name); }
 /* @lock:end — Chord Resolution */
 
+/* ───────────────────── Floating fretboard (fb*) ───────────────────── */
+// Voicing model string order is HIGH→LOW: guitar [e,B,G,D,A,E], uke [A,E,C,G], bass [G,D,A,E].
+var _FB_TUNING = {
+  guitar:  [64, 59, 55, 50, 45, 40], // e B G D A E (MIDI)
+  ukulele: [69, 64, 60, 67],         // A E C G (reentrant high-G)
+  bass:    [43, 38, 33, 28],         // G D A E
+};
+var _FB_QUAL_MAP = {
+  '':'Major', 'm':'Minor', '7':'Dom 7', 'maj7':'Maj 7', 'm7':'Min 7',
+  'sus2':'Sus2', 'sus4':'Sus4', 'msus4':'Sus4', 'dim':'Diminished'
+};
+
+function _fbParseChord(name) {
+  if (!name) return null;
+  var s = String(name).replace('_viii', '');
+  var root, qual;
+  if (s.length >= 2 && s[1] === '#') { root = s.slice(0, 2); qual = s.slice(2); }
+  else { root = s[0]; qual = s.slice(1); }
+  var rootPc = (typeof SEQ_NOTES !== 'undefined') ? SEQ_NOTES.indexOf(root) : -1;
+  if (rootPc < 0) return null;
+  var ivs = (_CHORD_INTERVALS[qual] || [0, 4, 7]);
+  var pcs = ivs.map(function (iv) { return (rootPc + iv) % 12; });
+  return {
+    root: root, qual: qual, pcs: pcs, rootPc: rootPc % 12,
+    thirdPc: ivs.length > 1 ? (rootPc + ivs[1]) % 12 : null,
+    fifthPc: ivs.length > 2 ? (rootPc + ivs[2]) % 12 : null
+  };
+}
+
 // Chord progression MIDI track (channel 0)
 function _midiChordTrack(chordSlots, grid) {
   const TPB = 480;
