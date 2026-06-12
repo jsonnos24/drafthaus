@@ -51,7 +51,7 @@ function startServer() {
   await page.evaluate(() => openQuickChords());
   assert('QC screen visible', await page.evaluate(() => getComputedStyle(document.getElementById('screen-qc')).display !== 'none'));
   assert('QC key pill reflects song key', (await page.textContent('#qcKeyPill')).includes('G major'));
-  assert('QC has 8 diatonic columns', (await page.$$('#qcPills .qc-col')).length === 8);
+  assert('QC has 7 diatonic columns (no VIII octave)', (await page.$$('#qcPills .qc-col')).length === 7);
   assert('QC first diatonic chord = G', (await page.evaluate(() => document.querySelector('#qcPills .qc-col .qc-pill').textContent)) === 'G');
   assert('QC has variations under chords', (await page.$$('#qcPills .qc-var')).length > 10);
   assert('QC has borrowed pills', (await page.$$('#qcPills .qc-bpill')).length > 0);
