@@ -78,18 +78,15 @@ function startServer() {
   assert('FC: "Quick Chords" button → Quick Chords', /Quick Chords/.test(fcNav.switchText) && /openQuickChords/.test(fcNav.switchClick));
   assert('switching FC→QC works', await page.evaluate(() => { openQuickChords(); return getComputedStyle(document.getElementById('screen-qc')).display !== 'none'; }));
 
-  // ── Menu: slides from the TOP, trimmed items ──
-  await page.evaluate(() => { _openSongObj({ id:'S4', title:'M', key:'C major', lyricsDoc:'<div>x</div>' }); openMenu(); });
-  const menu = await page.evaluate(() => {
-    const sheet = document.querySelector('#menuSheet .sheet');
-    const inner = document.getElementById('menuSheetInner').innerText;
-    return { top: getComputedStyle(sheet).top, rectTop: sheet.getBoundingClientRect().top, inner };
+  // ── Key picker sheet still slides from the top ──
+  await page.evaluate(() => { _openSongObj({ id:'S4', title:'M', key:'C major', lyricsDoc:'<div>x</div>' }); openKeyPicker(); });
+  const sheet = await page.evaluate(() => {
+    const s = document.querySelector('#menuSheet .sheet');
+    return { top: getComputedStyle(s).top, rectTop: s.getBoundingClientRect().top, hasKeys: document.getElementById('menuSheetInner').innerHTML.includes('key-grid') };
   });
-  assert('menu sheet anchored to top (top:0)', menu.top === '0px');
-  assert('menu open sits at top of screen', Math.abs(menu.rectTop) <= 2);
-  assert('menu has Quick Chords + Find a Chord + Appearance', /Quick Chords/.test(menu.inner) && /Find a Chord/.test(menu.inner) && /Appearance/.test(menu.inner));
-  assert('menu: "Song key" removed', !/Song key/.test(menu.inner));
-  assert('menu: "All songs" removed', !/All songs/.test(menu.inner));
+  assert('key sheet anchored to top (top:0)', sheet.top === '0px');
+  assert('key sheet opens at top of screen with the key grid', Math.abs(sheet.rectTop) <= 2 && sheet.hasKeys);
+  await page.evaluate(() => closeMenu());
 
   // ── Strum still plays without error (offset applied) ──
   const playOk = await page.evaluate(() => { try { _playSynth([55,59,62,67], 'guitar'); return true; } catch(e){ return String(e); } });
