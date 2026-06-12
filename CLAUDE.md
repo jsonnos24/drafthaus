@@ -1,5 +1,13 @@
 # Drafthaus — developer guide
 
+> **Two separate apps live in this repo.** This guide is for the **full Drafthaus**
+> app (`index.html` / `1.3xx.html`). There is also **Drafthaus Lite** — a separate
+> single-file companion (`lite-*.html` + `samples/` + `_verify_lite_*.js`) that shares
+> the same Firebase backend but is otherwise independent code. Lite work never touches
+> `index.html` and vice-versa. If the task is about Lite, follow memory
+> `drafthaus-lite.md`, not this file. Lite is versioned `lite-1.0xx.html`, deploys to
+> `drafthaus.ca/lite-<ver>.html`, and is pushed per milestone.
+
 Single-file HTML web app (vanilla JS + Web Audio + Firestore sync). The deployed
 build is `index.html`, currently byte-identical to `1.314.html` (= `1.313.html` —
 the 1.310 desktop/mobile batch + rich-text lyrics + white desktop lyrics-split pane —
