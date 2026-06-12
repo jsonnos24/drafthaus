@@ -56,6 +56,7 @@ const visible = (page, sel) => page.evaluate((s) => { const el = document.queryS
     // takes list delete
     await page.evaluate(() => {
       _openSongObj({ id: 'S1', title: 'Song One', lyricsDoc: '<div>x</div>' });
+      if (typeof stopTakesListener === 'function') stopTakesListener(); // avoid the live snapshot clobbering injected takes
       _takes = [{ id: 't1', duration: 10, storagePath: 'p', downloadUrl: '', createdAt: { toDate: () => new Date(2026,5,6,15,42) } }];
       _loadedTakeId = 't1'; renderTakes();
     });
