@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f2f2f7">
+<title>Drafthaus Lite</title>
+
+<!-- Shared Firebase project with full Drafthaus (same auth + data) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+
+<style>
+/* ───────────────────────── Design tokens (iOS / macOS) ───────────────────────── */
+:root {
+  --bg:        #f2f2f7;   /* grouped background */
+  --bg-elev:   #ffffff;   /* cards / sheets */
+  --bg-input:  #e3e3e8;
+  --sep:       #d6d6da;   /* hairline separators */
+  --sep-soft:  #ececef;
+  --text:      #1c1c1e;
+  --text-2:    #8e8e93;   /* secondary label */
+  --text-3:    #c4c4c6;   /* tertiary / chevrons */
+  --tint:      #007aff;   /* iOS blue */
+  --tint-bg:   #e7f0ff;
+  --red:       #ff3b30;
+  --orange:    #ff9500;
+  --green:     #34c759;
+  --nav-bg:    rgba(249,249,249,0.92);
+  --shadow:    0 1px 4px rgba(0,0,0,0.06);
+  --shadow-lg: 0 14px 40px rgba(0,0,0,0.18);
+  --radius:    14px;
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --font: -apple-system, "SF Pro Text", BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif;
+}
+html.dark {
+  --bg:        #000000;
+  --bg-elev:   #1c1c1e;
+  --bg-input:  #2c2c2e;
+  --sep:       #38383a;
+  --sep-soft:  #2c2c2e;
+  --text:      #f2f2f7;
+  --text-2:    #98989f;
+  --text-3:    #5a5a5e;
+  --tint:      #0a84ff;
+  --tint-bg:   #16243a;
+  --red:       #ff453a;
+  --orange:    #ff9f0a;
+  --green:     #30d158;
+  --nav-bg:    rgba(28,28,30,0.86);
+  --shadow:    0 1px 4px rgba(0,0,0,0.4);
+  --shadow-lg: 0 14px 40px rgba(0,0,0,0.55);
+}
+
+* , *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+  transition: background .25s ease, color .25s ease;
+}
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+input { font-family: inherit; }
+.hidden { display: none !important; }
+
+/* ───────────────────────── Landing / auth overlay ───────────────────────── */
+#landing {
+  position: fixed; inset: 0; z-index: 1000;
+  background: linear-gradient(160deg, #0a0a0c 0%, #1a1a2e 60%, #16213e 100%);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 24px calc(24px + env(safe-area-inset-right,0)) calc(24px + var(--safe-bottom)) calc(24px + env(safe-area-inset-left,0));
+  color: #fff;
+}
+#landing .brand { text-align: center; margin-bottom: 36px; }
+#landing .brand .logo {
+  font-size: 30px; font-weight: 800; letter-spacing: -0.5px;
+  display: inline-flex; align-items: center; gap: 10px;
+}
+#landing .brand .lite {
+  font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--orange); margin-top: 6px;
+}
+#landing .brand .tag { color: rgba(255,255,255,0.55); font-size: 14px; margin-top: 10px; }
+
+.auth-card {
+  width: 100%; max-width: 360px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.auth-btn {
+  width: 100%; padding: 14px; border-radius: 12px; font-size: 16px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  transition: transform .08s ease, opacity .15s ease;
+}
+.auth-btn:active { transform: scale(0.98); }
+.auth-btn.google { background: #fff; color: #1c1c1e; }
+.auth-btn.primary { background: var(--tint); color: #fff; }
+.auth-btn.ghost { background: rgba(255,255,255,0.10); color: #fff; }
+.auth-divider { display: flex; align-items: center; gap: 12px; color: rgba(255,255,255,0.4); font-size: 13px; margin: 6px 0; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: rgba(255,255,255,0.15); }
+.auth-field {
+  width: 100%; padding: 14px; border-radius: 12px; font-size: 16px;
+  background: rgba(255,255,255,0.10); color: #fff; border: 1px solid rgba(255,255,255,0.14);
+}
+.auth-field::placeholder { color: rgba(255,255,255,0.45); }
+.auth-toggle { text-align: center; color: rgba(255,255,255,0.75); font-size: 14px; margin-top: 4px; }
+.auth-toggle b { color: var(--orange); font-weight: 700; }
+.auth-error { color: #ff8a80; font-size: 13px; text-align: center; min-height: 18px; }
+#emailForm { display: flex; flex-direction: column; gap: 10px; }
+
+/* ───────────────────────── App shell ───────────────────────── */
+#app { display: none; min-height: 100%; }
+body.signed-in #app { display: block; }
+body.signed-in #landing { display: none; }
+
+/* generic large-title nav (song list) */
+.lg-title {
+  font-size: 30px; font-weight: 800; letter-spacing: -0.5px;
+  padding: calc(14px + var(--safe-top)) 16px 4px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.lg-title .add { color: var(--tint); font-size: 30px; font-weight: 300; line-height: 1; }
+.searchbar {
+  margin: 6px 16px 12px; background: var(--bg-input); border-radius: 10px;
+  padding: 8px 12px; display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 16px;
+}
+.searchbar input { flex: 1; background: none; border: none; outline: none; color: var(--text); font-size: 16px; }
+
+/* song list */
+.sl-section { font-size: 12px; font-weight: 800; color: var(--text-2); text-transform: uppercase; letter-spacing: .6px; margin: 8px 18px 6px; }
+.sl-group { margin: 0 12px 16px; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); background: var(--bg-elev); }
+.sl-row { position: relative; overflow: hidden; }
+.sl-row + .sl-row { border-top: .5px solid var(--sep-soft); }
+.sl-card {
+  position: relative; z-index: 2; background: var(--bg-elev);
+  padding: 12px 14px; display: flex; align-items: center; gap: 12px;
+  transition: transform .22s cubic-bezier(.2,.8,.2,1); touch-action: pan-y;
+}
+.sl-card .tile {
+  width: 44px; height: 44px; border-radius: 9px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 800; font-size: 18px; position: relative;
+}
+.sl-card .pin-badge { position: absolute; top: -5px; right: -5px; font-size: 12px; filter: drop-shadow(0 1px 1px rgba(0,0,0,.3)); }
+.sl-card .meta { flex: 1; min-width: 0; }
+.sl-card .nm { font-size: 16px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sl-card .sub { font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
+.sl-card .grip, .sl-card .chev { color: var(--text-3); font-size: 18px; flex: none; }
+.sl-actions { position: absolute; top: 0; right: 0; bottom: 0; display: flex; z-index: 1; }
+.sl-actions button { width: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #fff; font-size: 12px; font-weight: 700; }
+.sl-actions .act-pin { background: var(--orange); }
+.sl-actions .act-del { background: var(--red); }
+.sl-empty { text-align: center; color: var(--text-2); font-size: 15px; padding: 60px 30px; line-height: 1.6; }
+
+/* color picker popover */
+.popover-backdrop { position: fixed; inset: 0; z-index: 1100; background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.popover { background: var(--bg-elev); border-radius: 16px; box-shadow: var(--shadow-lg); padding: 16px; width: 100%; max-width: 280px; }
+.popover h4 { font-size: 15px; font-weight: 700; text-align: center; margin-bottom: 14px; color: var(--text); }
+.swatches { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+.swatch { width: 40px; height: 40px; border-radius: 50%; cursor: pointer; }
+.swatch.sel { outline: 3px solid var(--text); outline-offset: 2px; }
+
+/* toast */
+#toast { position: fixed; left: 50%; bottom: calc(28px + var(--safe-bottom)); transform: translateX(-50%) translateY(20px);
+  background: rgba(40,40,44,0.95); color: #fff; padding: 11px 18px; border-radius: 22px; font-size: 14px; font-weight: 600;
+  opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease; z-index: 2000; backdrop-filter: blur(10px); }
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.spinner { width: 28px; height: 28px; border: 3px solid rgba(127,127,127,.25); border-top-color: var(--tint); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.center-load { display: flex; align-items: center; justify-content: center; min-height: 60vh; }
+
+/* ───────────────────────── Screen routing ───────────────────────── */
+.screen { display: none; }
+.screen.active { display: block; }
+
+/* ───────────────────────── Song (lyrics) screen ───────────────────────── */
+/* Gate display on .active so the .screen{display:none} rule isn't lost to ID specificity */
+#screen-song { height: 100vh; height: 100dvh; }
+#screen-song.active { display: flex; flex-direction: column; }
+.song-nav {
+  height: calc(50px + var(--safe-top)); padding: var(--safe-top) 8px 0;
+  display: flex; align-items: center; gap: 6px;
+  background: var(--nav-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-bottom: .5px solid var(--sep); flex: none; z-index: 5;
+}
+.song-nav .icon-btn { width: 40px; height: 40px; border-radius: 10px; font-size: 22px; color: var(--tint); display: flex; align-items: center; justify-content: center; }
+.song-nav .title { flex: 1; text-align: center; font-size: 16px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
+.song-body { flex: 1; display: flex; min-height: 0; position: relative; }
+
+/* lyrics editor */
+#lyricsEditor {
+  flex: 1; overflow-y: auto; padding: 18px 16px 40vh; outline: none;
+  font-size: 16px; line-height: 1.7; color: var(--text); -webkit-overflow-scrolling: touch;
+}
+#lyricsEditor:empty::before { content: attr(data-placeholder); color: var(--text-3); }
+#lyricsEditor div { min-height: 1.2em; }
+
+/* recording rail */
+.rail {
+  width: 52px; flex: none; background: var(--bg-elev); border-left: .5px solid var(--sep);
+  display: flex; flex-direction: column; align-items: center; padding: 12px 0 calc(14px + var(--safe-bottom));
+  gap: 10px; z-index: 6;
+}
+.rec-btn { width: 40px; height: 40px; border-radius: 50%; background: var(--red); border: 3px solid var(--bg-elev); outline: 2px solid var(--red); flex: none; transition: border-radius .18s ease, transform .1s ease; }
+.rec-btn:active { transform: scale(.92); }
+.rec-btn.recording { border-radius: 9px; outline-offset: 0; animation: recpulse 1.4s ease-in-out infinite; }
+@keyframes recpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,59,48,.5); } 50% { box-shadow: 0 0 0 7px rgba(255,59,48,0); } }
+.rail .timer { font-size: 10px; color: var(--text-2); font-variant-numeric: tabular-nums; min-height: 12px; }
+.rail .pt-btn { width: 38px; height: 38px; border-radius: 50%; background: var(--tint); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; flex: none; }
+.rail .pt-btn.disabled { background: var(--bg-input); color: var(--text-3); }
+.rail .divider { width: 28px; height: .5px; background: var(--sep); flex: none; }
+.rail .takes-btn {
+  writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg);
+  font-size: 12px; font-weight: 700; color: var(--tint); background: var(--tint-bg);
+  padding: 12px 7px; border-radius: 12px; margin-top: auto; flex: none; max-height: 50%;
+  display: flex; align-items: center; justify-content: center; gap: 6px; overflow: hidden;
+  white-space: nowrap;
+}
+.rail .takes-btn .tk-name { color: var(--text-2); font-weight: 600; max-height: 120px; overflow: hidden; text-overflow: ellipsis; }
+
+/* takes panel (slides over lyrics) */
+#takesPanel {
+  position: absolute; top: 0; left: 0; bottom: 0; right: 52px; background: var(--bg-elev);
+  box-shadow: -2px 0 20px rgba(0,0,0,.14); transform: translateX(calc(100% + 52px)); transition: transform .26s cubic-bezier(.2,.8,.2,1);
+  display: flex; flex-direction: column; z-index: 7;
+}
+#takesPanel.open { transform: translateX(0); }
+.tp-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; flex: none; }
+.tp-head h3 { font-size: 20px; font-weight: 700; color: var(--text); }
+.tp-head .done { color: var(--tint); font-size: 16px; font-weight: 600; }
+.boost-row { margin: 0 16px 8px; display: flex; align-items: center; gap: 10px; padding: 11px 14px; background: var(--bg); border-radius: 12px; flex: none; }
+.boost-row .lab { flex: 1; font-weight: 700; font-size: 14px; color: var(--text); }
+.boost-row .lab small { display: block; font-weight: 500; font-size: 11px; color: var(--text-2); margin-top: 1px; }
+.toggle { width: 50px; height: 30px; border-radius: 16px; background: var(--bg-input); position: relative; flex: none; transition: background .2s ease; }
+.toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .2s ease; }
+.toggle.on { background: var(--green); }
+.toggle.on::after { transform: translateX(20px); }
+.tp-list { flex: 1; overflow-y: auto; padding: 2px 12px calc(16px + var(--safe-bottom)); }
+.tp-empty { text-align: center; color: var(--text-2); font-size: 14px; padding: 40px 20px; }
+.take-row { position: relative; overflow: hidden; border-radius: 14px; margin-bottom: 8px; }
+.take-actions { position: absolute; top: 0; right: 0; bottom: 0; display: flex; z-index: 1; }
+.take-actions button { width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #fff; font-size: 12px; font-weight: 700; background: var(--red); }
+.take-card { position: relative; z-index: 2; background: var(--bg); display: flex; align-items: center; gap: 11px; padding: 11px 12px; transition: transform .22s cubic-bezier(.2,.8,.2,1); touch-action: pan-y; }
+.take-card.sel { background: var(--tint-bg); }
+.take-card .play { width: 34px; height: 34px; border-radius: 50%; background: var(--tint); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; flex: none; }
+.take-card.playing .play { background: var(--red); }
+.take-card .meta { flex: 1; min-width: 0; }
+.take-card .nm { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.take-card .nm[contenteditable] { outline: none; border-bottom: 1.5px solid var(--tint); white-space: normal; }
+.take-card .sub { font-size: 11px; color: var(--text-2); margin-top: 2px; }
+.take-card .loop { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; color: var(--text-3); flex: none; }
+.take-card .loop.on { color: var(--green); }
+.take-card .loop svg { width: 18px; height: 18px; }
+
+/* menu sheet (bottom) */
+#menuSheet { position: fixed; inset: 0; z-index: 1100; display: none; }
+#menuSheet.open { display: block; }
+#menuSheet .backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.3); opacity: 0; transition: opacity .25s ease; }
+#menuSheet.open .backdrop { opacity: 1; }
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; background: var(--bg-elev);
+  border-radius: 18px 18px 0 0; padding: 8px 0 calc(10px + var(--safe-bottom));
+  transform: translateY(100%); transition: transform .28s cubic-bezier(.2,.85,.25,1);
+  max-height: 80vh; overflow-y: auto;
+}
+#menuSheet.open .sheet { transform: translateY(0); }
+.sheet-grab { width: 38px; height: 5px; border-radius: 3px; background: var(--sep); margin: 8px auto 6px; }
+.sheet-item { display: flex; align-items: center; gap: 14px; padding: 15px 20px; border-top: .5px solid var(--sep-soft); font-size: 16px; color: var(--text); }
+.sheet-item:first-of-type { border-top: none; }
+.sheet-item .ic { width: 26px; text-align: center; font-size: 19px; }
+.sheet-item .val { margin-left: auto; color: var(--text-2); font-size: 15px; display: flex; align-items: center; gap: 4px; }
+.sheet-item .chev { color: var(--text-3); }
+
+/* key picker list */
+.key-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 6px 16px 16px; }
+.key-opt { padding: 12px; border-radius: 10px; background: var(--bg); text-align: center; font-size: 15px; font-weight: 600; color: var(--text); }
+.key-opt.sel { background: var(--tint); color: #fff; }
+.sheet-back { display: flex; align-items: center; gap: 6px; color: var(--tint); font-size: 16px; font-weight: 600; padding: 10px 16px 4px; }
+</style>
+</head>
+<body>
+
+<!-- ───────────────────────── Landing / auth ───────────────────────── -->
+<div id="landing">
+  <div class="brand">
+    <div class="logo">🎵 Drafthaus</div>
+    <div class="lite">Lite</div>
+    <div class="tag">Record &amp; write. Your songs, everywhere.</div>
+  </div>
+  <div class="auth-card">
+    <button class="auth-btn google" onclick="authGoogle()">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Continue with Google
+    </button>
+    <div class="auth-divider">or</div>
+    <form id="emailForm" onsubmit="return authEmailSubmit(event)">
+      <input class="auth-field" id="authEmail" type="email" placeholder="Email" autocomplete="email" required>
+      <input class="auth-field" id="authPass" type="password" placeholder="Password" autocomplete="current-password" required>
+      <div class="auth-error" id="authError"></div>
+      <button class="auth-btn primary" id="authSubmitBtn" type="submit">Sign in</button>
+    </form>
+    <div class="auth-toggle" id="authToggle" onclick="authToggleMode()">
+      New here? <b>Create an account</b>
+    </div>
+    <div class="auth-divider">or</div>
+    <button class="auth-btn ghost" onclick="authGuest()">Continue as guest</button>
+  </div>
+</div>
+
+<!-- ───────────────────────── App ───────────────────────── -->
+<div id="app">
+  <!-- Song list (home) -->
+  <section id="screen-songlist" class="screen active">
+    <div class="lg-title">Songs <button class="add" onclick="createSong()" aria-label="New song">＋</button></div>
+    <div class="searchbar">🔍 <input id="songSearch" placeholder="Search" oninput="renderSongList()"></div>
+    <div id="songListBody">
+      <div class="center-load"><div class="spinner"></div></div>
+    </div>
+  </section>
+
+  <!-- Song (lyrics + recording) -->
+  <section id="screen-song" class="screen">
+    <div class="song-nav">
+      <button class="icon-btn" onclick="openMenu()" aria-label="Menu">☰</button>
+      <div class="title" id="songTitle" onclick="renameSongPrompt()">Untitled</div>
+      <button class="icon-btn" onclick="goHome()" aria-label="Back to songs" style="font-size:15px;font-weight:600;">Songs</button>
+    </div>
+    <div class="song-body">
+      <div id="lyricsEditor" contenteditable="true" spellcheck="true"
+           data-placeholder="Tap to write your lyrics…"
+           oninput="onLyricsInput()" onblur="flushLyrics()"></div>
+
+      <!-- takes panel -->
+      <div id="takesPanel">
+        <div class="tp-head"><h3>Takes</h3><button class="done" onclick="toggleTakes()">Done</button></div>
+        <div class="boost-row">
+          <div class="lab">⚡ Boost <small>Louder playback for quiet takes</small></div>
+          <div class="toggle" id="boostToggle" onclick="toggleBoost()"></div>
+        </div>
+        <div class="tp-list" id="takesList"></div>
+      </div>
+
+      <!-- recording rail -->
+      <div class="rail">
+        <button class="rec-btn" id="recBtn" onclick="toggleRecord()" aria-label="Record"></button>
+        <div class="timer" id="recTimer"></div>
+        <div class="divider"></div>
+        <button class="pt-btn disabled" id="playBtn" onclick="railPlayToggle()" aria-label="Play">▶</button>
+        <button class="takes-btn" onclick="toggleTakes()">Takes ◂ <span class="tk-name" id="railTakeName">Empty</span></button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ☰ Menu sheet -->
+<div id="menuSheet">
+  <div class="backdrop" onclick="closeMenu()"></div>
+  <div class="sheet" id="menuSheetInner"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ═══════════════════════════ Firebase (shared with full Drafthaus) ═══════════════════════════ */
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyAkQOyqAA0E_vw9Xdgz9LIG5C0ZwGAmgFc",
+  authDomain:        "drafthaus-ca18c.firebaseapp.com",
+  projectId:         "drafthaus-ca18c",
+  storageBucket:     "drafthaus-ca18c.firebasestorage.app",
+  messagingSenderId: "1010933852221",
+  appId:             "1:1010933852221:web:c45dfa51bf597955182254",
+  measurementId:     "G-9DK5WR93W4"
+};
+firebase.initializeApp(FIREBASE_CONFIG);
+const auth = firebase.auth();
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+const db = firebase.firestore();
+try { db.settings({ experimentalForceLongPolling: true }); } catch(e) {}
+
+function uid() { return auth.currentUser ? auth.currentUser.uid : null; }
+
+/* ═══════════════════════════ Toast ═══════════════════════════ */
+let _toastTimer = null;
+function toast(msg, ms) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('show'), ms || 1800);
+}
+
+/* ═══════════════════════════ Auth ═══════════════════════════ */
+let _authMode = 'signin'; // 'signin' | 'signup'
+
+function authToggleMode() {
+  _authMode = (_authMode === 'signin') ? 'signup' : 'signin';
+  document.getElementById('authSubmitBtn').textContent = _authMode === 'signin' ? 'Sign in' : 'Create account';
+  document.getElementById('authToggle').innerHTML = _authMode === 'signin'
+    ? 'New here? <b>Create an account</b>'
+    : 'Already have an account? <b>Sign in</b>';
+  document.getElementById('authPass').setAttribute('autocomplete', _authMode === 'signin' ? 'current-password' : 'new-password');
+  document.getElementById('authError').textContent = '';
+}
+
+function _authErr(e) {
+  const map = {
+    'auth/invalid-email': 'That email doesn\'t look right.',
+    'auth/user-not-found': 'No account with that email.',
+    'auth/wrong-password': 'Incorrect password.',
+    'auth/invalid-credential': 'Email or password is incorrect.',
+    'auth/email-already-in-use': 'That email already has an account — try signing in.',
+    'auth/weak-password': 'Password should be at least 6 characters.',
+    'auth/popup-closed-by-user': '',
+    'auth/network-request-failed': 'Network error — check your connection.',
+  };
+  const m = map[e && e.code];
+  document.getElementById('authError').textContent = (m !== undefined) ? m : (e && e.message ? e.message : 'Something went wrong.');
+}
+
+function authGoogle() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  auth.signInWithPopup(provider).catch(_authErr);
+}
+function authEmailSubmit(ev) {
+  ev.preventDefault();
+  const email = document.getElementById('authEmail').value.trim();
+  const pass  = document.getElementById('authPass').value;
+  document.getElementById('authError').textContent = '';
+  const p = (_authMode === 'signin')
+    ? auth.signInWithEmailAndPassword(email, pass)
+    : auth.createUserWithEmailAndPassword(email, pass);
+  p.catch(_authErr);
+  return false;
+}
+function authGuest() { auth.signInAnonymously().catch(_authErr); }
+function signOut() { auth.signOut(); }
+
+/* ═══════════════════════════ Song data ═══════════════════════════ */
+const TILE_COLORS = [
+  ['#007aff','#34c759'], ['#ff9500','#ff3b30'], ['#5856d6','#af52de'],
+  ['#34c759','#30b0c7'], ['#ff2d55','#ff9500'], ['#8e8e93','#636366'],
+];
+let _songs = [];          // local cache of the user's song docs
+let _songsLoaded = false;  // false until the first songs snapshot resolves
+let _songsUnsub = null;
+
+function _tileGradient(song) {
+  const idx = (typeof song.tileColor === 'number') ? song.tileColor
+            : _autoColorIdx(song.id || song.title || '');
+  const c = TILE_COLORS[idx % TILE_COLORS.length];
+  return `linear-gradient(135deg, ${c[0]}, ${c[1]})`;
+}
+function _autoColorIdx(seed) {
+  let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return h % TILE_COLORS.length;
+}
+function _relTime(ms) {
+  if (!ms) return 'never';
+  const d = (typeof ms === 'object' && ms.toDate) ? ms.toDate() : new Date(ms);
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000), hrs = Math.floor(diff / 3600000), days = Math.floor(diff / 86400000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  if (hrs < 24) return hrs + 'h ago';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return days + ' days ago';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function startSongsListener() {
+  if (_songsUnsub) { _songsUnsub(); _songsUnsub = null; }
+  const u = uid();
+  if (!u) return;
+  _songsUnsub = db.collection('songs').where('ownerId', '==', u)
+    .onSnapshot(snap => {
+      _songs = [];
+      snap.forEach(doc => {
+        const d = doc.data();
+        if (d.trashed) return;
+        _songs.push(Object.assign({ id: doc.id }, d));
+      });
+      _songsLoaded = true;
+      _fetchTakeCounts(_songs.map(s => s.id));
+      renderSongList();
+    }, err => {
+      console.warn('[songs] snapshot error', err);
+      document.getElementById('songListBody').innerHTML =
+        '<div class="sl-empty">Couldn\'t load songs.<br>' + (err.code || '') + '</div>';
+    });
+}
+
+let _takeCounts = {};   // songId -> count
+async function _fetchTakeCounts(ids) {
+  if (!ids.length) return;
+  try {
+    for (let i = 0; i < ids.length; i += 10) {
+      const chunk = ids.slice(i, i + 10);
+      const snap = await db.collection('voice_takes').where('songId', 'in', chunk).get();
+      chunk.forEach(id => { _takeCounts[id] = 0; });
+      snap.forEach(doc => { const sid = doc.data().songId; _takeCounts[sid] = (_takeCounts[sid] || 0) + 1; });
+    }
+    renderSongList();
+  } catch (e) { /* permission noise in guest mode is fine */ }
+}
+
+function _sortedSongs() {
+  const q = (document.getElementById('songSearch')?.value || '').trim().toLowerCase();
+  let list = _songs.slice();
+  if (q) list = list.filter(s => (s.title || '').toLowerCase().includes(q));
+  const pinned = list.filter(s => s.pinned).sort((a, b) => (a.pinOrder || 0) - (b.pinOrder || 0));
+  const rest   = list.filter(s => !s.pinned).sort((a, b) => _ms(b.updatedAt) - _ms(a.updatedAt));
+  return { pinned, rest };
+}
+function _ms(v) { return (v && v.toDate) ? v.toDate().getTime() : (v || 0); }
+
+function renderSongList() {
+  const body = document.getElementById('songListBody');
+  if (!_songsLoaded) {
+    body.innerHTML = '<div class="center-load"><div class="spinner"></div></div>';
+    return;
+  }
+  if (!_songs.length) {
+    body.innerHTML = '<div class="sl-empty">No songs yet.<br>Tap ＋ to start your first one.</div>';
+    return;
+  }
+  const { pinned, rest } = _sortedSongs();
+  let html = '';
+  if (pinned.length) {
+    html += '<div class="sl-section">📌 Pinned</div><div class="sl-group">' + pinned.map(s => _songRow(s, true)).join('') + '</div>';
+  }
+  if (rest.length) {
+    if (pinned.length) html += '<div class="sl-section">Recent</div>';
+    html += '<div class="sl-group">' + rest.map(s => _songRow(s, false)).join('') + '</div>';
+  }
+  if (!pinned.length && !rest.length) {
+    html = '<div class="sl-empty">No matches.</div>';
+  }
+  body.innerHTML = html;
+}
+
+function _songRow(s, isPinned) {
+  const initial = (s.title || '·').trim().charAt(0).toUpperCase() || '·';
+  const takes = _takeCounts[s.id];
+  const takeStr = (takes === undefined) ? '…' : (takes === 0 ? 'no takes' : takes + (takes === 1 ? ' take' : ' takes'));
+  const sub = takeStr + ' · ' + _relTime(s.updatedAt);
+  return `
+    <div class="sl-row" data-id="${s.id}">
+      <div class="sl-actions">
+        <button class="act-pin" onclick="togglePin('${s.id}', event)">📌<span>${isPinned ? 'Unpin' : 'Pin'}</span></button>
+        <button class="act-del" onclick="deleteSong('${s.id}', event)">🗑<span>Delete</span></button>
+      </div>
+      <div class="sl-card" onclick="openSong('${s.id}')">
+        <div class="tile" style="background:${_tileGradient(s)}" onclick="openColorPicker('${s.id}', event)">
+          ${initial}${isPinned ? '<span class="pin-badge">📌</span>' : ''}
+        </div>
+        <div class="meta"><div class="nm">${_esc(s.title || 'Untitled')}</div><div class="sub">${sub}</div></div>
+        <span class="${isPinned ? 'grip' : 'chev'}">${isPinned ? '≡' : '›'}</span>
+      </div>
+    </div>`;
+}
+function _esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ── Song actions ── */
+async function createSong() {
+  const u = uid(); if (!u) return;
+  const now = Date.now();
+  const ref = db.collection('songs').doc();
+  const song = { id: ref.id, ownerId: u, title: 'Untitled', key: '', lyricsDoc: '',
+                 createdAt: now, updatedAt: now, sharedWith: [], sharedReadOnly: [] };
+  try { await ref.set(song, { merge: true }); _songs.unshift(song); _openSongObj(song); }
+  catch (e) { toast('Could not create song'); console.warn(e); }
+}
+
+async function togglePin(id, ev) {
+  if (ev) ev.stopPropagation();
+  const s = _songs.find(x => x.id === id); if (!s) return;
+  const willPin = !s.pinned;
+  const maxOrder = Math.max(0, ..._songs.filter(x => x.pinned).map(x => x.pinOrder || 0));
+  try {
+    await db.collection('songs').doc(id).set({ pinned: willPin, pinOrder: willPin ? maxOrder + 1 : 0 }, { merge: true });
+    _closeSwipe();
+  } catch (e) { toast('Could not update pin'); }
+}
+
+async function deleteSong(id, ev) {
+  if (ev) ev.stopPropagation();
+  const s = _songs.find(x => x.id === id);
+  if (!confirm('Delete "' + (s?.title || 'this song') + '"? This also removes its takes.')) { _closeSwipe(); return; }
+  try {
+    await db.collection('songs').doc(id).set({ trashed: true, trashedAt: Date.now() }, { merge: true });
+    toast('Moved to trash');
+  } catch (e) { toast('Could not delete'); }
+}
+
+/* ── Color picker ── */
+let _colorTargetId = null;
+function openColorPicker(id, ev) {
+  if (ev) ev.stopPropagation();
+  _colorTargetId = id;
+  const s = _songs.find(x => x.id === id);
+  const cur = (typeof s.tileColor === 'number') ? s.tileColor : _autoColorIdx(s.id || s.title || '');
+  const back = document.createElement('div');
+  back.className = 'popover-backdrop';
+  back.onclick = (e) => { if (e.target === back) back.remove(); };
+  back.innerHTML = '<div class="popover"><h4>Tile color</h4><div class="swatches">' +
+    TILE_COLORS.map((c, i) => `<div class="swatch ${i === cur ? 'sel' : ''}" style="background:linear-gradient(135deg,${c[0]},${c[1]})" onclick="pickColor(${i})"></div>`).join('') +
+    '</div></div>';
+  document.body.appendChild(back);
+}
+async function pickColor(idx) {
+  document.querySelector('.popover-backdrop')?.remove();
+  if (!_colorTargetId) return;
+  try { await db.collection('songs').doc(_colorTargetId).set({ tileColor: idx }, { merge: true }); }
+  catch (e) { toast('Could not set color'); }
+}
+
+/* ═══════════════════════════ Screen routing ═══════════════════════════ */
+let _currentSong = null;      // working copy of the open song
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+}
+function openSong(id) {
+  const s = _songs.find(x => x.id === id);
+  if (s) _openSongObj(s);
+}
+function _openSongObj(s) {
+  _currentSong = Object.assign({}, s);
+  _loadedTakeId = null; _selectNewest = false; _loopTakes = new Set();
+  document.getElementById('songTitle').textContent = s.title || 'Untitled';
+  document.getElementById('lyricsEditor').innerHTML = ilSanitizeDocHtml(ilGetDocHtml(s));
+  document.getElementById('takesPanel').classList.remove('open');
+  updateBoostUI();
+  startTakesListener(s.id);
+  showScreen('song');
+}
+function goHome() {
+  flushLyrics(); stopPlayback(); stopTakesListener();
+  _currentSong = null;
+  showScreen('songlist');
+}
+
+/* ═══════════════════════════ Lyrics (reuses Drafthaus lyricsDoc machinery) ═══════════════════════════ */
+const esc = _esc;
+const PARTS = {
+  'intro':{label:'Intro',color:'#5cb85c'},'verse-1':{label:'Verse 1',color:'#6aabee'},
+  'verse-2':{label:'Verse 2',color:'#5596d8'},'verse-3':{label:'Verse 3',color:'#4282c2'},
+  'verse-4':{label:'Verse 4',color:'#3070ad'},'pre-chorus':{label:'Pre-Chorus 1',color:'#b794f4'},
+  'pre-chorus-2':{label:'Pre-Chorus 2',color:'#9e7ae0'},'pre-chorus-3':{label:'Pre-Chorus 3',color:'#8460cb'},
+  'chorus-1':{label:'Chorus 1',color:'#ff6b8a'},'chorus-2':{label:'Chorus 2',color:'#e8527a'},
+  'chorus-3':{label:'Chorus 3',color:'#d1406a'},'post-chorus':{label:'Post-Chorus',color:'#f5a623'},
+  'bridge':{label:'Bridge',color:'#4dc9b0'},'breakdown':{label:'Breakdown',color:'#40d0d0'},
+  'hook':{label:'Hook',color:'#ff80b0'},'solo':{label:'Solo',color:'#ff7070'},
+  'instrumental':{label:'Instrumental',color:'#ff9500'},'outro':{label:'Outro',color:'#6aabee'},
+};
+function _prettyId(id) { return String(id).replace(/-/g,' ').replace(/\b\w/g, c => c.toUpperCase()); }
+
+function ilSanitizeDocHtml(html) {
+  if (!html) return '';
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(html);
+  const ALLOWED_TAGS = new Set(['B','I','U','STRONG','EM','SPAN','DIV','BR','H1','H2','H3','P','FONT']);
+  const ALLOWED_STYLE = ['color','background-color','background','font-size','font-family','font-weight','font-style','text-decoration'];
+  const walk = (node) => {
+    for (const el of Array.from(node.childNodes)) {
+      if (el.nodeType === Node.COMMENT_NODE) { el.remove(); continue; }
+      if (el.nodeType !== Node.ELEMENT_NODE) continue;
+      if (!ALLOWED_TAGS.has(el.tagName)) { while (el.firstChild) node.insertBefore(el.firstChild, el); el.remove(); continue; }
+      for (const attr of Array.from(el.attributes)) {
+        const n = attr.name.toLowerCase();
+        if (n === 'class') continue;
+        if (n === 'color' || n === 'face' || n === 'size') continue;
+        if (n === 'style') {
+          const clean = attr.value.split(';').map(s => s.trim()).filter(s => ALLOWED_STYLE.includes(s.split(':')[0].trim().toLowerCase())).join('; ');
+          if (clean) el.setAttribute('style', clean); else el.removeAttribute('style');
+          continue;
+        }
+        el.removeAttribute(attr.name);
+      }
+      walk(el);
+    }
+  };
+  walk(tpl.content);
+  return tpl.innerHTML;
+}
+function ilDocToPlainText(html) {
+  if (!html) return '';
+  const div = document.createElement('div');
+  div.innerHTML = String(html);
+  div.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+  div.querySelectorAll('div,p,h1,h2,h3').forEach(b => b.append('\n'));
+  return (div.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+}
+function ilDocHasContent(html) { return ilDocToPlainText(html).length > 0; }
+function ilMigrateLyricsToDoc(song) {
+  const legacy = song.lyrics || {};
+  const order = (song.sectionOrder && song.sectionOrder.length) ? song.sectionOrder : Object.keys(legacy);
+  const blocks = [];
+  for (const pid of order) {
+    const text = (legacy[pid] || '').trim(); if (!text) continue;
+    const part = PARTS[pid]; const label = part ? part.label : _prettyId(pid); const color = part ? part.color : '#c8a96e';
+    blocks.push(`<div style="font-weight:700;color:${color}">${esc(label)}</div>`);
+    for (const line of text.split('\n')) blocks.push(line.trim() ? `<div>${esc(line)}</div>` : '<div><br></div>');
+    blocks.push('<div><br></div>');
+  }
+  return ilSanitizeDocHtml(blocks.join(''));
+}
+function ilGetDocHtml(song) {
+  if (!song) return '';
+  if (typeof song.lyricsDoc === 'string' && song.lyricsDoc.trim()) return song.lyricsDoc;
+  const hasLegacy = song.lyrics && Object.values(song.lyrics).some(v => v && String(v).trim());
+  if (hasLegacy) return ilMigrateLyricsToDoc(song);
+  return song.lyricsDoc || '';
+}
+function _ilCommitDoc(html, song) {
+  if (!ilDocHasContent(html)) {
+    const hadDoc = typeof song.lyricsDoc === 'string' && song.lyricsDoc.trim();
+    const hasLegacy = song.lyrics && Object.values(song.lyrics).some(v => v && String(v).trim());
+    if (hadDoc || hasLegacy) return false;
+  }
+  song.lyricsDoc = html; song.lyricsDocInit = true; return true;
+}
+let _lyricsTimer = null;
+function onLyricsInput() { clearTimeout(_lyricsTimer); _lyricsTimer = setTimeout(flushLyrics, 900); }
+async function flushLyrics() {
+  clearTimeout(_lyricsTimer);
+  const ed = document.getElementById('lyricsEditor');
+  if (!_currentSong || !ed) return;
+  const html = ilSanitizeDocHtml(ed.innerHTML);
+  if (!_ilCommitDoc(html, _currentSong)) return;
+  try { await db.collection('songs').doc(_currentSong.id).set({ lyricsDoc: _currentSong.lyricsDoc, lyricsDocInit: true, updatedAt: Date.now() }, { merge: true }); }
+  catch (e) { console.warn('[lyrics] save', e); }
+}
+async function renameSongPrompt() {
+  if (!_currentSong) return;
+  const name = prompt('Song title', _currentSong.title || 'Untitled');
+  if (name == null) return;
+  const t = name.trim() || 'Untitled';
+  _currentSong.title = t;
+  document.getElementById('songTitle').textContent = t;
+  try { await db.collection('songs').doc(_currentSong.id).set({ title: t, updatedAt: Date.now() }, { merge: true }); } catch (e) {}
+}
+
+/* ═══════════════════════════ Take date / name formatting ═══════════════════════════ */
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function _ordinal(n) { const s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+function fmtTakeDate(date, withYear) {
+  if (!date) return '';
+  let h = date.getHours(); const m = date.getMinutes(); const ap = h >= 12 ? 'pm' : 'am'; h = h % 12; if (h === 0) h = 12;
+  const time = h + ':' + String(m).padStart(2, '0') + ap;
+  const md = MONTHS[date.getMonth()] + ' ' + _ordinal(date.getDate()) + (withYear ? ', ' + date.getFullYear() : '');
+  return md + ' - ' + time;
+}
+function _takeDate(t) { return (t.createdAt && t.createdAt.toDate) ? t.createdAt.toDate() : new Date(t._localTs || Date.now()); }
+function takeDisplayName(t, withYear) {
+  const d = fmtTakeDate(_takeDate(t), withYear);
+  return (t.name && t.name.trim()) ? (t.name.trim() + ' - ' + d) : d;
+}
+function _fmtClock(s) { return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0'); }
+
+/* ═══════════════════════════ Takes (flat list of voice_takes) ═══════════════════════════ */
+const LOOP_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>';
+let _takes = [], _takesUnsub = null, _loadedTakeId = null, _loopTakes = new Set(), _selectNewest = false;
+
+function startTakesListener(songId) {
+  stopTakesListener();
+  _takes = []; renderTakes(); updateRail();
+  _takesUnsub = db.collection('voice_takes').where('songId', '==', songId).onSnapshot(snap => {
+    const arr = []; snap.forEach(d => arr.push(Object.assign({ id: d.id }, d.data())));
+    arr.sort((a, b) => _ms(b.createdAt) - _ms(a.createdAt));
+    _takes = arr;
+    if (_selectNewest && _takes[0]) { _loadedTakeId = _takes[0].id; _selectNewest = false; }
+    if (!_takes.find(t => t.id === _loadedTakeId)) _loadedTakeId = _takes[0] ? _takes[0].id : null;
+    renderTakes(); updateRail();
+  }, e => { console.warn('[takes] snapshot', e); });
+}
+function stopTakesListener() { if (_takesUnsub) { _takesUnsub(); _takesUnsub = null; } }
+
+function renderTakes() {
+  const list = document.getElementById('takesList');
+  if (!list) return;
+  if (!_takes.length) { list.innerHTML = '<div class="tp-empty">No takes yet.<br>Tap the red button to record.</div>'; return; }
+  list.innerHTML = _takes.map(t => {
+    const playing = _playingTakeId === t.id, sel = _loadedTakeId === t.id, looping = _loopTakes.has(t.id);
+    const dur = t.duration ? _fmtClock(t.duration) : '';
+    return `<div class="take-row" data-id="${t.id}">
+      <div class="take-actions"><button onclick="deleteTake('${t.id}',event)">🗑<span>Delete</span></button></div>
+      <div class="take-card ${sel ? 'sel' : ''} ${playing ? 'playing' : ''}" onclick="selectTake('${t.id}')">
+        <button class="play" onclick="takeRowPlay('${t.id}',event)">${playing ? '⏹' : '▶'}</button>
+        <div class="meta">
+          <div class="nm" onclick="startRename('${t.id}',this,event)">${esc(takeDisplayName(t, true))}</div>
+          <div class="sub">${dur}${sel ? ' · loaded' : ''}</div>
+        </div>
+        <button class="loop ${looping ? 'on' : ''}" onclick="toggleLoop('${t.id}',event)" aria-label="Loop">${LOOP_SVG}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function toggleTakes() { document.getElementById('takesPanel').classList.toggle('open'); }
+function selectTake(id) { _loadedTakeId = id; renderTakes(); updateRail(); }
+function updateRail() {
+  const nameEl = document.getElementById('railTakeName');
+  const t = _takes.find(x => x.id === _loadedTakeId) || _takes[0];
+  if (nameEl) nameEl.textContent = t ? takeDisplayName(t, false) : 'Empty';
+  updateRailPlayBtn();
+}
+function updateRailPlayBtn() {
+  const b = document.getElementById('playBtn'); if (!b) return;
+  b.classList.toggle('disabled', _takes.length === 0);
+  b.textContent = _playingTakeId ? '⏹' : '▶';
+}
+
+/* ── Rename ── */
+function startRename(id, el, ev) {
+  if (ev) ev.stopPropagation();
+  const t = _takes.find(x => x.id === id); if (!t) return;
+  el.textContent = (t.name && t.name.trim()) ? t.name.trim() : '';
+  el.setAttribute('contenteditable', 'true');
+  el.dataset.renaming = '1';
+  el.focus();
+  const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  el.onblur = () => commitRename(id, el);
+  el.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } };
+}
+async function commitRename(id, el) {
+  el.removeAttribute('contenteditable'); el.onblur = null; el.onkeydown = null; delete el.dataset.renaming;
+  const name = el.textContent.trim();
+  try { await db.collection('voice_takes').doc(id).set({ name }, { merge: true }); }
+  catch (e) { toast('Rename failed'); renderTakes(); }
+}
+/* ── Loop ── */
+function toggleLoop(id, ev) {
+  if (ev) ev.stopPropagation();
+  if (_loopTakes.has(id)) _loopTakes.delete(id); else _loopTakes.add(id);
+  if (_playingTakeId === id && _curSource) _curSource.loop = _loopTakes.has(id);
+  renderTakes();
+}
+/* ── Delete ── */
+async function deleteTake(id, ev) {
+  if (ev) ev.stopPropagation();
+  const t = _takes.find(x => x.id === id); if (!t) return;
+  if (!confirm('Delete this take? This cannot be undone.')) return;
+  if (_playingTakeId === id) stopPlayback();
+  try {
+    if (t.storagePath) firebase.storage().ref(t.storagePath).delete().catch(() => {});
+    await db.collection('voice_takes').doc(id).delete();
+    toast('Take deleted');
+  } catch (e) { toast('Delete failed'); }
+}
+
+/* ═══════════════════════════ Playback (WebAudio — supports Boost gain + loop) ═══════════════════════════ */
+let _audioCtx = null, _curSource = null, _curGain = null, _playingTakeId = null, _bufCache = {};
+function ensureCtx() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+async function _getBuffer(take) {
+  if (_bufCache[take.id]) return _bufCache[take.id];
+  const ctx = ensureCtx();
+  const resp = await fetch(take.downloadUrl);
+  const ab = await resp.arrayBuffer();
+  const buffer = await ctx.decodeAudioData(ab);
+  let peak = 0; const ch = buffer.getChannelData(0);
+  for (let i = 0; i < ch.length; i += 64) { const a = Math.abs(ch[i]); if (a > peak) peak = a; }
+  const normGain = peak > 0 ? Math.min(0.9 / peak, 4) : 1;
+  _bufCache[take.id] = { buffer, normGain };
+  return _bufCache[take.id];
+}
+function stopPlayback() {
+  if (_curSource) { try { _curSource.onended = null; _curSource.stop(); } catch (e) {} _curSource = null; _curGain = null; }
+  _playingTakeId = null; updateRailPlayBtn(); renderTakes();
+}
+async function playTake(id) {
+  stopPlayback();
+  const take = _takes.find(t => t.id === id); if (!take) return;
+  _loadedTakeId = id;
+  const ctx = ensureCtx();
+  let entry;
+  try { entry = await _getBuffer(take); } catch (e) { console.warn('[play]', e); toast('Could not load take'); return; }
+  const src = ctx.createBufferSource(); src.buffer = entry.buffer; src.loop = _loopTakes.has(id);
+  const g = ctx.createGain(); g.gain.value = (_currentSong && _currentSong.boost) ? entry.normGain : 1;
+  src.connect(g).connect(ctx.destination);
+  src.onended = () => { if (_playingTakeId === id && !src.loop) { _playingTakeId = null; updateRailPlayBtn(); renderTakes(); } };
+  src.start();
+  _curSource = src; _curGain = g; _playingTakeId = id;
+  updateRailPlayBtn(); renderTakes(); updateRail();
+}
+function takeRowPlay(id, ev) {
+  if (ev) ev.stopPropagation();
+  if (_playingTakeId === id) { stopPlayback(); return; }
+  playTake(id);
+}
+function railPlayToggle() {
+  if (_playingTakeId) { stopPlayback(); return; }
+  const id = _loadedTakeId || (_takes[0] && _takes[0].id);
+  if (!id) { toast('No takes yet — tap the red button to record'); return; }
+  playTake(id);
+}
+
+/* ═══════════════════════════ Recording ═══════════════════════════ */
+let _mediaRec = null, _recChunks = [], _recStart = 0, _recTimerId = null, _recStream = null, _recording = false;
+async function toggleRecord() {
+  if (_recording) { stopRecord(); return; }
+  await startRecord();
+}
+async function startRecord() {
+  if (_recording) return;
+  stopPlayback();
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+  catch (e) { toast('Microphone blocked — allow mic access'); return; }
+  _recStream = stream;
+  const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(t => { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || '';
+  _recChunks = [];
+  try { _mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); }
+  catch (e) { toast('Recording not supported here'); stream.getTracks().forEach(t => t.stop()); return; }
+  _mediaRec.ondataavailable = e => { if (e.data && e.data.size) _recChunks.push(e.data); };
+  _mediaRec.onstop = onRecStop;
+  _mediaRec.start();
+  _recording = true; _recStart = Date.now();
+  document.getElementById('recBtn').classList.add('recording');
+  document.getElementById('recTimer').textContent = '0:00';
+  _recTimerId = setInterval(() => {
+    document.getElementById('recTimer').textContent = _fmtClock((Date.now() - _recStart) / 1000);
+  }, 250);
+}
+function stopRecord() {
+  if (!_recording || !_mediaRec) return;
+  _recording = false;
+  clearInterval(_recTimerId); _recTimerId = null;
+  document.getElementById('recBtn').classList.remove('recording');
+  try { _mediaRec.stop(); } catch (e) {}
+}
+async function onRecStop() {
+  const dur = (Date.now() - _recStart) / 1000;
+  document.getElementById('recTimer').textContent = '';
+  if (_recStream) { _recStream.getTracks().forEach(t => t.stop()); _recStream = null; }
+  const mime = (_mediaRec && _mediaRec.mimeType) || 'audio/webm';
+  const blob = new Blob(_recChunks, { type: mime });
+  _recChunks = []; _mediaRec = null;
+  if (dur < 0.4 || !blob.size) { toast('Too short'); return; }
+  await uploadTake(blob, mime, dur);
+}
+async function uploadTake(blob, mime, dur) {
+  const song = _currentSong;
+  if (!song || !uid()) { toast('Not signed in'); return; }
+  toast('Saving take…', 1500);
+  const ext = mime.includes('webm') ? 'webm' : mime.includes('mp4') ? 'm4a' : 'ogg';
+  const fname = 'take_' + Date.now() + '.' + ext;
+  const path = 'voice_takes/' + song.id + '/' + fname;
+  try {
+    const ref = firebase.storage().ref(path);
+    const snap = await ref.put(blob, { contentType: mime });
+    const url = await snap.ref.getDownloadURL();
+    await db.collection('voice_takes').add({
+      songId: song.id, userId: uid(), filename: fname, storagePath: path,
+      downloadUrl: url, duration: Math.round(dur), mimeType: mime, trackNum: 0,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    db.collection('songs').doc(song.id).set({ updatedAt: Date.now() }, { merge: true }).catch(() => {});
+    _selectNewest = true;
+    toast('Take saved ✓');
+  } catch (e) { console.warn('[upload]', e); toast('Save failed — check connection'); }
+}
+
+/* ═══════════════════════════ Boost (per-song, persisted) ═══════════════════════════ */
+function updateBoostUI() {
+  const tg = document.getElementById('boostToggle');
+  if (tg) tg.classList.toggle('on', !!(_currentSong && _currentSong.boost));
+}
+async function toggleBoost() {
+  if (!_currentSong) return;
+  const v = !_currentSong.boost;
+  _currentSong.boost = v; updateBoostUI();
+  if (_curGain && _playingTakeId && _bufCache[_playingTakeId]) {
+    _curGain.gain.value = v ? _bufCache[_playingTakeId].normGain : 1;
+  }
+  try { await db.collection('songs').doc(_currentSong.id).set({ boost: v }, { merge: true }); } catch (e) {}
+}
+
+/* ═══════════════════════════ ☰ Menu + key picker + appearance ═══════════════════════════ */
+function openMenu() { buildMenu(); document.getElementById('menuSheet').classList.add('open'); }
+function closeMenu() { document.getElementById('menuSheet').classList.remove('open'); }
+function buildMenu() {
+  const theme = localStorage.getItem('dh-lite-theme') || 'system';
+  const keyVal = (_currentSong && _currentSong.key) ? _currentSong.key : 'Not set';
+  document.getElementById('menuSheetInner').innerHTML = `
+    <div class="sheet-grab"></div>
+    <div class="sheet-item" onclick="openKeyPicker()"><span class="ic">🎵</span> Song key <span class="val">${esc(keyVal)} <span class="chev">›</span></span></div>
+    <div class="sheet-item" onclick="toast('Quick Chords lands in the next update')"><span class="ic">🎸</span> Quick Chords <span class="val"><span class="chev">›</span></span></div>
+    <div class="sheet-item" onclick="toast('Find a Chord lands in the next update')"><span class="ic">🔍</span> Find a Chord <span class="val"><span class="chev">›</span></span></div>
+    <div class="sheet-item" onclick="cycleTheme()"><span class="ic">🌙</span> Appearance <span class="val">${theme.charAt(0).toUpperCase() + theme.slice(1)}</span></div>
+    <div class="sheet-item" onclick="closeMenu();goHome()"><span class="ic">📋</span> All songs <span class="val"><span class="chev">›</span></span></div>`;
+}
+const KEY_ROOTS = ['C','G','D','A','E','B','F#','D♭','A♭','E♭','B♭','F'];
+const MINOR_ROOTS = ['A','E','B','F#','C#','G#','E♭','B♭','F','C','G','D'];
+function openKeyPicker() {
+  const cur = _currentSong ? _currentSong.key : '';
+  const all = KEY_ROOTS.map(k => k + ' major').concat(MINOR_ROOTS.map(k => k + ' minor'));
+  document.getElementById('menuSheetInner').innerHTML = `
+    <div class="sheet-grab"></div>
+    <div class="sheet-back" onclick="buildMenu()">‹ Menu</div>
+    <div style="font-size:13px;color:var(--text-2);text-transform:uppercase;letter-spacing:.5px;font-weight:800;padding:4px 18px;">Song key</div>
+    <div class="key-grid">
+      <div class="key-opt ${!cur ? 'sel' : ''}" onclick="setKey('')">None</div>
+      ${all.map(k => `<div class="key-opt ${cur === k ? 'sel' : ''}" onclick="setKey('${k}')">${k}</div>`).join('')}
+    </div>`;
+}
+async function setKey(k) {
+  if (!_currentSong) return;
+  _currentSong.key = k;
+  try { await db.collection('songs').doc(_currentSong.id).set({ key: k, updatedAt: Date.now() }, { merge: true }); } catch (e) {}
+  buildMenu();
+  toast(k ? ('Key: ' + k) : 'Key cleared');
+}
+function cycleTheme() {
+  const order = ['system', 'light', 'dark'];
+  const cur = localStorage.getItem('dh-lite-theme') || 'system';
+  const next = order[(order.indexOf(cur) + 1) % 3];
+  applyTheme(next); buildMenu();
+  toast('Appearance: ' + next);
+}
+
+/* ═══════════════════════════ Swipe-to-reveal (song rows) ═══════════════════════════ */
+let _swipeEl = null, _swipeStartX = 0, _swipeStartY = 0, _swipeOpenCard = null, _swipeWidth = 152, _swipeAxis = null;
+function _closeSwipe() { if (_swipeOpenCard) { _swipeOpenCard.style.transform = ''; _swipeOpenCard = null; } }
+document.addEventListener('touchstart', (e) => {
+  const card = e.target.closest('.sl-card, .take-card');
+  if (!card) { if (_swipeOpenCard) _closeSwipe(); return; }
+  if (e.target.closest('.tile, .play, .loop') || e.target.closest('[contenteditable="true"]')) return;
+  if (_swipeOpenCard && _swipeOpenCard !== card) _closeSwipe();
+  _swipeEl = card; _swipeAxis = null;
+  _swipeWidth = card.classList.contains('take-card') ? 72 : 152;
+  _swipeStartX = e.touches[0].clientX; _swipeStartY = e.touches[0].clientY;
+}, { passive: true });
+document.addEventListener('touchmove', (e) => {
+  if (!_swipeEl) return;
+  const dx = e.touches[0].clientX - _swipeStartX, dy = e.touches[0].clientY - _swipeStartY;
+  if (_swipeAxis === null) { if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return; _swipeAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y'; }
+  if (_swipeAxis !== 'x') return;
+  const base = (_swipeOpenCard === _swipeEl) ? -_swipeWidth : 0;
+  _swipeEl.style.transform = `translateX(${Math.max(Math.min(base + dx, 0), -_swipeWidth)}px)`;
+}, { passive: true });
+document.addEventListener('touchend', () => {
+  if (!_swipeEl) return;
+  if (_swipeAxis === 'x') {
+    const tx = new DOMMatrixReadOnly(getComputedStyle(_swipeEl).transform).m41;
+    if (tx < -_swipeWidth / 2) { _swipeEl.style.transform = `translateX(${-_swipeWidth}px)`; _swipeOpenCard = _swipeEl; }
+    else { _swipeEl.style.transform = ''; if (_swipeOpenCard === _swipeEl) _swipeOpenCard = null; }
+  }
+  _swipeEl = null; _swipeAxis = null;
+}, { passive: true });
+
+/* ═══════════════════════════ Dark mode ═══════════════════════════ */
+function applyTheme(mode) {
+  // mode: 'light' | 'dark' | 'system'
+  localStorage.setItem('dh-lite-theme', mode);
+  const dark = (mode === 'dark') || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.classList.toggle('dark', dark);
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#000000' : '#f2f2f7');
+}
+applyTheme(localStorage.getItem('dh-lite-theme') || 'system');
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if ((localStorage.getItem('dh-lite-theme') || 'system') === 'system') applyTheme('system');
+});
+
+/* ═══════════════════════════ Boot ═══════════════════════════ */
+auth.onAuthStateChanged(user => {
+  if (user) {
+    document.body.classList.add('signed-in');
+    startSongsListener();
+  } else {
+    document.body.classList.remove('signed-in');
+    if (_songsUnsub) { _songsUnsub(); _songsUnsub = null; }
+    _songs = []; _takeCounts = {}; _songsLoaded = false;
+    const _slb = document.getElementById('songListBody');
+    if (_slb) _slb.innerHTML = '<div class="center-load"><div class="spinner"></div></div>';
+  }
+});
+</script>
+</body>
+</html>
