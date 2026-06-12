@@ -38,7 +38,7 @@ function startServer() {
   }));
   assert('scale of C major = I..VIII (8, incl _viii)', JSON.stringify(eng.scaleC) === JSON.stringify(['C','Dm','Em','F','G','Am','Bdim','C_viii']));
   assert('guitar C voicing = [0,1,0,2,3,null]', JSON.stringify(eng.gtrC) === JSON.stringify([0,1,0,2,3,null]));
-  assert('ukulele C voicing = [0,0,0,3]', JSON.stringify(eng.ukeC) === JSON.stringify([0,0,0,3]));
+  assert('ukulele C voicing = [3,0,0,0] (A,E,C,G order)', JSON.stringify(eng.ukeC) === JSON.stringify([3,0,0,0]));
   assert('reverse: C E G → C (exact)', eng.idTriad.exact && eng.idTriad.name === 'C');
   assert('reverse: C E G B → Cmaj7', eng.idMaj7.exact && eng.idMaj7.name === 'Cmaj7');
   assert('reverse: A C E → Am (bass-aware)', eng.idMin.exact && eng.idMin.name === 'Am');
