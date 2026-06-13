@@ -497,6 +497,7 @@ html.dark #chordPop .cp-seg button.on { background: #48484a; }
       <div class="lyrics-col">
         <div id="waveBar" class="wave-bar"></div>
         <div id="lyricsEditor" contenteditable="true" spellcheck="true"
+             autocorrect="off" autocapitalize="off"
              data-placeholder="Tap to write your lyrics…"
              oninput="onLyricsInput()" onblur="flushLyrics()"></div>
       </div>
@@ -951,6 +952,18 @@ function _ilCommitDoc(html, song) {
 }
 let _lyricsTimer = null;
 function onLyricsInput() { clearTimeout(_lyricsTimer); _lyricsTimer = setTimeout(flushLyrics, 900); }
+// iOS/Safari "double space → '. '" substitution: cancel it so a double space stays two
+// spaces in lyrics. The substitution surfaces as a beforeinput whose data is "<period><space>".
+(function bindNoSmartPeriod() {
+  const ed = document.getElementById('lyricsEditor');
+  if (!ed || ed._noSmartPeriod) return; ed._noSmartPeriod = true;
+  ed.addEventListener('beforeinput', e => {
+    if ((e.inputType === 'insertText' || e.inputType === 'insertReplacementText') && /^\.\s$/.test(e.data || '')) {
+      e.preventDefault();
+      try { document.execCommand('insertText', false, ' '); } catch (err) {}
+    }
+  });
+})();
 async function flushLyrics() {
   clearTimeout(_lyricsTimer);
   const ed = document.getElementById('lyricsEditor');

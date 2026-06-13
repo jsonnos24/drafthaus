@@ -52,6 +52,25 @@ async function openGuestSong(page, lyricsDoc) {
     await ctx.close();
   }
 
+  // ── Bug 3: double-space-period mitigations wired ──
+  {
+    const page = await (await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true, isMobile: true })).newPage();
+    page.on('pageerror', e => errors.push('PAGEERROR(bug3): ' + e.message));
+    await page.goto(base, { waitUntil: 'load' });
+    await openGuestSong(page);
+    assert('bug3: editor disables autocorrect/autocapitalize', await page.evaluate(() => {
+      const ed = document.getElementById('lyricsEditor');
+      return ed.getAttribute('autocorrect') === 'off' && ed.getAttribute('autocapitalize') === 'off';
+    }));
+    assert('bug3: a ". " smart-punctuation beforeinput is cancelled to stay two spaces', await page.evaluate(() => {
+      const ed = document.getElementById('lyricsEditor'); ed.focus();
+      ed.innerHTML = '<div>hi </div>'; // a trailing space already present
+      const ev = new InputEvent('beforeinput', { inputType: 'insertText', data: '. ', cancelable: true, bubbles: true });
+      const notCancelled = ed.dispatchEvent(ev); // returns false if preventDefault() was called
+      return notCancelled === false;
+    }));
+  }
+
   const fatal = errors.filter(e => !/permission|insufficient|FirebaseError|Failed to load resource|net::ERR|storage\//i.test(e));
   assert('no fatal JS errors', fatal.length === 0);
   console.log(results.join('\n'));
