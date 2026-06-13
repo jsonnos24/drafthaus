@@ -71,6 +71,25 @@ async function openGuestSong(page, lyricsDoc) {
     }));
   }
 
+  // ── Chords render ABOVE the lyric line, taking zero advance width ──
+  {
+    const page = await (await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true, isMobile: true })).newPage();
+    page.on('pageerror', e => errors.push('PAGEERROR(render): ' + e.message));
+    await page.goto(base, { waitUntil: 'load' });
+    await openGuestSong(page, '<div><span class="chord">G</span>walked the line</div>');
+    assert('render: chord takes ~0 advance width in the lyric line', await page.evaluate(() =>
+      document.querySelector('#lyricsEditor .chord').offsetWidth === 0));
+    assert('render: chord label sits ABOVE the lyric baseline', await page.evaluate(() => {
+      const ch = document.querySelector('#lyricsEditor .chord').getBoundingClientRect();
+      // the lyric word after it
+      const line = document.querySelector('#lyricsEditor div');
+      const word = line.lastChild; // text node "walked the line"
+      const r = document.createRange(); r.selectNodeContents(word);
+      const lyr = r.getBoundingClientRect();
+      return ch.top < lyr.top - 4; // chord is meaningfully higher than the words
+    }));
+  }
+
   const fatal = errors.filter(e => !/permission|insufficient|FirebaseError|Failed to load resource|net::ERR|storage\//i.test(e));
   assert('no fatal JS errors', fatal.length === 0);
   console.log(results.join('\n'));
