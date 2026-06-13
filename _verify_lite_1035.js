@@ -42,7 +42,84 @@ async function wordCenter(page, word) {
   const errors = [];
   const base = `http://127.0.0.1:${port}/${BUILD}`;
 
-  // (task assertions get appended here in later tasks)
+  // ── Chords mode toggle ──
+  {
+    const page = await (await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true, isMobile: true })).newPage();
+    page.on('pageerror', e => errors.push('PAGEERROR(toggle): ' + e.message));
+    await page.goto(base, { waitUntil: 'load' });
+    await openGuestSong(page, '<div>I walked the line</div>');
+    assert('toggle: editor starts editable, not in chords-mode', await page.evaluate(() => {
+      const ed = document.getElementById('lyricsEditor');
+      return ed.getAttribute('contenteditable') === 'true' && !ed.classList.contains('chords-mode');
+    }));
+    await page.evaluate(() => toggleChordsMode());
+    assert('toggle: chords mode makes editor non-editable + adds class + button active', await page.evaluate(() => {
+      const ed = document.getElementById('lyricsEditor');
+      return ed.getAttribute('contenteditable') === 'false' && ed.classList.contains('chords-mode')
+        && document.getElementById('chordsModeBtn').classList.contains('active');
+    }));
+    await page.evaluate(() => toggleChordsMode());
+    assert('toggle: toggling off restores editable + removes class', await page.evaluate(() => {
+      const ed = document.getElementById('lyricsEditor');
+      return ed.getAttribute('contenteditable') === 'true' && !ed.classList.contains('chords-mode');
+    }));
+  }
+
+  // ── Tap a word: add / pre-fill / remove a chord ──
+  {
+    const page = await (await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true, isMobile: true })).newPage();
+    page.on('pageerror', e => errors.push('PAGEERROR(tap): ' + e.message));
+    await page.goto(base, { waitUntil: 'load' });
+    await openGuestSong(page, '<div>I walked the line</div>');
+    await page.evaluate(() => toggleChordsMode());
+
+    const c1 = await wordCenter(page, 'walked');
+    await page.mouse.click(c1.x, c1.y);
+    assert('tap: chord field is shown after tapping a word', await page.evaluate(() =>
+      getComputedStyle(document.getElementById('chordEntry')).display !== 'none'));
+    await page.evaluate(() => { document.getElementById('chordEntry').value = 'G'; commitChordEntry(); });
+    assert('tap: a chord span "G" now sits immediately before "walked"', await page.evaluate(() => {
+      const spans = [...document.querySelectorAll('#lyricsEditor .chord')];
+      if (spans.length !== 1 || spans[0].textContent !== 'G') return false;
+      const next = spans[0].nextSibling;
+      return next && next.nodeType === 3 && next.data.indexOf('walked') === 0;
+    }));
+    assert('tap: the chord renders ABOVE the baseline (zero advance width)', await page.evaluate(() =>
+      document.querySelector('#lyricsEditor .chord').offsetWidth === 0));
+
+    const c2 = await wordCenter(page, 'walked');
+    await page.mouse.click(c2.x, c2.y);
+    assert('tap: tapping a word with a chord pre-fills the field', await page.evaluate(() =>
+      document.getElementById('chordEntry').value === 'G'));
+
+    await page.evaluate(() => { document.getElementById('chordEntry').value = ''; commitChordEntry(); });
+    assert('tap: empty submit removes the chord', await page.evaluate(() =>
+      document.querySelectorAll('#lyricsEditor .chord').length === 0));
+  }
+
+  // ── Compatibility: stored form stays <span class="chord"> with no contenteditable ──
+  {
+    const page = await (await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true, isMobile: true })).newPage();
+    page.on('pageerror', e => errors.push('PAGEERROR(compat): ' + e.message));
+    await page.goto(base, { waitUntil: 'load' });
+    await openGuestSong(page, '<div>I walked the line</div>');
+    await page.evaluate(() => toggleChordsMode());
+    const c = await wordCenter(page, 'line');
+    await page.mouse.click(c.x, c.y);
+    await page.evaluate(() => { document.getElementById('chordEntry').value = 'Cmaj7'; commitChordEntry(); });
+    assert('compat: saved lyricsDoc keeps <span class="chord"> and strips contenteditable', await page.evaluate(() => {
+      const out = ilSanitizeDocHtml(document.getElementById('lyricsEditor').innerHTML);
+      return /<span class="chord">Cmaj7<\/span>/.test(out) && !/contenteditable/i.test(out);
+    }));
+  }
+
+  // ── Old caret-entry API is gone ──
+  {
+    const page = await (await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true, isMobile: true })).newPage();
+    await page.goto(base, { waitUntil: 'load' });
+    assert('cleanup: old startChordEntry/_lyricCaretRange/cpEditChord are removed', await page.evaluate(() =>
+      typeof window.startChordEntry === 'undefined' && typeof window._lyricCaretRange === 'undefined' && typeof window.cpEditChord === 'undefined'));
+  }
 
   const fatal = errors.filter(e => !/permission|insufficient|FirebaseError|Failed to load resource|net::ERR|storage\//i.test(e));
   assert('no fatal JS errors', fatal.length === 0);
