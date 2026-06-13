@@ -52,15 +52,16 @@ function startServer() {
   });
   assert('tap on waveform seeks (~0.6s of 2s)', Math.abs(seek - 0.6) < 0.12);
 
-  // ── Region select: a drag selects ──
+  // ── Region select: a continuous drag (multiple moves) selects the full span ──
+  // (regression: rebuilding the canvas mid-drag would detach it and collapse the selection)
   const sel = await page.evaluate(() => {
     const c = document.querySelector('#waveBar .wave-canvas'); const r = c.getBoundingClientRect();
     c.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 2, clientX: r.left + r.width * 0.25, clientY: r.top + 10, bubbles: true }));
-    document.dispatchEvent(new PointerEvent('pointermove', { pointerId: 2, clientX: r.left + r.width * 0.65, clientY: r.top + 10, bubbles: true }));
+    [0.35, 0.45, 0.55, 0.65].forEach(f => document.dispatchEvent(new PointerEvent('pointermove', { pointerId: 2, clientX: r.left + r.width * f, clientY: r.top + 10, bubbles: true })));
     document.dispatchEvent(new PointerEvent('pointerup', { pointerId: 2, clientX: r.left + r.width * 0.65, clientY: r.top + 10, bubbles: true }));
     return _wf.sel;
   });
-  assert('drag selects a region (~0.5s–1.3s)', sel && Math.abs(sel.a - 0.5) < 0.12 && Math.abs(sel.b - 1.3) < 0.12);
+  assert('drag selects the FULL region (~0.5s–1.3s, not collapsed)', sel && Math.abs(sel.a - 0.5) < 0.12 && Math.abs(sel.b - 1.3) < 0.12);
   assert('selection reveals Loop + Save Trim + Clear', await page.evaluate(() => { const h = document.getElementById('waveBar').innerHTML; return /wfToggleLoopSel/.test(h) && /wfSaveTrim/.test(h) && /wfClearSel/.test(h); }));
 
   // loop toggle + clear
