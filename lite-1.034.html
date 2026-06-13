@@ -379,6 +379,7 @@ html.dark .qc-bpill { background: #3a2a14; color: #ffb84d; border-color: #5a4424
 
 /* lyrics formatting toolbar */
 .lyr-toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: .5px solid var(--sep); background: var(--bg); flex: none; }
+.chord-entry { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 15px; font-weight: 700; color: var(--tint); background: var(--bg-input); border: 1px solid var(--tint); border-radius: 8px; padding: 5px 9px; width: 150px; outline: none; }
 .lyr-btn { font-size: 14px; font-weight: 600; color: var(--tint); background: var(--bg-elev); border: 1px solid var(--sep); border-radius: 9px; padding: 6px 12px; }
 .lyr-btn:active { transform: scale(.95); }
 .lyr-hint { font-size: 11px; color: var(--text-3); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -400,6 +401,8 @@ html.dark .qc-bpill { background: #3a2a14; color: #ffb84d; border-color: #5a4424
 #chordPop.open { display: block; }
 #chordPop .cp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 #chordPop .cp-name { font-size: 20px; font-weight: 800; color: var(--text); }
+#chordPop .cp-edit-actions { display: flex; gap: 4px; }
+#chordPop .cp-edit-btn { font-size: 14px; padding: 4px 7px; border-radius: 7px; color: var(--text-2); background: var(--bg-input); }
 #chordPop .cp-seg { display: flex; background: var(--bg-input); border-radius: 8px; padding: 2px; }
 #chordPop .cp-seg button { font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 6px; color: var(--text); }
 #chordPop .cp-seg button.on { background: var(--bg-elev); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
@@ -493,9 +496,12 @@ html.dark #chordPop .cp-seg button.on { background: #48484a; }
       <button class="icon-btn" onclick="goHome()" aria-label="Back to songs" style="font-size:15px;font-weight:600;">Songs</button>
     </div>
     <div class="lyr-toolbar">
-      <button class="lyr-btn" onmousedown="event.preventDefault()" onclick="applyChordFormat()" title="Mark selection as a chord (monospace, tappable)">🎵 Chord</button>
+      <button class="lyr-btn" onmousedown="event.preventDefault()" onclick="startChordEntry()" title="Add a chord above your lyrics">🎵 Chord</button>
       <button class="lyr-btn" onmousedown="event.preventDefault()" onclick="applyBold()" title="Bold"><b>B</b></button>
-      <span class="lyr-hint">Select text → Chord to add tappable chords above your lyrics</span>
+      <input id="chordEntry" class="chord-entry" type="text" placeholder="Chord (e.g. G, Cmaj7) — Enter"
+             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+             style="display:none" onkeydown="chordEntryKey(event)" onblur="cancelChordEntry()">
+      <span class="lyr-hint">Tap 🎵, type a chord, press Enter — it floats above your lyrics</span>
     </div>
     <div class="song-body">
       <div class="lyrics-col">
@@ -577,7 +583,11 @@ html.dark #chordPop .cp-seg button.on { background: #48484a; }
 <!-- Chord overlay (tap a chord in the lyrics) -->
 <div id="chordPopBackdrop" onclick="closeChordPop()"></div>
 <div id="chordPop" aria-hidden="true">
-  <div class="cp-head"><span class="cp-name" id="cpName">—</span><div class="cp-seg" id="cpSeg">
+  <div class="cp-head"><span class="cp-name" id="cpName">—</span>
+      <div class="cp-edit-actions">
+        <button class="cp-edit-btn" onclick="cpEditChord()" title="Edit chord">✎</button>
+        <button class="cp-edit-btn" onclick="cpRemoveChord()" title="Remove chord">🗑</button>
+      </div><div class="cp-seg" id="cpSeg">
     <button class="on" data-inst="guitar" onclick="cpSetInstrument('guitar')">Guitar</button>
     <button data-inst="ukulele" onclick="cpSetInstrument('ukulele')">Uke</button>
   </div></div>
@@ -978,23 +988,51 @@ async function flushLyrics() {
   catch (e) { console.warn('[lyrics] save', e); }
 }
 
-/* ── Lyrics formatting: mark selection as a chord (monospace + tappable) ── */
-function applyChordFormat() {
-  const ed = document.getElementById('lyricsEditor');
+/* ── Lyrics chords: insert a discrete chord span at the caret, floating above lyrics ── */
+let _savedLyricRange = null, _cpEl = null;
+document.addEventListener('selectionchange', () => {
+  const ed = document.getElementById('lyricsEditor'); if (!ed) return;
   const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { toast('Select some text first'); return; }
-  const range = sel.getRangeAt(0);
-  if (!ed.contains(range.commonAncestorContainer)) return;
-  let node = range.commonAncestorContainer; if (node.nodeType === 3) node = node.parentElement;
-  const existing = node && node.closest ? node.closest('.chord') : null;
-  if (existing && ed.contains(existing)) {
-    const p = existing.parentNode; while (existing.firstChild) p.insertBefore(existing.firstChild, existing); p.removeChild(existing); // unwrap
-  } else {
-    const span = document.createElement('span'); span.className = 'chord';
-    try { range.surroundContents(span); }
-    catch (e) { span.appendChild(range.extractContents()); range.insertNode(span); }
+  if (sel && sel.rangeCount && ed.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+    _savedLyricRange = sel.getRangeAt(0).cloneRange();
   }
-  sel.removeAllRanges();
+});
+function _lyricCaretRange() {
+  const ed = document.getElementById('lyricsEditor');
+  if (_savedLyricRange && ed.contains(_savedLyricRange.commonAncestorContainer)) return _savedLyricRange.cloneRange();
+  const r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); return r; // fall back to end
+}
+function startChordEntry() {
+  const ed = document.getElementById('lyricsEditor');
+  // Snapshot any already-saved range before focus() potentially fires selectionchange and overwrites it.
+  const snapshot = _savedLyricRange ? _savedLyricRange.cloneRange() : null;
+  ed.focus();
+  // Restore: if focus() fired selectionchange and clobbered our saved position, put it back.
+  if (snapshot && ed.contains(snapshot.commonAncestorContainer)) _savedLyricRange = snapshot;
+  const inp = document.getElementById('chordEntry');
+  inp.style.display = ''; inp.value = ''; inp.focus();
+}
+function cancelChordEntry() { const inp = document.getElementById('chordEntry'); inp.value = ''; inp.style.display = 'none'; }
+function chordEntryKey(ev) {
+  if (ev.key === 'Enter') { ev.preventDefault(); commitChordEntry(); }
+  else if (ev.key === 'Escape') { ev.preventDefault(); cancelChordEntry(); }
+}
+function commitChordEntry() {
+  const inp = document.getElementById('chordEntry');
+  const name = inp.value.trim(); inp.value = ''; inp.style.display = 'none';
+  if (!name) return;
+  const ed = document.getElementById('lyricsEditor'); ed.focus();
+  const range = _lyricCaretRange(); range.collapse(true);
+  const span = document.createElement('span'); span.className = 'chord'; span.textContent = name;
+  // contenteditable=false makes the span an atomic unit: the browser treats it as a "leaf"
+  // so execCommand/keyboard input cannot bleed into the span from either side.
+  // ilSanitizeDocHtml strips this attr before saving, so persisted form stays <span class="chord">.
+  span.contentEditable = 'false';
+  range.insertNode(span);
+  // Park the caret immediately AFTER the span, in plain lyric flow — never inside the chord.
+  const after = document.createRange(); after.setStartAfter(span); after.collapse(true);
+  const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(after);
+  _savedLyricRange = after.cloneRange();
   onLyricsInput();
 }
 function applyBold() { document.getElementById('lyricsEditor').focus(); try { document.execCommand('bold'); } catch (e) {} onLyricsInput(); }
@@ -1011,6 +1049,7 @@ function _normChordName(name) {
 }
 function openChordPop(rawName, anchorEl, pinned) {
   _cpRaw = String(rawName).trim(); _cpName = _normChordName(_cpRaw); _cpPinned = !!pinned;
+  _cpEl = (anchorEl && anchorEl.classList && anchorEl.classList.contains('chord')) ? anchorEl : null;
   document.getElementById('cpName').textContent = _cpRaw;
   cpRenderNeck();
   const pop = document.getElementById('chordPop');
@@ -1040,6 +1079,15 @@ function cpRenderNeck() {
 function cpSetInstrument(inst) { _cpInst = inst; cpRenderNeck(); loadSampler(inst); }
 function cpPlay() { if (_cpName && _fbParseChord(_cpName)) playChordOnInstrument(_cpName, _cpInst); }
 function closeChordPop() { document.getElementById('chordPop').classList.remove('open'); document.getElementById('chordPopBackdrop').classList.remove('open'); _cpPinned = false; }
+function cpRemoveChord() { if (_cpEl) { _cpEl.remove(); onLyricsInput(); } _cpEl = null; closeChordPop(); }
+function cpEditChord() {
+  if (!_cpEl) { closeChordPop(); return; }
+  const name = _cpEl.textContent;
+  const ed = document.getElementById('lyricsEditor'); ed.focus();
+  const r = document.createRange(); r.setStartBefore(_cpEl); r.collapse(true); _savedLyricRange = r.cloneRange();
+  _cpEl.remove(); _cpEl = null; onLyricsInput(); closeChordPop();
+  const inp = document.getElementById('chordEntry'); inp.style.display = ''; inp.value = name; inp.focus(); inp.select();
+}
 function _bindChordLyrics() {
   const ed = document.getElementById('lyricsEditor'); if (!ed || ed._cpBound) return; ed._cpBound = true;
   ed.addEventListener('click', e => { const c = e.target.closest('.chord'); if (c) { e.stopPropagation(); openChordPop(c.textContent, c, true); } });

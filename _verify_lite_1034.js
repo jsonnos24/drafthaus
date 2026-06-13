@@ -90,6 +90,51 @@ async function openGuestSong(page, lyricsDoc) {
     }));
   }
 
+  // ── Bugs 1 & 2: discrete chord entry, caret never trapped in the span ──
+  {
+    const page = await (await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true, isMobile: true })).newPage();
+    page.on('pageerror', e => errors.push('PAGEERROR(entry): ' + e.message));
+    await page.goto(base, { waitUntil: 'load' });
+    await openGuestSong(page, '<div>verse</div>');
+
+    // Insert one chord at the caret, then type lyrics — typing must land OUTSIDE the chord.
+    const r1 = await page.evaluate(() => {
+      const ed = document.getElementById('lyricsEditor'); ed.focus();
+      const sel = window.getSelection(); const r = document.createRange();
+      r.selectNodeContents(ed.querySelector('div')); r.collapse(true); // caret at line start
+      sel.removeAllRanges(); sel.addRange(r);
+      document.dispatchEvent(new Event('selectionchange'));
+      startChordEntry();
+      document.getElementById('chordEntry').value = 'G'; commitChordEntry();
+      document.execCommand('insertText', false, 'sing');
+      const chords = ed.querySelectorAll('.chord');
+      const typedNode = window.getSelection().anchorNode;
+      const typedInChord = !!(typedNode && (typedNode.nodeType === 1 ? typedNode : typedNode.parentElement).closest('.chord'));
+      return { count: chords.length, chordText: chords[0] && chords[0].textContent, typedInChord };
+    });
+    assert('bug1: chord entry creates exactly one .chord span', r1.count === 1 && r1.chordText === 'G');
+    assert('bug1: text typed after a chord is NOT inside the chord span', r1.typedInChord === false);
+
+    // Insert a second chord further along — must stay a separate span.
+    const r2 = await page.evaluate(() => {
+      const ed = document.getElementById('lyricsEditor');
+      const sel = window.getSelection(); const r = document.createRange();
+      r.selectNodeContents(ed.querySelector('div')); r.collapse(false); // caret at line end
+      sel.removeAllRanges(); sel.addRange(r);
+      document.dispatchEvent(new Event('selectionchange'));
+      startChordEntry();
+      document.getElementById('chordEntry').value = 'C'; commitChordEntry();
+      return ed.querySelectorAll('.chord').length;
+    });
+    assert('bug2: a second chord is a separate span (2 total, not merged)', r2 === 2);
+
+    // Stored form stays full-app compatible: inline <span class="chord">.
+    assert('compat: saved lyricsDoc still uses <span class="chord">', await page.evaluate(() => {
+      const ed = document.getElementById('lyricsEditor');
+      return /<span class="chord">/.test(ilSanitizeDocHtml(ed.innerHTML));
+    }));
+  }
+
   const fatal = errors.filter(e => !/permission|insufficient|FirebaseError|Failed to load resource|net::ERR|storage\//i.test(e));
   assert('no fatal JS errors', fatal.length === 0);
   console.log(results.join('\n'));
