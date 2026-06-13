@@ -1094,8 +1094,13 @@ function commitChordEntry() {
   } else if (name) {
     let wordNode = t.node;
     if (t.wordStart > 0) wordNode = t.node.splitText(t.wordStart);
-    const span = document.createElement('span'); span.className = 'chord'; span.textContent = name; span.contentEditable = 'false';
-    wordNode.parentNode.insertBefore(span, wordNode);
+    const prev = wordNode.previousSibling;
+    if (prev && prev.classList && prev.classList.contains('chord')) {
+      prev.textContent = name; // already chorded (detection missed) → edit, don't duplicate
+    } else {
+      const span = document.createElement('span'); span.className = 'chord'; span.textContent = name; span.contentEditable = 'false';
+      wordNode.parentNode.insertBefore(span, wordNode);
+    }
   }
   _atomizeLyricChords();
   onLyricsInput();
@@ -1151,7 +1156,7 @@ function cpRenderNeck() {
 function cpSetInstrument(inst) { _cpInst = inst; cpRenderNeck(); loadSampler(inst); }
 function cpPlay() { if (_cpName && _fbParseChord(_cpName)) playChordOnInstrument(_cpName, _cpInst); }
 function closeChordPop() { document.getElementById('chordPop').classList.remove('open'); document.getElementById('chordPopBackdrop').classList.remove('open'); _cpPinned = false; }
-function cpRemoveChord() { if (_cpEl) { _cpEl.remove(); onLyricsInput(); } _cpEl = null; closeChordPop(); }
+function cpRemoveChord() { if (_cpEl) { const p = _cpEl.parentNode; _cpEl.remove(); if (p) p.normalize(); onLyricsInput(); } _cpEl = null; closeChordPop(); }
 function _bindChordLyrics() {
   const ed = document.getElementById('lyricsEditor'); if (!ed || ed._cpBound) return; ed._cpBound = true;
   ed.addEventListener('click', e => {
@@ -1159,7 +1164,7 @@ function _bindChordLyrics() {
     const c = e.target.closest('.chord'); if (c) { e.stopPropagation(); openChordPop(c.textContent, c, true); }
   });
   if (matchMedia('(hover: hover) and (pointer: fine)').matches) {
-    ed.addEventListener('mouseover', e => { const c = e.target.closest('.chord'); if (c) { clearTimeout(_cpHoverTimer); if (!_cpPinned) openChordPop(c.textContent, c, false); } });
+    ed.addEventListener('mouseover', e => { if (_chordsMode) return; const c = e.target.closest('.chord'); if (c) { clearTimeout(_cpHoverTimer); if (!_cpPinned) openChordPop(c.textContent, c, false); } });
     ed.addEventListener('mouseout', e => { if (e.target.closest('.chord')) { _cpHoverTimer = setTimeout(() => { if (!_cpPinned) closeChordPop(); }, 250); } });
     const pop = document.getElementById('chordPop');
     pop.addEventListener('mouseenter', () => clearTimeout(_cpHoverTimer));
