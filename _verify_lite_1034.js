@@ -135,6 +135,20 @@ async function openGuestSong(page, lyricsDoc) {
     }));
   }
 
+  // ── Reloaded (saved) chords are also atomic + still saved clean ──
+  {
+    const page = await (await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true, isMobile: true })).newPage();
+    page.on('pageerror', e => errors.push('PAGEERROR(atomize): ' + e.message));
+    await page.goto(base, { waitUntil: 'load' });
+    await openGuestSong(page, '<div><span class="chord">G</span>walked the line</div>');
+    assert('atomize: a loaded (saved) chord span is atomic (contenteditable=false)', await page.evaluate(() =>
+      document.querySelector('#lyricsEditor .chord').isContentEditable === false));
+    assert('atomize: save still strips contenteditable (stored stays <span class="chord">)', await page.evaluate(() => {
+      const out = ilSanitizeDocHtml(document.getElementById('lyricsEditor').innerHTML);
+      return /<span class="chord">/.test(out) && !/contenteditable/i.test(out);
+    }));
+  }
+
   const fatal = errors.filter(e => !/permission|insufficient|FirebaseError|Failed to load resource|net::ERR|storage\//i.test(e));
   assert('no fatal JS errors', fatal.length === 0);
   console.log(results.join('\n'));
