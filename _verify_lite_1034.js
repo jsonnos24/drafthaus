@@ -30,7 +30,27 @@ async function openGuestSong(page, lyricsDoc) {
   const errors = [];
   const base = `http://127.0.0.1:${port}/${BUILD}`;
 
-  // (task assertions get appended here in later tasks)
+  // ── Bug 4: auth gating ──
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true, isMobile: true });
+    const page = await ctx.newPage();
+    page.on('pageerror', e => errors.push('PAGEERROR(auth): ' + e.message));
+    await page.goto(base, { waitUntil: 'load' });
+
+    // Fresh "Continue as guest" tap → enters the app (real choice this session).
+    await page.click('.auth-btn.ghost');
+    await page.waitForSelector('body.signed-in', { timeout: 15000 });
+    assert('bug4: fresh guest choice enters the app', await page.evaluate(() => document.body.classList.contains('signed-in')));
+
+    // Simulate a RETURNING visit: guest session persists (Firebase IndexedDB) but the
+    // per-session "guest chosen" flag is gone. Should show the login landing, not the app.
+    await page.evaluate(() => { try { sessionStorage.clear(); } catch(e){} });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForTimeout(1500); // let onAuthStateChanged resolve the persisted anon user
+    assert('bug4: resumed guest (no session flag) shows login landing', await page.evaluate(() =>
+      !document.body.classList.contains('signed-in') && getComputedStyle(document.getElementById('landing')).display !== 'none'));
+    await ctx.close();
+  }
 
   const fatal = errors.filter(e => !/permission|insufficient|FirebaseError|Failed to load resource|net::ERR|storage\//i.test(e));
   assert('no fatal JS errors', fatal.length === 0);
