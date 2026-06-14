@@ -1,15 +1,18 @@
 # Drafthaus — developer guide
 
 > **Two separate apps live in this repo.** This guide is for the **full Drafthaus**
-> app (`index.html` / `1.3xx.html`). There is also **Drafthaus Lite** — a separate
-> single-file companion (`lite-*.html` + `samples/` + `_verify_lite_*.js`) that shares
-> the same Firebase backend but is otherwise independent code. Lite work never touches
-> `index.html` and vice-versa. If the task is about Lite, follow memory
-> `drafthaus-lite.md`, not this file. Lite is versioned `lite-1.0xx.html`, deploys to
-> `drafthaus.ca/lite-<ver>.html`, and is pushed per milestone.
+> app. ⚠️ **As of 2026-06-14 the full app is `full.html` (== `1.3xx.html` snapshots),
+> NOT `index.html`.** `index.html` was reassigned to **Drafthaus Lite** — `drafthaus.ca`
+> (the site root) now serves Lite, and the full app moved to `drafthaus.ca/full.html`.
+> Lite is a separate single-file companion (`lite-*.html` + `samples/` + `_verify_lite_*.js`)
+> that shares the same Firebase backend but is otherwise independent code. Full-app work
+> touches `full.html`/`1.3xx.html` and never `lite-*.html`/`index.html`, and vice-versa.
+> If the task is about Lite, follow memory `drafthaus-lite.md`, not this file. Lite is
+> versioned `lite-1.0xx.html`, deploys to `drafthaus.ca/lite-<ver>.html`, pushed per
+> milestone, and promoted into `index.html` (the root) on milestones.
 
 Single-file HTML web app (vanilla JS + Web Audio + Firestore sync). The deployed
-build is `index.html`, currently byte-identical to `1.314.html` (= `1.313.html` —
+full-app build is `full.html`, currently byte-identical to `1.314.html` (= `1.313.html` —
 the 1.310 desktop/mobile batch + rich-text lyrics + white desktop lyrics-split pane —
 **plus a floating guitar/uke/bass fretboard overlay** under the keys in the floating
 keyboard panel: click any chord pill and it shows an accurate, sticky voicing.
@@ -18,13 +21,14 @@ clears, so the keyboard glow (and fretboard) persist until the next chord *every
 chord pills are used*; the fretboard engine lives in the `fb*` block right after the
 `/* @lock:end — Chord Resolution */` anchor and rides `fkbInit`'s desktop-only 768px
 bail). `1.313.html`/`1.312.html`/`1.310.html` are prior snapshots and `1.307.html` an
-older stable one. **Heads-up:** `index` is NOT always
+older stable one. **Heads-up:** `full.html` is NOT always
 the highest-numbered file (e.g. 1.310 was pushed but never promoted) — before
-branching a new build, `md5` index against the `1.3xx.html` files to find the true
+branching a new build, `md5` `full.html` against the `1.3xx.html` files to find the true
 base, and diff every fresh `cp` snapshot against its source to confirm it copied
 what you meant. Versioning is by
 **copying the whole file** to a new numbered name, not branching; work lands
-directly on `main` (pushing `main` deploys `drafthaus.ca` via GitHub Pages). The file is ~76k lines — **re-locate code by
+directly on `main` (pushing `main` deploys via GitHub Pages — full app at
+`drafthaus.ca/full.html`, Lite/root `index.html` at `drafthaus.ca`). The file is ~76k lines — **re-locate code by
 searching quoted strings / function names, not line numbers** (they drift).
 
 There is no test runner; verify changes by driving the app in a real browser
