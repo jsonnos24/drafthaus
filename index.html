@@ -762,6 +762,11 @@ function liteStorageCap() {
 let _liteUsageBytes = 0;
 function liteUsageOver()  { return _liteUsageBytes >= liteStorageCap(); }
 function _liteAddBytes(n) { _liteUsageBytes = Math.max(0, _liteUsageBytes + (n || 0)); liteRenderMeter(); }
+function liteCapMessage() {
+  return (auth.currentUser && auth.currentUser.isAnonymous)
+    ? 'Storage full (10 MB) — sign in for 120 MB'
+    : 'Storage full — delete takes to free space';
+}
 // Replaced with the real renderer in Task 6; stub keeps early callers safe.
 function liteRenderMeter() { /* meter UI added in Task 6 */ }
 // Authoritative seed: sum bytes of all the current user's takes. Backfills the
@@ -1672,12 +1677,19 @@ async function _wfReplaceAudio(buffer, undoBuffer, msg) {
   const take = _takes.find(t => t.id === _wf.takeId); if (!take || !uid()) { toast('Not signed in'); return false; }
   stopPlayback(); toast(msg + '…', 1500);
   try {
-    const fname = 'take_' + Date.now() + '.wav', path = 'voice_takes/' + take.songId + '/' + fname;
-    const snap = await firebase.storage().ref(path).put(_encodeWav(buffer), { contentType: 'audio/wav' });
+    await _ensureMp3Lib();
+    const blob = _encodeMp3(buffer);
+    const oldBytes = (typeof take.bytes === 'number') ? take.bytes : 0;
+    // Gate: block only if this edit would push the user over their cap.
+    if (_liteUsageBytes - oldBytes + blob.size > liteStorageCap()) { toast(liteCapMessage()); return false; }
+    const fname = 'take_' + Date.now() + '.mp3', path = 'voice_takes/' + take.songId + '/' + fname;
+    const snap = await firebase.storage().ref(path).put(blob, { contentType: 'audio/mp3' });
     const url = await snap.ref.getDownloadURL();
     const oldPath = take.storagePath;
-    await db.collection('voice_takes').doc(take.id).set({ downloadUrl: url, storagePath: path, duration: Math.round(buffer.duration), mimeType: 'audio/wav' }, { merge: true });
+    await db.collection('voice_takes').doc(take.id).set({ downloadUrl: url, storagePath: path, duration: Math.round(buffer.duration), mimeType: 'audio/mp3', bytes: blob.size }, { merge: true });
     if (oldPath && oldPath !== path) firebase.storage().ref(oldPath).delete().catch(() => {});
+    take.bytes = blob.size; take.storagePath = path; take.mimeType = 'audio/mp3';
+    _liteAddBytes(blob.size - oldBytes);
     _bufCache[take.id] = { buffer, normGain: (_bufCache[take.id] && _bufCache[take.id].normGain) || 1 };
     _wf.buffer = buffer; _wf.dur = buffer.duration; _wf.peaks = _computePeaks(buffer, 1400); _wf.sel = null; _wf.loopSel = false; _wf.playhead = 0; _wf.undo = undoBuffer ? { buffer: undoBuffer } : null;
     wfRender(); toast(msg + ' ✓'); return true;
@@ -2548,6 +2560,11 @@ function _loadScript(src) {
 async function _ensureExportLibs() {
   for (const u of _EXPORT_LIBS) await _loadScript(u);
   if (!window.JSZip || !(window.jspdf && window.jspdf.jsPDF) || !(window.lamejs && window.lamejs.Mp3Encoder)) throw new Error('export tools unavailable');
+}
+// Load only the mp3 encoder (lamejs) — used by waveform edit-save.
+async function _ensureMp3Lib() {
+  await _loadScript('https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js');
+  if (!(window.lamejs && window.lamejs.Mp3Encoder)) throw new Error('mp3 encoder unavailable');
 }
 // Encode an AudioBuffer to an MP3 Blob (portable everywhere). 128kbps; mono or stereo.
 function _encodeMp3(buffer) {
