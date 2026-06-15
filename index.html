@@ -745,6 +745,25 @@ function _authErr(e) {
 // Is the current session an anonymous guest? (used to UPGRADE in place instead of
 // creating a fresh account — otherwise guest songs/takes, keyed by uid, get orphaned.)
 function _isGuestNow() { return !!(auth.currentUser && auth.currentUser.isAnonymous); }
+// ── Lite storage caps (audio bytes only) ────────────────────────────
+// Admin = unlimited; registered = 120 MB; anonymous guest = 10 MB.
+const LITE_ADMIN_UID  = 'FMskbD7caYYHdpnHRT4Vw41vqNf2';
+const LITE_CAP_GUEST  = 10  * 1024 * 1024;   // 10 MB
+const LITE_CAP_REG    = 120 * 1024 * 1024;   // 120 MB ≈ 2h+ webm/opus
+function liteStorageCap() {
+  const u = auth.currentUser;
+  if (!u) return 0;                            // signed out → cannot store
+  if (u.uid === LITE_ADMIN_UID) return Infinity;
+  if (u.isAnonymous) return LITE_CAP_GUEST;
+  return LITE_CAP_REG;
+}
+// Running total of the current user's stored audio bytes (in-memory; seeded by
+// liteUsageRecompute() on song-list entry, adjusted incrementally on mutations).
+let _liteUsageBytes = 0;
+function liteUsageOver()  { return _liteUsageBytes >= liteStorageCap(); }
+function _liteAddBytes(n) { _liteUsageBytes = Math.max(0, _liteUsageBytes + (n || 0)); liteRenderMeter(); }
+// Replaced with the real renderer in Task 6; stub keeps early callers safe.
+function liteRenderMeter() { /* meter UI added in Task 6 */ }
 function _guestUpgradeOK() { document.body.classList.remove('relogin', 'is-guest'); toast('Signed in — your songs are saved ✓', 2400); }
 
 function authGoogle() {
