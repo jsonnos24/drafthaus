@@ -405,7 +405,8 @@ body.is-guest .guest-tag {
 .chord-nav .nav-center { flex: 1; display: flex; justify-content: center; min-width: 0; }
 .chord-nav .nav-center .key-pill { font-size: 15px; padding: 9px 18px; border-radius: 20px; min-width: 130px; text-align: center; white-space: nowrap; }
 .chord-nav .nav-switch { color: var(--tint); font-size: 14px; font-weight: 600; flex: none; white-space: nowrap; padding: 6px 2px 6px 6px; }
-.qc-key-row { display: flex; justify-content: center; gap: 10px; padding: 6px 0 10px; }
+.qc-key-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 12px 10px; }
+.qc-key-left { display: flex; gap: 10px; }
 .qc-key-row .key-sel { font-size: 15px; font-weight: 700; color: var(--tint); background: var(--tint-bg); padding: 9px 16px; border-radius: 20px; border: none; cursor: pointer; -webkit-appearance: none; appearance: none; text-align: center; text-align-last: center; }
 
 .seg { display: flex; background: var(--bg-input); border-radius: 9px; padding: 2px; margin: 10px 14px; flex: none; }
@@ -623,8 +624,13 @@ html.dark #chordPop .cp-seg button.on { background: #48484a; }
     </div>
     <div class="fb-card"><div class="fb-chordname" id="qcChordName">—</div><div id="qcNeck"></div></div>
     <div class="qc-key-row">
-      <select class="key-sel" id="qcKeyRoot" onchange="qcOnRoot(this)" aria-label="Key root"></select>
-      <select class="key-sel" id="qcKeyMode" onchange="qcOnMode(this.value)" aria-label="Major or minor"></select>
+      <div class="qc-key-left">
+        <select class="key-sel" id="qcKeyRoot" onchange="qcOnRoot(this)" aria-label="Key root"></select>
+        <select class="key-sel" id="qcKeyMode" onchange="qcOnMode(this.value)" aria-label="Major or minor"></select>
+      </div>
+      <select class="key-sel tuning-sel" id="qcTuning" onchange="qcOnTuning(this)" aria-label="Tuning">
+        <option value="standard">Standard</option><option value="eb">E♭</option>
+      </select>
     </div>
     <div class="qc-pills" id="qcPills"></div>
   </section>
@@ -640,6 +646,9 @@ html.dark #chordPop .cp-seg button.on { background: #48484a; }
       <button class="on" data-inst="guitar" onclick="fcSetInstrument('guitar')">Guitar</button>
       <button data-inst="ukulele" onclick="fcSetInstrument('ukulele')">Ukulele</button>
     </div>
+      <select class="key-sel tuning-sel" id="fcTuning" onchange="fcOnTuning(this)" aria-label="Tuning" style="display:block;margin:4px auto 0;">
+        <option value="standard">Standard</option><option value="eb">E♭</option>
+      </select>
     <div class="fc-picker">
       <select id="fcRoot" onchange="fcSelectFromDropdown()"></select>
       <select id="fcQual" onchange="fcSelectFromDropdown()"></select>
@@ -2032,7 +2041,7 @@ function _fbNeckSVG(model, nStr) {
   for (let c2 = 0; c2 < COLS; c2++) { const absF = firstFret + c2; if (INLAYS[absF]) { const cx = NUTX + c2 * COLW + COLW / 2; if (INLAYS[absF] === 2) { svg += '<circle cx="'+cx+'" cy="'+(TOP+ROWGAP*0.7)+'" r="4" fill="#3a2c1c"/><circle cx="'+cx+'" cy="'+(bottom-ROWGAP*0.7)+'" r="4" fill="#3a2c1c"/>'; } else svg += '<circle cx="'+cx+'" cy="'+((TOP+bottom)/2)+'" r="5" fill="#3a2c1c"/>'; } }
   for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP; svg += '<line x1="'+NUTX+'" y1="'+y+'" x2="'+neckRight+'" y2="'+y+'" stroke="#8a8a9a" stroke-width="1.3"/>'; }
   { const _t = (nStr === 4) ? _FB_TUNING.ukulele : _FB_TUNING.guitar;
-    for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP; svg += '<text x="10" y="'+(y+4)+'" fill="#9a9aae" font-size="10" font-weight="700" text-anchor="middle">'+SEQ_NOTES[(((_t[r]||0)%12)+12)%12]+'</text>'; } }
+    for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP; svg += '<text x="10" y="'+(y+4)+'" fill="#9a9aae" font-size="10" font-weight="700" text-anchor="middle">'+_spellNote(((((_t[r]||0)+_tuneShift())%12)+12)%12, _tuning === 'eb')+'</text>'; } }
   for (let c3 = 0; c3 < COLS; c3++) { const nx = NUTX + c3 * COLW + COLW / 2; svg += '<text x="'+nx+'" y="'+(bottom+22)+'" fill="#6a6a7a" font-size="9" text-anchor="middle">'+(firstFret+c3)+'</text>'; }
   // barres (drawn under the dots): a translucent bar across the strings pressed at the barre fret
   if (model && model.barres && model.barres.length && model.strings) {
@@ -2119,10 +2128,11 @@ function _playSynth(midis, instrument) {
     osc.connect(lp).connect(g).connect(ctx.destination); osc.start(t0); osc.stop(t0 + 1.6);
   });
 }
-function playChordOnInstrument(name, instrument) {
+function playChordOnInstrument(name, instrument, shift) {
+  shift = shift || 0;
   const model = fbGetVoicing(instrument, name); const tuning = _FB_TUNING[instrument]; const midis = [];
-  if (model && model.strings) model.strings.forEach((s, i) => { if (s.fret != null) midis.push(tuning[i] + s.fret); });
-  if (!midis.length) _chordToMidi(name).forEach(m => midis.push(m));
+  if (model && model.strings) model.strings.forEach((s, i) => { if (s.fret != null) midis.push(tuning[i] + s.fret + shift); });
+  if (!midis.length) _chordToMidi(name).forEach(m => midis.push(m + shift));
   midis.sort((a, b) => a - b); playNotesStrum(midis, instrument);
 }
 
@@ -2130,6 +2140,27 @@ function playChordOnInstrument(name, instrument) {
 let _qcInstrument = (function(){ try { return localStorage.getItem('dh-lite-qc-inst') || 'guitar'; } catch(e){ return 'guitar'; } })();
 let _qcSelected = null;
 let _qcKey = 'C major'; // QC-local key (works with or without a loaded song)
+let _tuning = (function(){ try { return localStorage.getItem('dh-lite-tuning') || 'standard'; } catch(e){ return 'standard'; } })();
+function _tuneShift() { return _tuning === 'eb' ? -1 : 0; }
+function _tunedTuning(inst) { const s = _tuneShift(); return _FB_TUNING[inst].map(m => m + s); }
+// Display a chord internal name with the active tuning + flat spelling in E♭.
+function _dispChord(name) {
+  if (_tuning !== 'eb') return _spellChordName(name, _useFlats(_qcKey));
+  const clean = String(name).replace('_viii', '');
+  let root, qual;
+  if (clean.length >= 2 && clean[1] === '#') { root = clean.slice(0, 2); qual = clean.slice(2); } else { root = clean[0]; qual = clean.slice(1); }
+  const pc = SEQ_NOTES.indexOf(root); if (pc < 0) return clean;
+  return _spellNote(((pc - 1) % 12 + 12) % 12, true) + qual; // down a semitone, flat-spelled
+}
+function _setTuning(t) {
+  _tuning = t;
+  try { localStorage.setItem('dh-lite-tuning', t); } catch (e) {}
+  if (_currentSong) { _currentSong.tuning = t; try { db.collection('songs').doc(_currentSong.id).set({ tuning: t, updatedAt: Date.now() }, { merge: true }); } catch (e) {} }
+  if (document.getElementById('screen-qc').classList.contains('active')) qcRender();
+  if (document.getElementById('screen-fc').classList.contains('active')) fcUpdate();
+}
+function qcOnTuning(sel) { _setTuning(sel.value); }
+function fcOnTuning(sel) { _setTuning(sel.value); }
 // Pitch class of a key root, handling ♭ / # (e.g. 'B♭'→10, 'F#'→6).
 function _rootPc(r) {
   const s = String(r).replace('♭', 'b');
@@ -2161,7 +2192,7 @@ function _qcSetKey(k) {
   // Selecting a new key auto-draws + strums the tonic (I) chord.
   const km = _songKeyMode(k);
   const tonic = seqGetScaleChords(km.key, km.mode)[0];
-  if (tonic) { _qcSelected = tonic; qcRender(); playChordOnInstrument(tonic, _qcInstrument); }
+  if (tonic) { _qcSelected = tonic; qcRender(); playChordOnInstrument(tonic, _qcInstrument, _tuneShift()); }
   else qcRender();
 }
 function qcOnRoot(sel) { _qcSetKey(sel.value); }
@@ -2193,15 +2224,16 @@ function _spellChordName(name, flats) {
   const pc = SEQ_NOTES.indexOf(root);
   return (pc < 0) ? clean : _spellNote(pc, flats) + qual;
 }
-function openQuickChords() { if (_currentSong && _currentSong.key) _qcKey = _currentSong.key; qcRender(); showScreen('qc'); loadSampler(_qcInstrument); }
+function openQuickChords() { if (_currentSong && _currentSong.key) _qcKey = _currentSong.key; _tuning = (_currentSong && _currentSong.tuning) ? _currentSong.tuning : ((function(){ try { return localStorage.getItem('dh-lite-tuning'); } catch(e){ return null; } })() || 'standard'); qcRender(); showScreen('qc'); loadSampler(_qcInstrument); }
 function qcSetInstrument(inst) { _qcInstrument = inst; try { localStorage.setItem('dh-lite-qc-inst', inst); } catch(e){} qcRender(); loadSampler(inst); }
 function qcOpenKeyPicker() { openKeyPicker(); }
 function qcRender() {
   const km = _songKeyMode(_qcKey);
   _qcRenderKeySel();
+  { const ts = document.getElementById('qcTuning'); if (ts) ts.value = _tuning; }
   document.querySelectorAll('#qcSeg button').forEach(b => b.classList.toggle('on', b.dataset.inst === _qcInstrument));
   const flats = _useFlats(_qcKey);
-  document.getElementById('qcChordName').textContent = _qcSelected ? _spellChordName(_qcSelected, flats) : '—';
+  document.getElementById('qcChordName').textContent = _qcSelected ? _dispChord(_qcSelected) : '—';
   const nStr = _qcInstrument === 'guitar' ? 6 : 4;
   const model = _qcSelected ? fbGetVoicing(_qcInstrument, _qcSelected) : null;
   document.getElementById('qcNeck').innerHTML = _fbNeckSVG(model, nStr);
@@ -2215,8 +2247,8 @@ function qcRender() {
     const variants = (QUAL_VARIANTS[qual] || []).map(s => root + s);
     const alt = (qual === 'm' || qual === 'dim') ? 'alt' : '';
     cols += '<div class="qc-col"><div class="qc-ivl">' + IVL[idx] + '</div>';
-    cols += '<div class="qc-pill ' + alt + (_qcSelected === name ? ' playing' : '') + '" onclick="qcPlayPill(\'' + name + '\')">' + _spellChordName(name, flats) + '</div>';
-    variants.forEach(v => { cols += '<div class="qc-pill qc-var' + (_qcSelected === v ? ' playing' : '') + '" onclick="qcPlayPill(\'' + v + '\')">' + _spellChordName(v, flats) + '</div>'; });
+    cols += '<div class="qc-pill ' + alt + (_qcSelected === name ? ' playing' : '') + '" onclick="qcPlayPill(\'' + name + '\')">' + _dispChord(name) + '</div>';
+    variants.forEach(v => { cols += '<div class="qc-pill qc-var' + (_qcSelected === v ? ' playing' : '') + '" onclick="qcPlayPill(\'' + v + '\')">' + _dispChord(v) + '</div>'; });
     cols += '</div>';
   });
   cols += '</div>';
@@ -2224,12 +2256,12 @@ function qcRender() {
   const borrowed = getBorrowedChords(km.key, km.mode);
   if (borrowed && borrowed.length) {
     bor = '<div class="qc-grp" style="margin-top:12px">Borrowed</div><div class="qc-borrowed">';
-    borrowed.forEach(b => { bor += '<div class="qc-bcol"><div class="qc-ivl">' + (b.label || '') + '</div><div class="qc-bpill' + (_qcSelected === b.name ? ' playing' : '') + '" onclick="qcPlayPill(\'' + b.name + '\')">' + _spellChordName(b.name, flats) + '</div></div>'; });
+    borrowed.forEach(b => { bor += '<div class="qc-bcol"><div class="qc-ivl">' + (b.label || '') + '</div><div class="qc-bpill' + (_qcSelected === b.name ? ' playing' : '') + '" onclick="qcPlayPill(\'' + b.name + '\')">' + _dispChord(b.name) + '</div></div>'; });
     bor += '</div>';
   }
   document.getElementById('qcPills').innerHTML = '<div class="qc-grp">Diatonic + variations</div>' + cols + bor;
 }
-function qcPlayPill(name) { _qcSelected = name; playChordOnInstrument(name, _qcInstrument); qcRender(); }
+function qcPlayPill(name) { _qcSelected = name; playChordOnInstrument(name, _qcInstrument, _tuneShift()); qcRender(); }
 
 /* ═══════════════════════════ Find a Chord screen (reverse lookup) ═══════════════════════════ */
 const FC_QUALS = [
@@ -2243,7 +2275,7 @@ let _fcInstrument = (function(){ try { return localStorage.getItem('dh-lite-fc-i
 let _fcPlaced = [];
 let _fcBase = 0;
 function fcInitPlaced() { _fcPlaced = new Array(_FB_TUNING[_fcInstrument].length).fill(null); }
-function openFindChord() { if (_fcPlaced.length !== _FB_TUNING[_fcInstrument].length) fcInitPlaced(); fcRender(); showScreen('fc'); loadSampler(_fcInstrument); }
+function openFindChord() { _tuning = (_currentSong && _currentSong.tuning) ? _currentSong.tuning : ((function(){ try { return localStorage.getItem('dh-lite-tuning'); } catch(e){ return null; } })() || 'standard'); if (_fcPlaced.length !== _FB_TUNING[_fcInstrument].length) fcInitPlaced(); fcRender(); showScreen('fc'); loadSampler(_fcInstrument); }
 function fcSetInstrument(inst) { _fcInstrument = inst; try { localStorage.setItem('dh-lite-fc-inst', inst); } catch(e){} fcInitPlaced(); _fcBase = 0; fcRender(); loadSampler(inst); }
 function fcRender() {
   document.querySelectorAll('#fcSeg button').forEach(b => b.classList.toggle('on', b.dataset.inst === _fcInstrument));
@@ -2265,7 +2297,7 @@ function fcSelectFromDropdown() {
   fcPlay(); // selecting a root + type strums it
 }
 function fcClear() { fcInitPlaced(); _fcBase = 0; const rs = document.getElementById('fcRoot'), qs = document.getElementById('fcQual'); if (rs) rs.value = ''; if (qs) qs.value = '-1'; fcUpdate(); }
-function fcPlacedMidis() { const t = _FB_TUNING[_fcInstrument]; const out = []; _fcPlaced.forEach((f, i) => { if (f != null) out.push(t[i] + f); }); return out; }
+function fcPlacedMidis() { const t = _tunedTuning(_fcInstrument); const out = []; _fcPlaced.forEach((f, i) => { if (f != null) out.push(t[i] + f); }); return out; }
 function fcPlacedPcs() { return fcPlacedMidis().map(m => ((m % 12) + 12) % 12); }
 function fcBassPc() { const ms = fcPlacedMidis(); return ms.length ? (((Math.min(...ms) % 12) + 12) % 12) : -1; }
 function fcPlay() { const ms = fcPlacedMidis(); if (!ms.length) { toast('Tap some notes first'); return; } playNotesStrum(ms.slice().sort((a, b) => a - b), _fcInstrument); }
@@ -2303,7 +2335,7 @@ function identifyChord(pcs, bassPc) {
   return { exact: false, name: near[0].name };
 }
 function fcRenderNeck() {
-  const tuning = _FB_TUNING[_fcInstrument], nStr = tuning.length;
+  const tuning = _tunedTuning(_fcInstrument), nStr = tuning.length;
   const COLS = 5, COLW = 46, OPENW = 32, NUTX = 12 + OPENW, ROWGAP = 26, TOP = 24;
   const neckRight = NUTX + COLS * COLW, bottom = TOP + (nStr - 1) * ROWGAP, W = neckRight + 14, H = bottom + 34, base = _fcBase || 0;
   let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + Math.min(H, 240) + '" style="display:block">';
@@ -2314,7 +2346,7 @@ function fcRenderNeck() {
   for (let c = 0; c < COLS; c++) { const absF = (base === 0 ? c + 1 : base + c); if ([3,5,7,9].includes(absF)) { const cx = NUTX + (c + 0.5) * COLW; svg += '<circle cx="'+cx+'" cy="'+((TOP+bottom)/2)+'" r="5" fill="#3a2c1c"/>'; } }
   for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP; svg += '<line x1="'+(NUTX-OPENW)+'" y1="'+y+'" x2="'+neckRight+'" y2="'+y+'" stroke="#8a8a9a" stroke-width="1.3"/>'; }
   for (let c = 0; c < COLS; c++) { const nx = NUTX + (c + 0.5) * COLW; svg += '<text x="'+nx+'" y="'+(bottom+22)+'" fill="#6a6a7a" font-size="10" text-anchor="middle">'+(base === 0 ? c + 1 : base + c)+'</text>'; }
-  for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP; svg += '<text x="14" y="'+(y+4)+'" fill="#9a9aae" font-size="10" font-weight="700" text-anchor="middle">'+SEQ_NOTES[((tuning[r]%12)+12)%12]+'</text>'; }
+  for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP; svg += '<text x="14" y="'+(y+4)+'" fill="#9a9aae" font-size="10" font-weight="700" text-anchor="middle">'+_spellNote(((tuning[r]%12)+12)%12, _tuning === 'eb')+'</text>'; }
   _fcPlaced.forEach((f, r) => { if (f == null) return; const y = TOP + r * ROWGAP;
     if (f === 0) svg += '<circle cx="'+(NUTX-OPENW/2)+'" cy="'+y+'" r="8" fill="none" stroke="#7aa2ff" stroke-width="2.5"/>';
     else { const col = (base === 0 ? f - 1 : f - base); if (col >= 0 && col < COLS) { const cx = NUTX + (col + 0.5) * COLW; svg += '<circle cx="'+cx+'" cy="'+y+'" r="10" fill="#e0b450"/>'; } }
@@ -2324,6 +2356,7 @@ function fcRenderNeck() {
     for (let c = 0; c < COLS; c++) { const absF = (base === 0 ? c + 1 : base + c); svg += '<rect class="fc-cell" x="'+(NUTX+c*COLW)+'" y="'+(y-ROWGAP/2)+'" width="'+COLW+'" height="'+ROWGAP+'" fill="transparent" onclick="fcTapCell('+r+','+absF+')"/>'; }
   }
   document.getElementById('fcNeck').innerHTML = svg + '</svg>';
+  { const ts = document.getElementById('fcTuning'); if (ts) ts.value = _tuning; }
 }
 
 /* ═══════════════════════════ Drag-reorder (pinned songs + takes) ═══════════════════════════ */
