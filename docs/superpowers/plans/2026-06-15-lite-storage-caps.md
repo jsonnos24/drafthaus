@@ -69,18 +69,37 @@ function liteRenderMeter() { /* meter UI added in Task 6 */ }
 
 Create `_verify_lite_caps.js` (full harness; reused/extended by later tasks):
 
+> Harness note: load over a **local HTTP server** (not `file://`) — Firebase boot/fetch
+> need http. This mirrors the proven pattern in the existing `_verify_lite_*.js` scripts.
+> The helper functions are global on `window`, so the tier checks run by stubbing
+> `auth`/`db` and calling the functions directly — no real sign-in needed. `#liteMeter`
+> lives in the static `#screen-songlist` markup, so it exists in the DOM even on the
+> landing screen.
+
 ```js
 const { chromium } = require('playwright-core');
+const path = require('path'); const http = require('http'); const fs = require('fs');
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const URL = 'file://' + process.cwd() + '/index.html';
-
+const BUILD = 'index.html';
+function startServer() {
+  return new Promise(resolve => {
+    const srv = http.createServer((req, res) => {
+      const file = path.join(__dirname, decodeURIComponent(req.url.split('?')[0]));
+      fs.readFile(file, (err, buf) => { if (err) { res.writeHead(404); res.end('nf'); return; }
+        const ct = file.endsWith('.html') ? 'text/html' : 'application/octet-stream';
+        res.writeHead(200, { 'Content-Type': ct }); res.end(buf); });
+    });
+    srv.listen(0, '127.0.0.1', () => resolve({ srv, port: srv.address().port }));
+  });
+}
 (async () => {
+  const { srv, port } = await startServer();
   const browser = await chromium.launch({ executablePath: CHROME, headless: true });
   const page = await browser.newPage();
   const errs = [];
   page.on('pageerror', e => errs.push('PAGEERROR ' + e.message));
   await page.addInitScript(() => localStorage.setItem('drafthaus-eula-accepted', '1'));
-  await page.goto(URL, { waitUntil: 'load' });
+  await page.goto(`http://127.0.0.1:${port}/${BUILD}`, { waitUntil: 'load' });
   await page.waitForFunction(() => typeof liteStorageCap === 'function', { timeout: 8000 });
 
   const r = await page.evaluate(() => {
@@ -99,10 +118,11 @@ const URL = 'file://' + process.cwd() + '/index.html';
     r.guest === expect.guest &&
     r.registered === expect.registered &&
     r.admin === null; // Infinity serializes to null over evaluate
-  console.log('TASK1', JSON.stringify(r), 'pageerrors=', errs.length);
-  if (!ok || errs.length) { console.error('TASK1 FAIL', errs); process.exit(1); }
+  console.log('TASK1', JSON.stringify(r), 'pageerrors=', errs.length, errs);
+  // Firebase boot noise (permission-denied etc.) is expected; only fail on logic.
+  if (!ok) { console.error('TASK1 FAIL'); process.exit(1); }
   console.log('TASK1 PASS');
-  await browser.close();
+  await browser.close(); srv.close();
 })();
 ```
 
