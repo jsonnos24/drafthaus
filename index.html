@@ -2273,10 +2273,11 @@ const _QUAL_RANK = {'':0,'m':1,'7':2,'5':2,'maj7':3,'m7':4,'dim':4,'6':5,'dim7':
 function _qualRank(q) { return (q in _QUAL_RANK) ? _QUAL_RANK[q] : 6; }
 let _fcInstrument = (function(){ try { return localStorage.getItem('dh-lite-fc-inst') || 'guitar'; } catch(e){ return 'guitar'; } })();
 let _fcPlaced = [];
-let _fcBase = 0;
+const FC_MAXFRET = { guitar: 22, ukulele: 15 };
+const FC_INLAYS = { guitar: [3,5,7,9,12,15,17,19,21], ukulele: [5,7,10,12,15] };
 function fcInitPlaced() { _fcPlaced = new Array(_FB_TUNING[_fcInstrument].length).fill(null); }
 function openFindChord() { _tuning = (_currentSong && _currentSong.tuning) ? _currentSong.tuning : ((function(){ try { return localStorage.getItem('dh-lite-tuning'); } catch(e){ return null; } })() || 'standard'); if (_fcPlaced.length !== _FB_TUNING[_fcInstrument].length) fcInitPlaced(); fcRender(); showScreen('fc'); loadSampler(_fcInstrument); }
-function fcSetInstrument(inst) { _fcInstrument = inst; try { localStorage.setItem('dh-lite-fc-inst', inst); } catch(e){} fcInitPlaced(); _fcBase = 0; fcRender(); loadSampler(inst); }
+function fcSetInstrument(inst) { _fcInstrument = inst; try { localStorage.setItem('dh-lite-fc-inst', inst); } catch(e){} fcInitPlaced(); fcRender(); loadSampler(inst); }
 function fcRender() {
   document.querySelectorAll('#fcSeg button').forEach(b => b.classList.toggle('on', b.dataset.inst === _fcInstrument));
   const rs = document.getElementById('fcRoot'), qs = document.getElementById('fcQual');
@@ -2284,20 +2285,34 @@ function fcRender() {
   if (qs && !qs.options.length) qs.innerHTML = '<option value="-1">Type…</option>' + FC_QUALS.map((q, i) => '<option value="' + i + '">' + q.l + '</option>').join('');
   fcUpdate();
 }
-function fcTapCell(r, f) { _fcPlaced[r] = (_fcPlaced[r] === f) ? null : f; fcUpdate(); }
+// Left nut cell: cycle none → open(0) → mute('x') → none.
+function fcCycleNut(r) {
+  const cur = _fcPlaced[r];
+  _fcPlaced[r] = (cur === null || cur === undefined) ? 0 : (cur === 0 ? 'x' : (cur === 'x' ? null : 0));
+  fcUpdate();
+  if (_fcPlaced[r] === 0) fcHearString(r, 0);
+}
+// Fret cell: set/clear the fret (clears any open/mute), and play the note.
+function fcTapFret(r, f) {
+  _fcPlaced[r] = (_fcPlaced[r] === f) ? null : f;
+  fcUpdate();
+  if (_fcPlaced[r] === f) fcHearString(r, f);
+}
+function fcHearString(r, f) {
+  const midi = _tunedTuning(_fcInstrument)[r] + f;
+  playNotesStrum([midi], _fcInstrument);
+}
 function fcSelectFromDropdown() {
   const root = document.getElementById('fcRoot').value, qi = parseInt(document.getElementById('fcQual').value, 10);
   if (!root || isNaN(qi) || qi < 0) return;
   const model = fbGetVoicing(_fcInstrument, root + FC_QUALS[qi].s);
-  fcInitPlaced(); let maxF = 0;
-  if (model && model.strings) model.strings.forEach((s, i) => { const f = (s.fret == null ? null : s.fret); _fcPlaced[i] = f; if (f && f > maxF) maxF = f; });
-  const nz = (model.strings || []).map(s => s.fret).filter(f => f && f > 0);
-  _fcBase = (maxF <= 5) ? 0 : Math.min(...nz);
+  fcInitPlaced();
+  if (model && model.strings) model.strings.forEach((s, i) => { const f = (s.fret == null ? null : s.fret); _fcPlaced[i] = f; });
   fcUpdate();
   fcPlay(); // selecting a root + type strums it
 }
-function fcClear() { fcInitPlaced(); _fcBase = 0; const rs = document.getElementById('fcRoot'), qs = document.getElementById('fcQual'); if (rs) rs.value = ''; if (qs) qs.value = '-1'; fcUpdate(); }
-function fcPlacedMidis() { const t = _tunedTuning(_fcInstrument); const out = []; _fcPlaced.forEach((f, i) => { if (f != null) out.push(t[i] + f); }); return out; }
+function fcClear() { fcInitPlaced(); const rs = document.getElementById('fcRoot'), qs = document.getElementById('fcQual'); if (rs) rs.value = ''; if (qs) qs.value = '-1'; fcUpdate(); }
+function fcPlacedMidis() { const t = _tunedTuning(_fcInstrument); const out = []; _fcPlaced.forEach((f, i) => { if (typeof f === 'number') out.push(t[i] + f); }); return out; }
 function fcPlacedPcs() { return fcPlacedMidis().map(m => ((m % 12) + 12) % 12); }
 function fcBassPc() { const ms = fcPlacedMidis(); return ms.length ? (((Math.min(...ms) % 12) + 12) % 12) : -1; }
 function fcPlay() { const ms = fcPlacedMidis(); if (!ms.length) { toast('Tap some notes first'); return; } playNotesStrum(ms.slice().sort((a, b) => a - b), _fcInstrument); }
@@ -2335,28 +2350,38 @@ function identifyChord(pcs, bassPc) {
   return { exact: false, name: near[0].name };
 }
 function fcRenderNeck() {
-  const tuning = _tunedTuning(_fcInstrument), nStr = tuning.length;
-  const COLS = 5, COLW = 46, OPENW = 32, NUTX = 12 + OPENW, ROWGAP = 26, TOP = 24;
-  const neckRight = NUTX + COLS * COLW, bottom = TOP + (nStr - 1) * ROWGAP, W = neckRight + 14, H = bottom + 34, base = _fcBase || 0;
-  let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + Math.min(H, 240) + '" style="display:block">';
-  svg += '<rect x="'+NUTX+'" y="'+(TOP-7)+'" width="'+(COLS*COLW)+'" height="'+((nStr-1)*ROWGAP+14)+'" fill="#241a12" rx="3"/>';
-  if (base === 0) svg += '<rect x="'+(NUTX-4)+'" y="'+(TOP-7)+'" width="6" height="'+((nStr-1)*ROWGAP+14)+'" fill="#cfcfdf"/>';
-  else svg += '<text x="'+(NUTX-8)+'" y="'+(TOP-10)+'" fill="#e0b450" font-size="11" font-weight="700" text-anchor="end">'+base+'fr</text>';
-  for (let c = 1; c <= COLS; c++) { const fx = NUTX + c * COLW; svg += '<line x1="'+fx+'" y1="'+(TOP-7)+'" x2="'+fx+'" y2="'+(bottom+7)+'" stroke="#5a4a38" stroke-width="2"/>'; }
-  for (let c = 0; c < COLS; c++) { const absF = (base === 0 ? c + 1 : base + c); if ([3,5,7,9].includes(absF)) { const cx = NUTX + (c + 0.5) * COLW; svg += '<circle cx="'+cx+'" cy="'+((TOP+bottom)/2)+'" r="5" fill="#3a2c1c"/>'; } }
-  for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP; svg += '<line x1="'+(NUTX-OPENW)+'" y1="'+y+'" x2="'+neckRight+'" y2="'+y+'" stroke="#8a8a9a" stroke-width="1.3"/>'; }
-  for (let c = 0; c < COLS; c++) { const nx = NUTX + (c + 0.5) * COLW; svg += '<text x="'+nx+'" y="'+(bottom+22)+'" fill="#6a6a7a" font-size="10" text-anchor="middle">'+(base === 0 ? c + 1 : base + c)+'</text>'; }
-  for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP; svg += '<text x="14" y="'+(y+4)+'" fill="#9a9aae" font-size="10" font-weight="700" text-anchor="middle">'+_spellNote(((tuning[r]%12)+12)%12, _tuning === 'eb')+'</text>'; }
-  _fcPlaced.forEach((f, r) => { if (f == null) return; const y = TOP + r * ROWGAP;
-    if (f === 0) svg += '<circle cx="'+(NUTX-OPENW/2)+'" cy="'+y+'" r="8" fill="none" stroke="#7aa2ff" stroke-width="2.5"/>';
-    else { const col = (base === 0 ? f - 1 : f - base); if (col >= 0 && col < COLS) { const cx = NUTX + (col + 0.5) * COLW; svg += '<circle cx="'+cx+'" cy="'+y+'" r="10" fill="#e0b450"/>'; } }
-  });
+  const inst = _fcInstrument, tuning = _tunedTuning(inst), nStr = tuning.length;
+  const MAX = FC_MAXFRET[inst], INLAYS = FC_INLAYS[inst];
+  const ROWGAP = 26, TOP = 24, COLW = 46, OPENW = 34, LBLW = 22;
+  const H = TOP + (nStr - 1) * ROWGAP + 34;
+  const tsel = document.getElementById('fcTuning'); if (tsel) tsel.value = _tuning;
+  // Left pinned panel: string labels + open/mute column.
+  const leftW = LBLW + OPENW;
+  let L = '<svg width="' + leftW + '" height="' + Math.min(H, 240) + '" viewBox="0 0 ' + leftW + ' ' + H + '" style="display:block;flex:none">';
+  L += '<rect x="' + (leftW - 4) + '" y="' + (TOP - 7) + '" width="6" height="' + ((nStr - 1) * ROWGAP + 14) + '" fill="#cfcfdf"/>';
   for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP;
-    svg += '<rect class="fc-cell" x="'+(NUTX-OPENW)+'" y="'+(y-ROWGAP/2)+'" width="'+OPENW+'" height="'+ROWGAP+'" fill="transparent" onclick="fcTapCell('+r+',0)"/>';
-    for (let c = 0; c < COLS; c++) { const absF = (base === 0 ? c + 1 : base + c); svg += '<rect class="fc-cell" x="'+(NUTX+c*COLW)+'" y="'+(y-ROWGAP/2)+'" width="'+COLW+'" height="'+ROWGAP+'" fill="transparent" onclick="fcTapCell('+r+','+absF+')"/>'; }
+    L += '<line x1="' + LBLW + '" y1="' + y + '" x2="' + leftW + '" y2="' + y + '" stroke="#8a8a9a" stroke-width="1.3"/>';
+    L += '<text x="' + (LBLW / 2) + '" y="' + (y + 4) + '" fill="#9a9aae" font-size="10" font-weight="700" text-anchor="middle">' + _spellNote(((tuning[r] % 12) + 12) % 12, _tuning === 'eb') + '</text>';
+    const f = _fcPlaced[r];
+    if (f === 0) L += '<circle cx="' + (LBLW + OPENW / 2) + '" cy="' + y + '" r="8" fill="none" stroke="#7aa2ff" stroke-width="2.5"/>';
+    else if (f === 'x') L += '<text x="' + (LBLW + OPENW / 2) + '" y="' + (y + 4) + '" fill="#e0556e" font-size="13" text-anchor="middle">✕</text>';
+    L += '<rect x="' + LBLW + '" y="' + (y - ROWGAP / 2) + '" width="' + OPENW + '" height="' + ROWGAP + '" fill="transparent" style="cursor:pointer" onclick="fcCycleNut(' + r + ')"/>';
   }
-  document.getElementById('fcNeck').innerHTML = svg + '</svg>';
-  { const ts = document.getElementById('fcTuning'); if (ts) ts.value = _tuning; }
+  L += '</svg>';
+  // Scrollable fret panel: frets 1..MAX.
+  const W = MAX * COLW + 10;
+  let R = '<svg width="' + W + '" height="' + Math.min(H, 240) + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block">';
+  R += '<rect x="0" y="' + (TOP - 7) + '" width="' + (MAX * COLW) + '" height="' + ((nStr - 1) * ROWGAP + 14) + '" fill="#241a12" rx="3"/>';
+  for (let c = 1; c <= MAX; c++) { const fx = c * COLW; R += '<line x1="' + fx + '" y1="' + (TOP - 7) + '" x2="' + fx + '" y2="' + (TOP + (nStr - 1) * ROWGAP + 7) + '" stroke="#5a4a38" stroke-width="2"/>'; }
+  INLAYS.forEach(fr => { if (fr <= MAX) { const cx = (fr - 0.5) * COLW, cy = TOP + ((nStr - 1) * ROWGAP) / 2; if (fr === 12) { R += '<circle cx="' + cx + '" cy="' + (TOP + ROWGAP * 0.6) + '" r="5" fill="#3a2c1c"/><circle cx="' + cx + '" cy="' + (TOP + (nStr - 1) * ROWGAP - ROWGAP * 0.6) + '" r="5" fill="#3a2c1c"/>'; } else R += '<circle cx="' + cx + '" cy="' + cy + '" r="5" fill="#3a2c1c"/>'; } });
+  for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP; R += '<line x1="0" y1="' + y + '" x2="' + (MAX * COLW) + '" y2="' + y + '" stroke="#8a8a9a" stroke-width="1.3"/>'; }
+  for (let c = 1; c <= MAX; c++) { R += '<text x="' + ((c - 0.5) * COLW) + '" y="' + (TOP + (nStr - 1) * ROWGAP + 22) + '" fill="#6a6a7a" font-size="10" text-anchor="middle">' + c + '</text>'; }
+  _fcPlaced.forEach((f, r) => { if (typeof f === 'number' && f > 0) { const y = TOP + r * ROWGAP, cx = (f - 0.5) * COLW; R += '<circle cx="' + cx + '" cy="' + y + '" r="10" fill="#e0b450"/>'; } });
+  for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP; for (let c = 1; c <= MAX; c++) { R += '<rect x="' + ((c - 1) * COLW) + '" y="' + (y - ROWGAP / 2) + '" width="' + COLW + '" height="' + ROWGAP + '" fill="transparent" style="cursor:pointer" onclick="fcTapFret(' + r + ',' + c + ')"/>'; } }
+  R += '</svg>';
+  document.getElementById('fcNeck').innerHTML =
+    '<div style="display:flex;align-items:flex-start">' + L +
+    '<div style="overflow-x:auto;flex:1">' + R + '</div></div>';
 }
 
 /* ═══════════════════════════ Drag-reorder (pinned songs + takes) ═══════════════════════════ */
