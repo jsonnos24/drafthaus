@@ -430,11 +430,12 @@ html.dark .seg button.on { background: #48484a; }
 .qc-pill.playing { box-shadow: 0 0 0 3px var(--tint-bg), 0 0 12px rgba(0,122,255,.5); }
 .qc-var { background: var(--tint-bg); color: var(--tint); font-size: 11px; font-weight: 600; padding: 6px 2px; }
 .qc-var.playing { box-shadow: 0 0 0 2px var(--tint); }
-.qc-borrowed { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.qc-borrowed { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .qc-bpill { background: #fff4e5; color: #b25b00; border: 1px solid #ffe0b3; border-radius: 14px; padding: 6px 11px; font-size: 12px; font-weight: 600; }
 html.dark .qc-bpill { background: #3a2a14; color: #ffb84d; border-color: #5a4424; }
-.qc-bpill .lab { font-size: 9px; opacity: .7; margin-right: 4px; }
 .qc-bpill.playing { box-shadow: 0 0 0 2px var(--orange); }
+.qc-bcol { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.qc-bcol .qc-ivl { font-size: 10px; font-weight: 800; color: var(--text-2); text-transform: none; }
 
 /* Find a Chord */
 .fc-picker { display: flex; gap: 8px; margin: 0 14px 8px; flex: none; }
@@ -1982,6 +1983,10 @@ const _DB_OVERRIDE = {
     'Cm':  { f: [3, 4, 5, 5, 3, -1], fi: [1, 2, 4, 3, 1, 0], b: [3] },
     'C#m': { f: [4, 5, 6, 6, 4, -1], fi: [1, 2, 4, 3, 1, 0], b: [4] },
   },
+  ukulele: {  // f = [A,E,C,G] per _FB_TUNING.ukulele; same correct shapes, now show the barre
+    'Cm':  { f: [3, 3, 3, 0], fi: [3, 2, 1, 0], b: [3] },
+    'C#m': { f: [4, 4, 4, 1], fi: [4, 3, 2, 1], b: [4] },
+  },
 };
 function _dbVoicing(instrument, root, qual) {
   const tbl = CHORD_DB && CHORD_DB[instrument]; if (!tbl) return null;
@@ -2026,6 +2031,8 @@ function _fbNeckSVG(model, nStr) {
   for (let c = 1; c <= COLS; c++) { const fx = NUTX + c * COLW; svg += '<line x1="'+fx+'" y1="'+(TOP-6)+'" x2="'+fx+'" y2="'+(bottom+6)+'" stroke="#5a4a38" stroke-width="2"/>'; }
   for (let c2 = 0; c2 < COLS; c2++) { const absF = firstFret + c2; if (INLAYS[absF]) { const cx = NUTX + c2 * COLW + COLW / 2; if (INLAYS[absF] === 2) { svg += '<circle cx="'+cx+'" cy="'+(TOP+ROWGAP*0.7)+'" r="4" fill="#3a2c1c"/><circle cx="'+cx+'" cy="'+(bottom-ROWGAP*0.7)+'" r="4" fill="#3a2c1c"/>'; } else svg += '<circle cx="'+cx+'" cy="'+((TOP+bottom)/2)+'" r="5" fill="#3a2c1c"/>'; } }
   for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP; svg += '<line x1="'+NUTX+'" y1="'+y+'" x2="'+neckRight+'" y2="'+y+'" stroke="#8a8a9a" stroke-width="1.3"/>'; }
+  { const _t = (nStr === 4) ? _FB_TUNING.ukulele : _FB_TUNING.guitar;
+    for (let r = 0; r < nStr; r++) { const y = TOP + r * ROWGAP; svg += '<text x="10" y="'+(y+4)+'" fill="#9a9aae" font-size="10" font-weight="700" text-anchor="middle">'+SEQ_NOTES[(((_t[r]||0)%12)+12)%12]+'</text>'; } }
   for (let c3 = 0; c3 < COLS; c3++) { const nx = NUTX + c3 * COLW + COLW / 2; svg += '<text x="'+nx+'" y="'+(bottom+22)+'" fill="#6a6a7a" font-size="9" text-anchor="middle">'+(firstFret+c3)+'</text>'; }
   // barres (drawn under the dots): a translucent bar across the strings pressed at the barre fret
   if (model && model.barres && model.barres.length && model.strings) {
@@ -2151,7 +2158,11 @@ function _qcSetKey(k) {
     _currentSong.key = k;
     try { db.collection('songs').doc(_currentSong.id).set({ key: k, updatedAt: Date.now() }, { merge: true }); } catch (e) {}
   }
-  qcRender();
+  // Selecting a new key auto-draws + strums the tonic (I) chord.
+  const km = _songKeyMode(k);
+  const tonic = seqGetScaleChords(km.key, km.mode)[0];
+  if (tonic) { _qcSelected = tonic; qcRender(); playChordOnInstrument(tonic, _qcInstrument); }
+  else qcRender();
 }
 function qcOnRoot(sel) { _qcSetKey(sel.value); }
 function qcOnMode(mode) {
@@ -2213,7 +2224,7 @@ function qcRender() {
   const borrowed = getBorrowedChords(km.key, km.mode);
   if (borrowed && borrowed.length) {
     bor = '<div class="qc-grp" style="margin-top:12px">Borrowed</div><div class="qc-borrowed">';
-    borrowed.forEach(b => { bor += '<div class="qc-bpill' + (_qcSelected === b.name ? ' playing' : '') + '" onclick="qcPlayPill(\'' + b.name + '\')"><span class="lab">' + (b.label || '') + '</span>' + _spellChordName(b.name, flats) + '</div>'; });
+    borrowed.forEach(b => { bor += '<div class="qc-bcol"><div class="qc-ivl">' + (b.label || '') + '</div><div class="qc-bpill' + (_qcSelected === b.name ? ' playing' : '') + '" onclick="qcPlayPill(\'' + b.name + '\')">' + _spellChordName(b.name, flats) + '</div></div>'; });
     bor += '</div>';
   }
   document.getElementById('qcPills').innerHTML = '<div class="qc-grp">Diatonic + variations</div>' + cols + bor;
