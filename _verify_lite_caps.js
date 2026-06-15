@@ -104,9 +104,30 @@ function startServer() {
   });
   const ok6 = r6.admin.disp === 'none'
     && r6.regUnder.disp === '' && r6.regUnder.txt.indexOf('30 / 120 MB') !== -1 && !r6.regUnder.over
-    && r6.guestOver.over === true && r6.guestOver.txt.indexOf('Sign in') !== -1;
+    && r6.guestOver.over === true && r6.guestOver.txt.indexOf('120 MB') !== -1;
   if (!ok6) { console.error('TASK6 FAIL', JSON.stringify(r6)); process.exit(1); }
   console.log('TASK6 PASS', JSON.stringify(r6));
+
+  // ── FEEDBACK: guest UNDER cap still shows the upsell CTA; upgrade refreshes meter to 120 MB ──
+  const rf = await page.evaluate(() => {
+    const el = document.getElementById('liteMeter');
+    // guest, well under cap → CTA still present
+    Object.defineProperty(auth, 'currentUser', { value: { uid: 'g1', isAnonymous: true }, configurable: true, writable: true });
+    _liteUsageBytes = 2 * 1024 * 1024;
+    liteRenderMeter();
+    const guestUnder = { html: el.innerHTML, hasCta: !!el.querySelector('.lite-meter-cta') };
+    // simulate in-place upgrade → _guestUpgradeOK should re-render to 120 MB (no page reload)
+    Object.defineProperty(auth, 'currentUser', { value: { uid: 'g1', isAnonymous: false }, configurable: true, writable: true });
+    db.collection = () => ({ where: () => ({ get: async () => ({ forEach: () => {} }) }) }); // recompute → 0 takes seeded
+    _guestUpgradeOK();
+    return { guestUnder, afterUpgrade: el.textContent };
+  });
+  // recompute is async inside _guestUpgradeOK; give it a tick then re-read
+  await page.waitForTimeout(300);
+  const afterTxt = await page.evaluate(() => document.getElementById('liteMeter').textContent);
+  const okf = rf.guestUnder.hasCta && /120 MB/.test(rf.guestUnder.html) && /120 MB/.test(afterTxt) && !/10 MB/.test(afterTxt.replace('120 MB',''));
+  if (!okf) { console.error('FEEDBACK FAIL', JSON.stringify(rf), 'afterTxt=', afterTxt); process.exit(1); }
+  console.log('FEEDBACK PASS', JSON.stringify(rf), 'afterTxt=', afterTxt);
 
   // ── TASK 7: uploadTake blocks when over cap ──
   const r7 = await page.evaluate(async () => {
