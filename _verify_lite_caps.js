@@ -46,5 +46,25 @@ function startServer() {
   console.log('TASK1', JSON.stringify(r), 'pageerrors=', errs.length, errs);
   if (!ok) { console.error('TASK1 FAIL'); process.exit(1); }
   console.log('TASK1 PASS');
+
+  // ── TASK 2: liteUsageRecompute sums take bytes ──
+  const r2 = await page.evaluate(async () => {
+    Object.defineProperty(auth, 'currentUser', { value: { uid: 'r1', isAnonymous: false }, configurable: true, writable: true });
+    const orig = db.collection; // db is const, but its method is assignable
+    db.collection = () => ({
+      where: () => ({ get: async () => ({
+        forEach: cb => {
+          cb({ id: 'a', data: () => ({ bytes: 5*1024*1024 }) });
+          cb({ id: 'b', data: () => ({ bytes: 7*1024*1024 }) });
+        }
+      }) })
+    });
+    const total = await liteUsageRecompute();
+    db.collection = orig;
+    return total;
+  });
+  if (r2 !== 12*1024*1024) { console.error('TASK2 FAIL', r2); process.exit(1); }
+  console.log('TASK2 PASS', r2);
+
   await browser.close(); srv.close();
 })();

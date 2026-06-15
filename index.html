@@ -764,6 +764,34 @@ function liteUsageOver()  { return _liteUsageBytes >= liteStorageCap(); }
 function _liteAddBytes(n) { _liteUsageBytes = Math.max(0, _liteUsageBytes + (n || 0)); liteRenderMeter(); }
 // Replaced with the real renderer in Task 6; stub keeps early callers safe.
 function liteRenderMeter() { /* meter UI added in Task 6 */ }
+// Authoritative seed: sum bytes of all the current user's takes. Backfills the
+// `bytes` field for legacy takes from Storage metadata (one-time, lazy).
+async function liteUsageRecompute() {
+  const u = uid();
+  if (!u) { _liteUsageBytes = 0; liteRenderMeter(); return 0; }
+  try {
+    const snap = await db.collection('voice_takes').where('userId', '==', u).get();
+    let total = 0;
+    const backfills = [];
+    snap.forEach(d => {
+      const t = d.data();
+      if (typeof t.bytes === 'number') { total += t.bytes; return; }
+      if (t.storagePath) backfills.push({ id: d.id, path: t.storagePath });
+    });
+    // Backfill missing byte counts from Storage metadata (legacy takes only).
+    for (const b of backfills) {
+      try {
+        const md = await firebase.storage().ref(b.path).getMetadata();
+        const sz = md && md.size ? Number(md.size) : 0;
+        total += sz;
+        db.collection('voice_takes').doc(b.id).set({ bytes: sz }, { merge: true }).catch(() => {});
+      } catch (e) { /* file gone / no perms — count as 0 */ }
+    }
+    _liteUsageBytes = total;
+  } catch (e) { console.warn('[caps] recompute', e); }
+  liteRenderMeter();
+  return _liteUsageBytes;
+}
 function _guestUpgradeOK() { document.body.classList.remove('relogin', 'is-guest'); toast('Signed in — your songs are saved ✓', 2400); }
 
 function authGoogle() {
