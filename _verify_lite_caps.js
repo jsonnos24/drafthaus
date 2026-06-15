@@ -87,5 +87,26 @@ function startServer() {
   if (!ok5) { console.error('TASK5 FAIL', JSON.stringify(r5)); process.exit(1); }
   console.log('TASK5 PASS', JSON.stringify(r5));
 
+  // ── TASK 6: meter renders per tier ──
+  const r6 = await page.evaluate(() => {
+    const set = (u, used) => {
+      Object.defineProperty(auth, 'currentUser', { value: u, configurable: true, writable: true });
+      _liteUsageBytes = used;
+      liteRenderMeter();
+      const el = document.getElementById('liteMeter');
+      return { disp: el.style.display, txt: el.textContent, over: el.classList.contains('over') };
+    };
+    return {
+      admin:     set({ uid: 'FMskbD7caYYHdpnHRT4Vw41vqNf2', isAnonymous: false }, 999*1024*1024),
+      regUnder:  set({ uid: 'r1', isAnonymous: false }, 30*1024*1024),
+      guestOver: set({ uid: 'g1', isAnonymous: true }, 11*1024*1024),
+    };
+  });
+  const ok6 = r6.admin.disp === 'none'
+    && r6.regUnder.disp === '' && r6.regUnder.txt.indexOf('30 / 120 MB') !== -1 && !r6.regUnder.over
+    && r6.guestOver.over === true && r6.guestOver.txt.indexOf('Sign in') !== -1;
+  if (!ok6) { console.error('TASK6 FAIL', JSON.stringify(r6)); process.exit(1); }
+  console.log('TASK6 PASS', JSON.stringify(r6));
+
   await browser.close(); srv.close();
 })();

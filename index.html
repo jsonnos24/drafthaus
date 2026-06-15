@@ -195,6 +195,9 @@ body.is-guest .guest-tag {
   letter-spacing: 0; white-space: nowrap; align-self: center;
 }
 .guest-signin { color: var(--tint); font-weight: 700; }
+.lite-meter { margin-left: 10px; font-size: 11px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
+.lite-meter.over { color: #e0564b; }
+.lite-meter .lite-meter-cta { color: var(--tint); font-weight: 700; background: none; border: none; cursor: pointer; padding: 0 0 0 6px; font: inherit; }
 .searchbar {
   margin: 6px 16px 12px; background: var(--bg-input); border-radius: 10px;
   padding: 8px 12px; display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 16px;
@@ -560,7 +563,7 @@ html.dark #chordPop .cp-seg button.on { background: #48484a; }
 <div id="app">
   <!-- Song list (home) -->
   <section id="screen-songlist" class="screen active">
-    <div class="lg-title"><span class="lg-head">Songs <span class="guest-tag">Guest · <button class="guest-signin" onclick="openLogin()">Sign in to save</button></span></span><span class="lg-actions"><button class="lg-export" onclick="exportStart()">Export</button><button class="lg-sel-export" onclick="exportSelected()">Export Selected</button><button class="lg-sel-clear" onclick="exportClearSel()">Clear</button><button class="lg-sel-cancel" onclick="exportCancel()">Cancel</button><button class="add" onclick="createSong()" aria-label="New song">＋</button></span></div>
+    <div class="lg-title"><span class="lg-head">Songs <span class="guest-tag">Guest · <button class="guest-signin" onclick="openLogin()">Sign in to save</button></span><span id="liteMeter" class="lite-meter" style="display:none;"></span></span><span class="lg-actions"><button class="lg-export" onclick="exportStart()">Export</button><button class="lg-sel-export" onclick="exportSelected()">Export Selected</button><button class="lg-sel-clear" onclick="exportClearSel()">Clear</button><button class="lg-sel-cancel" onclick="exportCancel()">Cancel</button><button class="add" onclick="createSong()" aria-label="New song">＋</button></span></div>
     <div class="searchbar">🔍 <input id="songSearch" placeholder="Search" oninput="renderSongList()"></div>
     <div id="songListBody">
       <div class="center-load"><div class="spinner"></div></div>
@@ -767,8 +770,21 @@ function liteCapMessage() {
     ? 'Storage full (10 MB) — sign in for 120 MB'
     : 'Storage full — delete takes to free space';
 }
-// Replaced with the real renderer in Task 6; stub keeps early callers safe.
-function liteRenderMeter() { /* meter UI added in Task 6 */ }
+function _liteFmtMB(b) { return (b / (1024 * 1024)).toFixed(b < 10 * 1024 * 1024 ? 1 : 0); }
+function liteRenderMeter() {
+  const el = document.getElementById('liteMeter'); if (!el) return;
+  const cap = liteStorageCap();
+  if (!auth.currentUser || cap === Infinity) { el.style.display = 'none'; return; } // admin/signed-out → no meter
+  el.style.display = '';
+  const over = _liteUsageBytes >= cap;
+  el.classList.toggle('over', over);
+  const used = _liteFmtMB(_liteUsageBytes), total = _liteFmtMB(cap);
+  if (over && auth.currentUser.isAnonymous) {
+    el.innerHTML = `${used}/${total} MB <button class="lite-meter-cta" onclick="openLogin()">Sign in → 120 MB</button>`;
+  } else {
+    el.textContent = `${used} / ${total} MB`;
+  }
+}
 // Authoritative seed: sum bytes of all the current user's takes. Backfills the
 // `bytes` field for legacy takes from Storage metadata (one-time, lazy).
 async function liteUsageRecompute() {
