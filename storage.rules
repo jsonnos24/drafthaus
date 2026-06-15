@@ -1,0 +1,45 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helpers: look up the song a file belongs to (path is keyed by songId).
+    function songData(songId) {
+      return firestore.get(/databases/(default)/documents/songs/$(songId)).data;
+    }
+    function ownsSong(songId) {
+      return request.auth != null && songData(songId).ownerId == request.auth.uid;
+    }
+    function canAccessSong(songId) {
+      let s = songData(songId);
+      return request.auth != null && (
+        s.ownerId == request.auth.uid
+        || request.auth.uid in s.get('sharedWith', [])
+        || request.auth.uid in s.get('sharedReadOnly', [])
+        || s.get('publicToken', null) != null
+      );
+    }
+
+    // ── CHANGED: was `allow read, write: if request.auth != null` ──
+    // Now: read if you own or are shared the song; write only if you own it.
+    match /voice_takes/{songId}/{filename} {
+      allow read:  if canAccessSong(songId);
+      allow write: if ownsSong(songId);
+    }
+    match /loop_tracks/{songId}/{filename} {
+      allow read:  if canAccessSong(songId);
+      allow write: if ownsSong(songId);
+    }
+
+    // ── UNCHANGED (low-risk) ──
+    match /chunks/{recordingId}/{filename} {
+      allow read, write: if request.auth != null;   // transient upload buffer (server-stitched, auto-swept)
+    }
+    match /shares/{songId}/{filename} {
+      allow read;                                    // public share links
+      allow write: if request.auth != null;
+    }
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
