@@ -108,5 +108,22 @@ function startServer() {
   if (!ok6) { console.error('TASK6 FAIL', JSON.stringify(r6)); process.exit(1); }
   console.log('TASK6 PASS', JSON.stringify(r6));
 
+  // ── TASK 7: uploadTake blocks when over cap ──
+  const r7 = await page.evaluate(async () => {
+    Object.defineProperty(auth, 'currentUser', { value: { uid: 'g1', isAnonymous: true }, configurable: true, writable: true }); // 10 MB cap
+    _currentSong = { id: 's1' };          // lexical — bare assign
+    _liteUsageBytes = 11 * 1024 * 1024;   // over
+    let toasted = ''; window.toast = m => { toasted = m; };
+    let added = false;
+    const orig = db.collection;
+    db.collection = () => ({ add: async () => { added = true; }, doc: () => ({ set: async () => {} }) });
+    await uploadTake({ size: 500000 }, 'audio/webm', 5);
+    db.collection = orig;
+    return { added, toasted };
+  });
+  const ok7 = r7.added === false && /Storage full/.test(r7.toasted);
+  if (!ok7) { console.error('TASK7 FAIL', JSON.stringify(r7)); process.exit(1); }
+  console.log('TASK7 PASS', JSON.stringify(r7));
+
   await browser.close(); srv.close();
 })();
