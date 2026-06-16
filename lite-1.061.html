@@ -1802,13 +1802,13 @@ async function startRecord() {
   let stream = _recStream; // may have been pre-acquired during the countdown
   if (!stream) {
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
-    catch (e) { toast('Microphone blocked — allow mic access'); return; }
+    catch (e) { recToast('Microphone blocked — allow mic access'); return; }
   }
   _recStream = stream;
   const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(t => { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || '';
   _recChunks = [];
   try { _mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); }
-  catch (e) { toast('Recording not supported here'); stream.getTracks().forEach(t => t.stop()); return; }
+  catch (e) { recToast('Recording not supported here'); stream.getTracks().forEach(t => t.stop()); return; }
   _mediaRec.ondataavailable = e => { if (e.data && e.data.size) _recChunks.push(e.data); };
   _mediaRec.onstop = onRecStop;
   _mediaRec.start();
@@ -1833,14 +1833,14 @@ async function onRecStop() {
   const mime = (_mediaRec && _mediaRec.mimeType) || 'audio/webm';
   const blob = new Blob(_recChunks, { type: mime });
   _recChunks = []; _mediaRec = null;
-  if (dur < 0.4 || !blob.size) { toast('Too short'); return; }
+  if (dur < 0.4 || !blob.size) { recToast('Too short'); return; }
   await uploadTake(blob, mime, dur);
 }
 async function uploadTake(blob, mime, dur) {
   const song = _currentSong;
-  if (!song || !uid()) { toast('Not signed in'); return; }
-  if (liteUsageOver()) { toast(liteCapMessage(), 3200); return; }
-  toast('Saving take…', 1500);
+  if (!song || !uid()) { recToast('Not signed in'); return; }
+  if (liteUsageOver()) { recToast(liteCapMessage(), 3200); return; }
+  recToast('Saving take…', 1500);
   const ext = mime.includes('webm') ? 'webm' : mime.includes('mp4') ? 'm4a' : 'ogg';
   const fname = 'take_' + Date.now() + '.' + ext;
   const path = 'voice_takes/' + song.id + '/' + fname;
@@ -1857,8 +1857,8 @@ async function uploadTake(blob, mime, dur) {
     _liteAddBytes(blob.size);
     db.collection('songs').doc(song.id).set({ updatedAt: Date.now() }, { merge: true }).catch(() => {});
     _selectNewest = true;
-    toast('Take saved ✓');
-  } catch (e) { console.warn('[upload]', e); toast('Save failed — check connection'); }
+    recToast('Take saved ✓');
+  } catch (e) { console.warn('[upload]', e); recToast('Save failed — check connection'); }
 }
 
 /* ═══════════════════════════ Boost (per-song, persisted) ═══════════════════════════ */
