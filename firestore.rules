@@ -41,26 +41,40 @@ service cloud.firestore {
 
     // ── CHANGED: was `allow read, write: if request.auth != null` ──
     // Now: read if it's yours or a song shared with you; write only if you own the song.
+    // The `songId != ''` guards keep the rule from erroring on a missing/blank songId
+    // (it cleanly denies instead).
     match /voice_takes/{doc} {
       allow read: if request.auth != null
         && (resource.data.get('userId', '') == request.auth.uid
-            || canAccessSong(resource.data.songId));
-      allow create: if request.auth != null && ownsSong(request.resource.data.songId);
-      allow update, delete: if request.auth != null && ownsSong(resource.data.songId);
+            || (resource.data.get('songId', '') != '' && canAccessSong(resource.data.songId)));
+      allow create: if request.auth != null
+        && request.resource.data.get('songId', '') != ''
+        && ownsSong(request.resource.data.songId);
+      allow update, delete: if request.auth != null
+        && resource.data.get('songId', '') != ''
+        && ownsSong(resource.data.songId);
     }
     match /voice_trash/{doc} {
       allow read: if request.auth != null
         && (resource.data.get('userId', '') == request.auth.uid
-            || canAccessSong(resource.data.songId));
-      allow create: if request.auth != null && ownsSong(request.resource.data.songId);
-      allow update, delete: if request.auth != null && ownsSong(resource.data.songId);
+            || (resource.data.get('songId', '') != '' && canAccessSong(resource.data.songId)));
+      allow create: if request.auth != null
+        && request.resource.data.get('songId', '') != ''
+        && ownsSong(request.resource.data.songId);
+      allow update, delete: if request.auth != null
+        && resource.data.get('songId', '') != ''
+        && ownsSong(resource.data.songId);
     }
     match /song_loops/{loopId} {
       allow read: if request.auth != null
         && (resource.data.get('userId', '') == request.auth.uid
-            || canAccessSong(resource.data.songId));
-      allow create: if request.auth != null && ownsSong(request.resource.data.songId);
-      allow update, delete: if request.auth != null && ownsSong(resource.data.songId);
+            || (resource.data.get('songId', '') != '' && canAccessSong(resource.data.songId)));
+      allow create: if request.auth != null
+        && request.resource.data.get('songId', '') != ''
+        && ownsSong(request.resource.data.songId);
+      allow update, delete: if request.auth != null
+        && resource.data.get('songId', '') != ''
+        && ownsSong(resource.data.songId);
     }
 
     match /saved_beats/{beatId} {
