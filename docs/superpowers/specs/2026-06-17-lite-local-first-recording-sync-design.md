@@ -36,6 +36,43 @@ The user wants:
   existing Lite-only fields (`boost`, `pinned`, `tuning`, take `bytes`, etc.).
 - Offline support for the chord engines (already fully self-contained / no Firebase).
 
+## Data-safety guarantees (existing recordings / lyrics / songs are not harmed)
+
+These are **hard invariants**. Every phase's implementation and verify script must uphold
+them; any change that can't is out of scope.
+
+1. **The cloud (Firestore + Storage) remains the single source of truth for all existing
+   data.** The new local layers — the IndexedDB blob cache and the Storage outbox — are a
+   *read-through cache* and an *append-only queue*. They never delete or mutate any
+   Firestore doc or Storage object. If both local layers are empty or unavailable, the app
+   behaves exactly as it does today.
+2. **LRU eviction only deletes device-local cache copies, never the Storage file.** The
+   cloud copy stays re-fetchable. Eviction **never** touches a blob with
+   `pendingUpload:true` (the only copy until it syncs).
+3. **`enablePersistence` is non-destructive** — it reads/caches only; it never rewrites
+   data at rest. If it rejects, the app continues unchanged.
+4. **The `.add()` → `.doc().set()` change affects only newly created takes** (fresh
+   pre-generated IDs; no collision with existing docs). Every existing field write is
+   preserved. No existing take doc is rewritten by this change.
+5. **Existing takes read exactly as today** — no local blob, no `pendingUpload`, so
+   `_getBuffer` falls through to `fetch(downloadUrl)` then caches. An empty/unavailable
+   cache cannot break an existing take.
+6. **Lyrics become safer, not riskier.** Today's `flushLyrics` is a blind last-write-wins
+   overwrite. Phase 3 replaces it with conflict-detect + keep-both: on divergence the
+   incoming text goes to a *separate* `lyricsConflict` field and the existing `lyricsDoc`
+   is left intact. The existing **blank-guard** (don't commit an empty doc over a non-empty
+   one) is preserved. Songs with no `lyricsVer` are treated as version 0, so the first save
+   initializes cleanly with no false conflict.
+7. **No migration pass runs over existing data.** New fields (`pendingUpload`, `lyricsVer`,
+   `lyricsConflict`) appear lazily, only when a user next records/edits that song. All
+   writes stay additive + `merge`, so `full.html` interop fields are never clobbered.
+
+**Mandatory no-harm regression (every phase's verify script):** load a song that already
+has real takes + lyrics, exercise the new code paths (open, play, record, trim, edit
+lyrics), then assert that pre-existing take docs, their `downloadUrl`/`storagePath`/`bytes`,
+and the original `lyricsDoc` are byte-for-byte unchanged except by the same user-initiated
+actions (rename/delete/trim) that exist today — whose destructiveness is unchanged.
+
 ## Architecture
 
 Two local layers sit in front of Firebase:
