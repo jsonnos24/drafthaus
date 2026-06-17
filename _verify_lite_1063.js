@@ -106,6 +106,31 @@ function serve() {
   ok(t1c.pendKept,    'T1 eviction over-cap keeps pendingUpload blob');
   ok(t1c.oldEvicted,  'T1 eviction over-cap evicts least-recently-played normal blob first');
 
+  // ── Task 2: _getBuffer is IndexedDB-first (no network when cached) ──
+  const t2 = await pg.evaluate(async () => {
+    // Build a 0.05s mono WAV (decodeAudioData-able) as a Blob.
+    function wav(seconds, rate) {
+      const n = Math.floor(seconds * rate), buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+      const wr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+      wr(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); wr(8, 'WAVE'); wr(12, 'fmt '); v.setUint32(16, 16, true);
+      v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+      v.setUint16(32, 2, true); v.setUint16(34, 16, true); wr(36, 'data'); v.setUint32(40, n * 2, true);
+      for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.sin(i / 4) * 8000, true);
+      return new Blob([buf], { type: 'audio/wav' });
+    }
+    await dhAudioPut('take-cached', wav(0.05, 8000), { mimeType: 'audio/wav' });
+    const realFetch = window.fetch;
+    window.fetch = () => { throw new Error('NETWORK BLOCKED'); };
+    let okDecode = false, threw = false;
+    try { const entry = await _getBuffer({ id: 'take-cached', downloadUrl: 'http://blocked/never' }); okDecode = !!(entry && entry.buffer && entry.buffer.duration > 0); }
+    catch (e) { threw = true; }
+    window.fetch = realFetch;
+    delete _bufCache['take-cached'];
+    await dhAudioDelete('take-cached');
+    return { okDecode, threw };
+  });
+  ok(t2.okDecode && !t2.threw, 'T2 _getBuffer decodes from IndexedDB with fetch blocked (no network)');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);

@@ -1631,8 +1631,14 @@ function ensureCtx() {
 async function _getBuffer(take) {
   if (_bufCache[take.id]) return _bufCache[take.id];
   const ctx = ensureCtx();
-  const resp = await fetch(take.downloadUrl);
-  const ab = await resp.arrayBuffer();
+  let ab = null;
+  const local = await dhAudioGet(take.id);   // IndexedDB-first
+  if (local) { ab = await local.arrayBuffer(); dhAudioTouch(take.id); }
+  else {
+    const resp = await fetch(take.downloadUrl);
+    ab = await resp.arrayBuffer();
+    try { await dhAudioPut(take.id, new Blob([ab], { type: take.mimeType || '' }), { mimeType: take.mimeType }); } catch (e) {}
+  }
   const buffer = await ctx.decodeAudioData(ab);
   let peak = 0; const ch = buffer.getChannelData(0);
   for (let i = 0; i < ch.length; i += 64) { const a = Math.abs(ch[i]); if (a > peak) peak = a; }
