@@ -220,6 +220,33 @@ function serve() {
   });
   ok(t4b.cached, 'T4 trim caches the edited blob locally under the take id');
 
+  // ── Task 5a: existing take with NO local blob reads via fetch, exactly as before ──
+  const t5a = await pg.evaluate(async () => {
+    let fetched = false;
+    const realFetch = window.fetch;
+    function wav() { const r = 8000, n = 400, b = new ArrayBuffer(44 + n * 2), v = new DataView(b); const wr=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));}; wr(0,'RIFF');v.setUint32(4,36+n*2,true);wr(8,'WAVE');wr(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,r,true);v.setUint32(28,r*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);wr(36,'data');v.setUint32(40,n*2,true);for(let i=0;i<n;i++)v.setInt16(44+i*2,1000,true);return b; }
+    window.fetch = async () => { fetched = true; return { arrayBuffer: async () => wav() }; };
+    delete _bufCache['legacy-take'];
+    const entry = await _getBuffer({ id: 'legacy-take', downloadUrl: 'http://x/legacy', mimeType: 'audio/wav' });
+    const cachedNow = (await dhAudioGet('legacy-take')) !== null; // downloaded blob is now cached
+    window.fetch = realFetch; delete _bufCache['legacy-take']; await dhAudioDelete('legacy-take');
+    return { fetched, decoded: !!(entry && entry.buffer), cachedNow };
+  });
+  ok(t5a.fetched && t5a.decoded, 'T5 existing take with no local blob still fetches+decodes (no-harm)');
+  ok(t5a.cachedNow, 'T5 a downloaded existing take gets cached for next time');
+
+  // ── Task 5b: graceful degradation — with IndexedDB unavailable, helpers no-op safely ──
+  const t5b = await pg.evaluate(async () => {
+    const realOpen = indexedDB.open; const realP = _dhAudioDBP;
+    _dhAudioDBP = Promise.resolve(null); // force "DB unavailable"
+    const put = await dhAudioPut('x', new Blob([new Uint8Array(4)]), {});
+    const get = await dhAudioGet('x');
+    const ready = await dhAudioReady();
+    _dhAudioDBP = realP; indexedDB.open = realOpen;
+    return { put: put === false, get: get === null, ready: ready === false };
+  });
+  ok(t5b.put && t5b.get && t5b.ready, 'T5 IndexedDB-unavailable → dhAudio* degrade to safe no-ops');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
