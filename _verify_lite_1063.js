@@ -67,6 +67,45 @@ function serve() {
   ok(t1b.pendKept, 'T1 eviction under-cap keeps pendingUpload blob');
   ok(t1b.lruKept, 'T1 eviction under-cap keeps normal blob');
 
+  // ── Task 1: eviction over-cap — LRU ordering + pendingUpload exemption ──
+  // Store 3×1024-byte blobs with cap=1500 so eviction must run with 2 evictable
+  // candidates (exercises the filter+sort path). pend is exempt; old < new by
+  // lastPlayed so old is evicted first. Total=3072 > 1500 → both normal blobs
+  // end up evicted; only pend survives.
+  const t1c = await pg.evaluate(async () => {
+    const savedCap = DH_AUDIO_CAP;
+
+    // Use a large cap to store all 3 blobs without triggering eviction.
+    DH_AUDIO_CAP = 999999;
+    const blob = new Blob([new Uint8Array(1024)], { type: 'audio/webm' });
+
+    await dhAudioPut('pend', blob, { pendingUpload: true });
+    await new Promise(r => setTimeout(r, 5));
+    await dhAudioPut('old', blob, {});
+    await new Promise(r => setTimeout(r, 5));
+    await dhAudioPut('new', blob, {});
+
+    // Now lower cap below total (3072 bytes) and trigger eviction.
+    // Evictable = [old, new] sorted ascending by lastPlayed (old < new).
+    // Evict old → total 2048 > 1500 → evict new → total 1024 ≤ 1500 → stop.
+    // Result: only pend survives.
+    DH_AUDIO_CAP = 1500;
+    await dhAudioEvict();
+
+    const pendResult = await dhAudioGet('pend');
+    const oldResult  = await dhAudioGet('old');
+
+    // Restore cap and clean up survivors.
+    DH_AUDIO_CAP = savedCap;
+    await dhAudioDelete('pend');
+    await dhAudioDelete('old');
+    await dhAudioDelete('new');
+
+    return { pendKept: pendResult !== null, oldEvicted: oldResult === null };
+  });
+  ok(t1c.pendKept,    'T1 eviction over-cap keeps pendingUpload blob');
+  ok(t1c.oldEvicted,  'T1 eviction over-cap evicts least-recently-played normal blob first');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
