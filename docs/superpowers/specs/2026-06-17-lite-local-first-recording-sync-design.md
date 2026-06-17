@@ -237,6 +237,22 @@ airplane-mode→reconnect timing, and real two-device reconciliation.
 - **Guest sessions** are single-device by nature (anonymous uid isn't re-signin-able);
   local-first still helps, but there's no multi-device story for guests — expected.
 
+## Versioning & revert safety
+
+Each phase is a **separate file-copy snapshot**, per the standard Lite workflow — never
+in-place edits to a shared file:
+
+- P1 → copy current `index.html` → `lite-1.063.html`, build/verify/push **that file**.
+  P2 → `lite-1.064.html` (copied from 1.063). P3 → `lite-1.065.html`.
+- The live root `index.html` is **promoted** (made byte-identical to the snapshot)
+  **only after on-device sign-off** for that phase.
+- Every prior numbered file stays frozen, so any phase that regresses is a one-line
+  revert — re-promote the previous `lite-1.0xx.html` (or `git revert` the promote commit);
+  no surgery on a half-broken file.
+- ⚠️ Base-drift guard (per the 1.311→1.312 regression): `md5` `index.html` against the
+  `lite-1.0xx.html` files to confirm the true base before each `cp`, and diff every fresh
+  snapshot against its source to confirm the copy.
+
 ## Phasing summary
 
 | Milestone | Scope | User-visible win |
