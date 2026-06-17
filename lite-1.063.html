@@ -1907,15 +1907,21 @@ async function uploadTake(blob, mime, dur) {
   const song = _currentSong;
   if (!song || !uid()) { recToast('Not signed in'); return; }
   if (liteUsageOver()) { recToast(liteCapMessage(), 3200); return; }
-  recToast('Saving take…', 1500);
+  // Pre-generate the take ID so one ID keys the local blob, the doc, and the Storage path.
+  const ref = db.collection('voice_takes').doc();
+  const id = ref.id;
   const ext = mime.includes('webm') ? 'webm' : mime.includes('mp4') ? 'm4a' : 'ogg';
   const fname = 'take_' + Date.now() + '.' + ext;
   const path = 'voice_takes/' + song.id + '/' + fname;
+  // ── Instant local playback: cache the blob + prime selection BEFORE any network ──
+  await dhAudioPut(id, blob, { mimeType: mime });
+  _selectNewest = false; _loadedTakeId = id;
+  // ── Background upload + doc write ──
+  recToast('Saving take…', 1500);
   try {
-    const ref = firebase.storage().ref(path);
-    const snap = await ref.put(blob, { contentType: mime });
+    const snap = await firebase.storage().ref(path).put(blob, { contentType: mime });
     const url = await snap.ref.getDownloadURL();
-    await db.collection('voice_takes').add({
+    await ref.set({
       songId: song.id, userId: uid(), filename: fname, storagePath: path,
       downloadUrl: url, duration: Math.round(dur), mimeType: mime, trackNum: 0,
       bytes: blob.size,
@@ -1923,9 +1929,8 @@ async function uploadTake(blob, mime, dur) {
     });
     _liteAddBytes(blob.size);
     db.collection('songs').doc(song.id).set({ updatedAt: Date.now() }, { merge: true }).catch(() => {});
-    _selectNewest = true;
     recToast('Take saved ✓');
-  } catch (e) { console.warn('[upload]', e); recToast('Save failed — check connection'); }
+  } catch (e) { console.warn('[upload]', e); dhAudioDelete(id); recToast('Save failed — check connection'); }
 }
 
 /* ═══════════════════════════ Boost (per-song, persisted) ═══════════════════════════ */

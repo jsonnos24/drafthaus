@@ -131,6 +131,49 @@ function serve() {
   });
   ok(t2.okDecode && !t2.threw, 'T2 _getBuffer decodes from IndexedDB with fetch blocked (no network)');
 
+  // ── Task 3: record caches locally + primes playback before upload resolves ──
+  // Sign in as guest and create a loaded song first.
+  async function guestIn(page) {
+    for (let i = 0; i < 2; i++) {
+      try { await page.click('.auth-card .auth-btn.ghost'); await page.waitForSelector('body.signed-in', { timeout: 20000 }); return true; }
+      catch (e) { if (i === 1) return false; await page.waitForTimeout(1000); }
+    }
+  }
+  const pg2 = await ctx.newPage();
+  await pg2.goto(`http://localhost:${port}/lite-1.063.html`, { waitUntil: 'domcontentloaded' });
+  await pg2.waitForFunction(() => typeof window.dhAudioPut === 'function', { timeout: 10000 });
+  const signedin = await guestIn(pg2);
+  if (!signedin) {
+    ok(false, 'T3 guest sign-in failed (rate-limited?) — skipping Task-3 asserts');
+    ok(false, 'T3 the just-recorded take blob is locally retrievable while upload hangs');
+  } else {
+    // Create and open a song so _currentSong is set.
+    await pg2.evaluate(() => {
+      _openSongObj({ id: 'S1063t3', title: 'verify-1063-t3', key: 'C major', lyricsDoc: '<div>test</div>' });
+      stopTakesListener();
+    });
+    await pg2.waitForTimeout(200);
+
+    const t3 = await pg2.evaluate(async () => {
+      // Stub Storage upload to NEVER resolve, so any await on it would hang the test.
+      const origRef = firebase.storage().ref.bind(firebase.storage());
+      firebase.storage().ref = (p) => ({ put: () => new Promise(() => {}), getDownloadURL: () => new Promise(() => {}), delete: () => Promise.resolve() });
+      const blob = new Blob([new Uint8Array(2048)], { type: 'audio/webm' });
+      const before = Object.keys(_bufCache).length;
+      // Call uploadTake but DON'T await its network tail; race it against a short timer.
+      const p = uploadTake(blob, 'audio/webm', 1.0);
+      await new Promise(r => setTimeout(r, 250)); // local path should be done well within this
+      const ids = await (async () => { const db = await _dhAudioOpen(); const all = await _dhReq(_dhTx(db, 'readonly').getAll()); return all.map(r => r.id); })();
+      const cachedSomething = ids.length > 0;
+      const selected = !!_loadedTakeId;
+      const localBlobPresent = _loadedTakeId ? !!(await dhAudioGet(_loadedTakeId)) : false;
+      firebase.storage().ref = origRef; // restore
+      return { cachedSomething, selected, localBlobPresent, before };
+    });
+    ok(t3.cachedSomething, 'T3 record stores a blob in IndexedDB without waiting on upload');
+    ok(t3.localBlobPresent, 'T3 the just-recorded take blob is locally retrievable while upload hangs');
+  }
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
