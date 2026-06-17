@@ -161,7 +161,7 @@ function serve() {
       const blob = new Blob([new Uint8Array(2048)], { type: 'audio/webm' });
       const before = Object.keys(_bufCache).length;
       // Call uploadTake but DON'T await its network tail; race it against a short timer.
-      const p = uploadTake(blob, 'audio/webm', 1.0);
+      uploadTake(blob, 'audio/webm', 1.0); // intentionally not awaited — Storage put is stubbed to hang
       await new Promise(r => setTimeout(r, 250)); // local path should be done well within this
       const ids = await (async () => { const db = await _dhAudioOpen(); const all = await _dhReq(_dhTx(db, 'readonly').getAll()); return all.map(r => r.id); })();
       const cachedSomething = ids.length > 0;
@@ -171,6 +171,7 @@ function serve() {
       return { cachedSomething, selected, localBlobPresent, before };
     });
     ok(t3.cachedSomething, 'T3 record stores a blob in IndexedDB without waiting on upload');
+    ok(t3.selected, 'T3 _loadedTakeId is set before upload resolves');
     ok(t3.localBlobPresent, 'T3 the just-recorded take blob is locally retrievable while upload hangs');
   }
 
