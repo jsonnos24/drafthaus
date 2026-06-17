@@ -1560,6 +1560,7 @@ async function deleteTake(id, ev) {
   try {
     if (t.storagePath) firebase.storage().ref(t.storagePath).delete().catch(() => {});
     await db.collection('voice_takes').doc(id).delete();
+    dhAudioDelete(id);
     if (typeof t.bytes === 'number') _liteAddBytes(-t.bytes);
     toast('Take deleted');
   } catch (e) { toast('Delete failed'); }
@@ -1811,6 +1812,9 @@ async function _wfReplaceAudio(buffer, undoBuffer, msg) {
     // Gate: block only if this edit would push the user over their cap.
     if (_liteUsageBytes - oldBytes + blob.size > liteStorageCap()) { toast(liteCapMessage()); return false; }
     const fname = 'take_' + Date.now() + '.mp3', path = 'voice_takes/' + take.songId + '/' + fname;
+    // Instant local playback of the edited audio: cache + prime before network.
+    await dhAudioPut(take.id, blob, { mimeType: 'audio/mp3' });
+    _bufCache[take.id] = { buffer, normGain: (_bufCache[take.id] && _bufCache[take.id].normGain) || 1 };
     const snap = await firebase.storage().ref(path).put(blob, { contentType: 'audio/mp3' });
     const url = await snap.ref.getDownloadURL();
     const oldPath = take.storagePath;
@@ -1818,7 +1822,6 @@ async function _wfReplaceAudio(buffer, undoBuffer, msg) {
     if (oldPath && oldPath !== path) firebase.storage().ref(oldPath).delete().catch(() => {});
     take.bytes = blob.size; take.storagePath = path; take.mimeType = 'audio/mp3';
     _liteAddBytes(blob.size - oldBytes);
-    _bufCache[take.id] = { buffer, normGain: (_bufCache[take.id] && _bufCache[take.id].normGain) || 1 };
     _wf.buffer = buffer; _wf.dur = buffer.duration; _wf.peaks = _computePeaks(buffer, 1400); _wf.sel = null; _wf.loopSel = false; _wf.playhead = 0; _wf.undo = undoBuffer ? { buffer: undoBuffer } : null;
     wfRender(); toast(msg + ' ✓'); return true;
   } catch (e) { console.warn('[wf] replace', e); toast(msg + ' failed — check connection'); return false; }

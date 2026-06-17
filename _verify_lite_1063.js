@@ -175,6 +175,44 @@ function serve() {
     ok(t3.localBlobPresent, 'T3 the just-recorded take blob is locally retrievable while upload hangs');
   }
 
+  // ── Task 4: delete clears the local blob ──
+  const t4 = await pg.evaluate(async () => {
+    await dhAudioPut('del-me', new Blob([new Uint8Array(16)], { type: 'audio/webm' }), {});
+    // Simulate a take object present in _takes so deleteTake finds it; stub confirm + storage + db.
+    const origConfirm = window.confirm; window.confirm = () => true;
+    const origRef = firebase.storage().ref.bind(firebase.storage());
+    firebase.storage().ref = () => ({ delete: () => Promise.resolve() });
+    const origCollection = db.collection.bind(db);
+    db.collection = () => ({ doc: () => ({ delete: async () => {} }) });
+    _takes = [{ id: 'del-me', storagePath: 'voice_takes/x/take.webm', bytes: 16, songId: 's' }];
+    await deleteTake('del-me');
+    const gone = (await dhAudioGet('del-me')) === null;
+    window.confirm = origConfirm; firebase.storage().ref = origRef;
+    db.collection = origCollection;
+    return { gone };
+  });
+  ok(t4.gone, 'T4 deleteTake removes the local cached blob');
+
+  // ── Task 4b: _wfReplaceAudio caches the edited blob under the take id ──
+  const t4b = await pg.evaluate(async () => {
+    // Minimal AudioBuffer to feed _wfReplaceAudio; stub mp3 lib + encode + storage + db.
+    const ctx = ensureCtx(); const ab = ctx.createBuffer(1, 4410, 44100);
+    _takes = [{ id: 'trim-me', songId: 's', bytes: 100, storagePath: 'voice_takes/s/old.webm' }];
+    _wf.takeId = 'trim-me';
+    window._ensureMp3Lib = async () => {};
+    window._encodeMp3 = () => new Blob([new Uint8Array(64)], { type: 'audio/mp3' });
+    const origRef = firebase.storage().ref.bind(firebase.storage());
+    firebase.storage().ref = () => ({ put: async () => ({ ref: { getDownloadURL: async () => 'http://x/y.mp3' } }), delete: () => Promise.resolve() });
+    const origCollection = db.collection.bind(db);
+    db.collection = () => ({ doc: () => ({ set: async () => {} }) });
+    await _wfReplaceAudio(ab, null, 'Trimmed');
+    const cached = (await dhAudioGet('trim-me')) !== null;
+    db.collection = origCollection; firebase.storage().ref = origRef;
+    await dhAudioDelete('trim-me');
+    return { cached };
+  });
+  ok(t4b.cached, 'T4 trim caches the edited blob locally under the take id');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
