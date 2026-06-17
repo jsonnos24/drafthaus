@@ -220,6 +220,43 @@ function serve() {
   });
   ok(t4b.cached, 'T4 trim caches the edited blob locally under the take id');
 
+  // ── Fix-1 rollback: trim-failure reverts local cache to prior state ──
+  // Run on pg2 (signed-in page) so uid() is non-null.
+  const tRollback = await pg2.evaluate(async () => {
+    const ctx = ensureCtx(); const ab = ctx.createBuffer(1, 4410, 44100);
+    const priorBlob = new Blob([new Uint8Array(32)], { type: 'audio/mp3' });
+    await dhAudioPut('rollback-take', priorBlob, { mimeType: 'audio/mp3' });
+    const priorBufEntry = { buffer: ab, normGain: 0.75 };
+    _bufCache['rollback-take'] = priorBufEntry;
+    _takes = [{ id: 'rollback-take', songId: 's', bytes: 32, storagePath: 'voice_takes/s/orig.mp3' }];
+    _wf.takeId = 'rollback-take';
+    const origEnsureMp3Lib = window._ensureMp3Lib;
+    const origEncodeMp3 = window._encodeMp3;
+    window._ensureMp3Lib = async () => {};
+    window._encodeMp3 = () => new Blob([new Uint8Array(64)], { type: 'audio/mp3' });
+    // Stub storage .put to REJECT so the catch branch runs.
+    const origStorageRef = firebase.storage().ref.bind(firebase.storage());
+    firebase.storage().ref = () => ({ put: async () => { throw new Error('upload-fail'); }, delete: () => Promise.resolve() });
+    const origCollection = db.collection.bind(db);
+    db.collection = () => ({ doc: () => ({ set: async () => {} }) });
+    const result = await _wfReplaceAudio(ab, null, 'Trimmed');
+    // After failure: local blob should be gone (deleted) and bufCache reverted.
+    const localAfter = await dhAudioGet('rollback-take');
+    const bufAfter = _bufCache['rollback-take'];
+    window._ensureMp3Lib = origEnsureMp3Lib; window._encodeMp3 = origEncodeMp3;
+    db.collection = origCollection;
+    firebase.storage().ref = origStorageRef;
+    _takes = []; delete _bufCache['rollback-take']; await dhAudioDelete('rollback-take');
+    return {
+      returnedFalse: result === false,
+      localGone: localAfter === null,
+      bufReverted: bufAfter === priorBufEntry
+    };
+  });
+  ok(tRollback.returnedFalse, 'Fix-1 rollback: _wfReplaceAudio returns false on upload failure');
+  ok(tRollback.localGone,     'Fix-1 rollback: local blob deleted from IndexedDB after upload failure');
+  ok(tRollback.bufReverted,   'Fix-1 rollback: _bufCache reverted to prior entry after upload failure');
+
   // ── Task 5a: existing take with NO local blob reads via fetch, exactly as before ──
   const t5a = await pg.evaluate(async () => {
     let fetched = false;
@@ -237,15 +274,17 @@ function serve() {
 
   // ── Task 5b: graceful degradation — with IndexedDB unavailable, helpers no-op safely ──
   const t5b = await pg.evaluate(async () => {
-    const realOpen = indexedDB.open; const realP = _dhAudioDBP;
+    const realP = _dhAudioDBP;
     _dhAudioDBP = Promise.resolve(null); // force "DB unavailable"
     const put = await dhAudioPut('x', new Blob([new Uint8Array(4)]), {});
     const get = await dhAudioGet('x');
     const ready = await dhAudioReady();
-    _dhAudioDBP = realP; indexedDB.open = realOpen;
+    _dhAudioDBP = realP;
     return { put: put === false, get: get === null, ready: ready === false };
   });
-  ok(t5b.put && t5b.get && t5b.ready, 'T5 IndexedDB-unavailable → dhAudio* degrade to safe no-ops');
+  ok(t5b.put,   'T5 IndexedDB-unavailable → dhAudioPut returns false');
+  ok(t5b.get,   'T5 IndexedDB-unavailable → dhAudioGet returns null');
+  ok(t5b.ready, 'T5 IndexedDB-unavailable → dhAudioReady returns false');
 
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
