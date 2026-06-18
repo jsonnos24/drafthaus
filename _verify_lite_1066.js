@@ -260,6 +260,19 @@ function serve() {
   }
   await pg4.close();
 
+  // ── Task-5 asserts: offline pill + connectivity listeners ──
+  const t5 = await pg.evaluate(() => {
+    const pill = document.getElementById('offlinePill');
+    window.dispatchEvent(new Event('offline'));
+    const offState = document.body.classList.contains('is-offline');
+    window.dispatchEvent(new Event('online'));
+    const onState = document.body.classList.contains('is-offline');
+    return { pillExists: !!pill, offState, onCleared: onState === false };
+  });
+  ok(t5.pillExists, 'T5 #offlinePill element exists');
+  ok(t5.offState, 'T5 offline event sets body.is-offline');
+  ok(t5.onCleared, 'T5 online event clears body.is-offline');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);

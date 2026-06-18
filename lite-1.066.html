@@ -134,6 +134,12 @@ input { font-family: inherit; }
 .auth-error { color: #ff8a80; font-size: 13px; text-align: center; min-height: 0; }
 #emailForm { display: flex; flex-direction: column; gap: 8px; }
 
+/* ───────────────────────── Offline pill ───────────────────────── */
+.offline-pill { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 9960;
+  background: #b3261e; color: #fff; font-size: 12px; font-weight: 600; padding: 4px 12px;
+  border-radius: 999px; box-shadow: 0 2px 8px rgba(0,0,0,.25); display: none; pointer-events: none; }
+body.is-offline .offline-pill { display: block; }
+
 /* ───────────────────────── App shell ───────────────────────── */
 #app { display: none; min-height: 100%; }
 body.signed-in #app { display: block; }
@@ -535,6 +541,7 @@ html.dark #chordPop .cp-seg button.on { background: #48484a; }
 </style>
 </head>
 <body>
+<div id="offlinePill" class="offline-pill">Offline</div>
 
 <!-- ───────────────────────── Landing / auth ───────────────────────── -->
 <div id="landing">
@@ -3057,6 +3064,13 @@ function exportSelected() {
 
 /* ═══════════════════════════ Boot ═══════════════════════════ */
 _bindChordLyrics();
+
+function _liteUpdateOnline() { document.body.classList.toggle('is-offline', !navigator.onLine); }
+window.addEventListener('offline', () => { _syncAnnounce = true; document.body.classList.add('is-offline'); });
+window.addEventListener('online', () => { _liteUpdateOnline(); liteSyncDrain(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) liteSyncDrain(); });
+_liteUpdateOnline();
+
 auth.onAuthStateChanged(user => {
   const guestChosen = (() => { try { return sessionStorage.getItem('dh-lite-guest') === '1'; } catch (e) { return false; } })();
   if (user && (!user.isAnonymous || guestChosen)) {
@@ -3065,6 +3079,7 @@ auth.onAuthStateChanged(user => {
     document.body.classList.remove('relogin'); // a real sign-in dismisses the re-login overlay
     liteUsageRecompute(); // seed storage meter + cap state for this session
     dhAudioSeedIndex();   // populate _localBlobIds from IndexedDB (fire-and-forget)
+    liteSyncDrain();      // drain any outbox jobs queued during a previous offline session
     startSongsListener();
   } else {
     document.body.classList.remove('signed-in', 'is-guest', 'relogin');
