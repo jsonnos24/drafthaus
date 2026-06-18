@@ -1878,33 +1878,34 @@ function _encodeWav(buffer) {
 }
 async function _wfReplaceAudio(buffer, undoBuffer, msg) {
   const take = _takes.find(t => t.id === _wf.takeId); if (!take || !uid()) { toast('Not signed in'); return false; }
-  stopPlayback(); toast(msg + '…', 1500);
+  stopPlayback();
   let _prevBufEntry;
   try {
     await _ensureMp3Lib();
     const blob = _encodeMp3(buffer);
     const oldBytes = (typeof take.bytes === 'number') ? take.bytes : 0;
-    // Gate: block only if this edit would push the user over their cap.
     if (_liteUsageBytes - oldBytes + blob.size > liteStorageCap()) { toast(liteCapMessage()); return false; }
     const fname = 'take_' + Date.now() + '.mp3', path = 'voice_takes/' + take.songId + '/' + fname;
-    // Instant local playback of the edited audio: cache + prime before network.
+    const duration = Math.round(buffer.duration);
+    // Instant local playback of the edited audio.
     _prevBufEntry = _bufCache[take.id];
-    await dhAudioPut(take.id, blob, { mimeType: 'audio/mp3' });
+    await dhAudioPut(take.id, blob, { mimeType: 'audio/mp3', pendingUpload: true });
     _bufCache[take.id] = { buffer, normGain: (_prevBufEntry && _prevBufEntry.normGain) || 1 };
-    const snap = await firebase.storage().ref(path).put(blob, { contentType: 'audio/mp3' });
-    const url = await snap.ref.getDownloadURL();
+    // Doc-first: mark pending + new metadata; KEEP the old downloadUrl so other
+    // devices keep playing the previous version until re-upload.
     const oldPath = take.storagePath;
-    await db.collection('voice_takes').doc(take.id).set({ downloadUrl: url, storagePath: path, duration: Math.round(buffer.duration), mimeType: 'audio/mp3', bytes: blob.size }, { merge: true });
-    if (oldPath && oldPath !== path) firebase.storage().ref(oldPath).delete().catch(() => {});
-    take.bytes = blob.size; take.storagePath = path; take.mimeType = 'audio/mp3';
+    await db.collection('voice_takes').doc(take.id).set({ duration, mimeType: 'audio/mp3', bytes: blob.size, pendingUpload: true }, { merge: true });
+    take.bytes = blob.size; take.mimeType = 'audio/mp3'; take.duration = duration;
     _liteAddBytes(blob.size - oldBytes);
+    // Queue the re-upload (replaces storage + clears pending + deletes oldPath on success).
+    await dhOutboxPut({ takeId: take.id, op: 'replace', storagePath: path, mimeType: 'audio/mp3', songId: take.songId, bytes: blob.size, duration, oldPath, tries: 0, createdAt: Date.now() });
     _wf.buffer = buffer; _wf.dur = buffer.duration; _wf.peaks = _computePeaks(buffer, 1400); _wf.sel = null; _wf.loopSel = false; _wf.playhead = 0; _wf.undo = undoBuffer ? { buffer: undoBuffer } : null;
-    wfRender(); toast(msg + ' ✓'); return true;
+    wfRender(); liteSyncDrain(); return true;
   } catch (e) {
     console.warn('[wf] replace', e);
     dhAudioDelete(take.id);
     if (_prevBufEntry) _bufCache[take.id] = _prevBufEntry; else delete _bufCache[take.id];
-    toast(msg + ' failed — check connection'); return false;
+    toast(msg + ' failed'); return false;
   }
 }
 async function wfSaveTrim() {

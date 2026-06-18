@@ -221,6 +221,45 @@ function serve() {
   }
   await pg3.close();
 
+  // ── Task-4 asserts: offline trim → doc-first + outbox replace + old url kept + no upload ──
+  const pg4 = await ctx.newPage();
+  await pg4.goto(`http://localhost:${port}/lite-1.066.html`, { waitUntil: 'domcontentloaded' });
+  await pg4.waitForFunction(() => typeof window.dhAudioPut === 'function', { timeout: 10000 });
+  const signedin4 = await guestIn(pg4);
+  if (signedin4) {
+    await pg4.evaluate(() => {
+      _openSongObj({ id: 'S1066t4', title: 'verify-1066-t4', key: 'C major', lyricsDoc: '<div>test</div>' });
+      stopTakesListener();
+    });
+    await pg4.waitForTimeout(200);
+
+    const t4 = await pg4.evaluate(async () => {
+      const ctx = ensureCtx(); const ab = ctx.createBuffer(1, 4410, 44100);
+      _takes = [{ id: 'trim1', songId: 's', bytes: 100, storagePath: 'voice_takes/s/old.webm', downloadUrl: 'http://x/old.webm', mimeType: 'audio/webm' }];
+      _wf.takeId = 'trim1';
+      window._ensureMp3Lib = async () => {}; window._encodeMp3 = () => new Blob([new Uint8Array(64)], { type: 'audio/mp3' });
+      let docData = null, putCalled = false;
+      const origColl = db.collection.bind(db);
+      db.collection = (n) => n === 'voice_takes' ? { doc: () => ({ set: async (d) => { docData = Object.assign(docData || {}, d); } }) } : origColl(n);
+      const origRef = firebase.storage().ref.bind(firebase.storage());
+      firebase.storage().ref = () => ({ put: async () => { putCalled = true; return { ref: { getDownloadURL: async () => 'http://x/new.mp3' } }; }, delete: async () => {} });
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+      await _wfReplaceAudio(ab, null, 'Trimmed');
+      const job = await dhOutboxGet('trim1');
+      db.collection = origColl; firebase.storage().ref = origRef;
+      await dhOutboxDelete('trim1'); await dhAudioDelete('trim1');
+      return { pending: docData && docData.pendingUpload === true, keptUrl: !docData || docData.downloadUrl === undefined, jobReplace: job && job.op === 'replace', jobOldPath: job && job.oldPath === 'voice_takes/s/old.webm', noUpload: putCalled === false };
+    });
+    ok(t4.pending, 'T4 offline trim sets doc pendingUpload:true');
+    ok(t4.keptUrl, 'T4 offline trim does NOT overwrite downloadUrl (other devices keep old)');
+    ok(t4.jobReplace, 'T4 offline trim enqueues an op:replace job');
+    ok(t4.jobOldPath, 'T4 replace job carries oldPath for post-upload delete');
+    ok(t4.noUpload, 'T4 offline trim attempts NO Storage upload');
+  } else {
+    console.log('SKIP T4 (guest auth unavailable)');
+  }
+  await pg4.close();
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
