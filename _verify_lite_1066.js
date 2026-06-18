@@ -86,6 +86,45 @@ function serve() {
   });
   ok(t1evict.oldGone && t1evict.newKept, 'T1 eviction removes evicted id from _localBlobIds index');
 
+  // Drain uploads a queued job, patches the doc, empties the outbox, clears pending.
+  const t2 = await pg.evaluate(async () => {
+    // seed a blob + outbox job + a take doc stub via stubs
+    await dhAudioPut('drain1', new Blob([new Uint8Array(16)], { type: 'audio/webm' }), { mimeType: 'audio/webm', pendingUpload: true });
+    await dhOutboxPut({ takeId: 'drain1', op: 'upload', storagePath: 'voice_takes/s/drain1.webm', mimeType: 'audio/webm', songId: 's', bytes: 16, duration: 1, tries: 0, createdAt: 1 });
+    let patched = null;
+    const origRef = firebase.storage().ref.bind(firebase.storage());
+    firebase.storage().ref = () => ({ put: async () => ({ ref: { getDownloadURL: async () => 'http://x/drain1.webm' } }), delete: async () => {} });
+    const origColl = db.collection.bind(db);
+    db.collection = (n) => n === 'voice_takes' ? { doc: () => ({ set: async (data) => { patched = data; } }) } : origColl(n);
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+    await liteSyncDrain();
+    const jobGone = (await dhOutboxGet('drain1')) === null;
+    const rec = await (async () => { const d = await _dhAudioOpen(); return _dhReq(_dhTx(d, 'readonly').get('drain1')); })();
+    firebase.storage().ref = origRef; db.collection = origColl;
+    await dhAudioDelete('drain1');
+    return { patchedUrl: patched && patched.downloadUrl, patchedPending: patched && patched.pendingUpload, jobGone, pendingCleared: rec ? rec.pendingUpload === false : false };
+  });
+  ok(t2.patchedUrl === 'http://x/drain1.webm', 'T2 drain patches the doc with downloadUrl');
+  ok(t2.patchedPending === false, 'T2 drain sets pendingUpload:false on the doc');
+  ok(t2.jobGone, 'T2 drain removes the outbox job on success');
+  ok(t2.pendingCleared, 'T2 drain clears the blob pendingUpload flag');
+
+  // Failure keeps the job queued + increments tries (retry forever).
+  const t2b = await pg.evaluate(async () => {
+    await dhAudioPut('drain2', new Blob([new Uint8Array(16)], { type: 'audio/webm' }), { mimeType: 'audio/webm', pendingUpload: true });
+    await dhOutboxPut({ takeId: 'drain2', op: 'upload', storagePath: 'p/d2.webm', mimeType: 'audio/webm', songId: 's', bytes: 16, duration: 1, tries: 0, createdAt: 2 });
+    const origRef = firebase.storage().ref.bind(firebase.storage());
+    firebase.storage().ref = () => ({ put: async () => { throw new Error('net'); } });
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+    await liteSyncDrain();
+    const job = await dhOutboxGet('drain2');
+    firebase.storage().ref = origRef;
+    await dhOutboxDelete('drain2'); await dhAudioDelete('drain2');
+    return { stillQueued: !!job, tries: job ? job.tries : -1 };
+  });
+  ok(t2b.stillQueued, 'T2 failed upload keeps the job queued');
+  ok(t2b.tries >= 1, 'T2 failed upload increments tries (retry forever)');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
