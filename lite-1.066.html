@@ -1663,33 +1663,34 @@ async function dhOutboxDelete(takeId) {
 let _syncing = false, _syncAnnounce = false;
 async function liteSyncDrain() {
   if (_syncing) return;
-  if (!navigator.onLine) return;
-  const jobs = await dhOutboxAll();
-  if (!jobs.length) return;
+  if (!navigator.onLine) return;        // sync check — safe before the flag (no await)
   _syncing = true;
-  if (_syncAnnounce) { toast('Connection restored — syncing recordings…', 2000); _syncAnnounce = false; }
-  jobs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-  let uploadedAny = false;
   try {
-    for (const job of jobs) {
-      if (!navigator.onLine) break;
-      const blob = await dhAudioGet(job.takeId);
-      if (!blob) { await dhOutboxDelete(job.takeId); continue; } // blob gone — nothing to upload
-      try {
-        const snap = await firebase.storage().ref(job.storagePath).put(blob, { contentType: job.mimeType });
-        const url = await snap.ref.getDownloadURL();
-        await db.collection('voice_takes').doc(job.takeId).set({ downloadUrl: url, storagePath: job.storagePath, bytes: job.bytes, pendingUpload: false }, { merge: true });
-        if (job.op === 'replace' && job.oldPath && job.oldPath !== job.storagePath) firebase.storage().ref(job.oldPath).delete().catch(() => {});
-        await dhOutboxDelete(job.takeId);
-        await dhAudioSetPending(job.takeId, false);
-        uploadedAny = true;
-      } catch (e) {
-        job.tries = (job.tries || 0) + 1; job.lastTry = Date.now();
-        await dhOutboxPut(job); // keep queued — retry forever on next trigger
+    const jobs = await dhOutboxAll();
+    if (jobs.length) {
+      if (_syncAnnounce) { toast('Connection restored — syncing recordings…', 2000); _syncAnnounce = false; }
+      jobs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      let uploadedAny = false;
+      for (const job of jobs) {
+        if (!navigator.onLine) break;
+        const blob = await dhAudioGet(job.takeId);
+        if (!blob) { await dhOutboxDelete(job.takeId); continue; }
+        try {
+          const snap = await firebase.storage().ref(job.storagePath).put(blob, { contentType: job.mimeType });
+          const url = await snap.ref.getDownloadURL();
+          await db.collection('voice_takes').doc(job.takeId).set({ downloadUrl: url, storagePath: job.storagePath, bytes: job.bytes, pendingUpload: false }, { merge: true });
+          if (job.op === 'replace' && job.oldPath && job.oldPath !== job.storagePath) firebase.storage().ref(job.oldPath).delete().catch(() => {});
+          await dhOutboxDelete(job.takeId);
+          await dhAudioSetPending(job.takeId, false);
+          uploadedAny = true;
+        } catch (e) {
+          job.tries = (job.tries || 0) + 1; job.lastTry = Date.now();
+          await dhOutboxPut(job);
+        }
       }
+      if (uploadedAny && !(await dhOutboxAll()).length) toast('Synced ✓', 1500);
     }
   } finally { _syncing = false; }
-  if (uploadedAny && !(await dhOutboxAll()).length) toast('Synced ✓', 1500);
 }
 
 /* ═══════════════════════════ Playback (WebAudio — supports Boost gain + loop) ═══════════════════════════ */

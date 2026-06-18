@@ -96,11 +96,13 @@ function serve() {
     firebase.storage().ref = () => ({ put: async () => ({ ref: { getDownloadURL: async () => 'http://x/drain1.webm' } }), delete: async () => {} });
     const origColl = db.collection.bind(db);
     db.collection = (n) => n === 'voice_takes' ? { doc: () => ({ set: async (data) => { patched = data; } }) } : origColl(n);
+    const _origOnline = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
     await liteSyncDrain();
     const jobGone = (await dhOutboxGet('drain1')) === null;
     const rec = await (async () => { const d = await _dhAudioOpen(); return _dhReq(_dhTx(d, 'readonly').get('drain1')); })();
     firebase.storage().ref = origRef; db.collection = origColl;
+    if (_origOnline) Object.defineProperty(window.navigator, 'onLine', _origOnline);
     await dhAudioDelete('drain1');
     return { patchedUrl: patched && patched.downloadUrl, patchedPending: patched && patched.pendingUpload, jobGone, pendingCleared: rec ? rec.pendingUpload === false : false };
   });
@@ -115,15 +117,44 @@ function serve() {
     await dhOutboxPut({ takeId: 'drain2', op: 'upload', storagePath: 'p/d2.webm', mimeType: 'audio/webm', songId: 's', bytes: 16, duration: 1, tries: 0, createdAt: 2 });
     const origRef = firebase.storage().ref.bind(firebase.storage());
     firebase.storage().ref = () => ({ put: async () => { throw new Error('net'); } });
+    const _origOnline = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
     await liteSyncDrain();
     const job = await dhOutboxGet('drain2');
     firebase.storage().ref = origRef;
+    if (_origOnline) Object.defineProperty(window.navigator, 'onLine', _origOnline);
     await dhOutboxDelete('drain2'); await dhAudioDelete('drain2');
     return { stillQueued: !!job, tries: job ? job.tries : -1 };
   });
   ok(t2b.stillQueued, 'T2 failed upload keeps the job queued');
   ok(t2b.tries >= 1, 'T2 failed upload increments tries (retry forever)');
+
+  // Single-flight: concurrent drains must upload exactly once.
+  const t2sf = await pg.evaluate(async () => {
+    await dhAudioPut('drain_sf', new Blob([new Uint8Array(16)], { type: 'audio/webm' }), { mimeType: 'audio/webm', pendingUpload: true });
+    await dhOutboxPut({ takeId: 'drain_sf', op: 'upload', storagePath: 'p/sf.webm', mimeType: 'audio/webm', songId: 's', bytes: 16, duration: 1, tries: 0, createdAt: 3 });
+    let putCount = 0;
+    const origRef = firebase.storage().ref.bind(firebase.storage());
+    firebase.storage().ref = () => ({
+      put: async () => {
+        putCount++;
+        await new Promise(r => setTimeout(r, 20));
+        return { ref: { getDownloadURL: async () => 'http://x/sf.webm' } };
+      },
+      delete: async () => {}
+    });
+    const origColl = db.collection.bind(db);
+    db.collection = (n) => n === 'voice_takes' ? { doc: () => ({ set: async () => {} }) } : origColl(n);
+    const _origOnline = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+    const a = liteSyncDrain(); const b = liteSyncDrain();
+    await Promise.all([a, b]);
+    firebase.storage().ref = origRef; db.collection = origColl;
+    if (_origOnline) Object.defineProperty(window.navigator, 'onLine', _origOnline);
+    await dhOutboxDelete('drain_sf'); await dhAudioDelete('drain_sf');
+    return { putCount };
+  });
+  ok(t2sf.putCount === 1, 'T2 single-flight: concurrent drains upload once');
 
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
