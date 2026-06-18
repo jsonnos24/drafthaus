@@ -1481,7 +1481,7 @@ function _takeRow(t, isPinned) {
         <button class="play" onclick="takeRowPlay('${t.id}',event)">${playing ? '⏹' : '▶'}</button>
         <div class="meta">
           <div class="nm">${esc(takeDisplayName(t, true))}</div>
-          <div class="sub">${info}${sel ? ' · loaded' : ''}</div>
+          <div class="sub">${info}${t._pendingLocal ? ' · Saving…' : (sel ? ' · loaded' : '')}</div>
         </div>
         <button class="take-edit" onclick="startRename('${t.id}', this.closest('.take-card').querySelector('.nm'), event)" title="Rename take" aria-label="Rename take">${PENCIL_SVG}</button>
         <button class="loop ${looping ? 'on' : ''}" onclick="toggleLoop('${t.id}',event)" aria-label="Loop">${LOOP_SVG}</button>
@@ -1560,9 +1560,66 @@ async function deleteTake(id, ev) {
   try {
     if (t.storagePath) firebase.storage().ref(t.storagePath).delete().catch(() => {});
     await db.collection('voice_takes').doc(id).delete();
+    dhAudioDelete(id);
     if (typeof t.bytes === 'number') _liteAddBytes(-t.bytes);
     toast('Take deleted');
   } catch (e) { toast('Delete failed'); }
+}
+
+/* ═══════════════════════════ Local audio cache (IndexedDB, device-local) ═══════════════════════════ */
+let DH_AUDIO_CAP = 250 * 1024 * 1024; // ~250 MB LRU ceiling for cached take blobs
+let _dhAudioDBP = null;
+function _dhAudioOpen() {
+  if (_dhAudioDBP) return _dhAudioDBP;
+  _dhAudioDBP = new Promise(resolve => {
+    let req;
+    try { req = indexedDB.open('dh-lite-audio', 1); }
+    catch (e) { resolve(null); return; }
+    req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains('takeBlobs')) db.createObjectStore('takeBlobs', { keyPath: 'id' }); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => resolve(null);
+    req.onblocked = () => resolve(null);
+  });
+  return _dhAudioDBP;
+}
+function _dhTx(db, mode) { return db.transaction('takeBlobs', mode).objectStore('takeBlobs'); }
+function _dhReq(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function dhAudioReady() { return !!(await _dhAudioOpen()); }
+async function dhAudioPut(id, blob, meta) {
+  meta = meta || {};
+  const db = await _dhAudioOpen(); if (!db) return false;
+  try {
+    const now = Date.now();
+    await _dhReq(_dhTx(db, 'readwrite').put({ id, blob, mimeType: meta.mimeType || (blob && blob.type) || '', bytes: (blob && blob.size) || 0, savedAt: now, lastPlayed: now, pendingUpload: !!meta.pendingUpload }));
+    await dhAudioEvict();
+    return true;
+  } catch (e) { return false; }
+}
+async function dhAudioGet(id) {
+  const db = await _dhAudioOpen(); if (!db) return null;
+  try { const rec = await _dhReq(_dhTx(db, 'readonly').get(id)); return rec ? rec.blob : null; }
+  catch (e) { return null; }
+}
+async function dhAudioTouch(id) {
+  const db = await _dhAudioOpen(); if (!db) return;
+  try { const rec = await _dhReq(_dhTx(db, 'readonly').get(id)); if (rec) { rec.lastPlayed = Date.now(); await _dhReq(_dhTx(db, 'readwrite').put(rec)); } } catch (e) {}
+}
+async function dhAudioDelete(id) {
+  const db = await _dhAudioOpen(); if (!db) return;
+  try { await _dhReq(_dhTx(db, 'readwrite').delete(id)); } catch (e) {}
+}
+async function dhAudioEvict() {
+  const db = await _dhAudioOpen(); if (!db) return;
+  try {
+    const all = await _dhReq(_dhTx(db, 'readonly').getAll());
+    let total = all.reduce((s, r) => s + (r.bytes || 0), 0);
+    if (total <= DH_AUDIO_CAP) return;
+    const evictable = all.filter(r => !r.pendingUpload).sort((a, b) => (a.lastPlayed || 0) - (b.lastPlayed || 0));
+    for (const r of evictable) {
+      if (total <= DH_AUDIO_CAP) break;
+      try { await _dhReq(_dhTx(db, 'readwrite').delete(r.id)); total -= (r.bytes || 0); } catch (e) {}
+    }
+  } catch (e) {}
 }
 
 /* ═══════════════════════════ Playback (WebAudio — supports Boost gain + loop) ═══════════════════════════ */
@@ -1575,8 +1632,14 @@ function ensureCtx() {
 async function _getBuffer(take) {
   if (_bufCache[take.id]) return _bufCache[take.id];
   const ctx = ensureCtx();
-  const resp = await fetch(take.downloadUrl);
-  const ab = await resp.arrayBuffer();
+  let ab = null;
+  const local = await dhAudioGet(take.id);   // IndexedDB-first
+  if (local) { ab = await local.arrayBuffer(); dhAudioTouch(take.id); }
+  else {
+    const resp = await fetch(take.downloadUrl);
+    ab = await resp.arrayBuffer();
+    dhAudioPut(take.id, new Blob([ab], { type: take.mimeType || '' }), { mimeType: take.mimeType }).catch(() => {});
+  }
   const buffer = await ctx.decodeAudioData(ab);
   let peak = 0; const ch = buffer.getChannelData(0);
   for (let i = 0; i < ch.length; i += 64) { const a = Math.abs(ch[i]); if (a > peak) peak = a; }
@@ -1742,6 +1805,7 @@ function _encodeWav(buffer) {
 async function _wfReplaceAudio(buffer, undoBuffer, msg) {
   const take = _takes.find(t => t.id === _wf.takeId); if (!take || !uid()) { toast('Not signed in'); return false; }
   stopPlayback(); toast(msg + '…', 1500);
+  let _prevBufEntry;
   try {
     await _ensureMp3Lib();
     const blob = _encodeMp3(buffer);
@@ -1749,6 +1813,10 @@ async function _wfReplaceAudio(buffer, undoBuffer, msg) {
     // Gate: block only if this edit would push the user over their cap.
     if (_liteUsageBytes - oldBytes + blob.size > liteStorageCap()) { toast(liteCapMessage()); return false; }
     const fname = 'take_' + Date.now() + '.mp3', path = 'voice_takes/' + take.songId + '/' + fname;
+    // Instant local playback of the edited audio: cache + prime before network.
+    _prevBufEntry = _bufCache[take.id];
+    await dhAudioPut(take.id, blob, { mimeType: 'audio/mp3' });
+    _bufCache[take.id] = { buffer, normGain: (_prevBufEntry && _prevBufEntry.normGain) || 1 };
     const snap = await firebase.storage().ref(path).put(blob, { contentType: 'audio/mp3' });
     const url = await snap.ref.getDownloadURL();
     const oldPath = take.storagePath;
@@ -1756,10 +1824,14 @@ async function _wfReplaceAudio(buffer, undoBuffer, msg) {
     if (oldPath && oldPath !== path) firebase.storage().ref(oldPath).delete().catch(() => {});
     take.bytes = blob.size; take.storagePath = path; take.mimeType = 'audio/mp3';
     _liteAddBytes(blob.size - oldBytes);
-    _bufCache[take.id] = { buffer, normGain: (_bufCache[take.id] && _bufCache[take.id].normGain) || 1 };
     _wf.buffer = buffer; _wf.dur = buffer.duration; _wf.peaks = _computePeaks(buffer, 1400); _wf.sel = null; _wf.loopSel = false; _wf.playhead = 0; _wf.undo = undoBuffer ? { buffer: undoBuffer } : null;
     wfRender(); toast(msg + ' ✓'); return true;
-  } catch (e) { console.warn('[wf] replace', e); toast(msg + ' failed — check connection'); return false; }
+  } catch (e) {
+    console.warn('[wf] replace', e);
+    dhAudioDelete(take.id);
+    if (_prevBufEntry) _bufCache[take.id] = _prevBufEntry; else delete _bufCache[take.id];
+    toast(msg + ' failed — check connection'); return false;
+  }
 }
 async function wfSaveTrim() {
   if (!_wf.sel || !_wf.buffer) return;
@@ -1845,15 +1917,29 @@ async function uploadTake(blob, mime, dur) {
   const song = _currentSong;
   if (!song || !uid()) { recToast('Not signed in'); return; }
   if (liteUsageOver()) { recToast(liteCapMessage(), 3200); return; }
-  recToast('Saving take…', 1500);
+  // Pre-generate the take ID so one ID keys the local blob, the doc, and the Storage path.
+  const ref = db.collection('voice_takes').doc();
+  const id = ref.id;
   const ext = mime.includes('webm') ? 'webm' : mime.includes('mp4') ? 'm4a' : 'ogg';
   const fname = 'take_' + Date.now() + '.' + ext;
   const path = 'voice_takes/' + song.id + '/' + fname;
+  // ── Instant local playback: cache the blob, then OPTIMISTICALLY render the take
+  //    from that local blob so the UI + playback do not wait on the upload. ──
+  await dhAudioPut(id, blob, { mimeType: mime });
+  const optimistic = {
+    id, songId: song.id, userId: uid(), filename: fname, storagePath: path,
+    duration: Math.round(dur), mimeType: mime, trackNum: 0, bytes: blob.size,
+    createdAt: Date.now(), _pendingLocal: true,
+  };
+  _takes = [optimistic, ..._takes.filter(t => t.id !== id)];
+  _selectNewest = false; _loadedTakeId = id;
+  renderTakes(); updateRail(); wfLoad(optimistic);
+  // ── Background upload + doc write (the real persistence) ──
+  recToast('Saving take…', 1500);
   try {
-    const ref = firebase.storage().ref(path);
-    const snap = await ref.put(blob, { contentType: mime });
+    const snap = await firebase.storage().ref(path).put(blob, { contentType: mime });
     const url = await snap.ref.getDownloadURL();
-    await db.collection('voice_takes').add({
+    await ref.set({
       songId: song.id, userId: uid(), filename: fname, storagePath: path,
       downloadUrl: url, duration: Math.round(dur), mimeType: mime, trackNum: 0,
       bytes: blob.size,
@@ -1861,9 +1947,15 @@ async function uploadTake(blob, mime, dur) {
     });
     _liteAddBytes(blob.size);
     db.collection('songs').doc(song.id).set({ updatedAt: Date.now() }, { merge: true }).catch(() => {});
-    _selectNewest = true;
     recToast('Take saved ✓');
-  } catch (e) { console.warn('[upload]', e); recToast('Save failed — check connection'); }
+  } catch (e) {
+    console.warn('[upload]', e);
+    dhAudioDelete(id);
+    _takes = _takes.filter(t => t.id !== id);
+    if (_loadedTakeId === id) _loadedTakeId = _takes[0] ? _takes[0].id : null;
+    renderTakes(); updateRail();
+    recToast('Save failed — check connection');
+  }
 }
 
 /* ═══════════════════════════ Boost (per-song, persisted) ═══════════════════════════ */
