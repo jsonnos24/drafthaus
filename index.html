@@ -1935,7 +1935,8 @@ async function uploadTake(blob, mime, dur) {
   _selectNewest = false; _loadedTakeId = id;
   renderTakes(); updateRail(); wfLoad(optimistic);
   // ── Background upload + doc write (the real persistence) ──
-  recToast('Saving take…', 1500);
+  // No "Saving…"/"saved" toast: playback is instant and the take row's "· Saving…"
+  // badge (cleared on snapshot reconcile) is the only in-progress signal needed.
   try {
     const snap = await firebase.storage().ref(path).put(blob, { contentType: mime });
     const url = await snap.ref.getDownloadURL();
@@ -1947,7 +1948,6 @@ async function uploadTake(blob, mime, dur) {
     });
     _liteAddBytes(blob.size);
     db.collection('songs').doc(song.id).set({ updatedAt: Date.now() }, { merge: true }).catch(() => {});
-    recToast('Take saved ✓');
   } catch (e) {
     console.warn('[upload]', e);
     dhAudioDelete(id);
