@@ -273,6 +273,35 @@ function serve() {
   ok(t5.offState, 'T5 offline event sets body.is-offline');
   ok(t5.onCleared, 'T5 online event clears body.is-offline');
 
+  // ── Task-6 asserts: per-take badge + retry + cross-device play guard ──
+  const t6 = await pg.evaluate(async () => {
+    // local pending (mine): has local blob → "Uploading…/On this device" + retry, NOT play-disabled
+    await dhAudioPut('mine1', new Blob([new Uint8Array(4)]), { mimeType: 'audio/webm', pendingUpload: true });
+    const mineHtml = _takeRow({ id: 'mine1', duration: 1, bytes: 4, mimeType: 'audio/webm', pendingUpload: true }, false);
+    // remote pending (other device): no local blob, no downloadUrl → "uploading from another device" + play disabled
+    const remoteHtml = _takeRow({ id: 'remote1', duration: 1, bytes: 4, mimeType: 'audio/webm', pendingUpload: true }, false);
+    // normal existing take: no pending → no badge, normal
+    const normalHtml = _takeRow({ id: 'norm1', duration: 1, bytes: 4, mimeType: 'audio/webm', downloadUrl: 'http://x/y' }, false);
+    // _getBuffer guard: remote pending must NOT fetch(undefined)
+    let fetched = false; const realFetch = window.fetch; window.fetch = () => { fetched = true; throw new Error('should not fetch'); };
+    let threwGuard = false;
+    try { await _getBuffer({ id: 'remote1', pendingUpload: true }); } catch (e) { threwGuard = true; }
+    window.fetch = realFetch;
+    await dhAudioDelete('mine1');
+    return {
+      mineBadge: /On this device|Uploading/.test(mineHtml), mineRetry: /retryTake/.test(mineHtml), mineNotDisabled: !/disabled/.test(mineHtml.split('class="play"')[0] + (mineHtml.match(/<button class="play"[^>]*>/) || [''])[0]),
+      remoteAnother: /another device/.test(remoteHtml), remoteDisabled: /<button class="play"[^>]*disabled/.test(remoteHtml),
+      normalClean: !/On this device|another device|Uploading/.test(normalHtml),
+      guardNoFetch: fetched === false && threwGuard,
+    };
+  });
+  ok(t6.mineBadge, 'T6 local pending take shows On this device/Uploading badge');
+  ok(t6.mineRetry, 'T6 local pending take shows a ↻ retry control');
+  ok(t6.remoteAnother, 'T6 remote pending take shows "uploading from another device"');
+  ok(t6.remoteDisabled, 'T6 remote pending take has Play disabled');
+  ok(t6.normalClean, 'T6 normal existing take shows no pending UI');
+  ok(t6.guardNoFetch, 'T6 _getBuffer does not fetch(undefined) for a remote pending take');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);

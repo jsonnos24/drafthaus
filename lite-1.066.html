@@ -369,6 +369,7 @@ body.is-guest .guest-tag {
 .take-card .loop svg { width: 18px; height: 18px; }
 .take-card .take-edit { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; color: var(--text-3); flex: none; }
 .take-card .take-edit svg { width: 18px; height: 18px; }
+.take-card .take-retry { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; color: var(--tint); flex: none; font-size: 18px; }
 
 /* pin / reorder (songs + takes) */
 .take-actions .act-pin-take { background: var(--orange); }
@@ -1479,6 +1480,12 @@ function _takeRow(t, isPinned) {
   const playing = _playingTakeId === t.id, sel = _loadedTakeId === t.id, looping = _loopTakes.has(t.id);
   const dur = t.duration ? _fmtClock(t.duration) : '';
   const info = [dur, _takeFmtLabel(t), _fmtBytes(t.bytes)].filter(Boolean).join(' · ');
+  const pendMine = !!t.pendingUpload && dhAudioHasLocal(t.id);
+  const pendRemote = !!t.pendingUpload && !dhAudioHasLocal(t.id);
+  const statusSub = pendRemote ? ' · uploading from another device…'
+    : pendMine ? (navigator.onLine ? ' · Uploading…' : ' · On this device')
+    : (sel ? ' · loaded' : '');
+  const retryBtn = pendMine ? `<button class="take-retry" onclick="retryTake('${t.id}',event)" title="Retry upload" aria-label="Retry upload">↻</button>` : '';
   return `<div class="take-row" data-id="${t.id}">
     <div class="take-swipe">
       <div class="take-actions">
@@ -1487,11 +1494,12 @@ function _takeRow(t, isPinned) {
       </div>
       <div class="take-card ${sel ? 'sel' : ''} ${playing ? 'playing' : ''}" onclick="selectTake('${t.id}')">
         ${isPinned ? '<span class="drag-handle take-grip" onclick="event.stopPropagation()" aria-label="Reorder">≡</span>' : ''}
-        <button class="play" onclick="takeRowPlay('${t.id}',event)">${playing ? '⏹' : '▶'}</button>
+        <button class="play" onclick="takeRowPlay('${t.id}',event)" ${pendRemote ? 'disabled' : ''}>${playing ? '⏹' : '▶'}</button>
         <div class="meta">
           <div class="nm">${esc(takeDisplayName(t, true))}</div>
-          <div class="sub">${info}${t._pendingLocal ? ' · Saving…' : (sel ? ' · loaded' : '')}</div>
+          <div class="sub">${info}${statusSub}</div>
         </div>
+        ${retryBtn}
         <button class="take-edit" onclick="startRename('${t.id}', this.closest('.take-card').querySelector('.nm'), event)" title="Rename take" aria-label="Rename take">${PENCIL_SVG}</button>
         <button class="loop ${looping ? 'on' : ''}" onclick="toggleLoop('${t.id}',event)" aria-label="Loop">${LOOP_SVG}</button>
         <button class="take-pin-desktop" onclick="toggleTakePin('${t.id}',event)" title="${isPinned ? 'Unpin' : 'Pin'}" style="opacity:${isPinned ? 1 : 0.4}">📌</button>
@@ -1522,6 +1530,7 @@ async function toggleTakePin(id, ev) {
 }
 function toggleTakes() { document.getElementById('takesPanel').classList.toggle('open'); wfRender(); }
 function selectTake(id) { _loadedTakeId = id; renderTakes(); updateRail(); wfLoad(_takes.find(t => t.id === id)); }
+function retryTake(id, ev) { if (ev) ev.stopPropagation(); _syncAnnounce = false; liteSyncDrain(); }
 function updateRail() {
   const nameEl = document.getElementById('railTakeName');
   const t = _takes.find(x => x.id === _loadedTakeId) || _takes[0];
@@ -1717,6 +1726,7 @@ async function _getBuffer(take) {
   const local = await dhAudioGet(take.id);   // IndexedDB-first
   if (local) { ab = await local.arrayBuffer(); dhAudioTouch(take.id); }
   else {
+    if (!take.downloadUrl) throw new Error('pending-remote'); // pending upload from another device — not playable yet
     const resp = await fetch(take.downloadUrl);
     ab = await resp.arrayBuffer();
     dhAudioPut(take.id, new Blob([ab], { type: take.mimeType || '' }), { mimeType: take.mimeType }).catch(() => {});
