@@ -1678,7 +1678,10 @@ async function liteSyncDrain() {
         try {
           const snap = await firebase.storage().ref(job.storagePath).put(blob, { contentType: job.mimeType });
           const url = await snap.ref.getDownloadURL();
-          await db.collection('voice_takes').doc(job.takeId).set({ downloadUrl: url, storagePath: job.storagePath, bytes: job.bytes, pendingUpload: false }, { merge: true });
+          const patch = job.op === 'replace'
+            ? { downloadUrl: url, storagePath: job.storagePath, bytes: job.bytes, duration: job.duration, mimeType: job.mimeType, pendingUpload: false }
+            : { songId: job.songId, userId: job.userId, filename: job.filename, storagePath: job.storagePath, duration: job.duration, mimeType: job.mimeType, trackNum: (job.trackNum || 0), bytes: job.bytes, createdAt: job.createdAt, downloadUrl: url, pendingUpload: false };
+          await db.collection('voice_takes').doc(job.takeId).set(patch, { merge: true });
           if (job.op === 'replace' && job.oldPath && job.oldPath !== job.storagePath) firebase.storage().ref(job.oldPath).delete().catch(() => {});
           await dhOutboxDelete(job.takeId);
           await dhAudioSetPending(job.takeId, false);
@@ -2009,7 +2012,7 @@ async function uploadTake(blob, mime, dur) {
     db.collection('songs').doc(song.id).set({ updatedAt: Date.now() }, { merge: true }).catch(() => {});
   } catch (e) { console.warn('[uploadTake doc]', e); }
   // Queue the Storage upload + kick the sync engine (uploads now if online).
-  await dhOutboxPut({ takeId: id, op: 'upload', storagePath: path, mimeType: mime, songId: song.id, bytes: blob.size, duration, tries: 0, createdAt: Date.now() });
+  await dhOutboxPut({ takeId: id, op: 'upload', storagePath: path, mimeType: mime, songId: song.id, userId: uid(), filename: fname, trackNum: 0, bytes: blob.size, duration, tries: 0, createdAt: Date.now() });
   liteSyncDrain();
 }
 

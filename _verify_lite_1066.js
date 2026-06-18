@@ -90,7 +90,7 @@ function serve() {
   const t2 = await pg.evaluate(async () => {
     // seed a blob + outbox job + a take doc stub via stubs
     await dhAudioPut('drain1', new Blob([new Uint8Array(16)], { type: 'audio/webm' }), { mimeType: 'audio/webm', pendingUpload: true });
-    await dhOutboxPut({ takeId: 'drain1', op: 'upload', storagePath: 'voice_takes/s/drain1.webm', mimeType: 'audio/webm', songId: 's', bytes: 16, duration: 1, tries: 0, createdAt: 1 });
+    await dhOutboxPut({ takeId: 'drain1', op: 'upload', storagePath: 'voice_takes/s/drain1.webm', mimeType: 'audio/webm', songId: 's', userId: 'u1', filename: 'drain1.webm', trackNum: 0, bytes: 16, duration: 1, tries: 0, createdAt: 1 });
     let patched = null;
     const origRef = firebase.storage().ref.bind(firebase.storage());
     firebase.storage().ref = () => ({ put: async () => ({ ref: { getDownloadURL: async () => 'http://x/drain1.webm' } }), delete: async () => {} });
@@ -114,7 +114,7 @@ function serve() {
   // Failure keeps the job queued + increments tries (retry forever).
   const t2b = await pg.evaluate(async () => {
     await dhAudioPut('drain2', new Blob([new Uint8Array(16)], { type: 'audio/webm' }), { mimeType: 'audio/webm', pendingUpload: true });
-    await dhOutboxPut({ takeId: 'drain2', op: 'upload', storagePath: 'p/d2.webm', mimeType: 'audio/webm', songId: 's', bytes: 16, duration: 1, tries: 0, createdAt: 2 });
+    await dhOutboxPut({ takeId: 'drain2', op: 'upload', storagePath: 'p/d2.webm', mimeType: 'audio/webm', songId: 's', userId: 'u1', filename: 'd2.webm', trackNum: 0, bytes: 16, duration: 1, tries: 0, createdAt: 2 });
     const origRef = firebase.storage().ref.bind(firebase.storage());
     firebase.storage().ref = () => ({ put: async () => { throw new Error('net'); } });
     const _origOnline = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
@@ -132,7 +132,7 @@ function serve() {
   // Single-flight: concurrent drains must upload exactly once.
   const t2sf = await pg.evaluate(async () => {
     await dhAudioPut('drain_sf', new Blob([new Uint8Array(16)], { type: 'audio/webm' }), { mimeType: 'audio/webm', pendingUpload: true });
-    await dhOutboxPut({ takeId: 'drain_sf', op: 'upload', storagePath: 'p/sf.webm', mimeType: 'audio/webm', songId: 's', bytes: 16, duration: 1, tries: 0, createdAt: 3 });
+    await dhOutboxPut({ takeId: 'drain_sf', op: 'upload', storagePath: 'p/sf.webm', mimeType: 'audio/webm', songId: 's', userId: 'u1', filename: 'sf.webm', trackNum: 0, bytes: 16, duration: 1, tries: 0, createdAt: 3 });
     let putCount = 0;
     const origRef = firebase.storage().ref.bind(firebase.storage());
     firebase.storage().ref = () => ({
@@ -155,6 +155,29 @@ function serve() {
     return { putCount };
   });
   ok(t2sf.putCount === 1, 'T2 single-flight: concurrent drains upload once');
+
+  // Complete-doc test: drain must write ALL fields for op:'upload' so a create-on-reconnect
+  // (persistence-off edge) yields a fully-owned take, not a 4-field stub.
+  const t2complete = await pg.evaluate(async () => {
+    await dhAudioPut('drain_cd', new Blob([new Uint8Array(16)], { type: 'audio/webm' }), { mimeType: 'audio/webm', pendingUpload: true });
+    await dhOutboxPut({ takeId: 'drain_cd', op: 'upload', storagePath: 'voice_takes/s/f.webm', mimeType: 'audio/webm', songId: 's', userId: 'u', filename: 'f.webm', trackNum: 0, bytes: 16, duration: 2, tries: 0, createdAt: 999 });
+    let captured = null;
+    const origRef = firebase.storage().ref.bind(firebase.storage());
+    firebase.storage().ref = () => ({ put: async () => ({ ref: { getDownloadURL: async () => 'http://x/f.webm' } }), delete: async () => {} });
+    const origColl = db.collection.bind(db);
+    db.collection = (n) => n === 'voice_takes' ? { doc: () => ({ set: async (data) => { captured = data; } }) } : origColl(n);
+    const _origOnline = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+    await liteSyncDrain();
+    firebase.storage().ref = origRef; db.collection = origColl;
+    if (_origOnline) Object.defineProperty(window.navigator, 'onLine', _origOnline);
+    await dhAudioDelete('drain_cd');
+    return { songId: captured && captured.songId, userId: captured && captured.userId, downloadUrl: captured && captured.downloadUrl, pendingUpload: captured && captured.pendingUpload };
+  });
+  ok(t2complete.songId === 's', 'T2 drain writes a COMPLETE doc for op:upload (no orphan on create) — songId');
+  ok(t2complete.userId === 'u', 'T2 drain writes a COMPLETE doc for op:upload (no orphan on create) — userId');
+  ok(!!t2complete.downloadUrl, 'T2 drain writes a COMPLETE doc for op:upload (no orphan on create) — downloadUrl set');
+  ok(t2complete.pendingUpload === false, 'T2 drain writes a COMPLETE doc for op:upload (no orphan on create) — pendingUpload:false');
 
   // ── Task-3 asserts: offline record → doc-first + outbox + local blob + no upload ──
   const pg3 = await ctx.newPage();
