@@ -64,6 +64,28 @@ function serve() {
   ok(t1.hasLocal === true, 'T1 dhAudioHasLocal true after put (local index synced)');
   ok(t1.hasLocalAfter === false, 'T1 dhAudioHasLocal false after delete');
 
+  const t1evict = await pg.evaluate(async () => {
+    const saved = DH_AUDIO_CAP;
+    DH_AUDIO_CAP = 1500;
+    const blob = new Blob([new Uint8Array(1024)], { type: 'audio/webm' });
+    await dhAudioPut('evi_old', blob, { mimeType: 'audio/webm', pendingUpload: false });
+    // small delay so lastPlayed timestamps differ
+    await new Promise(r => setTimeout(r, 10));
+    await dhAudioTouch('evi_old');
+    await new Promise(r => setTimeout(r, 10));
+    await dhAudioPut('evi_new', blob, { mimeType: 'audio/webm', pendingUpload: false });
+    await new Promise(r => setTimeout(r, 10));
+    await dhAudioTouch('evi_new');
+    // total ~2048 > 1500 → evict evi_old (least-recently-played)
+    await dhAudioEvict();
+    const oldGone = !dhAudioHasLocal('evi_old');
+    const newKept = dhAudioHasLocal('evi_new');
+    DH_AUDIO_CAP = saved;
+    await dhAudioDelete('evi_new');
+    return { oldGone, newKept };
+  });
+  ok(t1evict.oldGone && t1evict.newKept, 'T1 eviction removes evicted id from _localBlobIds index');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
