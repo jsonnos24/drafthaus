@@ -367,6 +367,114 @@ function serve() {
   }
   await pg8.close();
 
+  // ── Task-8 offline-hang tests: stub Firestore set → never-resolving promise ──
+  // These assert that fire-and-forget doc writes don't block control flow offline.
+
+  // Hang-test A: uploadTake — doc set hangs, outbox still enqueues
+  const pg_ha = await ctx.newPage();
+  await pg_ha.goto(`http://localhost:${port}/lite-1.066.html`, { waitUntil: 'domcontentloaded' });
+  await pg_ha.waitForFunction(() => typeof window.dhAudioPut === 'function', { timeout: 10000 });
+  const signedin_ha = await guestIn(pg_ha);
+  if (signedin_ha) {
+    await pg_ha.evaluate(() => {
+      _openSongObj({ id: 'S1066ha', title: 'verify-hang-a', key: '', lyricsDoc: '' });
+      stopTakesListener();
+    });
+    await pg_ha.waitForTimeout(200);
+
+    const tha = await pg_ha.evaluate(async () => {
+      stopTakesListener(); _takes = []; _loadedTakeId = null;
+      const origColl = db.collection.bind(db);
+      // voice_takes .doc().set returns a never-resolving promise (models offline hang)
+      db.collection = (n) => n === 'voice_takes'
+        ? { doc: (id) => ({ id: id || ('hang_' + Math.random().toString(36).slice(2)), set: () => new Promise(() => {}) }) }
+        : origColl(n);
+      const origRef = firebase.storage().ref.bind(firebase.storage());
+      firebase.storage().ref = () => ({ put: async () => ({ ref: { getDownloadURL: async () => 'http://x/ha' } }) });
+      const _origOnline = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+      // Do NOT await uploadTake itself — the internal dhOutboxPut is awaited inside
+      // and will complete because the doc write is now fire-and-forget.
+      const blob = new Blob([new Uint8Array(512)], { type: 'audio/webm' });
+      await uploadTake(blob, 'audio/webm', 1.0);
+      const id = _loadedTakeId;
+      const job = id ? await dhOutboxGet(id) : null;
+      db.collection = origColl; firebase.storage().ref = origRef;
+      if (_origOnline) Object.defineProperty(window.navigator, 'onLine', _origOnline);
+      if (id) { await dhOutboxDelete(id); await dhAudioDelete(id); }
+      return { gotId: !!id, jobEnqueued: !!(job && job.op === 'upload') };
+    });
+    ok(tha.gotId, 'OFFLINE-HANG: uploadTake sets _loadedTakeId even when doc write hangs');
+    ok(tha.jobEnqueued, 'OFFLINE-HANG: uploadTake enqueues outbox even when doc write hangs');
+  } else {
+    console.log('SKIP HANG-A (guest auth unavailable)');
+  }
+  await pg_ha.close();
+
+  // Hang-test B: createSong — doc set hangs, song still opens
+  const pg_hb = await ctx.newPage();
+  await pg_hb.goto(`http://localhost:${port}/lite-1.066.html`, { waitUntil: 'domcontentloaded' });
+  await pg_hb.waitForFunction(() => typeof window.dhAudioPut === 'function', { timeout: 10000 });
+  const signedin_hb = await guestIn(pg_hb);
+  if (signedin_hb) {
+    const thb = await pg_hb.evaluate(async () => {
+      const beforeId = _currentSong && _currentSong.id;
+      const origColl = db.collection.bind(db);
+      // songs .doc().set returns a never-resolving promise (models offline hang)
+      db.collection = (n) => n === 'songs'
+        ? { doc: (id) => { const ref = id ? origColl(n).doc(id) : origColl(n).doc(); return { id: ref.id, set: () => new Promise(() => {}) }; } }
+        : origColl(n);
+      await createSong();
+      const afterId = _currentSong && _currentSong.id;
+      db.collection = origColl;
+      return { opened: !!afterId && afterId !== beforeId };
+    });
+    ok(thb.opened, 'OFFLINE-HANG: createSong opens the new song even when doc write hangs');
+  } else {
+    console.log('SKIP HANG-B (guest auth unavailable)');
+  }
+  await pg_hb.close();
+
+  // Hang-test C: _wfReplaceAudio (trim) — doc set hangs, outbox still enqueues
+  const pg_hc = await ctx.newPage();
+  await pg_hc.goto(`http://localhost:${port}/lite-1.066.html`, { waitUntil: 'domcontentloaded' });
+  await pg_hc.waitForFunction(() => typeof window.dhAudioPut === 'function', { timeout: 10000 });
+  const signedin_hc = await guestIn(pg_hc);
+  if (signedin_hc) {
+    await pg_hc.evaluate(() => {
+      _openSongObj({ id: 'S1066hc', title: 'verify-hang-c', key: '', lyricsDoc: '' });
+      stopTakesListener();
+    });
+    await pg_hc.waitForTimeout(200);
+
+    const thc = await pg_hc.evaluate(async () => {
+      const ctx = ensureCtx(); const ab = ctx.createBuffer(1, 4410, 44100);
+      _takes = [{ id: 'hctrim1', songId: 's', bytes: 100, storagePath: 'voice_takes/s/old.webm', downloadUrl: 'http://x/old.webm', mimeType: 'audio/webm' }];
+      _wf.takeId = 'hctrim1';
+      window._ensureMp3Lib = async () => {};
+      window._encodeMp3 = () => new Blob([new Uint8Array(64)], { type: 'audio/mp3' });
+      const origColl = db.collection.bind(db);
+      // voice_takes .doc().set returns a never-resolving promise (models offline hang)
+      db.collection = (n) => n === 'voice_takes'
+        ? { doc: () => ({ set: () => new Promise(() => {}) }) }
+        : origColl(n);
+      const origRef = firebase.storage().ref.bind(firebase.storage());
+      firebase.storage().ref = () => ({ put: async () => ({ ref: { getDownloadURL: async () => 'http://x/hc.mp3' } }), delete: async () => {} });
+      const _origOnline = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+      await _wfReplaceAudio(ab, null, 'Trimmed');
+      const job = await dhOutboxGet('hctrim1');
+      db.collection = origColl; firebase.storage().ref = origRef;
+      if (_origOnline) Object.defineProperty(window.navigator, 'onLine', _origOnline);
+      await dhOutboxDelete('hctrim1'); await dhAudioDelete('hctrim1');
+      return { jobReplace: !!(job && job.op === 'replace') };
+    });
+    ok(thc.jobReplace, 'OFFLINE-HANG: trim enqueues op:replace outbox job even when doc write hangs');
+  } else {
+    console.log('SKIP HANG-C (guest auth unavailable)');
+  }
+  await pg_hc.close();
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);

@@ -1028,8 +1028,8 @@ async function createSong() {
   const ref = db.collection('songs').doc();
   const song = { id: ref.id, ownerId: u, title: 'Untitled', key: '', lyricsDoc: '',
                  createdAt: now, updatedAt: now, sharedWith: [], sharedReadOnly: [] };
-  try { await ref.set(song, { merge: true }); _songs.unshift(song); _openSongObj(song); }
-  catch (e) { toast('Could not create song'); console.warn(e); }
+  _songs.unshift(song); _openSongObj(song);
+  ref.set(song, { merge: true }).catch(e => { console.warn('[createSong]', e); });
 }
 
 async function togglePin(id, ev) {
@@ -1911,7 +1911,7 @@ async function _wfReplaceAudio(buffer, undoBuffer, msg) {
     // Doc-first: mark pending + new metadata; KEEP the old downloadUrl so other
     // devices keep playing the previous version until re-upload.
     const oldPath = take.storagePath;
-    await db.collection('voice_takes').doc(take.id).set({ duration, mimeType: 'audio/mp3', bytes: blob.size, pendingUpload: true }, { merge: true });
+    db.collection('voice_takes').doc(take.id).set({ duration, mimeType: 'audio/mp3', bytes: blob.size, pendingUpload: true }, { merge: true }).catch(e => console.warn('[trim doc]', e));
     take.bytes = blob.size; take.mimeType = 'audio/mp3'; take.duration = duration;
     _liteAddBytes(blob.size - oldBytes);
     // Queue the re-upload (replaces storage + clears pending + deletes oldPath on success).
@@ -2020,15 +2020,16 @@ async function uploadTake(blob, mime, dur) {
   // Doc-first: write the take doc now (no downloadUrl). Firestore echoes it back
   // instantly (latency compensation) → renders + plays from the local blob.
   _selectNewest = false; _loadedTakeId = id;
-  try {
-    await ref.set({
-      songId: song.id, userId: uid(), filename: fname, storagePath: path,
-      duration, mimeType: mime, trackNum: 0, bytes: blob.size, pendingUpload: true,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-    _liteAddBytes(blob.size);
-    db.collection('songs').doc(song.id).set({ updatedAt: Date.now() }, { merge: true }).catch(() => {});
-  } catch (e) { console.warn('[uploadTake doc]', e); }
+  // Doc-first, fire-and-forget: an offline write's promise doesn't resolve until reconnect,
+  // so awaiting it would block the outbox enqueue. Firestore persistence makes it durable +
+  // the listener renders it instantly (latency compensation).
+  ref.set({
+    songId: song.id, userId: uid(), filename: fname, storagePath: path,
+    duration, mimeType: mime, trackNum: 0, bytes: blob.size, pendingUpload: true,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+  }).catch(e => console.warn('[uploadTake doc]', e));
+  _liteAddBytes(blob.size);
+  db.collection('songs').doc(song.id).set({ updatedAt: Date.now() }, { merge: true }).catch(() => {});
   // Queue the Storage upload + kick the sync engine (uploads now if online).
   await dhOutboxPut({ takeId: id, op: 'upload', storagePath: path, mimeType: mime, songId: song.id, userId: uid(), filename: fname, trackNum: 0, bytes: blob.size, duration, tries: 0, createdAt: Date.now() });
   liteSyncDrain();
