@@ -48,8 +48,10 @@ function serve() {
     ok(false, 'OPT optimistic take is in _takes before upload resolves');
     ok(false, 'OPT waveform loaded (_wf.takeId) for the optimistic take');
     ok(false, 'OPT take audio is playable from IndexedDB while upload hangs');
+    ok(false, 'OPT failed upload: optimistic id was captured');
     ok(false, 'OPT failed upload removes the optimistic take from _takes');
     ok(false, 'OPT failed upload resets _loadedTakeId');
+    ok(false, 'OPT failed upload deletes the local blob (no orphan)');
   } else {
     // Create and open a song so _currentSong is set.
     await pg.evaluate(() => {
@@ -86,16 +88,24 @@ function serve() {
       stopTakesListener(); _takes = []; _loadedTakeId = null;
       const origRef = firebase.storage().ref.bind(firebase.storage());
       firebase.storage().ref = () => ({ put: () => Promise.reject(new Error('net down')), delete: () => Promise.resolve() });
+      // Intercept dhAudioPut to capture the id it is called with (set before storage upload).
+      const origPut = dhAudioPut;
+      let capturedId = null;
+      window.dhAudioPut = async (id, ...rest) => { capturedId = id; return origPut(id, ...rest); };
       const blob = new Blob([new Uint8Array(4096)], { type: 'audio/webm' });
-      await uploadTake(blob, 'audio/webm', 1.0);       // awaited — runs through the catch
-      const id0 = _takes.length ? _takes[0].id : null; // should be empty
-      // capture the id that was optimistically used by inspecting leftover cache: none should remain
-      const removed = _takes.length === 0;
+      await uploadTake(blob, 'audio/webm', 1.0).catch(() => {});  // let the catch finish
+      await new Promise(r => setTimeout(r, 30));                   // flush any remaining microtasks
+      window.dhAudioPut = origPut;
       firebase.storage().ref = origRef;
-      return { removed, loadedReset: _loadedTakeId === null };
+      const id = capturedId;
+      const blobGone = id ? (await dhAudioGet(id)) === null : false;
+      const removed = !_takes.find(t => t.id === id);
+      return { removed, loadedReset: _loadedTakeId === null || _loadedTakeId !== id, blobGone, hadId: !!id };
     });
+    ok(o2.hadId,        'OPT failed upload: optimistic id was captured');
     ok(o2.removed,      'OPT failed upload removes the optimistic take from _takes');
     ok(o2.loadedReset,  'OPT failed upload resets _loadedTakeId');
+    ok(o2.blobGone,     'OPT failed upload deletes the local blob (no orphan)');
   }
 
   // ── Saving badge: optimistic row shows "Saving…"; a reconciled take does not ──
