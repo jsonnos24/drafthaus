@@ -304,6 +304,69 @@ function serve() {
   ok(t6.normalClean, 'T6 normal existing take shows no pending UI');
   ok(t6.guardNoFetch, 'T6 _getBuffer does not fetch(undefined) for a remote pending take');
 
+  // ── Task-7 No-harm: existing take (downloadUrl, no pendingUpload) unchanged through new paths ──
+  const t7 = await pg.evaluate(async () => {
+    const existing = { id: 'legacy1', songId: 's', bytes: 500, storagePath: 'voice_takes/s/legacy.webm', downloadUrl: 'http://x/legacy.webm', mimeType: 'audio/webm', duration: 3 };
+    const before = JSON.stringify(existing);
+    const row = _takeRow(existing, false);
+    // existing take: no pending UI, play enabled, served via fetch (not outbox)
+    const noPendingUI = !/uploading|On this device|Uploading/i.test(row);
+    const playEnabled = !/<button class="play"[^>]*disabled/.test(row);
+    const job = await dhOutboxGet('legacy1'); // never enqueued
+    const unchanged = JSON.stringify(existing) === before;
+    // _getBuffer for an existing take still fetches its downloadUrl
+    let fetched = false; const realFetch = window.fetch;
+    window.fetch = async () => { fetched = true; return { arrayBuffer: async () => { const r=8000,n=400,b=new ArrayBuffer(44+n*2),v=new DataView(b);const wr=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};wr(0,'RIFF');v.setUint32(4,36+n*2,true);wr(8,'WAVE');wr(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,r,true);v.setUint32(28,r*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);wr(36,'data');v.setUint32(40,n*2,true);for(let i=0;i<n;i++)v.setInt16(44+i*2,1000,true);return b; } }; };
+    delete _bufCache['legacy1'];
+    const entry = await _getBuffer(existing);
+    window.fetch = realFetch; delete _bufCache['legacy1']; await dhAudioDelete('legacy1');
+    return { noPendingUI, playEnabled, jobNever: job === null, unchanged, fetched, decoded: !!(entry && entry.buffer) };
+  });
+  ok(t7.noPendingUI, 'T7 existing take shows no pending UI');
+  ok(t7.playEnabled, 'T7 existing take Play is enabled');
+  ok(t7.jobNever, 'T7 existing take never gets an outbox job');
+  ok(t7.unchanged, 'T7 existing take object is not mutated by render');
+  ok(t7.fetched && t7.decoded, 'T7 existing take still fetches+decodes via downloadUrl (no-harm)');
+
+  // ── Task-8 Integration: offline record → online drain → take becomes synced ──
+  const pg8 = await ctx.newPage();
+  await pg8.goto(`http://localhost:${port}/lite-1.066.html`, { waitUntil: 'domcontentloaded' });
+  await pg8.waitForFunction(() => typeof window.dhAudioPut === 'function', { timeout: 10000 });
+  const signedin8 = await guestIn(pg8);
+  if (signedin8) {
+    await pg8.evaluate(() => {
+      _openSongObj({ id: 'S1066t8', title: 'verify-1066-t8', key: 'C major', lyricsDoc: '<div>test</div>' });
+      stopTakesListener();
+    });
+    await pg8.waitForTimeout(200);
+
+    const t8 = await pg8.evaluate(async () => {
+      stopTakesListener(); _takes = []; _loadedTakeId = null;
+      let docState = {};
+      const origColl = db.collection.bind(db);
+      db.collection = (n) => n === 'voice_takes' ? { doc: (id) => { const did = id || ('g_' + Math.random().toString(36).slice(2)); return { id: did, set: async (d) => { docState[did] = Object.assign(docState[did] || {}, d); } }; } } : origColl(n);
+      const origRef = firebase.storage().ref.bind(firebase.storage());
+      let uploads = 0;
+      firebase.storage().ref = () => ({ put: async () => { uploads++; return { ref: { getDownloadURL: async () => 'http://x/synced.webm' } }; }, delete: async () => {} });
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+      await uploadTake(new Blob([new Uint8Array(1024)], { type: 'audio/webm' }), 'audio/webm', 1.0);
+      const id = _loadedTakeId; const offlineNoUpload = uploads === 0;
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+      _syncAnnounce = true;
+      await liteSyncDrain();
+      const jobGone = (await dhOutboxGet(id)) === null;
+      db.collection = origColl; firebase.storage().ref = origRef; await dhAudioDelete(id);
+      return { offlineNoUpload, uploadedOnReconnect: uploads === 1, synced: docState[id] && docState[id].downloadUrl === 'http://x/synced.webm' && docState[id].pendingUpload === false, jobGone };
+    });
+    ok(t8.offlineNoUpload, 'T8 record offline attempts no upload');
+    ok(t8.uploadedOnReconnect, 'T8 reconnect drains + uploads exactly once');
+    ok(t8.synced, 'T8 after drain the doc has downloadUrl + pendingUpload:false');
+    ok(t8.jobGone, 'T8 outbox empties after successful drain');
+  } else {
+    console.log('SKIP T8 (guest auth unavailable)');
+  }
+  await pg8.close();
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
