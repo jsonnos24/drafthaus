@@ -1988,45 +1988,29 @@ async function uploadTake(blob, mime, dur) {
   const song = _currentSong;
   if (!song || !uid()) { recToast('Not signed in'); return; }
   if (liteUsageOver()) { recToast(liteCapMessage(), 3200); return; }
-  // Pre-generate the take ID so one ID keys the local blob, the doc, and the Storage path.
   const ref = db.collection('voice_takes').doc();
   const id = ref.id;
   const ext = mime.includes('webm') ? 'webm' : mime.includes('mp4') ? 'm4a' : 'ogg';
   const fname = 'take_' + Date.now() + '.' + ext;
   const path = 'voice_takes/' + song.id + '/' + fname;
-  // ── Instant local playback: cache the blob, then OPTIMISTICALLY render the take
-  //    from that local blob so the UI + playback do not wait on the upload. ──
-  await dhAudioPut(id, blob, { mimeType: mime });
-  const optimistic = {
-    id, songId: song.id, userId: uid(), filename: fname, storagePath: path,
-    duration: Math.round(dur), mimeType: mime, trackNum: 0, bytes: blob.size,
-    createdAt: Date.now(), _pendingLocal: true,
-  };
-  _takes = [optimistic, ..._takes.filter(t => t.id !== id)];
+  const duration = Math.round(dur);
+  // Cache locally (LRU-exempt while pending).
+  await dhAudioPut(id, blob, { mimeType: mime, pendingUpload: true });
+  // Doc-first: write the take doc now (no downloadUrl). Firestore echoes it back
+  // instantly (latency compensation) → renders + plays from the local blob.
   _selectNewest = false; _loadedTakeId = id;
-  renderTakes(); updateRail(); wfLoad(optimistic);
-  // ── Background upload + doc write (the real persistence) ──
-  // No "Saving…"/"saved" toast: playback is instant and the take row's "· Saving…"
-  // badge (cleared on snapshot reconcile) is the only in-progress signal needed.
   try {
-    const snap = await firebase.storage().ref(path).put(blob, { contentType: mime });
-    const url = await snap.ref.getDownloadURL();
     await ref.set({
       songId: song.id, userId: uid(), filename: fname, storagePath: path,
-      downloadUrl: url, duration: Math.round(dur), mimeType: mime, trackNum: 0,
-      bytes: blob.size,
+      duration, mimeType: mime, trackNum: 0, bytes: blob.size, pendingUpload: true,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
     _liteAddBytes(blob.size);
     db.collection('songs').doc(song.id).set({ updatedAt: Date.now() }, { merge: true }).catch(() => {});
-  } catch (e) {
-    console.warn('[upload]', e);
-    dhAudioDelete(id);
-    _takes = _takes.filter(t => t.id !== id);
-    if (_loadedTakeId === id) _loadedTakeId = _takes[0] ? _takes[0].id : null;
-    renderTakes(); updateRail();
-    recToast('Save failed — check connection');
-  }
+  } catch (e) { console.warn('[uploadTake doc]', e); }
+  // Queue the Storage upload + kick the sync engine (uploads now if online).
+  await dhOutboxPut({ takeId: id, op: 'upload', storagePath: path, mimeType: mime, songId: song.id, bytes: blob.size, duration, tries: 0, createdAt: Date.now() });
+  liteSyncDrain();
 }
 
 /* ═══════════════════════════ Boost (per-song, persisted) ═══════════════════════════ */

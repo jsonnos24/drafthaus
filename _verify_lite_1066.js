@@ -156,6 +156,48 @@ function serve() {
   });
   ok(t2sf.putCount === 1, 'T2 single-flight: concurrent drains upload once');
 
+  // ── Task-3 asserts: offline record → doc-first + outbox + local blob + no upload ──
+  const pg3 = await ctx.newPage();
+  await pg3.goto(`http://localhost:${port}/lite-1.066.html`, { waitUntil: 'domcontentloaded' });
+  await pg3.waitForFunction(() => typeof window.dhAudioPut === 'function', { timeout: 10000 });
+  const signedin3 = await guestIn(pg3);
+  if (signedin3) {
+    await pg3.evaluate(() => {
+      _openSongObj({ id: 'S1066t3', title: 'verify-1066-t3', key: 'C major', lyricsDoc: '<div>test</div>' });
+      stopTakesListener();
+    });
+    await pg3.waitForTimeout(200);
+
+    const t3 = await pg3.evaluate(async () => {
+      stopTakesListener(); _takes = []; _loadedTakeId = null;
+      let docData = null, putCalled = false;
+      const origColl = db.collection.bind(db);
+      db.collection = (n) => n === 'voice_takes'
+        ? { doc: (id) => ({ id: id || ('genid_' + Math.random().toString(36).slice(2)), set: async (d) => { docData = d; } }) }
+        : origColl(n);
+      const origRef = firebase.storage().ref.bind(firebase.storage());
+      firebase.storage().ref = () => ({ put: async () => { putCalled = true; return { ref: { getDownloadURL: async () => 'http://x/y' } }; } });
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false }); // OFFLINE
+      const blob = new Blob([new Uint8Array(2048)], { type: 'audio/webm' });
+      await uploadTake(blob, 'audio/webm', 1.0);
+      const id = _loadedTakeId;
+      const job = await dhOutboxGet(id);
+      const localBlob = await dhAudioGet(id);
+      db.collection = origColl; firebase.storage().ref = origRef;
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+      if (id) { await dhOutboxDelete(id); await dhAudioDelete(id); }
+      return { pendingTrue: docData && docData.pendingUpload === true, noUrl: docData && !docData.downloadUrl, jobQueued: !!job, playableLocal: !!localBlob, noUpload: putCalled === false, selected: id === _loadedTakeId };
+    });
+    ok(t3.pendingTrue, 'T3 offline record writes doc pendingUpload:true');
+    ok(t3.noUrl, 'T3 offline record writes doc with NO downloadUrl');
+    ok(t3.jobQueued, 'T3 offline record enqueues an outbox job');
+    ok(t3.playableLocal, 'T3 offline record blob is in IndexedDB (plays locally)');
+    ok(t3.noUpload, 'T3 offline record attempts NO Storage upload');
+  } else {
+    console.log('SKIP T3 (guest auth unavailable)');
+  }
+  await pg3.close();
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
