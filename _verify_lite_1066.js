@@ -260,6 +260,7 @@ function serve() {
   }
   await pg4.close();
 
+  // Note: relies on this page's navigator.onLine===true (unmodified here; the offline-record blocks run on their own pages).
   // ── Task-5 asserts: offline pill + connectivity listeners ──
   const t5 = await pg.evaluate(() => {
     const pill = document.getElementById('offlinePill');
@@ -297,6 +298,7 @@ function serve() {
   });
   ok(t6.mineBadge, 'T6 local pending take shows On this device/Uploading badge');
   ok(t6.mineRetry, 'T6 local pending take shows a ↻ retry control');
+  ok(t6.mineNotDisabled, 'T6 local pending take play button is NOT disabled');
   ok(t6.remoteAnother, 'T6 remote pending take shows "uploading from another device"');
   ok(t6.remoteDisabled, 'T6 remote pending take has Play disabled');
   ok(t6.normalClean, 'T6 normal existing take shows no pending UI');
