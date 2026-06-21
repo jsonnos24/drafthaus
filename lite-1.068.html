@@ -1816,6 +1816,31 @@ async function liteLyricsDrain() {
   } finally { _lyricsDraining = false; }
 }
 
+async function liteFreshenSong() {
+  if (!_currentSong) return;
+  const songId = _currentSong.id;
+  if (!_takesUnsub || _takesSongId !== songId) startTakesListener(songId); // ensure take list is current
+  liteSyncDrain(); liteLyricsDrain();
+  let snap;
+  try { snap = await db.collection('songs').doc(songId).get(); }
+  catch (e) { return; } // offline / denied → nothing fresher
+  if (!_currentSong || _currentSong.id !== songId) return; // song switched while awaiting
+  const remote = (snap.exists && typeof snap.data().lyricsDoc === 'string') ? snap.data().lyricsDoc : _lyricsBase;
+  if (remote === _lyricsBase) return; // no remote change
+  const ed = document.getElementById('lyricsEditor'); if (!ed) return;
+  const local = currentEditorHtml();
+  if (local === _lyricsBase) {
+    if (document.activeElement === ed) return; // don't yank the cursor mid-focus; next return/blur freshens
+    ed.innerHTML = ilSanitizeDocHtml(remote); _atomizeLyricChords(); _lyricsBase = remote; _currentSong.lyricsDoc = remote;
+    clearTimeout(_lyricsTimer);
+  } else {
+    ed.innerHTML = ilSanitizeDocHtml(local + _lyricsDivider('another device') + remote); _atomizeLyricChords();
+    _lyricsBase = remote; _ilCommitDoc(currentEditorHtml(), _currentSong);
+    toast('Merged lyrics from another device — review', 2600, true);
+    onLyricsInput(); // schedule a save of the merged doc
+  }
+}
+
 /* ═══════════════════════════ Playback (WebAudio — supports Boost gain + loop) ═══════════════════════════ */
 let _audioCtx = null, _curSource = null, _curGain = null, _playingTakeId = null, _bufCache = {};
 function ensureCtx() {
@@ -3182,8 +3207,9 @@ _bindChordLyrics();
 
 function _liteUpdateOnline() { document.body.classList.toggle('is-offline', !navigator.onLine); }
 window.addEventListener('offline', () => { _syncAnnounce = true; document.body.classList.add('is-offline'); }); // Direct classList.add (not _liteUpdateOnline): a real 'offline' event already means navigator.onLine===false; synthetic test events don't change it.
-window.addEventListener('online', () => { _liteUpdateOnline(); liteSyncDrain(); liteLyricsDrain(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { liteSyncDrain(); liteLyricsDrain(); } });
+window.addEventListener('online', () => { _liteUpdateOnline(); liteFreshenSong(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) liteFreshenSong(); });
+window.addEventListener('focus', () => liteFreshenSong());
 _liteUpdateOnline();
 
 auth.onAuthStateChanged(user => {

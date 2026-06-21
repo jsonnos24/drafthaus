@@ -185,6 +185,45 @@ function serve() {
   });
   ok(/A2/.test(t3b.written) && t3b.noDivider, 'T3 drain writes clean when server unchanged');
 
+  // ── Task-4 asserts: liteFreshenSong ──
+
+  // t4a adopt: remote moved, no local edits, editor not focused → editor becomes remote, base updates
+  const t4a = await pg.evaluate(async () => {
+    _currentSong = { id: 'sf', lyricsDoc: '<div>A</div>' }; _lyricsBase = '<div>A</div>';
+    document.getElementById('lyricsEditor').innerHTML = '<div>A</div>'; // == base (no local edits)
+    document.getElementById('lyricsEditor').blur();
+    const orig = db.collection.bind(db);
+    db.collection = (n) => n === 'songs' ? { doc: () => ({ get: async () => ({ exists: true, data: () => ({ lyricsDoc: '<div>B</div>' }) }) }) } : orig(n);
+    await liteFreshenSong();
+    db.collection = orig;
+    return { editor: currentEditorHtml(), base: _lyricsBase };
+  });
+  ok(/B/.test(t4a.editor) && !/A<\/div>/.test(t4a.editor) && t4a.base === '<div>B</div>', 'T4 freshen adopts remote when no local edits');
+
+  // t4b merge: remote moved AND local edits → inline-append
+  const t4b = await pg.evaluate(async () => {
+    _currentSong = { id: 'sf2', lyricsDoc: '<div>A</div>' }; _lyricsBase = '<div>A</div>';
+    document.getElementById('lyricsEditor').innerHTML = '<div>Alocal</div>'; // != base (local edits)
+    const orig = db.collection.bind(db);
+    db.collection = (n) => n === 'songs' ? { doc: () => ({ get: async () => ({ exists: true, data: () => ({ lyricsDoc: '<div>B</div>' }) }) }) } : orig(n);
+    await liteFreshenSong();
+    db.collection = orig;
+    return { editor: currentEditorHtml(), base: _lyricsBase };
+  });
+  ok(/Alocal/.test(t4b.editor) && /Also edited/.test(t4b.editor) && /B/.test(t4b.editor) && t4b.base === '<div>B</div>', 'T4 freshen inline-appends when both moved');
+
+  // t4c no-op: remote == base → nothing changes, local edits kept
+  const t4c = await pg.evaluate(async () => {
+    _currentSong = { id: 'sf3', lyricsDoc: '<div>A</div>' }; _lyricsBase = '<div>A</div>';
+    document.getElementById('lyricsEditor').innerHTML = '<div>A2</div>';
+    const orig = db.collection.bind(db);
+    db.collection = (n) => n === 'songs' ? { doc: () => ({ get: async () => ({ exists: true, data: () => ({ lyricsDoc: '<div>A</div>' }) }) }) } : orig(n);
+    await liteFreshenSong();
+    db.collection = orig;
+    return { editor: currentEditorHtml() };
+  });
+  ok(/A2/.test(t4c.editor) && !/Also edited/.test(t4c.editor), 'T4 freshen no-ops when remote unchanged (keeps local edits)');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
