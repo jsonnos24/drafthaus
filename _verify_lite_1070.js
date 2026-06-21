@@ -150,6 +150,30 @@ function serve() {
   ok(s4.present, 'T4 take row has a .take-share button');
   ok(s4.added === 'TK1', 'T4 tapping share adds the take to the tray');
 
+  // ── Task 5: share manager panel ──
+  const pg5 = await ctx.newPage();
+  await pg5.goto(`http://localhost:${port}/lite-1.070.html`, { waitUntil: 'domcontentloaded' });
+  await pg5.waitForFunction(() => typeof window.openShareManager === 'function', { timeout: 10000 });
+  const s5 = await pg5.evaluate(async () => {
+    shareEnsureDoc = async () => { _shareId = 'SH'; return 'SH'; };  // avoid network
+    let copied = null;
+    navigator.clipboard.writeText = (s) => { copied = s; return Promise.resolve(); };
+    _shareId = 'SH';
+    _shareTakes = [{ takeId: 'TK1', songTitle: 'Song A', duration: 12 }, { takeId: 'TK2', songTitle: 'Song B', duration: 30 }];
+    _shareActive = true;
+    openShareManager();
+    const panel = document.getElementById('sharePanel');
+    const open = panel && getComputedStyle(panel).display !== 'none';
+    const rows = document.querySelectorAll('#sharePanel .sm-row').length;
+    await shareCopyLink();
+    const hdrBtn = !!document.querySelector('.lg-actions .lg-share');
+    return { open, rows, copied, copiedOK: /\?share=SH$/.test(copied || ''), hdrBtn };
+  });
+  ok(s5.hdrBtn, 'T5 header has a .lg-share button');
+  ok(s5.open, 'T5 openShareManager shows #sharePanel');
+  ok(s5.rows === 2, 'T5 manager lists one row per tray take');
+  ok(s5.copiedOK, 'T5 shareCopyLink copies the share URL');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);

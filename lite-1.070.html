@@ -170,8 +170,25 @@ body.relogin #landing { display: flex; }
 .lg-sel-export { background: var(--tint); color: #fff; }
 .lg-sel-clear { background: var(--bg-input); color: var(--text); }
 .lg-sel-cancel { background: none; color: var(--text-2); }
-body.export-select .lg-export, body.export-select .lg-title .add, body.export-select .lg-signout { display: none; }
+body.export-select .lg-export, body.export-select .lg-title .add, body.export-select .lg-signout, body.export-select .lg-share { display: none; }
 body.export-select .lg-sel-export, body.export-select .lg-sel-clear, body.export-select .lg-sel-cancel { display: inline-flex; }
+/* Share icon button in the songs header */
+.lg-share { display: inline-flex; align-items: center; justify-content: center; color: var(--text-2); flex: none; }
+.lg-share svg { width: 20px; height: 20px; }
+/* Share manager overlay */
+.share-panel { position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 9000; align-items: flex-end; justify-content: center; }
+.sm-card { background: var(--bg-elev); width: 100%; max-width: 480px; border-radius: 16px 16px 0 0; padding: 16px; max-height: 70vh; display: flex; flex-direction: column; }
+.sm-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.sm-title { font-weight: 700; font-size: 17px; }
+.sm-x { color: var(--text-2); font-size: 18px; }
+.sm-link-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.sm-copy { background: var(--tint); color: #fff; border-radius: 8px; padding: 8px 14px; font-weight: 600; }
+.sm-toggle { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 14px; }
+.sm-list { overflow-y: auto; }
+.sm-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.sm-name { font-size: 15px; }
+.sm-remove { color: var(--red, #ff3b30); font-size: 14px; }
+.sm-empty { color: var(--text-2); font-size: 14px; padding: 12px 0; }
 /* Per-song checkbox (left of the tile) shown only in selection mode */
 .sl-check { display: none; width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--text-3); flex: none; align-items: center; justify-content: center; color: #fff; font-size: 14px; font-weight: 700; }
 body.export-select .sl-check { display: flex; }
@@ -586,7 +603,7 @@ html.dark #chordPop .cp-seg button.on { background: #48484a; }
 <div id="app">
   <!-- Song list (home) -->
   <section id="screen-songlist" class="screen active">
-    <div class="lg-title"><span class="lg-head">Songs <span class="guest-tag">Guest · <button class="guest-signin" onclick="openLogin()">Sign in to save</button></span><span id="liteMeter" class="lite-meter" style="display:none;"></span></span><span class="lg-actions"><button class="lg-signout" onclick="signOutTap()" aria-label="Sign out" title="Sign out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></button><button class="lg-export" onclick="exportStart()">Export</button><button class="lg-sel-export" onclick="exportSelected()">Export Selected</button><button class="lg-sel-clear" onclick="exportClearSel()">Clear</button><button class="lg-sel-cancel" onclick="exportCancel()">Cancel</button><button class="add" onclick="createSong()" aria-label="New song">＋</button></span></div>
+    <div class="lg-title"><span class="lg-head">Songs <span class="guest-tag">Guest · <button class="guest-signin" onclick="openLogin()">Sign in to save</button></span><span id="liteMeter" class="lite-meter" style="display:none;"></span></span><span class="lg-actions"><button class="lg-share" onclick="openShareManager()" aria-label="Share takes" title="Share takes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"></line><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"></line></svg></button><button class="lg-signout" onclick="signOutTap()" aria-label="Sign out" title="Sign out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></button><button class="lg-export" onclick="exportStart()">Export</button><button class="lg-sel-export" onclick="exportSelected()">Export Selected</button><button class="lg-sel-clear" onclick="exportClearSel()">Clear</button><button class="lg-sel-cancel" onclick="exportCancel()">Cancel</button><button class="add" onclick="createSong()" aria-label="New song">＋</button></span></div>
     <div class="searchbar">🔍 <input id="songSearch" placeholder="Search" oninput="renderSongList()"></div>
     <div id="songListBody">
       <div class="center-load"><div class="spinner"></div></div>
@@ -3308,6 +3325,19 @@ async function shareSetActive(b) {
     .catch(e => console.warn('[share] active', e));
   if (typeof renderShareManager === 'function') renderShareManager();
 }
+function openShareManager() { shareEnsureDoc().catch(() => {}); document.getElementById('sharePanel').style.display = 'flex'; renderShareManager(); }
+function closeShareManager() { document.getElementById('sharePanel').style.display = 'none'; }
+function shareCopyLink() {
+  const link = shareLink(); if (!link) { toast('Add a take to share first', 2200); return; }
+  return navigator.clipboard.writeText(link).then(() => toast('Link copied ✓', 1800)).catch(() => toast(link, 3000));
+}
+function renderShareManager() {
+  const panel = document.getElementById('sharePanel'); if (!panel || panel.style.display === 'none') return;
+  const chk = document.getElementById('smActive'); if (chk) chk.checked = _shareActive;
+  const list = document.getElementById('smList'); if (!list) return;
+  if (!_shareTakes.length) { list.innerHTML = '<div class="sm-empty">No shared takes yet. Open a song and tap the share icon on a take.</div>'; return; }
+  list.innerHTML = _shareTakes.map(t => `<div class="sm-row" data-id="${t.takeId}"><span class="sm-name">${(t.songTitle || 'Untitled')}</span><button class="sm-remove" onclick="shareRemoveTake('${t.takeId}')" aria-label="Remove">Remove</button></div>`).join('');
+}
 let _shareRefreshTimer = null;
 function shareRefreshSoon() { clearTimeout(_shareRefreshTimer); _shareRefreshTimer = setTimeout(() => { shareRefresh().catch(() => {}); }, 1500); }
 async function shareRefresh() {
@@ -3350,5 +3380,12 @@ auth.onAuthStateChanged(user => {
   }
 });
 </script>
+<div id="sharePanel" class="share-panel" style="display:none;" onclick="if(event.target===this)closeShareManager()">
+  <div class="sm-card">
+    <div class="sm-head"><span class="sm-title">My Shared Takes</span><button class="sm-x" onclick="closeShareManager()" aria-label="Close">✕</button></div>
+    <div class="sm-link-row"><button class="sm-copy" onclick="shareCopyLink()">Copy Link</button><label class="sm-toggle"><input type="checkbox" id="smActive" onchange="shareSetActive(this.checked)"> <span>Link on</span></label></div>
+    <div id="smList" class="sm-list"></div>
+  </div>
+</div>
 </body>
 </html>
