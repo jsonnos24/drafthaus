@@ -264,6 +264,65 @@ function serve() {
   ok(s8b.hasLanding, 'T8 no-harm: #landing element present on normal load');
   ok(s8b.notShareView, 'T8 no-harm: normal load does not enter share-view mode');
 
+  // ── Task 9a: shareEnsureDoc in-flight deduplication ──
+  const pg9a = await ctx.newPage();
+  await pg9a.goto(`http://localhost:${port}/lite-1.070.html`, { waitUntil: 'domcontentloaded' });
+  await pg9a.waitForFunction(() => typeof window.shareEnsureDoc === 'function', { timeout: 10000 });
+  const s9a = await pg9a.evaluate(async () => {
+    // Wire up the same fake shares environment as T2 so shareEnsureDoc can run.
+    let createCount = 0;
+    let store = { exists: false, data: { takes: [], active: true, ownerId: 'U9' } };
+    let listener = null;
+    const fakeDocRef = {
+      id: 'SH9',
+      get: async () => ({ exists: store.exists, data: () => store.data }),
+      set: (obj, opt) => {
+        createCount++;
+        store.exists = true;
+        store.data = opt && opt.merge ? Object.assign({}, store.data, obj) : obj;
+        if (listener) listener({ exists: true, data: () => store.data });
+        return Promise.resolve();
+      },
+      onSnapshot: (cb) => { listener = cb; cb({ exists: store.exists, data: () => store.data }); return () => { listener = null; }; },
+    };
+    const fakeShares = {
+      doc: () => fakeDocRef,
+      where: () => ({ limit: () => ({ get: async () => ({ empty: true, docs: [] }) }) }),
+    };
+    const realCollection = db.collection.bind(db);
+    db.collection = (name) => name === 'shares' ? fakeShares : realCollection(name);
+    Object.defineProperty(auth, 'currentUser', { get: () => ({ uid: 'U9', isAnonymous: false }), configurable: true });
+
+    // Reset in-flight + shareId so both concurrent calls start from scratch.
+    _shareId = null;
+    _shareEnsureInFlight = null;
+
+    const [id1, id2] = await Promise.all([shareEnsureDoc(), shareEnsureDoc()]);
+    return { sameId: id1 === id2, createCount, id1, id2 };
+  });
+  ok(s9a.sameId, 'T9 shareEnsureDoc concurrent calls resolve to the same id');
+  ok(s9a.createCount <= 1, 'T9 shareEnsureDoc concurrent calls invoke create at most once');
+
+  // ── Task 9b: renderShareManager escapes HTML in songTitle ──
+  const pg9b = await ctx.newPage();
+  await pg9b.goto(`http://localhost:${port}/lite-1.070.html`, { waitUntil: 'domcontentloaded' });
+  await pg9b.waitForFunction(() => typeof window.renderShareManager === 'function', { timeout: 10000 });
+  const s9b = await pg9b.evaluate(() => {
+    _shareId = 'SH9B';
+    _shareActive = true;
+    _shareTakes = [{ takeId: 'TKXSS', songTitle: '<script>alert(99)</script>' }];
+    // Force the panel visible so renderShareManager renders.
+    const panel = document.getElementById('sharePanel');
+    if (panel) panel.style.display = 'flex';
+    renderShareManager();
+    const list = document.getElementById('smList');
+    const noLiveScript = list && list.querySelector('script') === null;
+    const textEscaped = list && list.textContent.includes('<script>');
+    return { noLiveScript, textEscaped };
+  });
+  ok(s9b.noLiveScript, 'T9 renderShareManager: <script> title does not inject a live script element');
+  ok(s9b.textEscaped, 'T9 renderShareManager: escaped title text is visible as literal <script>');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
