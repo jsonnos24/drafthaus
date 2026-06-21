@@ -372,6 +372,9 @@ body.is-guest .guest-tag {
 .take-card .loop svg { width: 18px; height: 18px; }
 .take-card .take-edit { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; color: var(--text-3); flex: none; }
 .take-card .take-edit svg { width: 18px; height: 18px; }
+.take-card .take-share { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; color: var(--text-2); flex: none; }
+.take-card .take-share svg { width: 18px; height: 18px; }
+.take-card .take-share.on { color: var(--tint); }
 .take-card .take-retry { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; color: var(--tint); flex: none; font-size: 18px; }
 
 /* pin / reorder (songs + takes) */
@@ -1473,6 +1476,7 @@ function _fmtClock(s) { return Math.floor(s / 60) + ':' + String(Math.floor(s % 
 /* ═══════════════════════════ Takes (flat list of voice_takes) ═══════════════════════════ */
 const LOOP_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>';
 const PENCIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>';
+const SHARE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"></line><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"></line></svg>';
 let _takes = [], _takesUnsub = null, _loadedTakeId = null, _loopTakes = new Set(), _selectNewest = false;
 let _takesRetry = 0, _takesRetryTimer = null, _takesSongId = null;
 
@@ -1553,6 +1557,7 @@ function _takeRow(t, isPinned) {
           <div class="sub">${info}${statusSub}</div>
         </div>
         ${retryBtn}
+        <button class="take-share ${shareIsShared(t.id) ? 'on' : ''}" onclick="takeShareToggle('${t.id}', event)" title="${shareIsShared(t.id) ? 'Shared — tap to remove' : 'Add to share link'}" aria-label="Share take">${SHARE_SVG}</button>
         <button class="take-edit" onclick="startRename('${t.id}', this.closest('.take-card').querySelector('.nm'), event)" title="Rename take" aria-label="Rename take">${PENCIL_SVG}</button>
         <button class="loop ${looping ? 'on' : ''}" onclick="toggleLoop('${t.id}',event)" aria-label="Loop">${LOOP_SVG}</button>
         <button class="take-pin-desktop" onclick="toggleTakePin('${t.id}',event)" title="${isPinned ? 'Unpin' : 'Pin'}" style="opacity:${isPinned ? 1 : 0.4}">📌</button>
@@ -1583,6 +1588,13 @@ async function toggleTakePin(id, ev) {
 }
 function toggleTakes() { document.getElementById('takesPanel').classList.toggle('open'); wfRender(); }
 function selectTake(id) { _loadedTakeId = id; renderTakes(); updateRail(); wfLoad(_takes.find(t => t.id === id)); }
+function takeShareToggle(id, ev) {
+  if (ev) ev.stopPropagation();
+  const t = _takes.find(x => x.id === id); if (!t) return;
+  if (shareIsShared(id)) shareRemoveTake(id);
+  else if (!t.downloadUrl) toast('Still uploading — try again in a moment', 2400);
+  else shareAddTake(t);
+}
 function retryTake(id, ev) { if (ev) ev.stopPropagation(); _syncAnnounce = false; liteSyncDrain(); }
 function updateRail() {
   const nameEl = document.getElementById('railTakeName');

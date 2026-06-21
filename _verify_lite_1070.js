@@ -129,6 +129,27 @@ function serve() {
   ok(s3.kept && s3.kept.songTitle === 'NEW TITLE' && s3.kept.lyricsDoc === '<div>new</div>', 'T3 refreshes title + lyrics from _songs');
   ok(s3.kept && s3.kept.downloadUrl === 'u1b' && s3.kept.duration === 7, 'T3 refreshes audio fields from loaded _takes');
 
+  // ── Task 4: per-take share toggle button ──
+  const pg4 = await ctx.newPage();
+  await pg4.goto(`http://localhost:${port}/lite-1.070.html`, { waitUntil: 'domcontentloaded' });
+  await pg4.waitForFunction(() => typeof window.takeShareToggle === 'function', { timeout: 10000 });
+  const s4 = await pg4.evaluate(() => {
+    // Render a take row directly via renderTakes with a stubbed _takes/_loadedTakeId.
+    let added = null, removed = null;
+    shareAddTake = async (t) => { added = t.id; _shareTakes = [{ takeId: t.id }]; };
+    shareRemoveTake = async (id) => { removed = id; _shareTakes = []; };
+    _currentSong = { id: 'S1', title: 'S', lyricsDoc: '' };
+    _takes = [{ id: 'TK1', downloadUrl: 'u', duration: 4, mimeType: 'audio/mp3', createdAt: { toMillis: () => 1 } }];
+    _loadedTakeId = 'TK1';
+    renderTakes();
+    const btn = document.querySelector('.take-card[data-id="TK1"] .take-share, .take-row[data-id="TK1"] .take-share');
+    const present = !!btn;
+    if (btn) btn.click();
+    return { present, added };
+  });
+  ok(s4.present, 'T4 take row has a .take-share button');
+  ok(s4.added === 'TK1', 'T4 tapping share adds the take to the tray');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
