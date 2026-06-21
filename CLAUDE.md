@@ -10,6 +10,9 @@
 > If the task is about Lite, follow memory `drafthaus-lite.md`, not this file. Lite is
 > versioned `lite-1.0xx.html`, deploys to `drafthaus.ca/lite-<ver>.html`, pushed per
 > milestone, and promoted into `index.html` (the root) on milestones.
+> **As of 2026-06-21 the live root is `lite-1.068` (`index.html` == `lite-1.068.html` ==
+> `drafthaus.ca`)** — the local-first program complete (P1 instant playback + P2 offline/
+> auto-resync + P3 lyrics multi-device reconciliation). See `drafthaus-lite.md` for details.
 
 Single-file HTML web app (vanilla JS + Web Audio + Firestore sync). The deployed
 full-app build is `full.html`, currently byte-identical to `1.314.html` (= `1.313.html` —
