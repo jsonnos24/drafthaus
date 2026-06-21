@@ -1238,10 +1238,30 @@ async function flushLyrics() {
   clearTimeout(_lyricsTimer);
   const ed = document.getElementById('lyricsEditor');
   if (!_currentSong || !ed) return;
-  const html = ilSanitizeDocHtml(ed.innerHTML);
-  if (!_ilCommitDoc(html, _currentSong)) return;
-  try { await db.collection('songs').doc(_currentSong.id).set({ lyricsDoc: _currentSong.lyricsDoc, lyricsDocInit: true, updatedAt: Date.now() }, { merge: true }); }
-  catch (e) { console.warn('[lyrics] save', e); }
+  const html = currentEditorHtml();
+  if (!_ilCommitDoc(html, _currentSong)) return; // blank-guard
+  const songId = _currentSong.id;
+  if (!navigator.onLine) { await dhPendingLyricsPut({ songId, lyricsDoc: html, base: _lyricsBase, editedAt: Date.now() }); return; }
+  try {
+    const ref = db.collection('songs').doc(songId);
+    const res = await db.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      const serverDoc = (snap.exists && typeof snap.data().lyricsDoc === 'string') ? snap.data().lyricsDoc : '';
+      let result, merged = false;
+      if (serverDoc === _lyricsBase) { result = html; }
+      else { result = html + _lyricsDivider('another device') + serverDoc; merged = true; }
+      tx.set(ref, { lyricsDoc: result, lyricsDocInit: true, updatedAt: Date.now() }, { merge: true });
+      return { result, merged };
+    });
+    _lyricsBase = res.result; _currentSong.lyricsDoc = res.result;
+    if (res.merged && _currentSong.id === songId && document.activeElement !== ed) {
+      ed.innerHTML = ilSanitizeDocHtml(res.result); _atomizeLyricChords();
+    }
+    if (res.merged) toast('Merged lyrics from another device — review', 2600, true);
+  } catch (e) {
+    console.warn('[lyrics] save', e);
+    await dhPendingLyricsPut({ songId, lyricsDoc: html, base: _lyricsBase, editedAt: Date.now() }); // e.g. dropped offline mid-save
+  }
 }
 
 /* ── Chords mode: tap a word to add / edit / remove a chord above it ── */

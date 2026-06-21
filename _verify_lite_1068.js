@@ -93,6 +93,65 @@ function serve() {
   console.log('[sanitize-check] after ilSanitizeDocHtml:', sanitizeResult.sanitized);
   ok(sanitizeResult.textSurvives, 'T1 ilSanitizeDocHtml preserves divider text content');
 
+  // ── Task-2 asserts: transactional flushLyrics ──
+  const pg3 = await ctx.newPage();
+  await pg3.goto(`http://localhost:${port}/lite-1.068.html`, { waitUntil: 'domcontentloaded' });
+  await pg3.waitForFunction(() => typeof window.dhAudioPut === 'function', { timeout: 10000 });
+  const signedin3 = await guestIn(pg3);
+  if (signedin3) {
+    await pg3.evaluate(() => {
+      _openSongObj({ id: 'sg', title: 'verify-t2', key: 'C major', lyricsDoc: '<div>A</div>' });
+      stopTakesListener();
+    });
+    await pg3.waitForTimeout(200);
+
+    // no-conflict: serverDoc === base → writes editor content, no divider
+    const t2a = await pg3.evaluate(async () => {
+      _currentSong = { id: 'sg', lyricsDoc: '<div>A</div>' }; _lyricsBase = '<div>A</div>';
+      document.getElementById('lyricsEditor').innerHTML = '<div>A2</div>';
+      let written = null;
+      const orig = db.runTransaction.bind(db);
+      db.runTransaction = async (fn) => fn({ get: async () => ({ exists: true, data: () => ({ lyricsDoc: '<div>A</div>' }) }), set: (ref, d) => { written = d; } });
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+      await flushLyrics();
+      db.runTransaction = orig;
+      return { written: written && written.lyricsDoc, base: _lyricsBase, noDivider: !/Also edited/.test(written.lyricsDoc) };
+    });
+    ok(/A2/.test(t2a.written) && t2a.noDivider, 'T2 no-conflict save writes editor content, no divider');
+    ok(t2a.base === t2a.written, 'T2 _lyricsBase updates to the written content');
+
+    // conflict: serverDoc !== base → inline-append merge
+    const t2b = await pg3.evaluate(async () => {
+      _currentSong = { id: 'sg', lyricsDoc: '<div>A</div>' }; _lyricsBase = '<div>A</div>';
+      document.getElementById('lyricsEditor').innerHTML = '<div>A2</div>';
+      let written = null;
+      const orig = db.runTransaction.bind(db);
+      db.runTransaction = async (fn) => fn({ get: async () => ({ exists: true, data: () => ({ lyricsDoc: '<div>B</div>' }) }), set: (ref, d) => { written = d; } });
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+      await flushLyrics();
+      db.runTransaction = orig;
+      return { written: written && written.lyricsDoc };
+    });
+    ok(/A2/.test(t2b.written) && /Also edited/.test(t2b.written) && /B/.test(t2b.written), 'T2 conflict save inline-appends both versions + divider');
+
+    // offline: no transaction, writes a pendingLyrics entry
+    const t2c = await pg3.evaluate(async () => {
+      _currentSong = { id: 'sgoff', lyricsDoc: '<div>A</div>' }; _lyricsBase = '<div>A</div>';
+      document.getElementById('lyricsEditor').innerHTML = '<div>A2</div>';
+      let txCalled = false; const orig = db.runTransaction.bind(db); db.runTransaction = async (fn) => { txCalled = true; return orig(fn); };
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+      await flushLyrics();
+      const e = await dhPendingLyricsGet('sgoff');
+      db.runTransaction = orig; Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+      await dhPendingLyricsDelete('sgoff');
+      return { pending: e && e.lyricsDoc, base: e && e.base, noTx: txCalled === false };
+    });
+    ok(/A2/.test(t2c.pending) && t2c.base === '<div>A</div>' && t2c.noTx, 'T2 offline save stores pendingLyrics, no transaction');
+  } else {
+    console.log('SKIP T2 (guest auth unavailable)');
+  }
+  await pg3.close();
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
