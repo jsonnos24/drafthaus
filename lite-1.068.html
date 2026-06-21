@@ -1784,6 +1784,38 @@ async function liteSyncDrain() {
   } finally { _syncing = false; }
 }
 
+let _lyricsDraining = false;
+async function liteLyricsDrain() {
+  if (_lyricsDraining || !navigator.onLine) return;
+  const entries = await dhPendingLyricsAll();
+  if (!entries.length) return;
+  _lyricsDraining = true;
+  try {
+    for (const e of entries) {
+      if (!navigator.onLine) break;
+      try {
+        const ref = db.collection('songs').doc(e.songId);
+        const res = await db.runTransaction(async tx => {
+          const snap = await tx.get(ref);
+          const serverDoc = (snap.exists && typeof snap.data().lyricsDoc === 'string') ? snap.data().lyricsDoc : '';
+          let result, merged = false;
+          if (serverDoc === e.base) { result = e.lyricsDoc; }
+          else { result = e.lyricsDoc + _lyricsDivider('another device') + serverDoc; merged = true; }
+          tx.set(ref, { lyricsDoc: result, lyricsDocInit: true, updatedAt: Date.now() }, { merge: true });
+          return { result, merged };
+        });
+        await dhPendingLyricsDelete(e.songId);
+        if (_currentSong && _currentSong.id === e.songId) {
+          _lyricsBase = res.result; _currentSong.lyricsDoc = res.result;
+          const ed = document.getElementById('lyricsEditor');
+          if (ed && document.activeElement !== ed && currentEditorHtml() !== res.result) { ed.innerHTML = ilSanitizeDocHtml(res.result); _atomizeLyricChords(); }
+          if (res.merged) toast('Merged lyrics from another device — review', 2600, true);
+        }
+      } catch (x) { console.warn('[lyrics drain]', x); } // keep entry, retry next trigger
+    }
+  } finally { _lyricsDraining = false; }
+}
+
 /* ═══════════════════════════ Playback (WebAudio — supports Boost gain + loop) ═══════════════════════════ */
 let _audioCtx = null, _curSource = null, _curGain = null, _playingTakeId = null, _bufCache = {};
 function ensureCtx() {
@@ -3150,8 +3182,8 @@ _bindChordLyrics();
 
 function _liteUpdateOnline() { document.body.classList.toggle('is-offline', !navigator.onLine); }
 window.addEventListener('offline', () => { _syncAnnounce = true; document.body.classList.add('is-offline'); }); // Direct classList.add (not _liteUpdateOnline): a real 'offline' event already means navigator.onLine===false; synthetic test events don't change it.
-window.addEventListener('online', () => { _liteUpdateOnline(); liteSyncDrain(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) liteSyncDrain(); });
+window.addEventListener('online', () => { _liteUpdateOnline(); liteSyncDrain(); liteLyricsDrain(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { liteSyncDrain(); liteLyricsDrain(); } });
 _liteUpdateOnline();
 
 auth.onAuthStateChanged(user => {
@@ -3163,6 +3195,7 @@ auth.onAuthStateChanged(user => {
     liteUsageRecompute(); // seed storage meter + cap state for this session
     dhAudioSeedIndex();   // populate _localBlobIds from IndexedDB (fire-and-forget)
     liteSyncDrain();      // drain any outbox jobs queued during a previous offline session
+    liteLyricsDrain();    // reconcile any offline lyric edits
     startSongsListener();
   } else {
     document.body.classList.remove('signed-in', 'is-guest', 'relogin');

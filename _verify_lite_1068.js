@@ -152,6 +152,39 @@ function serve() {
   }
   await pg3.close();
 
+  // ── Task-3 asserts: liteLyricsDrain ──
+
+  // pending entry reconciles: serverDoc moved → inline-append; entry cleared
+  const t3 = await pg.evaluate(async () => {
+    await dhPendingLyricsPut({ songId: 'sd', lyricsDoc: '<div>A2</div>', base: '<div>A</div>', editedAt: 1 });
+    let written = null;
+    const orig = db.runTransaction.bind(db);
+    db.runTransaction = async (fn) => fn({ get: async () => ({ exists: true, data: () => ({ lyricsDoc: '<div>B</div>' }) }), set: (ref, d) => { written = d; } });
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+    await liteLyricsDrain();
+    const left = await dhPendingLyricsGet('sd');
+    db.runTransaction = orig;
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+    return { written: written && written.lyricsDoc, cleared: left === null };
+  });
+  ok(/A2/.test(t3.written) && /Also edited/.test(t3.written) && /B/.test(t3.written), 'T3 drain inline-appends on server divergence');
+  ok(t3.cleared, 'T3 drain clears the pending entry on success');
+
+  // no-divergence reconcile: serverDoc === base → writes clean
+  const t3b = await pg.evaluate(async () => {
+    await dhPendingLyricsPut({ songId: 'sd2', lyricsDoc: '<div>A2</div>', base: '<div>A</div>', editedAt: 1 });
+    let written = null;
+    const orig = db.runTransaction.bind(db);
+    db.runTransaction = async (fn) => fn({ get: async () => ({ exists: true, data: () => ({ lyricsDoc: '<div>A</div>' }) }), set: (ref, d) => { written = d; } });
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+    await liteLyricsDrain();
+    db.runTransaction = orig;
+    await dhPendingLyricsDelete('sd2');
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+    return { written: written && written.lyricsDoc, noDivider: written && !/Also edited/.test(written.lyricsDoc) };
+  });
+  ok(/A2/.test(t3b.written) && t3b.noDivider, 'T3 drain writes clean when server unchanged');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
