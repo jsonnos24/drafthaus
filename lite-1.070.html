@@ -1260,6 +1260,7 @@ async function flushLyrics() {
       ed.innerHTML = ilSanitizeDocHtml(res.result); _atomizeLyricChords();
     }
     if (res.merged) toast('Merged lyrics from another device — review', 2600, true);
+    shareRefreshSoon();
   } catch (e) {
     console.warn('[lyrics] save', e);
     await dhPendingLyricsPut({ songId, lyricsDoc: html, base: _lyricsBase, editedAt: Date.now() }); // e.g. dropped offline mid-save
@@ -2048,7 +2049,7 @@ async function _wfReplaceAudio(buffer, undoBuffer, msg) {
     // Queue the re-upload (replaces storage + clears pending + deletes oldPath on success).
     await dhOutboxPut({ takeId: take.id, op: 'replace', storagePath: path, mimeType: 'audio/mp3', songId: take.songId, bytes: blob.size, duration, oldPath, tries: 0, createdAt: Date.now() });
     _wf.buffer = buffer; _wf.dur = buffer.duration; _wf.peaks = _computePeaks(buffer, 1400); _wf.sel = null; _wf.loopSel = false; _wf.playhead = 0; _wf.undo = undoBuffer ? { buffer: undoBuffer } : null;
-    wfRender(); liteSyncDrain(); return true;
+    wfRender(); liteSyncDrain(); shareRefreshSoon(); return true;
   } catch (e) {
     console.warn('[wf] replace', e);
     dhAudioDelete(take.id);
@@ -3295,6 +3296,25 @@ async function shareSetActive(b) {
     .catch(e => console.warn('[share] active', e));
   if (typeof renderShareManager === 'function') renderShareManager();
 }
+let _shareRefreshTimer = null;
+function shareRefreshSoon() { clearTimeout(_shareRefreshTimer); _shareRefreshTimer = setTimeout(() => { shareRefresh().catch(() => {}); }, 1500); }
+async function shareRefresh() {
+  if (!_shareId || !_shareTakes.length) return;
+  let changed = false;
+  const next = [];
+  for (const e of _shareTakes) {
+    const song = (_songs || []).find(s => s.id === e.songId);
+    if (!song) { changed = true; continue; }   // song gone → drop
+    const loaded = (_takes || []).find(t => t.id === e.takeId && t.downloadUrl);
+    const ne = Object.assign({}, e);
+    ne.songTitle = song.title || 'Untitled';
+    ne.lyricsDoc = song.lyricsDoc || '';
+    if (loaded) { ne.downloadUrl = loaded.downloadUrl; ne.duration = loaded.duration || 0; ne.mimeType = loaded.mimeType || ne.mimeType; }
+    if (ne.songTitle !== e.songTitle || ne.lyricsDoc !== e.lyricsDoc || ne.downloadUrl !== e.downloadUrl || ne.duration !== e.duration) changed = true;
+    next.push(ne);
+  }
+  if (changed) await _shareWriteTakes(next);
+}
 
 auth.onAuthStateChanged(user => {
   const guestChosen = (() => { try { return sessionStorage.getItem('dh-lite-guest') === '1'; } catch (e) { return false; } })();
@@ -3307,6 +3327,7 @@ auth.onAuthStateChanged(user => {
     liteSyncDrain();      // drain any outbox jobs queued during a previous offline session
     liteLyricsDrain();    // reconcile any offline lyric edits
     startSongsListener();
+    shareEnsureDoc().then(() => shareRefreshSoon()).catch(() => {});
   } else {
     document.body.classList.remove('signed-in', 'is-guest', 'relogin');
     _liteUsageBytes = 0; liteRenderMeter();

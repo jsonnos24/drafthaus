@@ -103,6 +103,32 @@ function serve() {
   ok(!s2.afterRemove.shared && s2.afterRemove.n === 0, 'T2 shareRemoveTake removes the entry');
   ok(s2.noUrlBlocked === false, 'T2 shareAddTake refuses a take with no downloadUrl');
 
+  // ── Task 3: shareRefresh re-snapshots from _songs/_takes ──
+  const pg3 = await ctx.newPage();
+  await pg3.goto(`http://localhost:${port}/lite-1.070.html`, { waitUntil: 'domcontentloaded' });
+  await pg3.waitForFunction(() => typeof window.shareRefresh === 'function', { timeout: 10000 });
+  const s3 = await pg3.evaluate(async () => {
+    let written = null;
+    _shareId = 'SH';
+    _shareWriteTakes = async (takes) => { written = takes; _shareTakes = takes; };  // spy
+    _shareTakes = [
+      { takeId: 'TK1', songId: 'S1', songTitle: 'OLD TITLE', lyricsDoc: '<div>old</div>', downloadUrl: 'u1', duration: 5, mimeType: 'audio/mp3', addedAt: 1 },
+      { takeId: 'TK9', songId: 'GONE', songTitle: 'Ghost', lyricsDoc: '', downloadUrl: 'u9', duration: 2, mimeType: 'audio/mp3', addedAt: 1 },
+    ];
+    _songs = [{ id: 'S1', title: 'NEW TITLE', lyricsDoc: '<div>new</div>' }];
+    _takes = [{ id: 'TK1', downloadUrl: 'u1b', duration: 7, mimeType: 'audio/mp3' }];
+    await shareRefresh();
+    return {
+      n: written && written.length,
+      kept: written && written[0],
+      droppedGhost: written && !written.some(t => t.takeId === 'TK9'),
+    };
+  });
+  ok(s3.droppedGhost, 'T3 shareRefresh drops entries whose song is gone');
+  ok(s3.n === 1, 'T3 shareRefresh keeps the live entry only');
+  ok(s3.kept && s3.kept.songTitle === 'NEW TITLE' && s3.kept.lyricsDoc === '<div>new</div>', 'T3 refreshes title + lyrics from _songs');
+  ok(s3.kept && s3.kept.downloadUrl === 'u1b' && s3.kept.duration === 7, 'T3 refreshes audio fields from loaded _takes');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
