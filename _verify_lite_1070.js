@@ -236,6 +236,34 @@ function serve() {
   ok(s7.autoAdvances, 'T7 svPlay exists for auto-advance');
   ok(s7.noLiveScript && s7.escapedText, 'T7 song title with HTML chars is escaped, no live <script> injected');
 
+  // ── Task 8: viewer reads ONLY the shares collection ──
+  const pg8 = await ctx.newPage();
+  await pg8.goto(`http://localhost:${port}/lite-1.070.html?share=ABC`, { waitUntil: 'domcontentloaded' });
+  await pg8.waitForFunction(() => typeof window.shareViewLoad === 'function', { timeout: 10000 });
+  const s8 = await pg8.evaluate(async () => {
+    const seen = [];
+    db.collection = ((real) => (n) => { seen.push(n); return n === 'shares'
+      ? { doc: () => ({ get: async () => ({ exists: true, data: () => ({ active: true, takes: [] }) }) }) }
+      : real(n); })(db.collection.bind(db));
+    await shareViewLoad('ABC');
+    return { only: seen.every(n => n === 'shares'), touchedShares: seen.includes('shares') };
+  });
+  ok(s8.touchedShares && s8.only, 'T8 viewer reads only the shares collection');
+
+  // ── Task 8: no-harm regression — owner app still works ──
+  const pg8b = await ctx.newPage();
+  await pg8b.goto(`http://localhost:${port}/lite-1.070.html`, { waitUntil: 'domcontentloaded' });
+  await pg8b.waitForFunction(() => typeof window.renderTakes === 'function', { timeout: 10000 });
+  const s8b = await pg8b.evaluate(() => {
+    const hasTakesFn = typeof renderTakes === 'function';
+    const hasLanding = !!document.getElementById('landing');
+    const notShareView = !document.body.classList.contains('share-view');
+    return { hasTakesFn, hasLanding, notShareView };
+  });
+  ok(s8b.hasTakesFn, 'T8 no-harm: renderTakes is a function in the owner app');
+  ok(s8b.hasLanding, 'T8 no-harm: #landing element present on normal load');
+  ok(s8b.notShareView, 'T8 no-harm: normal load does not enter share-view mode');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
