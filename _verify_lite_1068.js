@@ -224,6 +224,121 @@ function serve() {
   });
   ok(/A2/.test(t4c.editor) && !/Also edited/.test(t4c.editor), 'T4 freshen no-ops when remote unchanged (keeps local edits)');
 
+  // ── Task-5 asserts: no-harm (single-device + rename) + real-offline lyric reconcile ──
+
+  // T5 no-harm: single-device edit+save inserts NO divider, exact round-trip, base tracks
+  const t5nh = await pg.evaluate(async () => {
+    _currentSong = { id: 'nh', lyricsDoc: '<div>verse one</div>' }; _lyricsBase = '<div>verse one</div>';
+    document.getElementById('lyricsEditor').innerHTML = '<div>verse one</div><div>verse two</div>';
+    let written = null;
+    const orig = db.runTransaction.bind(db);
+    db.runTransaction = async (fn) => fn({ get: async () => ({ exists: true, data: () => ({ lyricsDoc: '<div>verse one</div>' }) }), set: (ref, d) => { written = d; } });
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+    await flushLyrics();
+    db.runTransaction = orig;
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
+    return { written: written && written.lyricsDoc, noDivider: written && !/Also edited|lyr-merge-divider/.test(written.lyricsDoc), base: _lyricsBase };
+  });
+  ok(t5nh.noDivider && /verse two/.test(t5nh.written), 'T5 no-harm: single-device save has NO divider, content intact');
+  ok(t5nh.base === t5nh.written, 'T5 no-harm: base tracks the saved content');
+
+  // T5b no-harm: rename writes only title (merge), never touches lyricsDoc
+  const t5b = await pg.evaluate(async () => {
+    _currentSong = { id: 'nh2', title: 'Old', lyricsDoc: '<div>x</div>' };
+    let setData = null; const orig = db.collection.bind(db);
+    db.collection = (n) => n === 'songs' ? { doc: () => ({ set: async (d) => { setData = d; } }) } : orig(n);
+    window.prompt = () => 'New Title';
+    await renameSongPrompt();
+    db.collection = orig;
+    return { keys: setData ? Object.keys(setData).sort().join(',') : '', title: setData && setData.title };
+  });
+  ok(t5b.title === 'New Title' && !/lyricsDoc/.test(t5b.keys), 'T5 no-harm: rename writes title only, not lyrics');
+
+  // T5 real-offline integration: guest sign-in; create+open ONLINE; simulate remote edit;
+  // go offline; flush local edit → pending; reconnect; drain; assert server doc merges both.
+  {
+    const ctxT5 = await browser.newContext();
+    await ctxT5.addInitScript(() => { try { localStorage['drafthaus-eula-accepted'] = '1'; } catch (e) {} });
+    const pgT5 = await ctxT5.newPage();
+    pgT5.on('console', m => { if (/(permission-denied|WebChannel|FirebaseError|QUIC|takes.*snapshot)/.test(m.text())) return; });
+    await pgT5.goto(`http://localhost:${port}/lite-1.068.html`, { waitUntil: 'domcontentloaded' });
+    await pgT5.waitForFunction(() => typeof window.dhAudioPut === 'function', { timeout: 10000 });
+
+    let signedinT5 = false;
+    for (let i = 0; i < 2; i++) {
+      try { await pgT5.click('.auth-card .auth-btn.ghost'); await pgT5.waitForSelector('body.signed-in', { timeout: 20000 }); signedinT5 = true; break; }
+      catch (e) { if (i === 1) break; await pgT5.waitForTimeout(1000); }
+    }
+
+    if (signedinT5) {
+      try {
+        // 1. Create a real song ONLINE
+        await pgT5.waitForTimeout(500);
+        const songId = await pgT5.evaluate(async () => {
+          await createSong();
+          stopTakesListener();
+          return _currentSong && _currentSong.id;
+        });
+        // 2. Capture _lyricsBase after open (should be '' for new song)
+        const baseAfterOpen = await pgT5.evaluate(() => _lyricsBase);
+
+        // 3. Write a known remote lyricsDoc directly to Firestore (simulate another device editing)
+        await pgT5.evaluate(async (sid) => {
+          await db.collection('songs').doc(sid).set({ lyricsDoc: '<div>REMOTE</div>' }, { merge: true });
+        }, songId);
+        await pgT5.waitForTimeout(300);
+
+        // 4. Go offline
+        await ctxT5.setOffline(true);
+
+        // 5. Set the editor to a local edit + call flushLyrics (→ goes to pendingLyrics offline)
+        await pgT5.evaluate(async () => {
+          document.getElementById('lyricsEditor').innerHTML = '<div>LOCAL</div>';
+          await flushLyrics();
+        });
+
+        // 6. Assert a pendingLyrics entry exists for this song
+        const hasPending = await pgT5.evaluate(async (sid) => {
+          const e = await dhPendingLyricsGet(sid);
+          return !!(e && /LOCAL/.test(e.lyricsDoc));
+        }, songId);
+        ok(hasPending, 'T5 offline: flushLyrics stores pendingLyrics entry while offline');
+
+        // 7. Come back online
+        await ctxT5.setOffline(false);
+        await pgT5.waitForTimeout(500);
+
+        // 8. Poll liteLyricsDrain() until server doc has both sides (up to ~12s)
+        const TIMEOUT = 12000, INTERVAL = 1000;
+        let elapsed = 0;
+        let serverDoc = null;
+        while (elapsed < TIMEOUT && !serverDoc) {
+          await pgT5.evaluate(async () => { try { await liteLyricsDrain(); } catch (e) {} });
+          await pgT5.waitForTimeout(INTERVAL);
+          elapsed += INTERVAL;
+          serverDoc = await pgT5.evaluate(async (sid) => {
+            try {
+              const snap = await db.collection('songs').doc(sid).get({ source: 'server' });
+              return snap.exists ? snap.data().lyricsDoc : null;
+            } catch (e) { return null; }
+          }, songId);
+          if (serverDoc && /LOCAL/.test(serverDoc) && /REMOTE/.test(serverDoc)) break;
+          serverDoc = null; // keep polling if not merged yet
+        }
+
+        ok(serverDoc && /LOCAL/.test(serverDoc), `T5 offline-reconcile: server lyricsDoc contains LOCAL edit (${serverDoc ? 'ok' : 'null after ' + TIMEOUT + 'ms'})`);
+        ok(serverDoc && /REMOTE/.test(serverDoc), `T5 offline-reconcile: server lyricsDoc contains REMOTE text (${serverDoc ? 'ok' : 'null after ' + TIMEOUT + 'ms'})`);
+
+      } catch (e) {
+        if (/rate.limit|too.many|quota/i.test(String(e))) { console.log('SKIP T5 real-offline (anon-auth rate-limited)'); }
+        else { ok(false, 'T5 real-offline threw unexpectedly: ' + e); }
+      }
+    } else {
+      console.log('SKIP T5 real-offline (guest auth unavailable)');
+    }
+    await pgT5.close(); await ctxT5.close();
+  }
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
