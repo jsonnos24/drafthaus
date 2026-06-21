@@ -61,6 +61,48 @@ function serve() {
   ok(s1.snapOK, 'T1 _shareSnapshot builds a correct entry');
   ok(s1.linkOK, 'T1 shareLink returns <origin><path>?share=<id>');
 
+  // ── Task 2: owner data layer with a stubbed shares doc ──
+  const pg2 = await ctx.newPage();
+  await pg2.goto(`http://localhost:${port}/lite-1.070.html`, { waitUntil: 'domcontentloaded' });
+  await pg2.waitForFunction(() => typeof window.shareAddTake === 'function', { timeout: 10000 });
+  const s2 = await pg2.evaluate(async () => {
+    // In-memory fake of the one shares doc.
+    let store = { exists: false, data: { takes: [], active: true, ownerId: 'U1' } };
+    let listener = null;
+    const fakeDocRef = {
+      id: 'SHID',
+      get: async () => ({ exists: store.exists, data: () => store.data }),
+      set: (obj, opt) => { store.exists = true; store.data = opt && opt.merge ? Object.assign({}, store.data, obj) : obj; if (listener) listener({ exists: true, data: () => store.data }); return Promise.resolve(); },
+      onSnapshot: (cb) => { listener = cb; cb({ exists: store.exists, data: () => store.data }); return () => { listener = null; }; },
+    };
+    const fakeShares = {
+      doc: () => fakeDocRef,
+      where: () => ({ limit: () => ({ get: async () => ({ empty: true, docs: [] }) }) }),
+    };
+    const realCollection = db.collection.bind(db);
+    db.collection = (name) => name === 'shares' ? fakeShares : realCollection(name);
+    auth.currentUser = { uid: 'U1', isAnonymous: false };  // uid() reads this
+    _currentSong = { id: 'S1', title: 'Song One', lyricsDoc: '<div>La</div>' };
+
+    const take = { id: 'TK1', downloadUrl: 'https://a/b', duration: 9, mimeType: 'audio/mp3' };
+    await shareAddTake(take);
+    const afterAdd = { shared: shareIsShared('TK1'), n: _shareTakes.length, title: _shareTakes[0] && _shareTakes[0].songTitle };
+    await shareAddTake(take);                 // dedupe
+    const afterDup = _shareTakes.length;
+    await shareSetActive(false);
+    const activeFlag = _shareActive;
+    await shareRemoveTake('TK1');
+    const afterRemove = { shared: shareIsShared('TK1'), n: _shareTakes.length };
+    const noUrlBlocked = await shareAddTake({ id: 'TK2', duration: 3 }).then(() => shareIsShared('TK2'));
+    return { afterAdd, afterDup, activeFlag, afterRemove, noUrlBlocked };
+  });
+  ok(s2.afterAdd.shared && s2.afterAdd.n === 1, 'T2 shareAddTake adds + shareIsShared true');
+  ok(s2.afterAdd.title === 'Song One', 'T2 added entry carries song title snapshot');
+  ok(s2.afterDup === 1, 'T2 shareAddTake dedupes by takeId');
+  ok(s2.activeFlag === false, 'T2 shareSetActive(false) flips _shareActive');
+  ok(!s2.afterRemove.shared && s2.afterRemove.n === 0, 'T2 shareRemoveTake removes the entry');
+  ok(s2.noUrlBlocked === false, 'T2 shareAddTake refuses a take with no downloadUrl');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);

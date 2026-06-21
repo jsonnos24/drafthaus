@@ -727,7 +727,16 @@ try { db.settings({ experimentalForceLongPolling: true }); } catch(e) {}
 // Offline persistence: queue writes + serve cached reads when offline. Must precede any db use.
 try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch (e) {}
 
-function uid() { return auth.currentUser ? auth.currentUser.uid : null; }
+// _authUser mirrors auth.currentUser and is also writable for test stubs
+let _authUser = auth.currentUser || null;
+try {
+  Object.defineProperty(auth, 'currentUser', {
+    get: () => _authUser,
+    set: v => { _authUser = v; },
+    configurable: true,
+  });
+} catch (e) {}
+function uid() { return _authUser ? _authUser.uid : null; }
 
 /* ═══════════════════════════ Toast ═══════════════════════════ */
 let _toastTimer = null;
@@ -3233,8 +3242,71 @@ function _shareSnapshot(take, song) {
     duration: take.duration || 0, mimeType: take.mimeType || '', addedAt: Date.now(),
   };
 }
+function shareSubscribe(id) {
+  if (_shareUnsub) { _shareUnsub(); _shareUnsub = null; }
+  _shareId = id;
+  _shareUnsub = db.collection('shares').doc(id).onSnapshot(snap => {
+    const d = (snap && snap.exists) ? snap.data() : null;
+    _shareTakes = (d && Array.isArray(d.takes)) ? d.takes : [];
+    _shareActive = d ? (d.active !== false) : true;
+    if (typeof renderTakes === 'function') renderTakes();
+    if (typeof renderShareManager === 'function') renderShareManager();
+  }, e => console.warn('[share] snapshot', e));
+}
+async function shareFindExisting() {
+  const u = uid(); if (!u) return null;
+  try {
+    const cached = localStorage['dh-lite-shareId'];
+    if (cached) return cached;
+  } catch (e) {}
+  try {
+    const q = await db.collection('shares').where('ownerId', '==', u).limit(1).get();
+    if (!q.empty) { const id = q.docs[0].id; try { localStorage['dh-lite-shareId'] = id; } catch (e) {} return id; }
+  } catch (e) { console.warn('[share] find', e); }
+  return null;
+}
+async function shareEnsureDoc() {
+  if (_shareId) return _shareId;
+  const u = uid(); if (!u) return null;
+  let id = await shareFindExisting();
+  if (!id) {
+    id = shareNewId();
+    db.collection('shares').doc(id).set({ ownerId: u, active: true, takes: [], updatedAt: Date.now() })
+      .catch(e => console.warn('[share] create', e));
+    try { localStorage['dh-lite-shareId'] = id; } catch (e) {}
+  }
+  shareSubscribe(id);
+  return id;
+}
+function shareIsShared(takeId) { return _shareTakes.some(t => t.takeId === takeId); }
+async function _shareWriteTakes(takes) {
+  const id = await shareEnsureDoc(); if (!id) return;
+  _shareTakes = takes;  // optimistic local mirror
+  db.collection('shares').doc(id).set({ takes, updatedAt: Date.now() }, { merge: true })
+    .catch(e => console.warn('[share] write', e));
+  if (typeof renderTakes === 'function') renderTakes();
+  if (typeof renderShareManager === 'function') renderShareManager();
+}
+async function shareAddTake(take) {
+  if (!take || !take.downloadUrl) { if (typeof toast === 'function') toast('Still uploading — try again in a moment', 2400); return; }
+  const song = _currentSong; if (!song) return;
+  const next = _shareTakes.filter(t => t.takeId !== take.id);
+  next.push(_shareSnapshot(take, song));
+  await _shareWriteTakes(next);
+}
+async function shareRemoveTake(takeId) {
+  await _shareWriteTakes(_shareTakes.filter(t => t.takeId !== takeId));
+}
+async function shareSetActive(b) {
+  const id = await shareEnsureDoc(); if (!id) return;
+  _shareActive = !!b;
+  db.collection('shares').doc(id).set({ active: !!b, updatedAt: Date.now() }, { merge: true })
+    .catch(e => console.warn('[share] active', e));
+  if (typeof renderShareManager === 'function') renderShareManager();
+}
 
 auth.onAuthStateChanged(user => {
+  _authUser = user || null;  // keep _authUser in sync with Firebase's real user
   const guestChosen = (() => { try { return sessionStorage.getItem('dh-lite-guest') === '1'; } catch (e) { return false; } })();
   if (user && (!user.isAnonymous || guestChosen)) {
     document.body.classList.add('signed-in');
