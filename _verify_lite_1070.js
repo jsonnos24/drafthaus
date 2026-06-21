@@ -201,6 +201,41 @@ function serve() {
   ok(s6.revokedMsg, 'T6 revoked (active:false) shows unavailable');
   ok(s6.missingMsg, 'T6 missing doc shows unavailable');
 
+  // ── Task 7: viewer rows + lyrics expand + auto-advance wiring ──
+  const pg7 = await ctx.newPage();
+  await pg7.goto(`http://localhost:${port}/lite-1.070.html?share=ABC`, { waitUntil: 'domcontentloaded' });
+  await pg7.waitForFunction(() => typeof window.svToggleLyrics === 'function', { timeout: 10000 });
+  const s7 = await pg7.evaluate(() => {
+    shareViewRender({ active: true, takes: [
+      { takeId: 'TK1', songTitle: 'Alpha', lyricsDoc: '<div>Verse one</div>', downloadUrl: 'u1', duration: 10 },
+      { takeId: 'TK2', songTitle: 'Beta',  lyricsDoc: '<div>Verse two</div>', downloadUrl: 'u2', duration: 20 },
+    ]});
+    const rows = document.querySelectorAll('#shareViewer .sv-row');
+    const r0 = rows[0];
+    const playLeftOfTitle = r0 && r0.querySelector('.sv-play') && r0.querySelector('.sv-play').compareDocumentPosition(r0.querySelector('.sv-title')) & Node.DOCUMENT_POSITION_FOLLOWING;
+    const lyr0 = r0.querySelector('.sv-lyrics');
+    const collapsed = getComputedStyle(lyr0).display === 'none';
+    svToggleLyrics(0);
+    const expanded = getComputedStyle(lyr0).display !== 'none';
+    const lyrText = /Verse one/.test(lyr0.textContent);
+    const autoAdvances = typeof svPlay === 'function';
+    // XSS escape check: inject a title with HTML special chars
+    shareViewRender({ active: true, takes: [
+      { takeId: 'TK3', songTitle: '<script>alert(1)</script>', lyricsDoc: '', downloadUrl: 'u3', duration: 5 },
+    ]});
+    const xssRow = document.querySelector('#shareViewer .sv-row');
+    const xssTitle = xssRow && xssRow.querySelector('.sv-title');
+    const noLiveScript = xssTitle && xssTitle.querySelector('script') === null;
+    const escapedText = xssTitle && xssTitle.textContent.includes('<script>');
+    return { count: rows.length, playLeftOfTitle: !!playLeftOfTitle, collapsed, expanded, lyrText, autoAdvances, noLiveScript, escapedText };
+  });
+  ok(s7.count === 2, 'T7 renders one row per take');
+  ok(s7.playLeftOfTitle, 'T7 play button precedes the song title');
+  ok(s7.collapsed, 'T7 lyrics start collapsed');
+  ok(s7.expanded && s7.lyrText, 'T7 Lyrics toggle expands and shows lyrics inline');
+  ok(s7.autoAdvances, 'T7 svPlay exists for auto-advance');
+  ok(s7.noLiveScript && s7.escapedText, 'T7 song title with HTML chars is escaped, no live <script> injected');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
