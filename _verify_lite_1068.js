@@ -164,7 +164,6 @@ function serve() {
     await liteLyricsDrain();
     const left = await dhPendingLyricsGet('sd');
     db.runTransaction = orig;
-    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
     return { written: written && written.lyricsDoc, cleared: left === null };
   });
   ok(/A2/.test(t3.written) && /Also edited/.test(t3.written) && /B/.test(t3.written), 'T3 drain inline-appends on server divergence');
@@ -179,11 +178,12 @@ function serve() {
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
     await liteLyricsDrain();
     db.runTransaction = orig;
+    const cleared = (await dhPendingLyricsGet('sd2')) === null;
     await dhPendingLyricsDelete('sd2');
-    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
-    return { written: written && written.lyricsDoc, noDivider: written && !/Also edited/.test(written.lyricsDoc) };
+    return { written: written && written.lyricsDoc, noDivider: written && !/Also edited/.test(written.lyricsDoc), cleared };
   });
   ok(/A2/.test(t3b.written) && t3b.noDivider, 'T3 drain writes clean when server unchanged');
+  ok(t3b.cleared, 'T3 drain clears the pending entry on the clean-write path too');
 
   // ── Task-4 asserts: liteFreshenSong ──
 
@@ -198,7 +198,7 @@ function serve() {
     db.collection = orig;
     return { editor: currentEditorHtml(), base: _lyricsBase };
   });
-  ok(/B/.test(t4a.editor) && !/A<\/div>/.test(t4a.editor) && t4a.base === '<div>B</div>', 'T4 freshen adopts remote when no local edits');
+  ok(t4a.editor === '<div>B</div>' && t4a.base === '<div>B</div>', 'T4 freshen adopts remote when no local edits');
 
   // t4b merge: remote moved AND local edits → inline-append
   const t4b = await pg.evaluate(async () => {
@@ -236,7 +236,6 @@ function serve() {
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
     await flushLyrics();
     db.runTransaction = orig;
-    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
     return { written: written && written.lyricsDoc, noDivider: written && !/Also edited|lyr-merge-divider/.test(written.lyricsDoc), base: _lyricsBase };
   });
   ok(t5nh.noDivider && /verse two/.test(t5nh.written), 'T5 no-harm: single-device save has NO divider, content intact');
@@ -281,6 +280,7 @@ function serve() {
         });
         // 2. Capture _lyricsBase after open (should be '' for new song)
         const baseAfterOpen = await pgT5.evaluate(() => _lyricsBase);
+        ok(baseAfterOpen === '', 'T5 offline: new song base starts empty');
 
         // 3. Write a known remote lyricsDoc directly to Firestore (simulate another device editing)
         await pgT5.evaluate(async (sid) => {
