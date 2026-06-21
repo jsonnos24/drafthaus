@@ -81,7 +81,7 @@ function serve() {
     };
     const realCollection = db.collection.bind(db);
     db.collection = (name) => name === 'shares' ? fakeShares : realCollection(name);
-    auth.currentUser = { uid: 'U1', isAnonymous: false };  // uid() reads this
+    Object.defineProperty(auth, 'currentUser', { get: () => ({ uid: 'U1', isAnonymous: false }), configurable: true });  // uid() reads this
     _currentSong = { id: 'S1', title: 'Song One', lyricsDoc: '<div>La</div>' };
 
     const take = { id: 'TK1', downloadUrl: 'https://a/b', duration: 9, mimeType: 'audio/mp3' };

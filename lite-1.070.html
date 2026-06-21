@@ -727,16 +727,7 @@ try { db.settings({ experimentalForceLongPolling: true }); } catch(e) {}
 // Offline persistence: queue writes + serve cached reads when offline. Must precede any db use.
 try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch (e) {}
 
-// _authUser mirrors auth.currentUser and is also writable for test stubs
-let _authUser = auth.currentUser || null;
-try {
-  Object.defineProperty(auth, 'currentUser', {
-    get: () => _authUser,
-    set: v => { _authUser = v; },
-    configurable: true,
-  });
-} catch (e) {}
-function uid() { return _authUser ? _authUser.uid : null; }
+function uid() { return auth.currentUser ? auth.currentUser.uid : null; }
 
 /* ═══════════════════════════ Toast ═══════════════════════════ */
 let _toastTimer = null;
@@ -3306,7 +3297,6 @@ async function shareSetActive(b) {
 }
 
 auth.onAuthStateChanged(user => {
-  _authUser = user || null;  // keep _authUser in sync with Firebase's real user
   const guestChosen = (() => { try { return sessionStorage.getItem('dh-lite-guest') === '1'; } catch (e) { return false; } })();
   if (user && (!user.isAnonymous || guestChosen)) {
     document.body.classList.add('signed-in');
