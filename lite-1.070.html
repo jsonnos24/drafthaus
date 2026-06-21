@@ -189,6 +189,15 @@ body.export-select .lg-sel-export, body.export-select .lg-sel-clear, body.export
 .sm-name { font-size: 15px; }
 .sm-remove { color: var(--red, #ff3b30); font-size: 14px; }
 .sm-empty { color: var(--text-2); font-size: 14px; padding: 12px 0; }
+/* ── Share viewer (public read-only) ── */
+.share-viewer { display: none; }
+body.share-view #landing, body.share-view #app, body.share-view #sharePanel { display: none !important; }
+body.share-view .share-viewer { display: block; min-height: 100vh; background: var(--bg); }
+.sv-header { padding: 18px 16px; text-align: center; }
+.sv-brand { font-weight: 800; font-size: 18px; color: var(--text); }
+.sv-sub { color: var(--text-2); font-size: 13px; margin-top: 2px; }
+.sv-make { display: inline-block; margin-top: 6px; font-size: 13px; color: var(--tint); }
+.sv-msg { padding: 40px 20px; text-align: center; color: var(--text-2); }
 /* Per-song checkbox (left of the tile) shown only in selection mode */
 .sl-check { display: none; width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--text-3); flex: none; align-items: center; justify-content: center; color: #fff; font-size: 14px; font-weight: 700; }
 body.export-select .sl-check { display: flex; }
@@ -3358,7 +3367,39 @@ async function shareRefresh() {
   if (changed) await _shareWriteTakes(next);
 }
 
+// ── Share viewer (public read-only, ?share=<id>) ──
+function shareViewUnavailable(msg) {
+  document.getElementById('shareViewer').innerHTML =
+    `<div class="sv-header"><div class="sv-brand">Drafthaus</div></div>` +
+    `<div class="sv-msg">${msg || "This share is unavailable."}<br><a class="sv-make" href="./">Make your own →</a></div>`;
+}
+async function shareViewLoad(id) {
+  try {
+    const snap = await db.collection('shares').doc(id).get();
+    if (!snap.exists) return shareViewUnavailable("This share is unavailable.");
+    const d = snap.data();
+    if (d.active === false) return shareViewUnavailable("This share is unavailable.");
+    shareViewRender(d);
+  } catch (e) { console.warn('[shareView]', e); shareViewUnavailable("This share couldn't be loaded."); }
+}
+function shareViewBoot() {
+  const id = new URLSearchParams(location.search).get('share');
+  if (!id) return false;
+  _shareView = true;
+  document.body.classList.add('share-view');
+  document.getElementById('shareViewer').innerHTML = '<div class="sv-msg">Loading…</div>';
+  shareViewLoad(id);
+  return true;
+}
+// Task-6 placeholder; replaced by the full renderer in Task 7.
+function shareViewRender(d) {
+  document.getElementById('shareViewer').innerHTML =
+    `<div class="sv-header"><div class="sv-brand">Drafthaus</div><div class="sv-sub">Shared with you</div></div>` +
+    `<div class="sv-list">${(d.takes || []).map(t => `<div class="sv-row"><span class="sv-title">${t.songTitle || 'Untitled'}</span></div>`).join('')}</div>`;
+}
+
 auth.onAuthStateChanged(user => {
+  if (_shareView) return;
   const guestChosen = (() => { try { return sessionStorage.getItem('dh-lite-guest') === '1'; } catch (e) { return false; } })();
   if (user && (!user.isAnonymous || guestChosen)) {
     document.body.classList.add('signed-in');
@@ -3379,6 +3420,7 @@ auth.onAuthStateChanged(user => {
     if (_slb) _slb.innerHTML = '<div class="center-load"><div class="spinner"></div></div>';
   }
 });
+shareViewBoot();
 </script>
 <div id="sharePanel" class="share-panel" style="display:none;" onclick="if(event.target===this)closeShareManager()">
   <div class="sm-card">
@@ -3387,5 +3429,6 @@ auth.onAuthStateChanged(user => {
     <div id="smList" class="sm-list"></div>
   </div>
 </div>
+<div id="shareViewer" class="share-viewer"></div>
 </body>
 </html>

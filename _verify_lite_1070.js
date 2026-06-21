@@ -174,6 +174,33 @@ function serve() {
   ok(s5.rows === 2, 'T5 manager lists one row per tray take');
   ok(s5.copiedOK, 'T5 shareCopyLink copies the share URL');
 
+  // ── Task 6: viewer routing + unavailable ──
+  const pg6 = await ctx.newPage();
+  await pg6.addInitScript(() => {
+    // Stub Firestore get for the shares doc BEFORE app code runs is hard (db not ready);
+    // instead we drive shareViewLoad directly below after load.
+  });
+  await pg6.goto(`http://localhost:${port}/lite-1.070.html?share=ZZZ`, { waitUntil: 'domcontentloaded' });
+  await pg6.waitForFunction(() => typeof window.shareViewLoad === 'function', { timeout: 10000 });
+  const s6 = await pg6.evaluate(async () => {
+    const inView = document.body.classList.contains('share-view');
+    const viewerVisible = getComputedStyle(document.getElementById('shareViewer')).display !== 'none';
+    const landingHidden = getComputedStyle(document.getElementById('landing')).display === 'none';
+    // revoked
+    db.collection = ((real) => (n) => n === 'shares' ? { doc: () => ({ get: async () => ({ exists: true, data: () => ({ active: false, takes: [] }) }) }) } : real(n))(db.collection.bind(db));
+    await shareViewLoad('ZZZ');
+    const revokedMsg = /unavailable/i.test(document.getElementById('shareViewer').textContent);
+    // missing
+    db.collection = (n) => n === 'shares' ? { doc: () => ({ get: async () => ({ exists: false }) }) } : null;
+    await shareViewLoad('NOPE');
+    const missingMsg = /unavailable/i.test(document.getElementById('shareViewer').textContent);
+    return { inView, viewerVisible, landingHidden, revokedMsg, missingMsg };
+  });
+  ok(s6.inView, 'T6 ?share= sets body.share-view');
+  ok(s6.viewerVisible && s6.landingHidden, 'T6 viewer shown, landing hidden');
+  ok(s6.revokedMsg, 'T6 revoked (active:false) shows unavailable');
+  ok(s6.missingMsg, 'T6 missing doc shows unavailable');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
