@@ -299,6 +299,7 @@ body.is-guest .guest-tag {
 }
 #lyricsEditor:empty::before { content: attr(data-placeholder); color: var(--text-3); }
 #lyricsEditor div { min-height: 1.2em; }
+.lyr-merge-divider { text-align: center; color: var(--text-3); font-size: 12px; margin: 14px 0; user-select: none; }
 
 /* recording rail */
 .rail {
@@ -1111,6 +1112,8 @@ function _openSongObj(s) {
   document.getElementById('songTitle').textContent = s.title || 'Untitled';
   document.getElementById('lyricsEditor').innerHTML = ilSanitizeDocHtml(ilGetDocHtml(s));
   _atomizeLyricChords();
+  _lyricsBase = ilSanitizeDocHtml(ilGetDocHtml(s));
+  _maybeSeedPendingLyrics(s.id);
   toggleChordsMode(false);
   document.getElementById('takesPanel').classList.remove('open');
   updateBoostUI();
@@ -1221,14 +1224,44 @@ function onLyricsInput() { clearTimeout(_lyricsTimer); _lyricsTimer = setTimeout
     }
   });
 })();
+let _lyricsBase = '';
+function currentEditorHtml() { const ed = document.getElementById('lyricsEditor'); return ed ? ilSanitizeDocHtml(ed.innerHTML) : ''; }
+function _lyricsDivider(src) { return '<div class="lyr-merge-divider">—— Also edited on ' + (src || 'another device') + ' ——</div>'; }
+async function _maybeSeedPendingLyrics(songId) {
+  const e = await dhPendingLyricsGet(songId);
+  if (!e || !_currentSong || _currentSong.id !== songId) return;
+  const ed = document.getElementById('lyricsEditor'); if (!ed) return;
+  ed.innerHTML = ilSanitizeDocHtml(e.lyricsDoc); _atomizeLyricChords();
+  _lyricsBase = e.base; _currentSong.lyricsDoc = e.lyricsDoc;
+}
 async function flushLyrics() {
   clearTimeout(_lyricsTimer);
   const ed = document.getElementById('lyricsEditor');
   if (!_currentSong || !ed) return;
-  const html = ilSanitizeDocHtml(ed.innerHTML);
-  if (!_ilCommitDoc(html, _currentSong)) return;
-  try { await db.collection('songs').doc(_currentSong.id).set({ lyricsDoc: _currentSong.lyricsDoc, lyricsDocInit: true, updatedAt: Date.now() }, { merge: true }); }
-  catch (e) { console.warn('[lyrics] save', e); }
+  const html = currentEditorHtml();
+  if (!_ilCommitDoc(html, _currentSong)) return; // blank-guard
+  const songId = _currentSong.id;
+  if (!navigator.onLine) { await dhPendingLyricsPut({ songId, lyricsDoc: html, base: _lyricsBase, editedAt: Date.now() }); return; }
+  try {
+    const ref = db.collection('songs').doc(songId);
+    const res = await db.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      const serverDoc = (snap.exists && typeof snap.data().lyricsDoc === 'string') ? snap.data().lyricsDoc : '';
+      let result, merged = false;
+      if (serverDoc === _lyricsBase) { result = html; }
+      else { result = html + _lyricsDivider('another device') + serverDoc; merged = true; }
+      tx.set(ref, { lyricsDoc: result, lyricsDocInit: true, updatedAt: Date.now() }, { merge: true });
+      return { result, merged };
+    });
+    _lyricsBase = res.result; _currentSong.lyricsDoc = res.result;
+    if (res.merged && _currentSong.id === songId && document.activeElement !== ed) {
+      ed.innerHTML = ilSanitizeDocHtml(res.result); _atomizeLyricChords();
+    }
+    if (res.merged) toast('Merged lyrics from another device — review', 2600, true);
+  } catch (e) {
+    console.warn('[lyrics] save', e);
+    await dhPendingLyricsPut({ songId, lyricsDoc: html, base: _lyricsBase, editedAt: Date.now() }); // e.g. dropped offline mid-save
+  }
 }
 
 /* ── Chords mode: tap a word to add / edit / remove a chord above it ── */
@@ -1606,16 +1639,18 @@ let DH_AUDIO_CAP = 250 * 1024 * 1024; // ~250 MB LRU ceiling for cached take blo
 let _dhAudioDBP = null;
 const _memBlobs = new Map();   // id -> {blob, mimeType, bytes, savedAt, lastPlayed, pendingUpload}  (IDB-unavailable fallback)
 const _memOutbox = new Map();  // takeId -> job
+const _memPendingLyrics = new Map();  // songId -> entry
 function _dhAudioOpen() {
   if (_dhAudioDBP) return _dhAudioDBP;
   _dhAudioDBP = new Promise(resolve => {
     let req;
-    try { req = indexedDB.open('dh-lite-audio', 2); }
+    try { req = indexedDB.open('dh-lite-audio', 3); }
     catch (e) { resolve(null); return; }
     req.onupgradeneeded = () => {
       const idb = req.result;
       if (!idb.objectStoreNames.contains('takeBlobs')) idb.createObjectStore('takeBlobs', { keyPath: 'id' });
       if (!idb.objectStoreNames.contains('outbox')) idb.createObjectStore('outbox', { keyPath: 'takeId' });
+      if (!idb.objectStoreNames.contains('pendingLyrics')) idb.createObjectStore('pendingLyrics', { keyPath: 'songId' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => resolve(null);
@@ -1705,6 +1740,13 @@ async function dhOutboxDelete(takeId) {
   if (db2) { try { await _dhReq(_dhOut(db2, 'readwrite').delete(takeId)); } catch (e) {} }
 }
 
+// ── Pending lyrics (offline edit queue) ──
+function _dhPL(db2, mode) { return db2.transaction('pendingLyrics', mode).objectStore('pendingLyrics'); }
+async function dhPendingLyricsPut(e) { const db = await _dhAudioOpen(); if (!db) { _memPendingLyrics.set(e.songId, e); return true; } try { await _dhReq(_dhPL(db, 'readwrite').put(e)); return true; } catch (x) { return false; } }
+async function dhPendingLyricsGet(songId) { const db = await _dhAudioOpen(); if (!db) { return _memPendingLyrics.get(songId) || null; } try { return (await _dhReq(_dhPL(db, 'readonly').get(songId))) || null; } catch (x) { return null; } }
+async function dhPendingLyricsAll() { const db = await _dhAudioOpen(); if (!db) { return Array.from(_memPendingLyrics.values()); } try { return (await _dhReq(_dhPL(db, 'readonly').getAll())) || []; } catch (x) { return []; } }
+async function dhPendingLyricsDelete(songId) { _memPendingLyrics.delete(songId); const db = await _dhAudioOpen(); if (!db) return; try { await _dhReq(_dhPL(db, 'readwrite').delete(songId)); } catch (x) {} }
+
 // ── Sync engine ──
 let _syncing = false, _syncAnnounce = false;
 async function liteSyncDrain() {
@@ -1740,6 +1782,63 @@ async function liteSyncDrain() {
       if (uploadedAny && !(await dhOutboxAll()).length) toast('Synced ✓', 1500);
     }
   } finally { _syncing = false; }
+}
+
+let _lyricsDraining = false;
+async function liteLyricsDrain() {
+  if (_lyricsDraining || !navigator.onLine) return;
+  const entries = await dhPendingLyricsAll();
+  if (!entries.length) return;
+  _lyricsDraining = true;
+  try {
+    for (const e of entries) {
+      if (!navigator.onLine) break;
+      try {
+        const ref = db.collection('songs').doc(e.songId);
+        const res = await db.runTransaction(async tx => {
+          const snap = await tx.get(ref);
+          const serverDoc = (snap.exists && typeof snap.data().lyricsDoc === 'string') ? snap.data().lyricsDoc : '';
+          let result, merged = false;
+          if (serverDoc === e.base) { result = e.lyricsDoc; }
+          else { result = e.lyricsDoc + _lyricsDivider('another device') + serverDoc; merged = true; }
+          tx.set(ref, { lyricsDoc: result, lyricsDocInit: true, updatedAt: Date.now() }, { merge: true });
+          return { result, merged };
+        });
+        await dhPendingLyricsDelete(e.songId);
+        if (_currentSong && _currentSong.id === e.songId) {
+          _lyricsBase = res.result; _currentSong.lyricsDoc = res.result;
+          const ed = document.getElementById('lyricsEditor');
+          if (ed && document.activeElement !== ed && currentEditorHtml() !== res.result) { ed.innerHTML = ilSanitizeDocHtml(res.result); _atomizeLyricChords(); }
+          if (res.merged) toast('Merged lyrics from another device — review', 2600, true);
+        }
+      } catch (x) { console.warn('[lyrics drain]', x); } // keep entry, retry next trigger
+    }
+  } finally { _lyricsDraining = false; }
+}
+
+async function liteFreshenSong() {
+  if (!_currentSong) return;
+  const songId = _currentSong.id;
+  if (!_takesUnsub || _takesSongId !== songId) startTakesListener(songId); // ensure take list is current
+  liteSyncDrain(); liteLyricsDrain();
+  let snap;
+  try { snap = await db.collection('songs').doc(songId).get(); }
+  catch (e) { return; } // offline / denied → nothing fresher
+  if (!_currentSong || _currentSong.id !== songId) return; // song switched while awaiting
+  const remote = (snap.exists && typeof snap.data().lyricsDoc === 'string') ? snap.data().lyricsDoc : _lyricsBase;
+  if (remote === _lyricsBase) return; // no remote change
+  const ed = document.getElementById('lyricsEditor'); if (!ed) return;
+  const local = currentEditorHtml();
+  if (local === _lyricsBase) {
+    if (document.activeElement === ed) return; // don't yank the cursor mid-focus; next return/blur freshens
+    ed.innerHTML = ilSanitizeDocHtml(remote); _atomizeLyricChords(); _lyricsBase = remote; _currentSong.lyricsDoc = remote;
+    clearTimeout(_lyricsTimer);
+  } else {
+    ed.innerHTML = ilSanitizeDocHtml(local + _lyricsDivider('another device') + remote); _atomizeLyricChords();
+    _lyricsBase = remote; _ilCommitDoc(currentEditorHtml(), _currentSong);
+    toast('Merged lyrics from another device — review', 2600, true);
+    onLyricsInput(); // schedule a save of the merged doc
+  }
 }
 
 /* ═══════════════════════════ Playback (WebAudio — supports Boost gain + loop) ═══════════════════════════ */
@@ -3108,8 +3207,9 @@ _bindChordLyrics();
 
 function _liteUpdateOnline() { document.body.classList.toggle('is-offline', !navigator.onLine); }
 window.addEventListener('offline', () => { _syncAnnounce = true; document.body.classList.add('is-offline'); }); // Direct classList.add (not _liteUpdateOnline): a real 'offline' event already means navigator.onLine===false; synthetic test events don't change it.
-window.addEventListener('online', () => { _liteUpdateOnline(); liteSyncDrain(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) liteSyncDrain(); });
+window.addEventListener('online', () => { _liteUpdateOnline(); liteFreshenSong(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) liteFreshenSong(); });
+window.addEventListener('focus', () => liteFreshenSong());
 _liteUpdateOnline();
 
 auth.onAuthStateChanged(user => {
@@ -3121,6 +3221,7 @@ auth.onAuthStateChanged(user => {
     liteUsageRecompute(); // seed storage meter + cap state for this session
     dhAudioSeedIndex();   // populate _localBlobIds from IndexedDB (fire-and-forget)
     liteSyncDrain();      // drain any outbox jobs queued during a previous offline session
+    liteLyricsDrain();    // reconcile any offline lyric edits
     startSongsListener();
   } else {
     document.body.classList.remove('signed-in', 'is-guest', 'relogin');
