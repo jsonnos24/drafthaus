@@ -134,6 +134,12 @@ input { font-family: inherit; }
 .auth-error { color: #ff8a80; font-size: 13px; text-align: center; min-height: 0; }
 #emailForm { display: flex; flex-direction: column; gap: 8px; }
 
+/* ───────────────────────── Offline pill ───────────────────────── */
+.offline-pill { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 9960;
+  background: #b3261e; color: #fff; font-size: 12px; font-weight: 600; padding: 4px 12px;
+  border-radius: 999px; box-shadow: 0 2px 8px rgba(0,0,0,.25); display: none; pointer-events: none; }
+body.is-offline .offline-pill { display: block; }
+
 /* ───────────────────────── App shell ───────────────────────── */
 #app { display: none; min-height: 100%; }
 body.signed-in #app { display: block; }
@@ -363,6 +369,7 @@ body.is-guest .guest-tag {
 .take-card .loop svg { width: 18px; height: 18px; }
 .take-card .take-edit { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; color: var(--text-3); flex: none; }
 .take-card .take-edit svg { width: 18px; height: 18px; }
+.take-card .take-retry { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; color: var(--tint); flex: none; font-size: 18px; }
 
 /* pin / reorder (songs + takes) */
 .take-actions .act-pin-take { background: var(--orange); }
@@ -535,6 +542,7 @@ html.dark #chordPop .cp-seg button.on { background: #48484a; }
 </style>
 </head>
 <body>
+<div id="offlinePill" class="offline-pill">Offline</div>
 
 <!-- ───────────────────────── Landing / auth ───────────────────────── -->
 <div id="landing">
@@ -713,6 +721,8 @@ const auth = firebase.auth();
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
 const db = firebase.firestore();
 try { db.settings({ experimentalForceLongPolling: true }); } catch(e) {}
+// Offline persistence: queue writes + serve cached reads when offline. Must precede any db use.
+try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch (e) {}
 
 function uid() { return auth.currentUser ? auth.currentUser.uid : null; }
 
@@ -1018,8 +1028,8 @@ async function createSong() {
   const ref = db.collection('songs').doc();
   const song = { id: ref.id, ownerId: u, title: 'Untitled', key: '', lyricsDoc: '',
                  createdAt: now, updatedAt: now, sharedWith: [], sharedReadOnly: [] };
-  try { await ref.set(song, { merge: true }); _songs.unshift(song); _openSongObj(song); }
-  catch (e) { toast('Could not create song'); console.warn(e); }
+  _songs.unshift(song); _openSongObj(song);
+  ref.set(song, { merge: true }).catch(e => { console.warn('[createSong]', e); });
 }
 
 async function togglePin(id, ev) {
@@ -1428,11 +1438,18 @@ function _fmtClock(s) { return Math.floor(s / 60) + ':' + String(Math.floor(s % 
 const LOOP_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>';
 const PENCIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>';
 let _takes = [], _takesUnsub = null, _loadedTakeId = null, _loopTakes = new Set(), _selectNewest = false;
+let _takesRetry = 0, _takesRetryTimer = null, _takesSongId = null;
 
 function startTakesListener(songId) {
   stopTakesListener();
+  _takesSongId = songId; _takesRetry = 0;
   _takes = []; renderTakes(); updateRail();
+  _subscribeTakes(songId);
+}
+function _subscribeTakes(songId) {
+  if (_takesUnsub) { _takesUnsub(); _takesUnsub = null; } // drop any prior (dead) sub before re-subscribing
   _takesUnsub = db.collection('voice_takes').where('songId', '==', songId).onSnapshot(snap => {
+    _takesRetry = 0;
     const arr = []; snap.forEach(d => arr.push(Object.assign({ id: d.id }, d.data())));
     arr.sort((a, b) => {
       const ap = a.pinned ? 0 : 1, bp = b.pinned ? 0 : 1;
@@ -1447,9 +1464,19 @@ function startTakesListener(songId) {
     const loaded = _takes.find(t => t.id === _loadedTakeId);
     if (loaded && (_wf.takeId !== loaded.id || (loaded.downloadUrl && !_wf.buffer))) wfLoad(loaded);
     else if (!loaded) { _wfReset(); wfRender(); }
-  }, e => { console.warn('[takes] snapshot', e); });
+  }, e => {
+    console.warn('[takes] snapshot', e);
+    // A voice_takes query can be transiently permission-denied when the song doc hasn't reached the
+    // server yet (offline-created song); the Firestore listener dies on that error and won't auto-retry.
+    // Re-subscribe with backoff until the song doc lands.
+    if (e && (e.code === 'permission-denied' || e.code === 'unavailable') && _takesSongId === songId && _takesRetry < 8) {
+      _takesRetry++;
+      clearTimeout(_takesRetryTimer);
+      _takesRetryTimer = setTimeout(() => { if (_takesSongId === songId) _subscribeTakes(songId); }, Math.min(800 * _takesRetry, 4000));
+    }
+  });
 }
-function stopTakesListener() { if (_takesUnsub) { _takesUnsub(); _takesUnsub = null; } }
+function stopTakesListener() { _takesSongId = null; clearTimeout(_takesRetryTimer); if (_takesUnsub) { _takesUnsub(); _takesUnsub = null; } }
 
 // Short uppercase format label for a take (MP3 / WEBM / M4A / WAV), from path ext or mimeType.
 function _takeFmtLabel(t) {
@@ -1470,6 +1497,12 @@ function _takeRow(t, isPinned) {
   const playing = _playingTakeId === t.id, sel = _loadedTakeId === t.id, looping = _loopTakes.has(t.id);
   const dur = t.duration ? _fmtClock(t.duration) : '';
   const info = [dur, _takeFmtLabel(t), _fmtBytes(t.bytes)].filter(Boolean).join(' · ');
+  const pendMine = !!t.pendingUpload && dhAudioHasLocal(t.id);
+  const pendRemote = !!t.pendingUpload && !dhAudioHasLocal(t.id);
+  const statusSub = pendRemote ? ' · uploading from another device…'
+    : pendMine ? (navigator.onLine ? ' · Uploading…' : ' · On this device')
+    : (sel ? ' · loaded' : '');
+  const retryBtn = pendMine ? `<button class="take-retry" onclick="retryTake('${t.id}',event)" title="Retry upload" aria-label="Retry upload">↻</button>` : '';
   return `<div class="take-row" data-id="${t.id}">
     <div class="take-swipe">
       <div class="take-actions">
@@ -1478,11 +1511,12 @@ function _takeRow(t, isPinned) {
       </div>
       <div class="take-card ${sel ? 'sel' : ''} ${playing ? 'playing' : ''}" onclick="selectTake('${t.id}')">
         ${isPinned ? '<span class="drag-handle take-grip" onclick="event.stopPropagation()" aria-label="Reorder">≡</span>' : ''}
-        <button class="play" onclick="takeRowPlay('${t.id}',event)">${playing ? '⏹' : '▶'}</button>
+        <button class="play" onclick="takeRowPlay('${t.id}',event)" ${pendRemote ? 'disabled' : ''}>${playing ? '⏹' : '▶'}</button>
         <div class="meta">
           <div class="nm">${esc(takeDisplayName(t, true))}</div>
-          <div class="sub">${info}${t._pendingLocal ? ' · Saving…' : (sel ? ' · loaded' : '')}</div>
+          <div class="sub">${info}${statusSub}</div>
         </div>
+        ${retryBtn}
         <button class="take-edit" onclick="startRename('${t.id}', this.closest('.take-card').querySelector('.nm'), event)" title="Rename take" aria-label="Rename take">${PENCIL_SVG}</button>
         <button class="loop ${looping ? 'on' : ''}" onclick="toggleLoop('${t.id}',event)" aria-label="Loop">${LOOP_SVG}</button>
         <button class="take-pin-desktop" onclick="toggleTakePin('${t.id}',event)" title="${isPinned ? 'Unpin' : 'Pin'}" style="opacity:${isPinned ? 1 : 0.4}">📌</button>
@@ -1513,6 +1547,7 @@ async function toggleTakePin(id, ev) {
 }
 function toggleTakes() { document.getElementById('takesPanel').classList.toggle('open'); wfRender(); }
 function selectTake(id) { _loadedTakeId = id; renderTakes(); updateRail(); wfLoad(_takes.find(t => t.id === id)); }
+function retryTake(id, ev) { if (ev) ev.stopPropagation(); _syncAnnounce = false; liteSyncDrain(); }
 function updateRail() {
   const nameEl = document.getElementById('railTakeName');
   const t = _takes.find(x => x.id === _loadedTakeId) || _takes[0];
@@ -1569,13 +1604,19 @@ async function deleteTake(id, ev) {
 /* ═══════════════════════════ Local audio cache (IndexedDB, device-local) ═══════════════════════════ */
 let DH_AUDIO_CAP = 250 * 1024 * 1024; // ~250 MB LRU ceiling for cached take blobs
 let _dhAudioDBP = null;
+const _memBlobs = new Map();   // id -> {blob, mimeType, bytes, savedAt, lastPlayed, pendingUpload}  (IDB-unavailable fallback)
+const _memOutbox = new Map();  // takeId -> job
 function _dhAudioOpen() {
   if (_dhAudioDBP) return _dhAudioDBP;
   _dhAudioDBP = new Promise(resolve => {
     let req;
-    try { req = indexedDB.open('dh-lite-audio', 1); }
+    try { req = indexedDB.open('dh-lite-audio', 2); }
     catch (e) { resolve(null); return; }
-    req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains('takeBlobs')) db.createObjectStore('takeBlobs', { keyPath: 'id' }); };
+    req.onupgradeneeded = () => {
+      const idb = req.result;
+      if (!idb.objectStoreNames.contains('takeBlobs')) idb.createObjectStore('takeBlobs', { keyPath: 'id' });
+      if (!idb.objectStoreNames.contains('outbox')) idb.createObjectStore('outbox', { keyPath: 'takeId' });
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => resolve(null);
     req.onblocked = () => resolve(null);
@@ -1587,26 +1628,32 @@ function _dhReq(r) { return new Promise((res, rej) => { r.onsuccess = () => res(
 async function dhAudioReady() { return !!(await _dhAudioOpen()); }
 async function dhAudioPut(id, blob, meta) {
   meta = meta || {};
-  const db = await _dhAudioOpen(); if (!db) return false;
+  const db = await _dhAudioOpen();
+  const now = Date.now();
+  const rec = { id, blob, mimeType: meta.mimeType || (blob && blob.type) || '', bytes: (blob && blob.size) || 0, savedAt: now, lastPlayed: now, pendingUpload: !!meta.pendingUpload };
+  if (!db) { _memBlobs.set(id, rec); _localBlobIds.add(id); return true; }
   try {
-    const now = Date.now();
-    await _dhReq(_dhTx(db, 'readwrite').put({ id, blob, mimeType: meta.mimeType || (blob && blob.type) || '', bytes: (blob && blob.size) || 0, savedAt: now, lastPlayed: now, pendingUpload: !!meta.pendingUpload }));
+    await _dhReq(_dhTx(db, 'readwrite').put(rec));
+    _localBlobIds.add(id);
     await dhAudioEvict();
     return true;
   } catch (e) { return false; }
 }
 async function dhAudioGet(id) {
-  const db = await _dhAudioOpen(); if (!db) return null;
+  const db = await _dhAudioOpen();
+  if (!db) { const r = _memBlobs.get(id); return r ? r.blob : null; }
   try { const rec = await _dhReq(_dhTx(db, 'readonly').get(id)); return rec ? rec.blob : null; }
   catch (e) { return null; }
 }
 async function dhAudioTouch(id) {
-  const db = await _dhAudioOpen(); if (!db) return;
+  const db = await _dhAudioOpen();
+  if (!db) { const r = _memBlobs.get(id); if (r) r.lastPlayed = Date.now(); return; }
   try { const rec = await _dhReq(_dhTx(db, 'readonly').get(id)); if (rec) { rec.lastPlayed = Date.now(); await _dhReq(_dhTx(db, 'readwrite').put(rec)); } } catch (e) {}
 }
 async function dhAudioDelete(id) {
-  const db = await _dhAudioOpen(); if (!db) return;
-  try { await _dhReq(_dhTx(db, 'readwrite').delete(id)); } catch (e) {}
+  const db = await _dhAudioOpen();
+  _localBlobIds.delete(id); _memBlobs.delete(id);
+  if (db) { try { await _dhReq(_dhTx(db, 'readwrite').delete(id)); } catch (e) {} }
 }
 async function dhAudioEvict() {
   const db = await _dhAudioOpen(); if (!db) return;
@@ -1617,9 +1664,82 @@ async function dhAudioEvict() {
     const evictable = all.filter(r => !r.pendingUpload).sort((a, b) => (a.lastPlayed || 0) - (b.lastPlayed || 0));
     for (const r of evictable) {
       if (total <= DH_AUDIO_CAP) break;
-      try { await _dhReq(_dhTx(db, 'readwrite').delete(r.id)); total -= (r.bytes || 0); } catch (e) {}
+      try { await _dhReq(_dhTx(db, 'readwrite').delete(r.id)); total -= (r.bytes || 0); _localBlobIds.delete(r.id); } catch (e) {}
     }
   } catch (e) {}
+}
+
+// ── Local-blob index (synchronous membership for row rendering) ──
+const _localBlobIds = new Set();
+function dhAudioHasLocal(id) { return _localBlobIds.has(id); }
+async function dhAudioSeedIndex() {
+  const db2 = await _dhAudioOpen();
+  if (!db2) { _memBlobs.forEach((_, k) => _localBlobIds.add(k)); return; }
+  try { const keys = await _dhReq(_dhTx(db2, 'readonly').getAllKeys()); _localBlobIds.clear(); (keys || []).forEach(k => _localBlobIds.add(k)); _memBlobs.forEach((_, k) => _localBlobIds.add(k)); } catch (e) {}
+}
+async function dhAudioSetPending(id, pending) {
+  const db2 = await _dhAudioOpen();
+  if (!db2) { const r = _memBlobs.get(id); if (r) r.pendingUpload = !!pending; return; }
+  try { const st = _dhTx(db2, 'readwrite'); const rec = await _dhReq(st.get(id)); if (rec) { rec.pendingUpload = !!pending; await _dhReq(_dhTx(db2, 'readwrite').put(rec)); } } catch (e) {}
+}
+// ── Outbox (pending Storage uploads Firestore won't queue) ──
+function _dhOut(db2, mode) { return db2.transaction('outbox', mode).objectStore('outbox'); }
+async function dhOutboxPut(job) {
+  const db2 = await _dhAudioOpen();
+  if (!db2) { _memOutbox.set(job.takeId, job); return true; }
+  try { await _dhReq(_dhOut(db2, 'readwrite').put(job)); return true; } catch (e) { return false; }
+}
+async function dhOutboxGet(takeId) {
+  const db2 = await _dhAudioOpen();
+  if (!db2) { return _memOutbox.get(takeId) || null; }
+  try { return (await _dhReq(_dhOut(db2, 'readonly').get(takeId))) || null; } catch (e) { return null; }
+}
+async function dhOutboxAll() {
+  const db2 = await _dhAudioOpen();
+  if (!db2) { return Array.from(_memOutbox.values()); }
+  try { return (await _dhReq(_dhOut(db2, 'readonly').getAll())) || []; } catch (e) { return []; }
+}
+async function dhOutboxDelete(takeId) {
+  const db2 = await _dhAudioOpen();
+  _memOutbox.delete(takeId);
+  if (db2) { try { await _dhReq(_dhOut(db2, 'readwrite').delete(takeId)); } catch (e) {} }
+}
+
+// ── Sync engine ──
+let _syncing = false, _syncAnnounce = false;
+async function liteSyncDrain() {
+  if (_syncing) return;
+  if (!navigator.onLine) return;        // sync check — safe before the flag (no await)
+  _syncing = true;
+  try {
+    const jobs = await dhOutboxAll();
+    if (jobs.length) {
+      if (_syncAnnounce) { toast('Connection restored — syncing recordings…', 2000); _syncAnnounce = false; }
+      jobs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      let uploadedAny = false;
+      for (const job of jobs) {
+        if (!navigator.onLine) break;
+        const blob = await dhAudioGet(job.takeId);
+        if (!blob) { await dhOutboxDelete(job.takeId); continue; }
+        try {
+          const snap = await firebase.storage().ref(job.storagePath).put(blob, { contentType: job.mimeType });
+          const url = await snap.ref.getDownloadURL();
+          const patch = job.op === 'replace'
+            ? { downloadUrl: url, storagePath: job.storagePath, bytes: job.bytes, duration: job.duration, mimeType: job.mimeType, pendingUpload: false }
+            : { songId: job.songId, userId: job.userId, filename: job.filename, storagePath: job.storagePath, duration: job.duration, mimeType: job.mimeType, trackNum: (job.trackNum || 0), bytes: job.bytes, createdAt: job.createdAt, downloadUrl: url, pendingUpload: false };
+          await db.collection('voice_takes').doc(job.takeId).set(patch, { merge: true });
+          if (job.op === 'replace' && job.oldPath && job.oldPath !== job.storagePath) firebase.storage().ref(job.oldPath).delete().catch(() => {});
+          await dhOutboxDelete(job.takeId);
+          await dhAudioSetPending(job.takeId, false);
+          uploadedAny = true;
+        } catch (e) {
+          job.tries = (job.tries || 0) + 1; job.lastTry = Date.now();
+          await dhOutboxPut(job);
+        }
+      }
+      if (uploadedAny && !(await dhOutboxAll()).length) toast('Synced ✓', 1500);
+    }
+  } finally { _syncing = false; }
 }
 
 /* ═══════════════════════════ Playback (WebAudio — supports Boost gain + loop) ═══════════════════════════ */
@@ -1636,6 +1756,7 @@ async function _getBuffer(take) {
   const local = await dhAudioGet(take.id);   // IndexedDB-first
   if (local) { ab = await local.arrayBuffer(); dhAudioTouch(take.id); }
   else {
+    if (!take.downloadUrl) throw new Error('pending-remote'); // pending upload from another device — not playable yet
     const resp = await fetch(take.downloadUrl);
     ab = await resp.arrayBuffer();
     dhAudioPut(take.id, new Blob([ab], { type: take.mimeType || '' }), { mimeType: take.mimeType }).catch(() => {});
@@ -1804,33 +1925,34 @@ function _encodeWav(buffer) {
 }
 async function _wfReplaceAudio(buffer, undoBuffer, msg) {
   const take = _takes.find(t => t.id === _wf.takeId); if (!take || !uid()) { toast('Not signed in'); return false; }
-  stopPlayback(); toast(msg + '…', 1500);
+  stopPlayback();
   let _prevBufEntry;
   try {
     await _ensureMp3Lib();
     const blob = _encodeMp3(buffer);
     const oldBytes = (typeof take.bytes === 'number') ? take.bytes : 0;
-    // Gate: block only if this edit would push the user over their cap.
     if (_liteUsageBytes - oldBytes + blob.size > liteStorageCap()) { toast(liteCapMessage()); return false; }
     const fname = 'take_' + Date.now() + '.mp3', path = 'voice_takes/' + take.songId + '/' + fname;
-    // Instant local playback of the edited audio: cache + prime before network.
+    const duration = Math.round(buffer.duration);
+    // Instant local playback of the edited audio.
     _prevBufEntry = _bufCache[take.id];
-    await dhAudioPut(take.id, blob, { mimeType: 'audio/mp3' });
+    await dhAudioPut(take.id, blob, { mimeType: 'audio/mp3', pendingUpload: true });
     _bufCache[take.id] = { buffer, normGain: (_prevBufEntry && _prevBufEntry.normGain) || 1 };
-    const snap = await firebase.storage().ref(path).put(blob, { contentType: 'audio/mp3' });
-    const url = await snap.ref.getDownloadURL();
+    // Doc-first: mark pending + new metadata; KEEP the old downloadUrl so other
+    // devices keep playing the previous version until re-upload.
     const oldPath = take.storagePath;
-    await db.collection('voice_takes').doc(take.id).set({ downloadUrl: url, storagePath: path, duration: Math.round(buffer.duration), mimeType: 'audio/mp3', bytes: blob.size }, { merge: true });
-    if (oldPath && oldPath !== path) firebase.storage().ref(oldPath).delete().catch(() => {});
-    take.bytes = blob.size; take.storagePath = path; take.mimeType = 'audio/mp3';
+    db.collection('voice_takes').doc(take.id).set({ duration, mimeType: 'audio/mp3', bytes: blob.size, pendingUpload: true }, { merge: true }).catch(e => console.warn('[trim doc]', e));
+    take.bytes = blob.size; take.mimeType = 'audio/mp3'; take.duration = duration;
     _liteAddBytes(blob.size - oldBytes);
+    // Queue the re-upload (replaces storage + clears pending + deletes oldPath on success).
+    await dhOutboxPut({ takeId: take.id, op: 'replace', storagePath: path, mimeType: 'audio/mp3', songId: take.songId, bytes: blob.size, duration, oldPath, tries: 0, createdAt: Date.now() });
     _wf.buffer = buffer; _wf.dur = buffer.duration; _wf.peaks = _computePeaks(buffer, 1400); _wf.sel = null; _wf.loopSel = false; _wf.playhead = 0; _wf.undo = undoBuffer ? { buffer: undoBuffer } : null;
-    wfRender(); toast(msg + ' ✓'); return true;
+    wfRender(); liteSyncDrain(); return true;
   } catch (e) {
     console.warn('[wf] replace', e);
     dhAudioDelete(take.id);
     if (_prevBufEntry) _bufCache[take.id] = _prevBufEntry; else delete _bufCache[take.id];
-    toast(msg + ' failed — check connection'); return false;
+    toast(msg + ' failed'); return false;
   }
 }
 async function wfSaveTrim() {
@@ -1917,45 +2039,30 @@ async function uploadTake(blob, mime, dur) {
   const song = _currentSong;
   if (!song || !uid()) { recToast('Not signed in'); return; }
   if (liteUsageOver()) { recToast(liteCapMessage(), 3200); return; }
-  // Pre-generate the take ID so one ID keys the local blob, the doc, and the Storage path.
   const ref = db.collection('voice_takes').doc();
   const id = ref.id;
   const ext = mime.includes('webm') ? 'webm' : mime.includes('mp4') ? 'm4a' : 'ogg';
   const fname = 'take_' + Date.now() + '.' + ext;
   const path = 'voice_takes/' + song.id + '/' + fname;
-  // ── Instant local playback: cache the blob, then OPTIMISTICALLY render the take
-  //    from that local blob so the UI + playback do not wait on the upload. ──
-  await dhAudioPut(id, blob, { mimeType: mime });
-  const optimistic = {
-    id, songId: song.id, userId: uid(), filename: fname, storagePath: path,
-    duration: Math.round(dur), mimeType: mime, trackNum: 0, bytes: blob.size,
-    createdAt: Date.now(), _pendingLocal: true,
-  };
-  _takes = [optimistic, ..._takes.filter(t => t.id !== id)];
+  const duration = Math.round(dur);
+  // Cache locally (LRU-exempt while pending).
+  await dhAudioPut(id, blob, { mimeType: mime, pendingUpload: true });
+  // Doc-first: write the take doc now (no downloadUrl). Firestore echoes it back
+  // instantly (latency compensation) → renders + plays from the local blob.
   _selectNewest = false; _loadedTakeId = id;
-  renderTakes(); updateRail(); wfLoad(optimistic);
-  // ── Background upload + doc write (the real persistence) ──
-  // No "Saving…"/"saved" toast: playback is instant and the take row's "· Saving…"
-  // badge (cleared on snapshot reconcile) is the only in-progress signal needed.
-  try {
-    const snap = await firebase.storage().ref(path).put(blob, { contentType: mime });
-    const url = await snap.ref.getDownloadURL();
-    await ref.set({
-      songId: song.id, userId: uid(), filename: fname, storagePath: path,
-      downloadUrl: url, duration: Math.round(dur), mimeType: mime, trackNum: 0,
-      bytes: blob.size,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-    _liteAddBytes(blob.size);
-    db.collection('songs').doc(song.id).set({ updatedAt: Date.now() }, { merge: true }).catch(() => {});
-  } catch (e) {
-    console.warn('[upload]', e);
-    dhAudioDelete(id);
-    _takes = _takes.filter(t => t.id !== id);
-    if (_loadedTakeId === id) _loadedTakeId = _takes[0] ? _takes[0].id : null;
-    renderTakes(); updateRail();
-    recToast('Save failed — check connection');
-  }
+  // Doc-first, fire-and-forget: an offline write's promise doesn't resolve until reconnect,
+  // so awaiting it would block the outbox enqueue. Firestore persistence makes it durable +
+  // the listener renders it instantly (latency compensation).
+  ref.set({
+    songId: song.id, userId: uid(), filename: fname, storagePath: path,
+    duration, mimeType: mime, trackNum: 0, bytes: blob.size, pendingUpload: true,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+  }).catch(e => console.warn('[uploadTake doc]', e));
+  _liteAddBytes(blob.size);
+  db.collection('songs').doc(song.id).set({ updatedAt: Date.now() }, { merge: true }).catch(() => {});
+  // Queue the Storage upload + kick the sync engine (uploads now if online).
+  await dhOutboxPut({ takeId: id, op: 'upload', storagePath: path, mimeType: mime, songId: song.id, userId: uid(), filename: fname, trackNum: 0, bytes: blob.size, duration, tries: 0, createdAt: Date.now() });
+  liteSyncDrain();
 }
 
 /* ═══════════════════════════ Boost (per-song, persisted) ═══════════════════════════ */
@@ -2998,6 +3105,13 @@ function exportSelected() {
 
 /* ═══════════════════════════ Boot ═══════════════════════════ */
 _bindChordLyrics();
+
+function _liteUpdateOnline() { document.body.classList.toggle('is-offline', !navigator.onLine); }
+window.addEventListener('offline', () => { _syncAnnounce = true; document.body.classList.add('is-offline'); }); // Direct classList.add (not _liteUpdateOnline): a real 'offline' event already means navigator.onLine===false; synthetic test events don't change it.
+window.addEventListener('online', () => { _liteUpdateOnline(); liteSyncDrain(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) liteSyncDrain(); });
+_liteUpdateOnline();
+
 auth.onAuthStateChanged(user => {
   const guestChosen = (() => { try { return sessionStorage.getItem('dh-lite-guest') === '1'; } catch (e) { return false; } })();
   if (user && (!user.isAnonymous || guestChosen)) {
@@ -3005,6 +3119,8 @@ auth.onAuthStateChanged(user => {
     document.body.classList.toggle('is-guest', !!user.isAnonymous);
     document.body.classList.remove('relogin'); // a real sign-in dismisses the re-login overlay
     liteUsageRecompute(); // seed storage meter + cap state for this session
+    dhAudioSeedIndex();   // populate _localBlobIds from IndexedDB (fire-and-forget)
+    liteSyncDrain();      // drain any outbox jobs queued during a previous offline session
     startSongsListener();
   } else {
     document.body.classList.remove('signed-in', 'is-guest', 'relogin');
