@@ -3429,7 +3429,7 @@ function shareViewBoot() {
   return true;
 }
 // ── Share viewer state ──
-let _svTakes = [], _svIdx = -1, _svCtx = null, _svSource = null, _svBuffers = {}, _svPeaks = {}, _svRaf = null, _svPlayhead = 0, _svStartCtx = 0;
+let _svTakes = [], _svIdx = -1, _svCtx = null, _svSource = null, _svBuffers = {}, _svPeaks = {}, _svRaf = null, _svPlayhead = 0, _svStartCtx = 0, _svLyricsIdx = -1;
 
 function shareViewRender(d) {
   _svTakes = (d.takes || []).filter(t => t.downloadUrl);
@@ -3449,13 +3449,15 @@ function shareViewRender(d) {
       `<div class="sv-col-list">${rows || '<div class="sv-msg">Nothing shared yet.</div>'}</div>` +
       `<div class="sv-col-lyrics" id="svLyrics"></div>` +
     `</div>`;
+  _svLyricsIdx = -1;
   svRenderLyrics();   // shows the hint until a song plays
 }
-// Right column: lyrics of the currently-playing take, or a hint when nothing plays.
+// Right column: lyrics of the last/currently-playing take (persists when stopped),
+// or a hint until the first song is played.
 function svRenderLyrics() {
   const el = document.getElementById('svLyrics'); if (!el) return;
-  if (_svIdx < 0 || !_svTakes[_svIdx]) { el.innerHTML = '<div class="sv-hint">Play a song to load its lyrics</div>'; return; }
-  const t = _svTakes[_svIdx];
+  if (_svLyricsIdx < 0 || !_svTakes[_svLyricsIdx]) { el.innerHTML = '<div class="sv-hint">Play a song to load its lyrics</div>'; return; }
+  const t = _svTakes[_svLyricsIdx];
   el.innerHTML = `<div class="sv-lyr-title">${_esc(t.songTitle || 'Untitled')}</div>` +
     `<div class="sv-lyr-body">${ilSanitizeDocHtml(t.lyricsDoc || '')}</div>`;
 }
@@ -3473,7 +3475,7 @@ async function svStop() {
   if (_svSource) { try { _svSource.onended = null; _svSource.stop(); } catch (e) {} _svSource = null; }
   if (_svRaf) cancelAnimationFrame(_svRaf); _svRaf = null;
   const prev = _svIdx; _svIdx = -1; _svPlayhead = 0;
-  _svUpdateBtns(); svRenderLyrics(); if (prev >= 0) _svDraw(prev);
+  _svUpdateBtns(); if (prev >= 0) _svDraw(prev);   // lyrics persist (don't reset) when stopped
 }
 async function svPlay(i, offset) {
   await svStop();
@@ -3481,10 +3483,10 @@ async function svPlay(i, offset) {
   const ctx = _svEnsureCtx();
   const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
   const off = offset || 0;
-  src.onended = () => { if (_svIdx === i) { if (i + 1 < _svTakes.length) svPlay(i + 1); else svStop(); } };
+  src.onended = () => { if (_svIdx === i) svStop(); };   // no auto-advance — stop at end of take
   src.start(0, off);
-  _svSource = src; _svIdx = i; _svStartCtx = ctx.currentTime - off; _svPlayhead = off;
-  _svUpdateBtns(); svRenderLyrics();   // right column follows the playing song
+  _svSource = src; _svIdx = i; _svLyricsIdx = i; _svStartCtx = ctx.currentTime - off; _svPlayhead = off;
+  _svUpdateBtns(); svRenderLyrics();   // right column loads (and keeps) this song's lyrics
   const tick = () => { if (_svIdx !== i) return; _svPlayhead = ctx.currentTime - _svStartCtx; _svDraw(i); _svRaf = requestAnimationFrame(tick); };
   _svRaf = requestAnimationFrame(tick);
 }

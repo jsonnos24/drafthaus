@@ -215,17 +215,17 @@ function serve() {
     const twoCol = !!document.querySelector('#shareViewer .sv-2col .sv-col-list') && !!document.getElementById('svLyrics');
     const playLeftOfTitle = r0 && r0.querySelector('.sv-play') && r0.querySelector('.sv-play').compareDocumentPosition(r0.querySelector('.sv-title')) & Node.DOCUMENT_POSITION_FOLLOWING;
     const noLyrBtn = document.querySelector('#shareViewer .sv-lyrbtn') === null;
-    // No song playing → right column shows the hint.
+    // Nothing played yet → right column shows the hint.
     const lyr = document.getElementById('svLyrics');
     const hintInitially = /play a song to load its lyrics/i.test(lyr.textContent);
-    // Simulate the playing song; lyrics follow _svIdx.
-    _svIdx = 0; svRenderLyrics();
+    // Simulate a song having played; lyrics follow _svLyricsIdx (persists past stop).
+    _svLyricsIdx = 0; svRenderLyrics();
     const lyrLoaded = /Verse one/.test(lyr.textContent) && /Alpha/.test(lyr.querySelector('.sv-lyr-title').textContent);
     const noHintWhilePlaying = !/play a song to load/i.test(lyr.textContent);
-    // Stop → hint returns.
+    // Stop playback (_svIdx cleared) → lyrics MUST persist (not revert to hint).
     _svIdx = -1; svRenderLyrics();
-    const hintWhenStopped = /play a song to load its lyrics/i.test(lyr.textContent);
-    const autoAdvances = typeof svPlay === 'function';
+    const lyricsPersistAfterStop = /Verse one/.test(lyr.textContent) && !/play a song to load/i.test(lyr.textContent);
+    const hasPlaybackFns = typeof svPlay === 'function' && typeof svStop === 'function';
     // XSS escape check: inject a title with HTML special chars
     shareViewRender({ active: true, takes: [
       { takeId: 'TK3', songTitle: '<script>alert(1)</script>', lyricsDoc: '', downloadUrl: 'u3', duration: 5 },
@@ -234,16 +234,16 @@ function serve() {
     const xssTitle = xssRow && xssRow.querySelector('.sv-title');
     const noLiveScript = xssTitle && xssTitle.querySelector('script') === null;
     const escapedText = xssTitle && xssTitle.textContent.includes('<script>');
-    return { count: rows.length, twoCol, playLeftOfTitle: !!playLeftOfTitle, noLyrBtn, hintInitially, lyrLoaded, noHintWhilePlaying, hintWhenStopped, autoAdvances, noLiveScript, escapedText };
+    return { count: rows.length, twoCol, playLeftOfTitle: !!playLeftOfTitle, noLyrBtn, hintInitially, lyrLoaded, noHintWhilePlaying, lyricsPersistAfterStop, hasPlaybackFns, noLiveScript, escapedText };
   });
   ok(s7.count === 2, 'T7 renders one row per take');
   ok(s7.twoCol, 'T7 two-column layout: song list + lyrics column');
   ok(s7.playLeftOfTitle, 'T7 play button precedes the song title');
   ok(s7.noLyrBtn, 'T7 no per-row Lyrics button (lyrics follow playback)');
-  ok(s7.hintInitially, 'T7 right column shows the hint when no song is playing');
+  ok(s7.hintInitially, 'T7 right column shows the hint before anything is played');
   ok(s7.lyrLoaded && s7.noHintWhilePlaying, 'T7 right column loads the playing song lyrics + title');
-  ok(s7.hintWhenStopped, 'T7 hint returns when playback stops');
-  ok(s7.autoAdvances, 'T7 svPlay exists for auto-advance');
+  ok(s7.lyricsPersistAfterStop, 'T7 lyrics stay visible after playback stops (no revert to hint)');
+  ok(s7.hasPlaybackFns, 'T7 svPlay + svStop exist');
   ok(s7.noLiveScript && s7.escapedText, 'T7 song title with HTML chars is escaped, no live <script> injected');
 
   // ── Task 8: viewer reads ONLY the shares collection ──
