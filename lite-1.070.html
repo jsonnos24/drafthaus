@@ -215,6 +215,8 @@ body.share-view .share-viewer { display: block; min-height: 100vh; background: v
 .sv-sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border); flex: none; }
 .sv-sheet-title { font-weight: 700; font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sv-sheet-x { color: var(--text-2); font-size: 18px; flex: none; padding-left: 12px; }
+.sv-sheet-player { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); flex: none; }
+.sv-sheet-player .sv-wave-wrap { flex: 1; height: 40px; }
 .sv-sheet-body { overflow-y: auto; padding: 24px 18px 40vh; font-size: 16px; line-height: 2.5; white-space: pre-wrap; color: var(--text); -webkit-overflow-scrolling: touch; }
 /* Per-song checkbox (left of the tile) shown only in selection mode */
 .sl-check { display: none; width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--text-3); flex: none; align-items: center; justify-content: center; color: #fff; font-size: 14px; font-weight: 700; }
@@ -3431,7 +3433,7 @@ function shareViewRender(d) {
   const rows = _svTakes.map((t, i) => `
     <div class="sv-row" data-i="${i}">
       <div class="sv-main">
-        <button class="sv-play" onclick="svRowPlay(${i})" aria-label="Play">▶</button>
+        <button class="sv-play" data-i="${i}" onclick="svRowPlay(${i})" aria-label="Play">▶</button>
         <div class="sv-meta">
           <span class="sv-title">${_esc(t.songTitle || 'Untitled')}</span>
           <div class="sv-wave-wrap"><canvas class="sv-canvas" data-i="${i}" onclick="svSeekEvt(${i}, event)"></canvas></div>
@@ -3446,6 +3448,7 @@ function shareViewRender(d) {
     `<div id="svSheet" class="sv-sheet" role="dialog" aria-label="Lyrics">` +
       `<div class="sv-sheet-head"><span class="sv-sheet-title" id="svSheetTitle"></span>` +
       `<button class="sv-sheet-x" onclick="svCloseLyrics()" aria-label="Close">✕</button></div>` +
+      `<div class="sv-sheet-player" id="svSheetPlayer"></div>` +
       `<div class="sv-sheet-body" id="svSheetBody"></div></div>`;
   _svLyricsOpen = -1;
 }
@@ -3457,8 +3460,16 @@ function svToggleLyrics(i) {
   if (sheet.classList.contains('open') && _svLyricsOpen === i) { svCloseLyrics(); return; }
   body.innerHTML = ilSanitizeDocHtml(_svTakes[i].lyricsDoc || '');
   if (title) title.textContent = _svTakes[i].songTitle || 'Lyrics';
+  // In-sheet transport so playback can be controlled / scrubbed while reading lyrics.
+  const player = document.getElementById('svSheetPlayer');
+  if (player) {
+    player.innerHTML = `<button class="sv-play" data-i="${i}" onclick="svRowPlay(${i})" aria-label="Play">▶</button>` +
+      `<div class="sv-wave-wrap"><canvas class="sv-canvas" data-i="${i}" onclick="svSeekEvt(${i}, event)"></canvas></div>`;
+  }
   _svLyricsOpen = i;
   sheet.classList.add('open'); if (bd) bd.classList.add('open');
+  _svUpdateBtns();                                            // sync the new play button's icon
+  _svGetBuffer(i).then(() => _svDraw(i)).catch(() => {});     // load + draw the sheet waveform
 }
 function svCloseLyrics() {
   const sheet = document.getElementById('svSheet'), bd = document.getElementById('svBackdrop');
@@ -3501,20 +3512,26 @@ function svSeekEvt(i, ev) {
   svPlay(i, frac * dur);
 }
 function _svUpdateBtns() {
-  document.querySelectorAll('#shareViewer .sv-play').forEach((b, idx) => { b.textContent = (idx === _svIdx) ? '⏹' : '▶'; });
+  document.querySelectorAll('#shareViewer .sv-play').forEach(b => {
+    b.textContent = (parseInt(b.dataset.i, 10) === _svIdx) ? '⏹' : '▶';
+  });
 }
 function _svDraw(i) {
-  const c = document.querySelector(`#shareViewer .sv-canvas[data-i="${i}"]`); const peaks = _svPeaks[i];
-  if (!c || !peaks) return;
-  const dpr = window.devicePixelRatio || 1, w = c.clientWidth || 300, h = c.clientHeight || 40;
-  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
-  const x2 = c.getContext('2d'); x2.setTransform(dpr, 0, 0, dpr, 0, 0); x2.clearRect(0, 0, w, h);
-  const mid = h / 2, n = peaks.length;
-  x2.strokeStyle = '#8a8a9a'; x2.lineWidth = 1; x2.beginPath();
-  for (let x = 0; x < w; x++) { const a = peaks[Math.floor((x / w) * n)] || 0; const y = a * mid * 0.92; x2.moveTo(x + 0.5, mid - y); x2.lineTo(x + 0.5, mid + y); }
-  x2.stroke();
+  const peaks = _svPeaks[i]; if (!peaks) return;
   const dur = (_svBuffers[i] && _svBuffers[i].duration) || _svTakes[i].duration || 0;
-  if (i === _svIdx && dur) { const px = (_svPlayhead / dur) * w; x2.strokeStyle = '#ff3b30'; x2.lineWidth = 2; x2.beginPath(); x2.moveTo(px, 0); x2.lineTo(px, h); x2.stroke(); }
+  const n = peaks.length;
+  // A take can have two canvases (its list row + the open lyrics sheet) — keep both in sync.
+  document.querySelectorAll(`#shareViewer .sv-canvas[data-i="${i}"]`).forEach(c => {
+    const dpr = window.devicePixelRatio || 1, w = c.clientWidth || 300, h = c.clientHeight || 40;
+    if (!w) return;
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+    const x2 = c.getContext('2d'); x2.setTransform(dpr, 0, 0, dpr, 0, 0); x2.clearRect(0, 0, w, h);
+    const mid = h / 2;
+    x2.strokeStyle = '#8a8a9a'; x2.lineWidth = 1; x2.beginPath();
+    for (let x = 0; x < w; x++) { const a = peaks[Math.floor((x / w) * n)] || 0; const y = a * mid * 0.92; x2.moveTo(x + 0.5, mid - y); x2.lineTo(x + 0.5, mid + y); }
+    x2.stroke();
+    if (i === _svIdx && dur) { const px = (_svPlayhead / dur) * w; x2.strokeStyle = '#ff3b30'; x2.lineWidth = 2; x2.beginPath(); x2.moveTo(px, 0); x2.lineTo(px, h); x2.stroke(); }
+  });
 }
 
 auth.onAuthStateChanged(user => {

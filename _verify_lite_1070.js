@@ -221,6 +221,9 @@ function serve() {
     const expanded = sheet && sheet.classList.contains('open');
     const lyrText = /Verse one/.test(document.getElementById('svSheetBody').textContent);
     const titleShown = /Alpha/.test(document.getElementById('svSheetTitle').textContent);
+    // In-sheet transport: a play button + scrubbable waveform for this take, inside the sheet.
+    const sheetHasPlay = !!document.querySelector('#svSheetPlayer .sv-play[data-i="0"]');
+    const sheetHasWave = !!document.querySelector('#svSheetPlayer .sv-canvas[data-i="0"]');
     svToggleLyrics(0); // re-tap same row closes
     const closed = sheet && !sheet.classList.contains('open');
     const autoAdvances = typeof svPlay === 'function';
@@ -232,12 +235,13 @@ function serve() {
     const xssTitle = xssRow && xssRow.querySelector('.sv-title');
     const noLiveScript = xssTitle && xssTitle.querySelector('script') === null;
     const escapedText = xssTitle && xssTitle.textContent.includes('<script>');
-    return { count: rows.length, playLeftOfTitle: !!playLeftOfTitle, noInlineLyrics, collapsed, expanded, lyrText, titleShown, closed, autoAdvances, noLiveScript, escapedText };
+    return { count: rows.length, playLeftOfTitle: !!playLeftOfTitle, noInlineLyrics, collapsed, expanded, lyrText, titleShown, sheetHasPlay, sheetHasWave, closed, autoAdvances, noLiveScript, escapedText };
   });
   ok(s7.count === 2, 'T7 renders one row per take');
   ok(s7.playLeftOfTitle, 'T7 play button precedes the song title');
   ok(s7.noInlineLyrics && s7.collapsed, 'T7 lyrics are not inline; sheet starts closed');
   ok(s7.expanded && s7.lyrText && s7.titleShown, 'T7 Lyrics toggle opens the slide-out sheet with lyrics + song title');
+  ok(s7.sheetHasPlay && s7.sheetHasWave, 'T7 open sheet includes an in-sheet play button + scrubbable waveform for the take');
   ok(s7.closed, 'T7 re-tapping the same row closes the sheet');
   ok(s7.autoAdvances, 'T7 svPlay exists for auto-advance');
   ok(s7.noLiveScript && s7.escapedText, 'T7 song title with HTML chars is escaped, no live <script> injected');
