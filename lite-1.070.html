@@ -772,7 +772,12 @@ auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
 const db = firebase.firestore();
 try { db.settings({ experimentalForceLongPolling: true }); } catch(e) {}
 // Offline persistence: queue writes + serve cached reads when offline. Must precede any db use.
-try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch (e) {}
+// The public share viewer does a single read and never goes offline — enabling persistence
+// there only adds an IndexedDB lease/init step to the critical path (can stall many seconds on
+// iOS Safari), so skip it in viewer mode (?share=…).
+if (!/[?&]share=/.test(location.search)) {
+  try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch (e) {}
+}
 
 function uid() { return auth.currentUser ? auth.currentUser.uid : null; }
 
