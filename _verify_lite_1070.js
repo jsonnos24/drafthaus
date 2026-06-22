@@ -323,6 +323,32 @@ function serve() {
   ok(s9b.noLiveScript, 'T9 renderShareManager: <script> title does not inject a live script element');
   ok(s9b.textEscaped, 'T9 renderShareManager: escaped title text is visible as literal <script>');
 
+  // ── T10 (regression): shareViewBoot must not throw when #shareViewer isn't parsed yet ──
+  // The real page defines #shareViewer AFTER the script that calls shareViewBoot(), so at
+  // boot time getElementById('shareViewer') is null. Earlier code wrote .innerHTML directly
+  // and threw → blank page. Boot must set body.share-view immediately and defer the DOM
+  // write/load until the element exists.
+  const pg10 = await ctx.newPage();
+  await pg10.goto(`http://localhost:${port}/lite-1.070.html?share=ZZZ`, { waitUntil: 'domcontentloaded' });
+  await pg10.waitForFunction(() => typeof window.shareViewBoot === 'function', { timeout: 10000 });
+  const s10 = await pg10.evaluate(() => {
+    // Simulate the boot-before-parse condition: remove the viewer element, reset state.
+    const sv = document.getElementById('shareViewer'); if (sv) sv.remove();
+    document.body.classList.remove('share-view'); _shareView = false;
+    let threw = false;
+    try { shareViewBoot(); } catch (e) { threw = true; }
+    const classSet = document.body.classList.contains('share-view');
+    // Now provide the element and stub the loader; boot should populate it + call shareViewLoad.
+    const host = document.createElement('div'); host.id = 'shareViewer'; host.className = 'share-viewer';
+    document.body.appendChild(host);
+    let loadedId = null; shareViewLoad = (id) => { loadedId = id; };
+    shareViewBoot();
+    return { threw, classSet, loadedId, hostHtml: host.innerHTML };
+  });
+  ok(!s10.threw, 'T10 shareViewBoot does not throw when #shareViewer is not yet parsed');
+  ok(s10.classSet, 'T10 shareViewBoot sets body.share-view even before the element exists');
+  ok(s10.loadedId === 'ZZZ' && /Loading/.test(s10.hostHtml), 'T10 once #shareViewer exists, boot populates it + calls shareViewLoad');
+
   console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
