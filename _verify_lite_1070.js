@@ -204,28 +204,27 @@ function serve() {
   // ── Task 7: viewer rows + lyrics expand + auto-advance wiring ──
   const pg7 = await ctx.newPage();
   await pg7.goto(`http://localhost:${port}/lite-1.070.html?share=ABC`, { waitUntil: 'domcontentloaded' });
-  await pg7.waitForFunction(() => typeof window.svToggleLyrics === 'function', { timeout: 10000 });
+  await pg7.waitForFunction(() => typeof window.svRenderLyrics === 'function', { timeout: 10000 });
   const s7 = await pg7.evaluate(() => {
     shareViewRender({ active: true, takes: [
       { takeId: 'TK1', songTitle: 'Alpha', lyricsDoc: '<div>Verse one</div>', downloadUrl: 'u1', duration: 10 },
       { takeId: 'TK2', songTitle: 'Beta',  lyricsDoc: '<div>Verse two</div>', downloadUrl: 'u2', duration: 20 },
     ]});
-    const rows = document.querySelectorAll('#shareViewer .sv-row');
+    const rows = document.querySelectorAll('#shareViewer .sv-col-list .sv-row');
     const r0 = rows[0];
+    const twoCol = !!document.querySelector('#shareViewer .sv-2col .sv-col-list') && !!document.getElementById('svLyrics');
     const playLeftOfTitle = r0 && r0.querySelector('.sv-play') && r0.querySelector('.sv-play').compareDocumentPosition(r0.querySelector('.sv-title')) & Node.DOCUMENT_POSITION_FOLLOWING;
-    // Lyrics now open in a right-side slide-out sheet (overlay), not inline.
-    const sheet = document.getElementById('svSheet');
-    const noInlineLyrics = r0.querySelector('.sv-lyrics') === null;
-    const collapsed = sheet && !sheet.classList.contains('open');
-    svToggleLyrics(0);
-    const expanded = sheet && sheet.classList.contains('open');
-    const lyrText = /Verse one/.test(document.getElementById('svSheetBody').textContent);
-    const titleShown = /Alpha/.test(document.getElementById('svSheetTitle').textContent);
-    // In-sheet transport: a play button + scrubbable waveform for this take, inside the sheet.
-    const sheetHasPlay = !!document.querySelector('#svSheetPlayer .sv-play[data-i="0"]');
-    const sheetHasWave = !!document.querySelector('#svSheetPlayer .sv-canvas[data-i="0"]');
-    svToggleLyrics(0); // re-tap same row closes
-    const closed = sheet && !sheet.classList.contains('open');
+    const noLyrBtn = document.querySelector('#shareViewer .sv-lyrbtn') === null;
+    // No song playing → right column shows the hint.
+    const lyr = document.getElementById('svLyrics');
+    const hintInitially = /play a song to load its lyrics/i.test(lyr.textContent);
+    // Simulate the playing song; lyrics follow _svIdx.
+    _svIdx = 0; svRenderLyrics();
+    const lyrLoaded = /Verse one/.test(lyr.textContent) && /Alpha/.test(lyr.querySelector('.sv-lyr-title').textContent);
+    const noHintWhilePlaying = !/play a song to load/i.test(lyr.textContent);
+    // Stop → hint returns.
+    _svIdx = -1; svRenderLyrics();
+    const hintWhenStopped = /play a song to load its lyrics/i.test(lyr.textContent);
     const autoAdvances = typeof svPlay === 'function';
     // XSS escape check: inject a title with HTML special chars
     shareViewRender({ active: true, takes: [
@@ -235,14 +234,15 @@ function serve() {
     const xssTitle = xssRow && xssRow.querySelector('.sv-title');
     const noLiveScript = xssTitle && xssTitle.querySelector('script') === null;
     const escapedText = xssTitle && xssTitle.textContent.includes('<script>');
-    return { count: rows.length, playLeftOfTitle: !!playLeftOfTitle, noInlineLyrics, collapsed, expanded, lyrText, titleShown, sheetHasPlay, sheetHasWave, closed, autoAdvances, noLiveScript, escapedText };
+    return { count: rows.length, twoCol, playLeftOfTitle: !!playLeftOfTitle, noLyrBtn, hintInitially, lyrLoaded, noHintWhilePlaying, hintWhenStopped, autoAdvances, noLiveScript, escapedText };
   });
   ok(s7.count === 2, 'T7 renders one row per take');
+  ok(s7.twoCol, 'T7 two-column layout: song list + lyrics column');
   ok(s7.playLeftOfTitle, 'T7 play button precedes the song title');
-  ok(s7.noInlineLyrics && s7.collapsed, 'T7 lyrics are not inline; sheet starts closed');
-  ok(s7.expanded && s7.lyrText && s7.titleShown, 'T7 Lyrics toggle opens the slide-out sheet with lyrics + song title');
-  ok(s7.sheetHasPlay && s7.sheetHasWave, 'T7 open sheet includes an in-sheet play button + scrubbable waveform for the take');
-  ok(s7.closed, 'T7 re-tapping the same row closes the sheet');
+  ok(s7.noLyrBtn, 'T7 no per-row Lyrics button (lyrics follow playback)');
+  ok(s7.hintInitially, 'T7 right column shows the hint when no song is playing');
+  ok(s7.lyrLoaded && s7.noHintWhilePlaying, 'T7 right column loads the playing song lyrics + title');
+  ok(s7.hintWhenStopped, 'T7 hint returns when playback stops');
   ok(s7.autoAdvances, 'T7 svPlay exists for auto-advance');
   ok(s7.noLiveScript && s7.escapedText, 'T7 song title with HTML chars is escaped, no live <script> injected');
 
