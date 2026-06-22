@@ -268,9 +268,12 @@ function serve() {
     const hasTakesFn = typeof renderTakes === 'function';
     const hasLanding = !!document.getElementById('landing');
     const notShareView = !document.body.classList.contains('share-view');
-    return { hasTakesFn, hasLanding, notShareView };
+    // owner app must not be force-darkened by the viewer path (headless default is light)
+    const notForcedDark = !document.documentElement.classList.contains('dark');
+    return { hasTakesFn, hasLanding, notShareView, notForcedDark };
   });
   ok(s8b.hasTakesFn, 'T8 no-harm: renderTakes is a function in the owner app');
+  ok(s8b.notForcedDark, 'T8 no-harm: owner app is not forced dark (viewer-only)');
   ok(s8b.hasLanding, 'T8 no-harm: #landing element present on normal load');
   ok(s8b.notShareView, 'T8 no-harm: normal load does not enter share-view mode');
 
@@ -342,6 +345,9 @@ function serve() {
   await pg10.goto(`http://localhost:${port}/lite-1.070.html?share=ZZZ`, { waitUntil: 'domcontentloaded' });
   await pg10.waitForFunction(() => typeof window.shareViewBoot === 'function', { timeout: 10000 });
   const s10 = await pg10.evaluate(() => {
+    // The public share page boots forced-dark (headless default is light, so this is
+    // only true because shareViewBoot forced it).
+    const darkOnBoot = document.documentElement.classList.contains('dark');
     // Simulate the boot-before-parse condition: remove the viewer element, reset state.
     const sv = document.getElementById('shareViewer'); if (sv) sv.remove();
     document.body.classList.remove('share-view'); _shareView = false;
@@ -353,8 +359,9 @@ function serve() {
     document.body.appendChild(host);
     let loadedId = null; shareViewLoad = (id) => { loadedId = id; };
     shareViewBoot();
-    return { threw, classSet, loadedId, hostHtml: host.innerHTML };
+    return { threw, classSet, loadedId, hostHtml: host.innerHTML, darkOnBoot };
   });
+  ok(s10.darkOnBoot, 'T10 the public share page is forced dark on boot');
   ok(!s10.threw, 'T10 shareViewBoot does not throw when #shareViewer is not yet parsed');
   ok(s10.classSet, 'T10 shareViewBoot sets body.share-view even before the element exists');
   ok(s10.loadedId === 'ZZZ' && /Loading/.test(s10.hostHtml), 'T10 once #shareViewer exists, boot populates it + calls shareViewLoad');
