@@ -36,30 +36,40 @@ function serve() {
     }
   }
 
-  // ── Task 1: share id + link + snapshot helpers (no auth needed) ──
+  // ── Task 1: tray state + link/membership helpers (no auth needed) ──
   const pgS = await ctx.newPage();
   await pgS.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
-  await pgS.waitForFunction(() => typeof window.shareNewId === 'function', { timeout: 10000 });
+  await pgS.waitForFunction(() => typeof window.shareTrayLink === 'function', { timeout: 10000 });
   const s1 = await pgS.evaluate(() => {
     const a = shareNewId(), b = shareNewId();
     const snap = _shareSnapshot(
       { id: 'T1', downloadUrl: 'https://x/y', duration: 12, mimeType: 'audio/mp3' },
       { id: 'S1', title: 'My Song', lyricsDoc: '<div>Hi</div>' });
-    _shareId = 'ABC123';
-    const link = shareLink();
+    _shareTrays = [
+      { id: 'TRA', name: 'Band demos', active: true, takes: [{ takeId: 'T1' }, { takeId: 'T2' }] },
+      { id: 'TRB', name: '', active: true, takes: [{ takeId: 'T2' }] },
+    ];
     return {
       idLen: a.length, idsDiffer: a !== b, urlSafe: /^[A-Za-z0-9_-]+$/.test(a),
       snapOK: snap.takeId === 'T1' && snap.songId === 'S1' && snap.songTitle === 'My Song'
               && snap.lyricsDoc === '<div>Hi</div>' && snap.downloadUrl === 'https://x/y'
               && snap.duration === 12 && typeof snap.addedAt === 'number',
-      linkOK: /\?share=ABC123$/.test(link),
+      linkOK: /\?share=ABC123$/.test(shareTrayLink('ABC123')),
+      legacyName: _trayName(_shareTrays[1]) === 'Shared takes',
+      namedName: _trayName(_shareTrays[0]) === 'Band demos',
+      forT1: shareTraysFor('T1').join(','),       // expect 'TRA'
+      forT2: shareTraysFor('T2').sort().join(','), // expect 'TRA,TRB'
+      sharedT1: shareIsShared('T1'), sharedNone: shareIsShared('T9'),
     };
   });
   ok(s1.idLen >= 20, 'T1 shareNewId is >=20 chars');
   ok(s1.idsDiffer, 'T1 shareNewId is random (two differ)');
   ok(s1.urlSafe, 'T1 shareNewId is URL-safe');
   ok(s1.snapOK, 'T1 _shareSnapshot builds a correct entry');
-  ok(s1.linkOK, 'T1 shareLink returns <origin><path>?share=<id>');
+  ok(s1.linkOK, 'T1 shareTrayLink returns <origin><path>?share=<id>');
+  ok(s1.legacyName && s1.namedName, 'T1 _trayName: blank→"Shared takes", else name');
+  ok(s1.forT1 === 'TRA' && s1.forT2 === 'TRA,TRB', 'T1 shareTraysFor finds membership across trays');
+  ok(s1.sharedT1 && !s1.sharedNone, 'T1 shareIsShared true in ≥1 tray, false otherwise');
 
   // ── Task 2: owner data layer with a stubbed shares doc ──
   const pg2 = await ctx.newPage();
