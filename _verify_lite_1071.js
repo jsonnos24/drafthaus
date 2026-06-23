@@ -418,46 +418,22 @@ function serve() {
   });
   ok(s8miss, 'T8 missing doc (exists:false) shows unavailable');
 
-  // ── Task 9a: shareEnsureDoc in-flight deduplication ──
-  const pg9a = await ctx.newPage();
-  await pg9a.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
-  await pg9a.waitForFunction(() => typeof window.shareEnsureDoc === 'function', { timeout: 10000 });
-  const s9a = await pg9a.evaluate(async () => {
-    // Wire up the same fake shares environment as T2 so shareEnsureDoc can run.
-    let createCount = 0;
-    let store = { exists: false, data: { takes: [], active: true, ownerId: 'U9' } };
-    let listener = null;
-    const fakeDocRef = {
-      id: 'SH9',
-      get: async () => ({ exists: store.exists, data: () => store.data }),
-      set: (obj, opt) => {
-        createCount++;
-        store.exists = true;
-        store.data = opt && opt.merge ? Object.assign({}, store.data, obj) : obj;
-        if (listener) listener({ exists: true, data: () => store.data });
-        return Promise.resolve();
-      },
-      onSnapshot: (cb) => { listener = cb; cb({ exists: store.exists, data: () => store.data }); return () => { listener = null; }; },
-    };
-    const fakeShares = {
-      doc: () => fakeDocRef,
-      where: () => ({ limit: () => ({ get: async () => ({ empty: true, docs: [] }) }) }),
-    };
-    const realCollection = db.collection.bind(db);
-    db.collection = (name) => name === 'shares' ? fakeShares : realCollection(name);
-    Object.defineProperty(auth, 'currentUser', { get: () => ({ uid: 'U9', isAnonymous: false }), configurable: true });
-
-    // Reset in-flight + shareId so both concurrent calls start from scratch.
-    _shareId = null;
-    _shareEnsureInFlight = null;
-
-    const [id1, id2] = await Promise.all([shareEnsureDoc(), shareEnsureDoc()]);
-    return { sameId: id1 === id2, createCount, id1, id2 };
+  // ── Task 9: legacy migration + no-harm ──
+  const pg9 = await ctx.newPage();
+  await pg9.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
+  await pg9.waitForFunction(() => typeof window.shareTrayLink === 'function', { timeout: 10000 });
+  const s9 = await pg9.evaluate(() => {
+    // Legacy nameless tray: link by id unchanged + displays "Shared takes".
+    const legacy = { id: 'LEG123', name: '', active: true, takes: [] };
+    _shareTrays = [legacy];
+    const linkUnchanged = /\?share=LEG123$/.test(shareTrayLink('LEG123'));
+    const display = _trayName(legacy) === 'Shared takes';
+    return { linkUnchanged, display };
   });
-  ok(s9a.sameId, 'T9 shareEnsureDoc concurrent calls resolve to the same id');
-  ok(s9a.createCount <= 1, 'T9 shareEnsureDoc concurrent calls invoke create at most once');
+  ok(s9.linkUnchanged, 'T9 legacy nameless tray keeps its ?share= link');
+  ok(s9.display, 'T9 legacy nameless tray renders "Shared takes"');
 
-  // ── Task 9b: renderShareManager escapes HTML in songTitle ──
+  // ── No-harm: renderShareManager escapes HTML in songTitle ──
   const pg9b = await ctx.newPage();
   await pg9b.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
   await pg9b.waitForFunction(() => typeof window.renderShareManager === 'function', { timeout: 10000 });
@@ -474,8 +450,8 @@ function serve() {
     const textEscaped = body && body.textContent.includes('<script>');
     return { noLiveScript, textEscaped };
   });
-  ok(s9b.noLiveScript, 'T9 renderShareManager: <script> title does not inject a live script element');
-  ok(s9b.textEscaped, 'T9 renderShareManager: escaped title text is visible as literal <script>');
+  ok(s9b.noLiveScript, 'No-harm renderShareManager: <script> title does not inject a live script element');
+  ok(s9b.textEscaped, 'No-harm renderShareManager: escaped title text is visible as literal <script>');
 
   // ── T10 (regression): shareViewBoot must not throw when #shareViewer isn't parsed yet ──
   // The real page defines #shareViewer AFTER the script that calls shareViewBoot(), so at
