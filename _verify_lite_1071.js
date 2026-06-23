@@ -130,11 +130,28 @@ function serve() {
   ok(s2.deleted, 'T2 shareDeleteTray removes doc + local entry');
   ok(s2.noUrlBlocked, 'T2 add refuses a take with no downloadUrl');
 
-  // ── Task 3: shareRefresh re-snapshots from _songs/_takes ──
+  // ── Task 3: shareReorderTray rewrites takes[] order ──
   const pg3 = await ctx.newPage();
   await pg3.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
-  await pg3.waitForFunction(() => typeof window.shareRefresh === 'function', { timeout: 10000 });
-  const s3 = await pg3.evaluate(async () => {
+  await pg3.waitForFunction(() => typeof window.shareReorderTray === 'function', { timeout: 10000 });
+  const s3 = await pg3.evaluate(() => {
+    let written = null;
+    window._shareWriteTray = (id, fields) => { written = fields.takes.map(t => t.takeId).join(','); };
+    _shareTrays = [{ id: 'TR', name: 'x', active: true, takes: [{ takeId: 'a' }, { takeId: 'b' }, { takeId: 'c' }] }];
+    shareReorderTray('TR', 0, 2);  // a→end → b,c,a
+    const order = _shareTrays[0].takes.map(t => t.takeId).join(',');
+    const oob = (shareReorderTray('TR', 9, 0), _shareTrays[0].takes.map(t => t.takeId).join(','));
+    return { order, written, oob };
+  });
+  ok(s3.order === 'b,c,a', 'T3 shareReorderTray moves take and rewrites local order');
+  ok(s3.written === 'b,c,a', 'T3 shareReorderTray writes the new takes[] order');
+  ok(s3.oob === 'b,c,a', 'T3 shareReorderTray is a no-op on out-of-range index');
+
+  // ── Task 3 (old): shareRefresh re-snapshots from _songs/_takes ──
+  const pg3x = await ctx.newPage();
+  await pg3x.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
+  await pg3x.waitForFunction(() => typeof window.shareRefresh === 'function', { timeout: 10000 });
+  const s3x = await pg3x.evaluate(async () => {
     let written = null;
     _shareId = 'SH';
     _shareWriteTakes = async (takes) => { written = takes; _shareTakes = takes; };  // spy
@@ -151,10 +168,10 @@ function serve() {
       droppedGhost: written && !written.some(t => t.takeId === 'TK9'),
     };
   });
-  ok(s3.droppedGhost, 'T3 shareRefresh drops entries whose song is gone');
-  ok(s3.n === 1, 'T3 shareRefresh keeps the live entry only');
-  ok(s3.kept && s3.kept.songTitle === 'NEW TITLE' && s3.kept.lyricsDoc === '<div>new</div>', 'T3 refreshes title + lyrics from _songs');
-  ok(s3.kept && s3.kept.downloadUrl === 'u1b' && s3.kept.duration === 7, 'T3 refreshes audio fields from loaded _takes');
+  ok(s3x.droppedGhost, 'T3 shareRefresh drops entries whose song is gone');
+  ok(s3x.n === 1, 'T3 shareRefresh keeps the live entry only');
+  ok(s3x.kept && s3x.kept.songTitle === 'NEW TITLE' && s3x.kept.lyricsDoc === '<div>new</div>', 'T3 refreshes title + lyrics from _songs');
+  ok(s3x.kept && s3x.kept.downloadUrl === 'u1b' && s3x.kept.duration === 7, 'T3 refreshes audio fields from loaded _takes');
 
   // ── Task 4: per-take share toggle button ──
   const pg4 = await ctx.newPage();
