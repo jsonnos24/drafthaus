@@ -266,11 +266,37 @@ function serve() {
   ok(s6m.detailTakes && s6m.hasReorderList && s6m.hasHandle, 'T6 tray detail lists drag-reorderable takes');
   ok(s6m.backToList, 'T6 back arrow returns to the tray list');
 
-  // ── Task 7: viewer rows + lyrics expand + auto-advance wiring ──
+  // ── Task 7: drag-reorder commits via shareReorderTray ──
   const pg7 = await ctx.newPage();
-  await pg7.goto(`http://localhost:${port}/lite-1.071.html?share=ABC`, { waitUntil: 'domcontentloaded' });
-  await pg7.waitForFunction(() => typeof window.svRenderLyrics === 'function', { timeout: 10000 });
+  await pg7.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
+  await pg7.waitForFunction(() => typeof window.shareReorderTray === 'function', { timeout: 10000 });
   const s7 = await pg7.evaluate(() => {
+    let reorder = null; window.shareReorderTray = (id, from, to) => { reorder = { id, from, to }; };
+    window.renderShareManager = () => {};
+    // Build a minimal tray-detail list in the DOM
+    const list = document.createElement('div');
+    list.className = 'sm-list'; list.dataset.reorder = 'tray'; list.dataset.tray = 'TRA';
+    list.innerHTML = ['a', 'b', 'c'].map(id =>
+      `<div class="sm-row tray-take" data-id="${id}"><span class="drag-handle">⠿</span><span>${id}</span></div>`).join('');
+    document.body.appendChild(list);
+    const rows = [...list.querySelectorAll('.tray-take')];
+    const handle = rows[0].querySelector('.drag-handle');     // drag 'a'
+    const r2 = rows[2].getBoundingClientRect();
+    handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, bubbles: true }));
+    // move below row c, then drop
+    document.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientY: r2.bottom + 20, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, bubbles: true }));
+    return { reorder, domOrder: [...list.querySelectorAll('.tray-take')].map(e => e.dataset.id).join(',') };
+  });
+  ok(s7.reorder && s7.reorder.id === 'TRA', 'T7 tray drag commits to the right tray');
+  ok(s7.reorder && s7.reorder.from === 0, 'T7 drag captures the original index');
+  ok(s7.reorder && s7.reorder.to === 2, 'T7 drag computes the drop index (moved to end)');
+
+  // ── Task 7x (old T7): viewer rows + lyrics expand + auto-advance wiring ──
+  const pg7x = await ctx.newPage();
+  await pg7x.goto(`http://localhost:${port}/lite-1.071.html?share=ABC`, { waitUntil: 'domcontentloaded' });
+  await pg7x.waitForFunction(() => typeof window.svRenderLyrics === 'function', { timeout: 10000 });
+  const s7x = await pg7x.evaluate(() => {
     shareViewRender({ active: true, takes: [
       { takeId: 'TK1', songTitle: 'Alpha', lyricsDoc: '<div>Verse one</div>', downloadUrl: 'u1', duration: 10 },
       { takeId: 'TK2', songTitle: 'Beta',  lyricsDoc: '<div>Verse two</div>', downloadUrl: 'u2', duration: 20 },
@@ -301,15 +327,15 @@ function serve() {
     const escapedText = xssTitle && xssTitle.textContent.includes('<script>');
     return { count: rows.length, twoCol, playLeftOfTitle: !!playLeftOfTitle, noLyrBtn, hintInitially, lyrLoaded, noHintWhilePlaying, lyricsPersistAfterStop, hasPlaybackFns, noLiveScript, escapedText };
   });
-  ok(s7.count === 2, 'T7 renders one row per take');
-  ok(s7.twoCol, 'T7 two-column layout: song list + lyrics column');
-  ok(s7.playLeftOfTitle, 'T7 play button precedes the song title');
-  ok(s7.noLyrBtn, 'T7 no per-row Lyrics button (lyrics follow playback)');
-  ok(s7.hintInitially, 'T7 right column shows the hint before anything is played');
-  ok(s7.lyrLoaded && s7.noHintWhilePlaying, 'T7 right column loads the playing song lyrics + title');
-  ok(s7.lyricsPersistAfterStop, 'T7 lyrics stay visible after playback stops (no revert to hint)');
-  ok(s7.hasPlaybackFns, 'T7 svPlay + svStop exist');
-  ok(s7.noLiveScript && s7.escapedText, 'T7 song title with HTML chars is escaped, no live <script> injected');
+  ok(s7x.count === 2, 'T7x renders one row per take');
+  ok(s7x.twoCol, 'T7x two-column layout: song list + lyrics column');
+  ok(s7x.playLeftOfTitle, 'T7x play button precedes the song title');
+  ok(s7x.noLyrBtn, 'T7x no per-row Lyrics button (lyrics follow playback)');
+  ok(s7x.hintInitially, 'T7x right column shows the hint before anything is played');
+  ok(s7x.lyrLoaded && s7x.noHintWhilePlaying, 'T7x right column loads the playing song lyrics + title');
+  ok(s7x.lyricsPersistAfterStop, 'T7x lyrics stay visible after playback stops (no revert to hint)');
+  ok(s7x.hasPlaybackFns, 'T7x svPlay + svStop exist');
+  ok(s7x.noLiveScript && s7x.escapedText, 'T7x song title with HTML chars is escaped, no live <script> injected');
 
   // ── Task 8: viewer reads ONLY the shares collection ──
   const pg8 = await ctx.newPage();

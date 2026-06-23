@@ -2898,6 +2898,7 @@ document.addEventListener('pointerdown', (e) => {
   if (!row || !container || !container.dataset.reorder) return;
   e.preventDefault(); e.stopPropagation();
   _reorder = { row, container, type: container.dataset.reorder, pointerId: e.pointerId };
+  if (container.dataset.reorder === 'tray') _reorder.fromIdx = [...container.querySelectorAll(':scope > [data-id]')].indexOf(row);
   row.classList.add('dragging');
   try { handle.setPointerCapture(e.pointerId); } catch (_) {}
 });
@@ -2911,11 +2912,17 @@ document.addEventListener('pointermove', (e) => {
 });
 function _endReorder() {
   if (!_reorder) return;
-  const { row, container, type } = _reorder; row.classList.remove('dragging');
+  const { row, container, type, fromIdx } = _reorder; row.classList.remove('dragging');
   const ids = [...container.querySelectorAll(':scope > [data-id]')].map(el => el.dataset.id);
   _reorder = null;
   if (type === 'songs') _commitOrder('songs', ids);
   else if (type === 'takes') _commitOrder('voice_takes', ids);
+  else if (type === 'tray') {
+    const trayId = container.dataset.tray;
+    const toIdx = ids.indexOf(row.dataset.id);
+    if (fromIdx != null && toIdx >= 0 && toIdx !== fromIdx) shareReorderTray(trayId, fromIdx, toIdx);
+    if (typeof renderShareManager === 'function') renderShareManager();
+  }
 }
 document.addEventListener('pointerup', _endReorder);
 document.addEventListener('pointercancel', _endReorder);
