@@ -203,32 +203,18 @@ function serve() {
   ok(JSON.stringify(s5.calls) === JSON.stringify([['add','TRB','TK1'],['remove','TRA','TK1']]), 'T5 toggling calls add/remove correctly');
   ok(s5.closed, 'T5 Esc closes the picker');
 
-  // ── Task 6: viewer routing + unavailable ──
+  // ── Task 6: viewer routing (routing check — old get-based block replaced by T8 onSnapshot) ──
   const pg6 = await ctx.newPage();
-  await pg6.addInitScript(() => {
-    // Stub Firestore get for the shares doc BEFORE app code runs is hard (db not ready);
-    // instead we drive shareViewLoad directly below after load.
-  });
   await pg6.goto(`http://localhost:${port}/lite-1.071.html?share=ZZZ`, { waitUntil: 'domcontentloaded' });
   await pg6.waitForFunction(() => typeof window.shareViewLoad === 'function', { timeout: 10000 });
-  const s6 = await pg6.evaluate(async () => {
+  const s6 = await pg6.evaluate(() => {
     const inView = document.body.classList.contains('share-view');
     const viewerVisible = getComputedStyle(document.getElementById('shareViewer')).display !== 'none';
     const landingHidden = getComputedStyle(document.getElementById('landing')).display === 'none';
-    // revoked
-    db.collection = ((real) => (n) => n === 'shares' ? { doc: () => ({ get: async () => ({ exists: true, data: () => ({ active: false, takes: [] }) }) }) } : real(n))(db.collection.bind(db));
-    await shareViewLoad('ZZZ');
-    const revokedMsg = /unavailable/i.test(document.getElementById('shareViewer').textContent);
-    // missing
-    db.collection = (n) => n === 'shares' ? { doc: () => ({ get: async () => ({ exists: false }) }) } : null;
-    await shareViewLoad('NOPE');
-    const missingMsg = /unavailable/i.test(document.getElementById('shareViewer').textContent);
-    return { inView, viewerVisible, landingHidden, revokedMsg, missingMsg };
+    return { inView, viewerVisible, landingHidden };
   });
   ok(s6.inView, 'T6 ?share= sets body.share-view');
   ok(s6.viewerVisible && s6.landingHidden, 'T6 viewer shown, landing hidden');
-  ok(s6.revokedMsg, 'T6 revoked (active:false) shows unavailable');
-  ok(s6.missingMsg, 'T6 missing doc shows unavailable');
 
   // ── Task 6: two-level manager ──
   const pg6m = await ctx.newPage();
@@ -337,25 +323,25 @@ function serve() {
   ok(s7x.hasPlaybackFns, 'T7x svPlay + svStop exist');
   ok(s7x.noLiveScript && s7x.escapedText, 'T7x song title with HTML chars is escaped, no live <script> injected');
 
-  // ── Task 8: viewer reads ONLY the shares collection ──
-  const pg8 = await ctx.newPage();
-  await pg8.goto(`http://localhost:${port}/lite-1.071.html?share=ABC`, { waitUntil: 'domcontentloaded' });
-  await pg8.waitForFunction(() => typeof window.shareViewLoad === 'function', { timeout: 10000 });
-  const s8 = await pg8.evaluate(async () => {
+  // ── Task 8x (old T8): viewer reads ONLY the shares collection ──
+  const pg8x = await ctx.newPage();
+  await pg8x.goto(`http://localhost:${port}/lite-1.071.html?share=ABC`, { waitUntil: 'domcontentloaded' });
+  await pg8x.waitForFunction(() => typeof window.shareViewLoad === 'function', { timeout: 10000 });
+  const s8x = await pg8x.evaluate(async () => {
     const seen = [];
     db.collection = ((real) => (n) => { seen.push(n); return n === 'shares'
-      ? { doc: () => ({ get: async () => ({ exists: true, data: () => ({ active: true, takes: [] }) }) }) }
+      ? { doc: () => ({ onSnapshot: (fn) => { fn({ exists: true, data: () => ({ active: true, takes: [] }) }); return () => {}; } }) }
       : real(n); })(db.collection.bind(db));
-    await shareViewLoad('ABC');
+    shareViewLoad('ABC');
     return { only: seen.every(n => n === 'shares'), touchedShares: seen.includes('shares') };
   });
-  ok(s8.touchedShares && s8.only, 'T8 viewer reads only the shares collection');
+  ok(s8x.touchedShares && s8x.only, 'T8x viewer reads only the shares collection');
 
-  // ── Task 8: no-harm regression — owner app still works ──
-  const pg8b = await ctx.newPage();
-  await pg8b.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
-  await pg8b.waitForFunction(() => typeof window.renderTakes === 'function', { timeout: 10000 });
-  const s8b = await pg8b.evaluate(() => {
+  // ── Task 8x: no-harm regression — owner app still works ──
+  const pg8bx = await ctx.newPage();
+  await pg8bx.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
+  await pg8bx.waitForFunction(() => typeof window.renderTakes === 'function', { timeout: 10000 });
+  const s8bx = await pg8bx.evaluate(() => {
     const hasTakesFn = typeof renderTakes === 'function';
     const hasLanding = !!document.getElementById('landing');
     const notShareView = !document.body.classList.contains('share-view');
@@ -363,10 +349,74 @@ function serve() {
     const notForcedDark = !document.documentElement.classList.contains('dark');
     return { hasTakesFn, hasLanding, notShareView, notForcedDark };
   });
-  ok(s8b.hasTakesFn, 'T8 no-harm: renderTakes is a function in the owner app');
-  ok(s8b.notForcedDark, 'T8 no-harm: owner app is not forced dark (viewer-only)');
-  ok(s8b.hasLanding, 'T8 no-harm: #landing element present on normal load');
-  ok(s8b.notShareView, 'T8 no-harm: normal load does not enter share-view mode');
+  ok(s8bx.hasTakesFn, 'T8x no-harm: renderTakes is a function in the owner app');
+  ok(s8bx.notForcedDark, 'T8x no-harm: owner app is not forced dark (viewer-only)');
+  ok(s8bx.hasLanding, 'T8x no-harm: #landing element present on normal load');
+  ok(s8bx.notShareView, 'T8x no-harm: normal load does not enter share-view mode');
+
+  // ── Task 8: live viewer (onSnapshot diff) ──
+  const pg8 = await ctx.newPage();
+  await pg8.goto(`http://localhost:${port}/lite-1.071.html?share=ZZZ`, { waitUntil: 'domcontentloaded' });
+  await pg8.waitForFunction(() => typeof window.shareViewLoad === 'function', { timeout: 10000 });
+  const s8 = await pg8.evaluate(async () => {
+    const inView = document.body.classList.contains('share-view');
+    const viewerVisible = getComputedStyle(document.getElementById('shareViewer')).display !== 'none';
+    const landingHidden = getComputedStyle(document.getElementById('landing')).display === 'none';
+
+    // Controllable fake onSnapshot for the shares doc.
+    let cb = null;
+    db.collection = ((real) => (n) => n === 'shares'
+      ? { doc: () => ({ onSnapshot: (fn) => { cb = fn; return () => {}; } }) }
+      : real(n))(db.collection.bind(db));
+
+    // First (good) snapshot: two takes, named tray.
+    shareViewLoad('ZZZ');
+    cb({ exists: true, data: () => ({ name: 'Band demos', active: true, takes: [
+      { takeId: 'A', songTitle: 'Aaa', lyricsDoc: '<div>la</div>', downloadUrl: 'https://x/a', duration: 5 },
+      { takeId: 'B', songTitle: 'Bbb', lyricsDoc: '', downloadUrl: 'https://x/b', duration: 6 },
+    ] }) });
+    const firstRows = document.querySelectorAll('#shareViewer .sv-row').length;
+    const headerName = (document.querySelector('#shareViewer .sv-trayname') || {}).textContent;
+    // Simulate "A is playing" without real audio.
+    _svIdx = 0; _svLyricsIdx = 0; _svSource = { onended: null }; _svCtx = { currentTime: 0 }; _svStartCtx = 0; _svPlayhead = 1.5;
+    const playingBefore = _svTakes[_svIdx].takeId;
+    // Second snapshot: reorder (B,A) + add C. Playing take A must be preserved.
+    cb({ exists: true, data: () => ({ name: 'Band demos', active: true, takes: [
+      { takeId: 'B', songTitle: 'Bbb', lyricsDoc: '', downloadUrl: 'https://x/b', duration: 6 },
+      { takeId: 'A', songTitle: 'Aaa', lyricsDoc: '<div>la</div>', downloadUrl: 'https://x/a', duration: 5 },
+      { takeId: 'C', songTitle: 'Ccc', lyricsDoc: '', downloadUrl: 'https://x/c', duration: 7 },
+    ] }) });
+    const rowsAfter = document.querySelectorAll('#shareViewer .sv-row').length;
+    const playingAfter = _svIdx >= 0 ? _svTakes[_svIdx].takeId : null;
+    const playheadKept = _svPlayhead === 1.5;     // audio not restarted
+    const sourceKept = !!_svSource;                // source not stopped
+    // Third snapshot: revoke → unavailable + stop.
+    let stopped = false; const realStop = window.svStop; window.svStop = () => { stopped = true; return realStop && realStop(); };
+    cb({ exists: true, data: () => ({ active: false, takes: [] }) });
+    const unavail = /unavailable/i.test(document.getElementById('shareViewer').textContent);
+    return { inView, viewerVisible, landingHidden, firstRows, headerName, playingBefore, rowsAfter, playingAfter, playheadKept, sourceKept, unavail, stopped };
+  });
+  ok(s8.inView && s8.viewerVisible && s8.landingHidden, 'T8 ?share= enters viewer mode');
+  ok(s8.firstRows === 2 && s8.headerName === 'Band demos', 'T8 first snapshot renders rows + tray name');
+  ok(s8.rowsAfter === 3, 'T8 second snapshot live-updates the list (added a take)');
+  ok(s8.playingBefore === 'A' && s8.playingAfter === 'A', 'T8 playing take preserved across reorder/add');
+  ok(s8.playheadKept && s8.sourceKept, 'T8 audio not restarted on live update (playhead + source kept)');
+  ok(s8.unavail && s8.stopped, 'T8 active:false snapshot → unavailable + playback stopped');
+
+  // ── Task 8: missing doc shows unavailable (onSnapshot variant) ──
+  const pg8miss = await ctx.newPage();
+  await pg8miss.goto(`http://localhost:${port}/lite-1.071.html?share=NOPE`, { waitUntil: 'domcontentloaded' });
+  await pg8miss.waitForFunction(() => typeof window.shareViewLoad === 'function', { timeout: 10000 });
+  const s8miss = await pg8miss.evaluate(() => {
+    let cb = null;
+    db.collection = ((real) => (n) => n === 'shares'
+      ? { doc: () => ({ onSnapshot: (fn) => { cb = fn; return () => {}; } }) }
+      : real(n))(db.collection.bind(db));
+    shareViewLoad('NOPE');
+    cb({ exists: false });
+    return /unavailable/i.test(document.getElementById('shareViewer').textContent);
+  });
+  ok(s8miss, 'T8 missing doc (exists:false) shows unavailable');
 
   // ── Task 9a: shareEnsureDoc in-flight deduplication ──
   const pg9a = await ctx.newPage();

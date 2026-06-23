@@ -215,6 +215,8 @@ body.share-view #landing, body.share-view #app, body.share-view #sharePanel { di
 body.share-view .share-viewer { display: block; min-height: 100vh; background: var(--bg); }
 .sv-header { padding: 18px 16px; text-align: center; }
 .sv-brand { font-weight: 800; font-size: 18px; color: var(--text); }
+.sv-trayname { font-weight: 700; font-size: 15px; color: var(--text); margin-top: 4px; }
+.sv-trayname:empty { display: none; }
 .sv-sub { color: var(--text-2); font-size: 13px; margin-top: 2px; }
 .sv-make { display: inline-block; margin-top: 6px; font-size: 13px; color: var(--tint); }
 .sv-msg { padding: 40px 20px; text-align: center; color: var(--text-2); }
@@ -3540,13 +3542,19 @@ function shareViewUnavailable(msg) {
     `<div class="sv-header"><div class="sv-brand">Drafthaus</div></div>` +
     `<div class="sv-msg">${msg || "This share is unavailable."}<br><a class="sv-make" href="./">Make your own →</a></div>`;
 }
-async function shareViewLoad(id) {
+function shareViewLoad(id) {
+  let first = true;
   try {
-    const snap = await db.collection('shares').doc(id).get();
-    if (!snap.exists) return shareViewUnavailable("This share is unavailable.");
-    const d = snap.data();
-    if (d.active === false) return shareViewUnavailable("This share is unavailable.");
-    shareViewRender(d);
+    db.collection('shares').doc(id).onSnapshot(snap => {
+      const d = (snap && snap.exists) ? snap.data() : null;
+      if (!d || d.active === false) {
+        if (!first) window.svStop();
+        shareViewUnavailable("This share is unavailable.");
+        first = false; return;
+      }
+      if (first) { shareViewRender(d); first = false; }
+      else shareViewApply(d);
+    }, e => { console.warn('[shareView]', e); if (first) { shareViewUnavailable("This share couldn't be loaded."); first = false; } });
   } catch (e) { console.warn('[shareView]', e); shareViewUnavailable("This share couldn't be loaded."); }
 }
 function shareViewBoot() {
@@ -3573,9 +3581,8 @@ function shareViewBoot() {
 // ── Share viewer state ──
 let _svTakes = [], _svIdx = -1, _svCtx = null, _svSource = null, _svBuffers = {}, _svPeaks = {}, _svRaf = null, _svPlayhead = 0, _svStartCtx = 0, _svLyricsIdx = -1;
 
-function shareViewRender(d) {
-  _svTakes = (d.takes || []).filter(t => t.downloadUrl);
-  const rows = _svTakes.map((t, i) => `
+function _svListHtml() {
+  return _svTakes.map((t, i) => `
     <div class="sv-row" data-i="${i}">
       <div class="sv-main">
         <button class="sv-play" data-i="${i}" onclick="svRowPlay(${i})" aria-label="Play">▶</button>
@@ -3585,14 +3592,52 @@ function shareViewRender(d) {
         </div>
       </div>
     </div>`).join('');
+}
+function shareViewRender(d) {
+  _svTakes = (d.takes || []).filter(t => t.downloadUrl);
+  const name = d.name && String(d.name).trim() ? _esc(d.name) : '';
   document.getElementById('shareViewer').innerHTML =
-    `<div class="sv-header"><div class="sv-brand">Drafthaus</div><div class="sv-sub">Shared with you</div><a class="sv-make" href="./">Make your own →</a></div>` +
+    `<div class="sv-header"><div class="sv-brand">Drafthaus</div><div class="sv-trayname">${name}</div><div class="sv-sub">Shared with you</div><a class="sv-make" href="./">Make your own →</a></div>` +
     `<div class="sv-2col">` +
-      `<div class="sv-col-list">${rows || '<div class="sv-msg">Nothing shared yet.</div>'}</div>` +
+      `<div class="sv-col-list">${_svListHtml() || '<div class="sv-msg">Nothing shared yet.</div>'}</div>` +
       `<div class="sv-col-lyrics" id="svLyrics"></div>` +
     `</div>`;
   _svLyricsIdx = -1;
   svRenderLyrics();   // shows the hint until a song plays
+}
+function shareViewApply(d) {
+  // Header tray name
+  const tn = document.querySelector('#shareViewer .sv-trayname');
+  if (tn) tn.textContent = d.name && String(d.name).trim() ? d.name : '';
+  // Remember what's playing / shown by takeId
+  const playingId = (_svIdx >= 0 && _svTakes[_svIdx]) ? _svTakes[_svIdx].takeId : null;
+  const lyricsId = (_svLyricsIdx >= 0 && _svTakes[_svLyricsIdx]) ? _svTakes[_svLyricsIdx].takeId : null;
+  const oldTakes = _svTakes, oldBuffers = _svBuffers, oldPeaks = _svPeaks;
+  _svTakes = (d.takes || []).filter(t => t.downloadUrl);
+  // Remap decode caches to new indices by takeId
+  const nb = {}, np = {};
+  _svTakes.forEach((t, ni) => {
+    const oi = oldTakes.findIndex(o => o.takeId === t.takeId);
+    if (oi >= 0) { if (oldBuffers[oi]) nb[ni] = oldBuffers[oi]; if (oldPeaks[oi]) np[ni] = oldPeaks[oi]; }
+  });
+  _svBuffers = nb; _svPeaks = np;
+  // Repaint list column only (header + lyrics column persist)
+  const listEl = document.querySelector('#shareViewer .sv-col-list');
+  if (listEl) listEl.innerHTML = _svListHtml() || '<div class="sv-msg">Nothing shared yet.</div>';
+  // Preserve playing index + keep audio running
+  _svIdx = playingId ? _svTakes.findIndex(t => t.takeId === playingId) : -1;
+  if (_svIdx >= 0) {
+    const i = _svIdx, ctx = _svCtx;
+    if (_svSource) _svSource.onended = () => { if (_svIdx === i) svStop(); };
+    _svUpdateBtns(); _svDraw(i);
+    if (_svRaf) cancelAnimationFrame(_svRaf);
+    if (ctx) { const tick = () => { if (_svIdx !== i) return; _svPlayhead = ctx.currentTime - _svStartCtx; _svDraw(i); _svRaf = requestAnimationFrame(tick); }; _svRaf = requestAnimationFrame(tick); }
+  } else { _svUpdateBtns(); }
+  // Lyrics: re-render at new index if the shown take survived; else leave the DOM untouched
+  const newLyricsIdx = lyricsId ? _svTakes.findIndex(t => t.takeId === lyricsId) : -1;
+  if (lyricsId && newLyricsIdx >= 0) { _svLyricsIdx = newLyricsIdx; svRenderLyrics(); }
+  else if (lyricsId && newLyricsIdx < 0) { _svLyricsIdx = -1; /* keep current lyrics DOM */ }
+  else { _svLyricsIdx = newLyricsIdx; }
 }
 // Right column: lyrics of the last/currently-playing take (persists when stopped),
 // or a hint until the first song is played.
