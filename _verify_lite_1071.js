@@ -230,6 +230,42 @@ function serve() {
   ok(s6.revokedMsg, 'T6 revoked (active:false) shows unavailable');
   ok(s6.missingMsg, 'T6 missing doc shows unavailable');
 
+  // ── Task 6: two-level manager ──
+  const pg6m = await ctx.newPage();
+  await pg6m.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
+  await pg6m.waitForFunction(() => typeof window.openShareManager === 'function', { timeout: 10000 });
+  const s6m = await pg6m.evaluate(async () => {
+    window.shareLoadTrays = () => {};   // no network
+    let copied = null; window.shareCopyTrayLink = (id) => { copied = id; };
+    _shareTrays = [
+      { id: 'TRA', name: 'Band demos', active: true, takes: [{ takeId: 'TK1', songTitle: 'One' }, { takeId: 'TK2', songTitle: 'Two' }] },
+      { id: 'TRB', name: '', active: false, takes: [] },
+    ];
+    openShareManager();
+    const panel = document.getElementById('sharePanel');
+    const panelVisible = getComputedStyle(panel).display !== 'none';
+    const listRows = [...panel.querySelectorAll('.tray-row')];
+    const listShows = listRows.length === 2;
+    const legacyRowName = listRows[1].querySelector('.sm-name').textContent.trim() === 'Shared takes';
+    // Copy Link on the first list row
+    listRows[0].querySelector('.sm-copy-icon').click();
+    const copiedA = copied === 'TRA';
+    // open detail
+    openTrayDetail('TRA');
+    const detailTakes = panel.querySelectorAll('.tray-take').length === 2;
+    const hasReorderList = !!panel.querySelector('.sm-list[data-reorder="tray"][data-tray="TRA"]');
+    const hasHandle = !!panel.querySelector('.tray-take .drag-handle');
+    // back to list
+    shareBackToList();
+    const backToList = panel.querySelectorAll('.tray-row').length === 2;
+    return { panelVisible, listShows, legacyRowName, copiedA, detailTakes, hasReorderList, hasHandle, backToList };
+  });
+  ok(s6m.panelVisible && s6m.listShows, 'T6 manager opens to a visible tray list');
+  ok(s6m.legacyRowName, 'T6 nameless tray row shows "Shared takes"');
+  ok(s6m.copiedA, 'T6 Copy Link on a list row copies that tray');
+  ok(s6m.detailTakes && s6m.hasReorderList && s6m.hasHandle, 'T6 tray detail lists drag-reorderable takes');
+  ok(s6m.backToList, 'T6 back arrow returns to the tray list');
+
   // ── Task 7: viewer rows + lyrics expand + auto-advance wiring ──
   const pg7 = await ctx.newPage();
   await pg7.goto(`http://localhost:${port}/lite-1.071.html?share=ABC`, { waitUntil: 'domcontentloaded' });
@@ -350,16 +386,16 @@ function serve() {
   await pg9b.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
   await pg9b.waitForFunction(() => typeof window.renderShareManager === 'function', { timeout: 10000 });
   const s9b = await pg9b.evaluate(() => {
-    _shareId = 'SH9B';
-    _shareActive = true;
-    _shareTakes = [{ takeId: 'TKXSS', songTitle: '<script>alert(99)</script>' }];
+    window.shareLoadTrays = () => {};
+    _shareTrays = [{ id: 'SH9B', name: '', active: true, takes: [{ takeId: 'TKXSS', songTitle: '<script>alert(99)</script>' }] }];
+    _shareOpenTrayId = 'SH9B';
     // Force the panel visible so renderShareManager renders.
     const panel = document.getElementById('sharePanel');
     if (panel) panel.style.display = 'flex';
     renderShareManager();
-    const list = document.getElementById('smList');
-    const noLiveScript = list && list.querySelector('script') === null;
-    const textEscaped = list && list.textContent.includes('<script>');
+    const body = document.getElementById('smBody');
+    const noLiveScript = body && body.querySelector('script') === null;
+    const textEscaped = body && body.textContent.includes('<script>');
     return { noLiveScript, textEscaped };
   });
   ok(s9b.noLiveScript, 'T9 renderShareManager: <script> title does not inject a live script element');

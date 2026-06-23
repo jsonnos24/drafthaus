@@ -197,6 +197,18 @@ body.export-select .lg-sel-export, body.export-select .lg-sel-clear, body.export
 .tp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-new { color: var(--tint); font-weight: 600; border-top: 1px solid var(--border); margin-top: 2px; }
 .tp-empty { color: var(--text-2); font-size: 13px; padding: 10px 8px; }
+/* ── Share manager two-level ── */
+.sm-list-head { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.sm-newtray { background: var(--tint); color: #fff; border-radius: 8px; padding: 7px 12px; font-weight: 600; }
+.tray-row { cursor: pointer; gap: 10px; }
+.sm-count { color: var(--text-2); font-size: 13px; min-width: 18px; text-align: right; }
+.sm-copy-icon { font-size: 16px; padding: 4px; }
+.sm-detail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.sm-back { font-size: 20px; color: var(--text); padding: 2px 6px; }
+.sm-name-input { flex: 1; background: transparent; border: none; border-bottom: 1.5px solid var(--border); font-size: 16px; font-weight: 700; color: var(--text); padding: 4px 2px; }
+.sm-name-input:focus { outline: none; border-bottom-color: var(--tint); }
+.sm-delete { color: var(--red, #ff3b30); font-size: 14px; margin-left: auto; }
+.tray-take { gap: 10px; }
 /* ── Share viewer (public read-only) ── */
 .share-viewer { display: none; }
 body.share-view #landing, body.share-view #app, body.share-view #sharePanel { display: none !important; }
@@ -3382,14 +3394,63 @@ function _shareSnapshot(take, song) {
     duration: take.duration || 0, mimeType: take.mimeType || '', addedAt: Date.now(),
   };
 }
-function openShareManager() { shareEnsureDoc().catch(() => {}); document.getElementById('sharePanel').style.display = 'flex'; renderShareManager(); }
-function closeShareManager() { document.getElementById('sharePanel').style.display = 'none'; }
+function openShareManager() { _shareOpenTrayId = null; shareLoadTrays(); document.getElementById('sharePanel').style.display = 'flex'; renderShareManager(); }
+function closeShareManager() { document.getElementById('sharePanel').style.display = 'none'; _shareOpenTrayId = null; }
+function openTrayDetail(id) { _shareOpenTrayId = id; renderShareManager(); }
+function shareBackToList() { _shareOpenTrayId = null; renderShareManager(); }
 function renderShareManager() {
   const panel = document.getElementById('sharePanel'); if (!panel || panel.style.display === 'none') return;
-  const chk = document.getElementById('smActive'); if (chk) chk.checked = _shareActive;
-  const list = document.getElementById('smList'); if (!list) return;
-  if (!_shareTakes.length) { list.innerHTML = '<div class="sm-empty">No shared takes yet. Open a song and tap the share icon on a take.</div>'; return; }
-  list.innerHTML = _shareTakes.map(t => `<div class="sm-row" data-id="${t.takeId}"><span class="sm-name">${_esc(t.songTitle || 'Untitled')}</span><button class="sm-remove" onclick="shareRemoveTake('${t.takeId}')" aria-label="Remove">Remove</button></div>`).join('');
+  const body = document.getElementById('smBody'); if (!body) return;
+  const titleEl = document.getElementById('smTitle');
+  if (_shareOpenTrayId === null) {
+    if (titleEl) titleEl.textContent = 'My Shared Takes';
+    body.innerHTML = renderTrayList();
+  } else {
+    const tr = _shareTrays.find(t => t.id === _shareOpenTrayId);
+    if (!tr) { _shareOpenTrayId = null; if (titleEl) titleEl.textContent = 'My Shared Takes'; body.innerHTML = renderTrayList(); return; }
+    if (titleEl) titleEl.textContent = _trayName(tr);
+    body.innerHTML = renderTrayDetail(tr);
+  }
+}
+function renderTrayList() {
+  const head = `<div class="sm-list-head"><button class="sm-newtray" onclick="shareManagerNewTray()">＋ New tray</button></div>`;
+  if (!_shareTrays.length) return head + '<div class="sm-empty">No share trays yet. Open a song and tap the share icon on a take.</div>';
+  const rows = _shareTrays.map(tr => `
+    <div class="sm-row tray-row" onclick="openTrayDetail('${tr.id}')">
+      <span class="sm-name">${_esc(_trayName(tr))}</span>
+      <span class="sm-count">${(tr.takes || []).length}</span>
+      <button class="sm-copy-icon" onclick="event.stopPropagation();shareCopyTrayLink('${tr.id}')" aria-label="Copy link" title="Copy link">🔗</button>
+      <label class="sm-toggle" onclick="event.stopPropagation()"><input type="checkbox" ${tr.active ? 'checked' : ''} onchange="shareSetTrayActive('${tr.id}', this.checked)"> <span>On</span></label>
+    </div>`).join('');
+  return head + `<div class="sm-list">${rows}</div>`;
+}
+function renderTrayDetail(tr) {
+  const takes = (tr.takes || []).map((t, i) => `
+    <div class="sm-row tray-take" data-id="${t.takeId}" data-idx="${i}">
+      <span class="drag-handle" aria-label="Reorder">⠿</span>
+      <span class="sm-name">${_esc(t.songTitle || 'Untitled')}</span>
+      <button class="sm-remove" onclick="shareRemoveTakeFromTray('${tr.id}','${t.takeId}')" aria-label="Remove">Remove</button>
+    </div>`).join('');
+  return `
+    <div class="sm-detail-head">
+      <button class="sm-back" onclick="shareBackToList()" aria-label="Back">←</button>
+      <input class="sm-name-input" value="${_esc(_trayName(tr))}" onchange="shareRenameTray('${tr.id}', this.value)">
+    </div>
+    <div class="sm-link-row">
+      <button class="sm-copy" onclick="shareCopyTrayLink('${tr.id}')">Copy Link</button>
+      <label class="sm-toggle"><input type="checkbox" ${tr.active ? 'checked' : ''} onchange="shareSetTrayActive('${tr.id}', this.checked)"> <span>Link on</span></label>
+      <button class="sm-delete" onclick="shareManagerDeleteTray('${tr.id}')">Delete</button>
+    </div>
+    <div class="sm-list" data-reorder="tray" data-tray="${tr.id}">${takes || '<div class="sm-empty">No takes in this tray yet.</div>'}</div>`;
+}
+function shareManagerNewTray() {
+  const name = prompt('Tray name', ''); if (name == null) return;
+  shareCreateTray(name.trim()).then(id => { if (id) openTrayDetail(id); });
+}
+function shareManagerDeleteTray(id) {
+  if (!confirm('Delete this tray? Its share link will stop working.')) return;
+  shareDeleteTray(id);
+  shareBackToList();
 }
 let _pickerTakeId = null;
 function openTrayPicker(takeId, btnEl) {
@@ -3619,9 +3680,8 @@ shareViewBoot();
 </script>
 <div id="sharePanel" class="share-panel" style="display:none;" onclick="if(event.target===this)closeShareManager()">
   <div class="sm-card">
-    <div class="sm-head"><span class="sm-title">My Shared Takes</span><button class="sm-x" onclick="closeShareManager()" aria-label="Close">✕</button></div>
-    <div class="sm-link-row"><button class="sm-copy" onclick="shareCopyLink()">Copy Link</button><label class="sm-toggle"><input type="checkbox" id="smActive" onchange="shareSetActive(this.checked)"> <span>Link on</span></label></div>
-    <div id="smList" class="sm-list"></div>
+    <div class="sm-head"><span class="sm-title" id="smTitle">My Shared Takes</span><button class="sm-x" onclick="closeShareManager()" aria-label="Close">✕</button></div>
+    <div id="smBody"></div>
   </div>
 </div>
 <div id="shareViewer" class="share-viewer"></div>
