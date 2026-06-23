@@ -189,6 +189,14 @@ body.export-select .lg-sel-export, body.export-select .lg-sel-clear, body.export
 .sm-name { font-size: 15px; }
 .sm-remove { color: var(--red, #ff3b30); font-size: 14px; }
 .sm-empty { color: var(--text-2); font-size: 14px; padding: 12px 0; }
+.tray-picker-back { position: fixed; inset: 0; z-index: 9100; }
+.tray-picker { background: var(--bg-elev); border-radius: 12px; box-shadow: var(--shadow-lg); padding: 6px; width: 224px; max-height: 50vh; overflow-y: auto; }
+.tp-row { display: flex; align-items: center; gap: 8px; padding: 9px 8px; border-radius: 8px; cursor: pointer; font-size: 15px; }
+.tp-row:active { background: var(--bg-2, rgba(127,127,127,0.12)); }
+.tp-check { width: 16px; color: var(--tint); font-weight: 700; flex: none; text-align: center; }
+.tp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-new { color: var(--tint); font-weight: 600; border-top: 1px solid var(--border); margin-top: 2px; }
+.tp-empty { color: var(--text-2); font-size: 13px; padding: 10px 8px; }
 /* ── Share viewer (public read-only) ── */
 .share-viewer { display: none; }
 body.share-view #landing, body.share-view #app, body.share-view #sharePanel { display: none !important; }
@@ -1606,7 +1614,7 @@ function _takeRow(t, isPinned) {
           <div class="sub">${info}${statusSub}</div>
         </div>
         ${retryBtn}
-        <button class="take-share ${shareIsShared(t.id) ? 'on' : ''}" onclick="takeShareToggle('${t.id}', event)" title="${shareIsShared(t.id) ? 'Shared — tap to remove' : 'Add to share link'}" aria-label="Share take">${SHARE_SVG}</button>
+        <button class="take-share ${shareIsShared(t.id) ? 'on' : ''}" onclick="event.stopPropagation(); openTrayPicker('${t.id}', this)" title="${shareIsShared(t.id) ? 'Shared — manage trays' : 'Add to a share tray'}" aria-label="Share take">${SHARE_SVG}</button>
         <button class="take-edit" onclick="startRename('${t.id}', this.closest('.take-card').querySelector('.nm'), event)" title="Rename take" aria-label="Rename take">${PENCIL_SVG}</button>
         <button class="loop ${looping ? 'on' : ''}" onclick="toggleLoop('${t.id}',event)" aria-label="Loop">${LOOP_SVG}</button>
         <button class="take-pin-desktop" onclick="toggleTakePin('${t.id}',event)" title="${isPinned ? 'Unpin' : 'Pin'}" style="opacity:${isPinned ? 1 : 0.4}">📌</button>
@@ -1637,13 +1645,6 @@ async function toggleTakePin(id, ev) {
 }
 function toggleTakes() { document.getElementById('takesPanel').classList.toggle('open'); wfRender(); }
 function selectTake(id) { _loadedTakeId = id; renderTakes(); updateRail(); wfLoad(_takes.find(t => t.id === id)); }
-function takeShareToggle(id, ev) {
-  if (ev) ev.stopPropagation();
-  const t = _takes.find(x => x.id === id); if (!t) return;
-  if (shareIsShared(id)) shareRemoveTake(id);
-  else if (!t.downloadUrl) toast('Still uploading — try again in a moment', 2400);
-  else shareAddTake(t);
-}
 function retryTake(id, ev) { if (ev) ev.stopPropagation(); _syncAnnounce = false; liteSyncDrain(); }
 function updateRail() {
   const nameEl = document.getElementById('railTakeName');
@@ -3390,6 +3391,58 @@ function renderShareManager() {
   if (!_shareTakes.length) { list.innerHTML = '<div class="sm-empty">No shared takes yet. Open a song and tap the share icon on a take.</div>'; return; }
   list.innerHTML = _shareTakes.map(t => `<div class="sm-row" data-id="${t.takeId}"><span class="sm-name">${_esc(t.songTitle || 'Untitled')}</span><button class="sm-remove" onclick="shareRemoveTake('${t.takeId}')" aria-label="Remove">Remove</button></div>`).join('');
 }
+let _pickerTakeId = null;
+function openTrayPicker(takeId, btnEl) {
+  closeTrayPicker();
+  _pickerTakeId = takeId;
+  shareLoadTrays();
+  const back = document.createElement('div');
+  back.id = 'trayPicker'; back.className = 'tray-picker-back';
+  back.onclick = (e) => { if (e.target === back) closeTrayPicker(); };
+  back.innerHTML = '<div class="tray-picker"></div>';
+  document.body.appendChild(back);
+  const pop = back.querySelector('.tray-picker');
+  if (btnEl && pop && btnEl.getBoundingClientRect) {
+    const r = btnEl.getBoundingClientRect();
+    pop.style.position = 'fixed';
+    pop.style.top = Math.min(r.bottom + 6, window.innerHeight - 60) + 'px';
+    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 232)) + 'px';
+  }
+  renderTrayPicker();
+  document.addEventListener('keydown', _trayPickerEsc);
+}
+function _trayPickerEsc(e) { if (e.key === 'Escape') closeTrayPicker(); }
+function closeTrayPicker() {
+  const el = document.getElementById('trayPicker'); if (el) el.remove();
+  _pickerTakeId = null;
+  document.removeEventListener('keydown', _trayPickerEsc);
+}
+function renderTrayPicker() {
+  const back = document.getElementById('trayPicker'); if (!back) return;
+  const pop = back.querySelector('.tray-picker'); if (!pop) return;
+  const takeId = _pickerTakeId;
+  const inTrays = shareTraysFor(takeId);
+  const rows = _shareTrays.map(tr =>
+    `<div class="tp-row" onclick="trayPickerToggle('${tr.id}')"><span class="tp-check">${inTrays.includes(tr.id) ? '✓' : ''}</span><span class="tp-name">${_esc(_trayName(tr))}</span></div>`
+  ).join('');
+  pop.innerHTML = (rows || '<div class="tp-empty">No trays yet</div>') +
+    `<div class="tp-row tp-new" onclick="trayPickerNew()">＋ New tray…</div>`;
+}
+function trayPickerToggle(trayId) {
+  const takeId = _pickerTakeId; if (!takeId) return;
+  if (shareTraysFor(takeId).includes(trayId)) shareRemoveTakeFromTray(trayId, takeId);
+  else { const t = (_takes || []).find(x => x.id === takeId); if (t) shareAddTakeToTray(trayId, t); }
+  renderTrayPicker();
+}
+async function trayPickerNew() {
+  const name = prompt('Tray name', ''); if (name == null) return;
+  const id = await shareCreateTray(name.trim());
+  const takeId = _pickerTakeId;
+  const t = takeId && (_takes || []).find(x => x.id === takeId);
+  if (id && t) shareAddTakeToTray(id, t);
+  renderTrayPicker();
+}
+
 let _shareRefreshTimer = null;
 function shareRefreshSoon() { clearTimeout(_shareRefreshTimer); _shareRefreshTimer = setTimeout(() => { shareRefresh().catch(() => {}); }, 1500); }
 async function shareRefresh() {

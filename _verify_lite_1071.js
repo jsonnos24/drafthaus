@@ -170,50 +170,38 @@ function serve() {
   ok(s4.a && s4.a.length === 1 && s4.a[0].id === 'TK1', 'T4 shareRefresh drops a take whose song is gone');
   ok(s4.a && s4.a[0].title === 'New Title' && s4.a[0].ly === '<div>NEW</div>', 'T4 shareRefresh re-snapshots title + lyrics');
 
-  // ── Task 4x (old): per-take share toggle button ──
-  const pg4x = await ctx.newPage();
-  await pg4x.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
-  await pg4x.waitForFunction(() => typeof window.takeShareToggle === 'function', { timeout: 10000 });
-  const s4x = await pg4x.evaluate(() => {
-    // Render a take row directly via renderTakes with a stubbed _takes/_loadedTakeId.
-    let added = null, removed = null;
-    shareAddTake = async (t) => { added = t.id; _shareTakes = [{ takeId: t.id }]; };
-    shareRemoveTake = async (id) => { removed = id; _shareTakes = []; };
-    _currentSong = { id: 'S1', title: 'S', lyricsDoc: '' };
-    _takes = [{ id: 'TK1', downloadUrl: 'u', duration: 4, mimeType: 'audio/mp3', createdAt: { toMillis: () => 1 } }];
-    _loadedTakeId = 'TK1';
-    renderTakes();
-    const btn = document.querySelector('.take-card[data-id="TK1"] .take-share, .take-row[data-id="TK1"] .take-share');
-    const present = !!btn;
-    if (btn) btn.click();
-    return { present, added };
-  });
-  ok(s4x.present, 'T4 take row has a .take-share button');
-  ok(s4x.added === 'TK1', 'T4 tapping share adds the take to the tray');
-
-  // ── Task 5: share manager panel ──
+  // ── Task 5: per-take tray picker ──
   const pg5 = await ctx.newPage();
   await pg5.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
-  await pg5.waitForFunction(() => typeof window.openShareManager === 'function', { timeout: 10000 });
-  const s5 = await pg5.evaluate(async () => {
-    shareEnsureDoc = async () => { _shareId = 'SH'; return 'SH'; };  // avoid network
-    let copied = null;
-    navigator.clipboard.writeText = (s) => { copied = s; return Promise.resolve(); };
-    _shareId = 'SH';
-    _shareTakes = [{ takeId: 'TK1', songTitle: 'Song A', duration: 12 }, { takeId: 'TK2', songTitle: 'Song B', duration: 30 }];
-    _shareActive = true;
-    openShareManager();
-    const panel = document.getElementById('sharePanel');
-    const open = panel && getComputedStyle(panel).display !== 'none';
-    const rows = document.querySelectorAll('#sharePanel .sm-row').length;
-    await shareCopyLink();
-    const hdrBtn = !!document.querySelector('.lg-actions .lg-share');
-    return { open, rows, copied, copiedOK: /\?share=SH$/.test(copied || ''), hdrBtn };
+  await pg5.waitForFunction(() => typeof window.openTrayPicker === 'function', { timeout: 10000 });
+  const s5 = await pg5.evaluate(() => {
+    const calls = [];
+    window.shareAddTakeToTray = (id, take) => calls.push(['add', id, take.id]);
+    window.shareRemoveTakeFromTray = (id, takeId) => calls.push(['remove', id, takeId]);
+    window.shareLoadTrays = () => {};   // no network
+    _takes = [{ id: 'TK1', downloadUrl: 'https://a/b' }];
+    _shareTrays = [
+      { id: 'TRA', name: 'Band demos', active: true, takes: [{ takeId: 'TK1' }] },
+      { id: 'TRB', name: 'Mix feedback', active: true, takes: [] },
+    ];
+    const btn = document.createElement('button'); document.body.appendChild(btn);
+    openTrayPicker('TK1', btn);
+    const pop = document.getElementById('trayPicker');
+    const visible = pop && getComputedStyle(pop).display !== 'none';
+    const rows = [...pop.querySelectorAll('.tp-row:not(.tp-new)')];
+    const checks = rows.map(r => r.querySelector('.tp-check').textContent.trim());  // ['✓','']
+    const hasNew = !!pop.querySelector('.tp-new');
+    trayPickerToggle('TRB');   // not in TRB → add
+    trayPickerToggle('TRA');   // in TRA → remove
+    const escEvt = new KeyboardEvent('keydown', { key: 'Escape' }); document.dispatchEvent(escEvt);
+    const closed = !document.getElementById('trayPicker');
+    return { visible, checks, hasNew, calls, closed };
   });
-  ok(s5.hdrBtn, 'T5 header has a .lg-share button');
-  ok(s5.open, 'T5 openShareManager shows #sharePanel');
-  ok(s5.rows === 2, 'T5 manager lists one row per tray take');
-  ok(s5.copiedOK, 'T5 shareCopyLink copies the share URL');
+  ok(s5.visible, 'T5 openTrayPicker shows a fixed popover');
+  ok(s5.checks[0] === '✓' && s5.checks[1] === '', 'T5 picker shows ✓ only for trays the take is in');
+  ok(s5.hasNew, 'T5 picker has a "+ New tray…" row');
+  ok(JSON.stringify(s5.calls) === JSON.stringify([['add','TRB','TK1'],['remove','TRA','TK1']]), 'T5 toggling calls add/remove correctly');
+  ok(s5.closed, 'T5 Esc closes the picker');
 
   // ── Task 6: viewer routing + unavailable ──
   const pg6 = await ctx.newPage();
