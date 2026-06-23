@@ -71,47 +71,64 @@ function serve() {
   ok(s1.forT1 === 'TRA' && s1.forT2 === 'TRA,TRB', 'T1 shareTraysFor finds membership across trays');
   ok(s1.sharedT1 && !s1.sharedNone, 'T1 shareIsShared true in ≥1 tray, false otherwise');
 
-  // ── Task 2: owner data layer with a stubbed shares doc ──
+  // ── Task 2: tray data layer with a stubbed shares query+docs ──
   const pg2 = await ctx.newPage();
   await pg2.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
-  await pg2.waitForFunction(() => typeof window.shareAddTake === 'function', { timeout: 10000 });
+  await pg2.waitForFunction(() => typeof window.shareCreateTray === 'function', { timeout: 10000 });
   const s2 = await pg2.evaluate(async () => {
-    // In-memory fake of the one shares doc.
-    let store = { exists: false, data: { takes: [], active: true, ownerId: 'U1' } };
-    let listener = null;
-    const fakeDocRef = {
-      id: 'SHID',
-      get: async () => ({ exists: store.exists, data: () => store.data }),
-      set: (obj, opt) => { store.exists = true; store.data = opt && opt.merge ? Object.assign({}, store.data, obj) : obj; if (listener) listener({ exists: true, data: () => store.data }); return Promise.resolve(); },
-      onSnapshot: (cb) => { listener = cb; cb({ exists: store.exists, data: () => store.data }); return () => { listener = null; }; },
-    };
+    // In-memory fake of the shares collection: many docs keyed by id.
+    const docs = {};                 // id -> {data}
+    let qListener = null;
+    function emit() { if (qListener) qListener({ docs: Object.keys(docs).map(id => ({ id, data: () => docs[id] })) }); }
+    const mkDocRef = (id) => ({
+      id,
+      set: (obj, opt) => { docs[id] = opt && opt.merge ? Object.assign({}, docs[id] || {}, obj) : obj; emit(); return Promise.resolve(); },
+      delete: () => { delete docs[id]; emit(); return Promise.resolve(); },
+    });
     const fakeShares = {
-      doc: () => fakeDocRef,
-      where: () => ({ limit: () => ({ get: async () => ({ empty: true, docs: [] }) }) }),
+      doc: (id) => mkDocRef(id || ('GEN' + Object.keys(docs).length)),
+      where: () => ({ onSnapshot: (cb) => { qListener = cb; emit(); return () => { qListener = null; }; } }),
     };
     const realCollection = db.collection.bind(db);
     db.collection = (name) => name === 'shares' ? fakeShares : realCollection(name);
-    Object.defineProperty(auth, 'currentUser', { get: () => ({ uid: 'U1', isAnonymous: false }), configurable: true });  // uid() reads this
+    Object.defineProperty(auth, 'currentUser', { get: () => ({ uid: 'U1', isAnonymous: false }), configurable: true });
     _currentSong = { id: 'S1', title: 'Song One', lyricsDoc: '<div>La</div>' };
+    window._fakeShareDocs = docs;
+
+    shareLoadTrays();
+    const idA = await shareCreateTray('Band demos');
+    const idB = await shareCreateTray('');           // nameless on purpose
+    const listedNames = _shareTrays.map(t => t.name).join('|'); // 'Band demos|' (trays already sorted by _trayName)
+    const legacyDisplay = _trayName(_shareTrays.find(t => t.id === idB)) === 'Shared takes';
 
     const take = { id: 'TK1', downloadUrl: 'https://a/b', duration: 9, mimeType: 'audio/mp3' };
-    await shareAddTake(take);
-    const afterAdd = { shared: shareIsShared('TK1'), n: _shareTakes.length, title: _shareTakes[0] && _shareTakes[0].songTitle };
-    await shareAddTake(take);                 // dedupe
-    const afterDup = _shareTakes.length;
-    await shareSetActive(false);
-    const activeFlag = _shareActive;
-    await shareRemoveTake('TK1');
-    const afterRemove = { shared: shareIsShared('TK1'), n: _shareTakes.length };
-    const noUrlBlocked = await shareAddTake({ id: 'TK2', duration: 3 }).then(() => shareIsShared('TK2'));
-    return { afterAdd, afterDup, activeFlag, afterRemove, noUrlBlocked };
+    shareAddTakeToTray(idA, take);
+    shareAddTakeToTray(idB, take);                    // same take in two trays
+    const inBoth = shareTraysFor('TK1').sort().join(',') === [idA, idB].sort().join(',');
+    shareAddTakeToTray(idA, take);                    // dedupe
+    const dedup = _shareTrays.find(t => t.id === idA).takes.length === 1;
+    shareRemoveTakeFromTray(idA, 'TK1');              // remove from A only
+    const removedAOnly = !shareTraysFor('TK1').includes(idA) && shareTraysFor('TK1').includes(idB);
+    shareRenameTray(idB, 'Mix feedback');
+    const renamed = docs[idB].name === 'Mix feedback';
+    shareSetTrayActive(idA, false);
+    const deactivated = docs[idA].active === false && _shareTrays.find(t => t.id === idA).active === false;
+    shareDeleteTray(idA);
+    const deleted = !docs[idA] && !_shareTrays.some(t => t.id === idA);
+    const noUrlBlocked = (shareAddTakeToTray(idB, { id: 'TK2', duration: 3 }), !shareTraysFor('TK2').includes(idB));
+    return { listedNames, legacyDisplay, inBoth, dedup, removedAOnly, renamed, deactivated, deleted, noUrlBlocked,
+             createCount: Object.keys(docs).length, ownerOnDoc: docs[idB].ownerId === 'U1' };
   });
-  ok(s2.afterAdd.shared && s2.afterAdd.n === 1, 'T2 shareAddTake adds + shareIsShared true');
-  ok(s2.afterAdd.title === 'Song One', 'T2 added entry carries song title snapshot');
-  ok(s2.afterDup === 1, 'T2 shareAddTake dedupes by takeId');
-  ok(s2.activeFlag === false, 'T2 shareSetActive(false) flips _shareActive');
-  ok(!s2.afterRemove.shared && s2.afterRemove.n === 0, 'T2 shareRemoveTake removes the entry');
-  ok(s2.noUrlBlocked === false, 'T2 shareAddTake refuses a take with no downloadUrl');
+  ok(s2.listedNames === 'Band demos|', 'T2 shareLoadTrays lists multiple trays sorted');
+  ok(s2.legacyDisplay, 'T2 nameless tray displays as "Shared takes"');
+  ok(s2.ownerOnDoc, 'T2 created tray doc carries ownerId');
+  ok(s2.inBoth, 'T2 a take can live in two trays at once');
+  ok(s2.dedup, 'T2 shareAddTakeToTray dedupes by takeId within a tray');
+  ok(s2.removedAOnly, 'T2 remove from one tray leaves the other untouched');
+  ok(s2.renamed, 'T2 shareRenameTray writes name');
+  ok(s2.deactivated, 'T2 shareSetTrayActive(false) flips active');
+  ok(s2.deleted, 'T2 shareDeleteTray removes doc + local entry');
+  ok(s2.noUrlBlocked, 'T2 add refuses a take with no downloadUrl');
 
   // ── Task 3: shareRefresh re-snapshots from _songs/_takes ──
   const pg3 = await ctx.newPage();

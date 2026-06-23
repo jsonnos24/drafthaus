@@ -3298,6 +3298,73 @@ function shareCopyTrayLink(id) {
 }
 function shareTraysFor(takeId) { return _shareTrays.filter(tr => (tr.takes || []).some(t => t.takeId === takeId)).map(tr => tr.id); }
 function shareIsShared(takeId) { return shareTraysFor(takeId).length > 0; }
+function shareLoadTrays() {
+  const u = uid(); if (!u) return;
+  if (_shareUnsub) return;   // single-flight; listener already live for the session
+  _shareUnsub = db.collection('shares').where('ownerId', '==', u).onSnapshot(qs => {
+    _shareTrays = qs.docs.map(doc => {
+      const d = doc.data() || {};
+      return { id: doc.id, name: d.name || '', active: d.active !== false, takes: Array.isArray(d.takes) ? d.takes : [] };
+    }).sort((a, b) => _trayName(a).localeCompare(_trayName(b)));
+    _shareTraysLoaded = true;
+    if (typeof renderTakes === 'function') renderTakes();
+    if (typeof renderShareManager === 'function') renderShareManager();
+    if (typeof renderTrayPicker === 'function') renderTrayPicker();
+  }, e => console.warn('[share] trays', e));
+}
+function _shareWriteTray(id, fields) {
+  if (!id) return;
+  db.collection('shares').doc(id).set(Object.assign({ updatedAt: Date.now() }, fields), { merge: true })
+    .catch(e => console.warn('[share] write', e));
+}
+function shareCreateTray(name) {
+  const u = uid(); if (!u) return Promise.resolve(null);
+  const id = shareNewId();
+  _shareTrays = _shareTrays.concat([{ id, name: name || '', active: true, takes: [] }])
+    .sort((a, b) => _trayName(a).localeCompare(_trayName(b)));   // optimistic
+  db.collection('shares').doc(id).set({ ownerId: u, name: name || '', active: true, takes: [], updatedAt: Date.now() })
+    .catch(e => console.warn('[share] create', e));
+  shareLoadTrays();   // ensure the live listener is running so server state reconciles
+  if (typeof renderShareManager === 'function') renderShareManager();
+  return Promise.resolve(id);
+}
+function shareRenameTray(id, name) {
+  const tr = _shareTrays.find(t => t.id === id); if (tr) tr.name = name || '';   // optimistic
+  _shareWriteTray(id, { name: name || '' });
+  if (typeof renderShareManager === 'function') renderShareManager();
+}
+function shareDeleteTray(id) {
+  _shareTrays = _shareTrays.filter(t => t.id !== id);                 // optimistic
+  if (_shareOpenTrayId === id) _shareOpenTrayId = null;
+  db.collection('shares').doc(id).delete().catch(e => console.warn('[share] delete', e));
+  if (typeof renderShareManager === 'function') renderShareManager();
+  if (typeof renderTakes === 'function') renderTakes();
+}
+function shareSetTrayActive(id, b) {
+  const tr = _shareTrays.find(t => t.id === id); if (tr) tr.active = !!b;   // optimistic
+  _shareWriteTray(id, { active: !!b });
+  if (typeof renderShareManager === 'function') renderShareManager();
+}
+function shareAddTakeToTray(id, take) {
+  if (!take || !take.downloadUrl) { if (typeof toast === 'function') toast('Still uploading — try again in a moment', 2400); return; }
+  const song = _currentSong; if (!song) return;
+  const tr = _shareTrays.find(t => t.id === id); if (!tr) return;
+  const next = (tr.takes || []).filter(t => t.takeId !== take.id);
+  next.push(_shareSnapshot(take, song));
+  tr.takes = next;                          // optimistic
+  _shareWriteTray(id, { takes: next });
+  if (typeof renderTakes === 'function') renderTakes();
+  if (typeof renderShareManager === 'function') renderShareManager();
+  if (typeof renderTrayPicker === 'function') renderTrayPicker();
+}
+function shareRemoveTakeFromTray(id, takeId) {
+  const tr = _shareTrays.find(t => t.id === id); if (!tr) return;
+  tr.takes = (tr.takes || []).filter(t => t.takeId !== takeId);   // optimistic
+  _shareWriteTray(id, { takes: tr.takes });
+  if (typeof renderTakes === 'function') renderTakes();
+  if (typeof renderShareManager === 'function') renderShareManager();
+  if (typeof renderTrayPicker === 'function') renderTrayPicker();
+}
 function _shareSnapshot(take, song) {
   return {
     takeId: take.id, songId: song.id, songTitle: song.title || 'Untitled',
@@ -3473,7 +3540,7 @@ auth.onAuthStateChanged(user => {
     liteSyncDrain();      // drain any outbox jobs queued during a previous offline session
     liteLyricsDrain();    // reconcile any offline lyric edits
     startSongsListener();
-    shareEnsureDoc().then(() => shareRefreshSoon()).catch(() => {});
+    shareLoadTrays(); shareRefreshSoon();
   } else {
     document.body.classList.remove('signed-in', 'is-guest', 'relogin');
     _liteUsageBytes = 0; liteRenderMeter();
