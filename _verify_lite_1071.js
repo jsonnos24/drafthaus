@@ -147,37 +147,34 @@ function serve() {
   ok(s3.written === 'b,c,a', 'T3 shareReorderTray writes the new takes[] order');
   ok(s3.oob === 'b,c,a', 'T3 shareReorderTray is a no-op on out-of-range index');
 
-  // ── Task 3 (old): shareRefresh re-snapshots from _songs/_takes ──
-  const pg3x = await ctx.newPage();
-  await pg3x.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
-  await pg3x.waitForFunction(() => typeof window.shareRefresh === 'function', { timeout: 10000 });
-  const s3x = await pg3x.evaluate(async () => {
-    let written = null;
-    _shareId = 'SH';
-    _shareWriteTakes = async (takes) => { written = takes; _shareTakes = takes; };  // spy
-    _shareTakes = [
-      { takeId: 'TK1', songId: 'S1', songTitle: 'OLD TITLE', lyricsDoc: '<div>old</div>', downloadUrl: 'u1', duration: 5, mimeType: 'audio/mp3', addedAt: 1 },
-      { takeId: 'TK9', songId: 'GONE', songTitle: 'Ghost', lyricsDoc: '', downloadUrl: 'u9', duration: 2, mimeType: 'audio/mp3', addedAt: 1 },
-    ];
-    _songs = [{ id: 'S1', title: 'NEW TITLE', lyricsDoc: '<div>new</div>' }];
-    _takes = [{ id: 'TK1', downloadUrl: 'u1b', duration: 7, mimeType: 'audio/mp3' }];
-    await shareRefresh();
-    return {
-      n: written && written.length,
-      kept: written && written[0],
-      droppedGhost: written && !written.some(t => t.takeId === 'TK9'),
-    };
-  });
-  ok(s3x.droppedGhost, 'T3 shareRefresh drops entries whose song is gone');
-  ok(s3x.n === 1, 'T3 shareRefresh keeps the live entry only');
-  ok(s3x.kept && s3x.kept.songTitle === 'NEW TITLE' && s3x.kept.lyricsDoc === '<div>new</div>', 'T3 refreshes title + lyrics from _songs');
-  ok(s3x.kept && s3x.kept.downloadUrl === 'u1b' && s3x.kept.duration === 7, 'T3 refreshes audio fields from loaded _takes');
-
-  // ── Task 4: per-take share toggle button ──
+  // ── Task 4: shareRefresh re-snapshots across all trays + drops missing ──
   const pg4 = await ctx.newPage();
   await pg4.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
-  await pg4.waitForFunction(() => typeof window.takeShareToggle === 'function', { timeout: 10000 });
-  const s4 = await pg4.evaluate(() => {
+  await pg4.waitForFunction(() => typeof window.shareRefresh === 'function', { timeout: 10000 });
+  const s4 = await pg4.evaluate(async () => {
+    const writes = {};
+    window._shareWriteTray = (id, fields) => { writes[id] = fields.takes.map(t => ({ id: t.takeId, title: t.songTitle, ly: t.lyricsDoc })); };
+    _songs = [{ id: 'S1', title: 'New Title', lyricsDoc: '<div>NEW</div>' }];   // S2 missing
+    _takes = [{ id: 'TK1', downloadUrl: 'https://a/b', duration: 9, mimeType: 'audio/mp3' }];
+    _shareTrays = [
+      { id: 'TRA', name: 'A', active: true, takes: [
+        { takeId: 'TK1', songId: 'S1', songTitle: 'Old Title', lyricsDoc: '<div>OLD</div>', downloadUrl: 'https://a/b', duration: 9 },
+        { takeId: 'TK9', songId: 'S2', songTitle: 'Gone', lyricsDoc: '', downloadUrl: 'x', duration: 1 },  // song gone → drop
+      ]},
+      { id: 'TRB', name: 'B', active: true, takes: [] },  // empty → untouched
+    ];
+    await shareRefresh();
+    return { wroteA: !!writes['TRA'], wroteB: !!writes['TRB'], a: writes['TRA'] };
+  });
+  ok(s4.wroteA && !s4.wroteB, 'T4 shareRefresh writes only changed trays (skips empty/unchanged)');
+  ok(s4.a && s4.a.length === 1 && s4.a[0].id === 'TK1', 'T4 shareRefresh drops a take whose song is gone');
+  ok(s4.a && s4.a[0].title === 'New Title' && s4.a[0].ly === '<div>NEW</div>', 'T4 shareRefresh re-snapshots title + lyrics');
+
+  // ── Task 4x (old): per-take share toggle button ──
+  const pg4x = await ctx.newPage();
+  await pg4x.goto(`http://localhost:${port}/lite-1.071.html`, { waitUntil: 'domcontentloaded' });
+  await pg4x.waitForFunction(() => typeof window.takeShareToggle === 'function', { timeout: 10000 });
+  const s4x = await pg4x.evaluate(() => {
     // Render a take row directly via renderTakes with a stubbed _takes/_loadedTakeId.
     let added = null, removed = null;
     shareAddTake = async (t) => { added = t.id; _shareTakes = [{ takeId: t.id }]; };
@@ -191,8 +188,8 @@ function serve() {
     if (btn) btn.click();
     return { present, added };
   });
-  ok(s4.present, 'T4 take row has a .take-share button');
-  ok(s4.added === 'TK1', 'T4 tapping share adds the take to the tray');
+  ok(s4x.present, 'T4 take row has a .take-share button');
+  ok(s4x.added === 'TK1', 'T4 tapping share adds the take to the tray');
 
   // ── Task 5: share manager panel ──
   const pg5 = await ctx.newPage();

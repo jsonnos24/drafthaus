@@ -3393,21 +3393,24 @@ function renderShareManager() {
 let _shareRefreshTimer = null;
 function shareRefreshSoon() { clearTimeout(_shareRefreshTimer); _shareRefreshTimer = setTimeout(() => { shareRefresh().catch(() => {}); }, 1500); }
 async function shareRefresh() {
-  if (!_shareId || !_shareTakes.length) return;
-  let changed = false;
-  const next = [];
-  for (const e of _shareTakes) {
-    const song = (_songs || []).find(s => s.id === e.songId);
-    if (!song) { changed = true; continue; }   // song gone → drop
-    const loaded = (_takes || []).find(t => t.id === e.takeId && t.downloadUrl);
-    const ne = Object.assign({}, e);
-    ne.songTitle = song.title || 'Untitled';
-    ne.lyricsDoc = song.lyricsDoc || '';
-    if (loaded) { ne.downloadUrl = loaded.downloadUrl; ne.duration = loaded.duration || 0; ne.mimeType = loaded.mimeType || ne.mimeType; }
-    if (ne.songTitle !== e.songTitle || ne.lyricsDoc !== e.lyricsDoc || ne.downloadUrl !== e.downloadUrl || ne.duration !== e.duration) changed = true;
-    next.push(ne);
+  if (!_shareTrays.length) return;
+  for (const tr of _shareTrays) {
+    if (!(tr.takes || []).length) continue;
+    let changed = false;
+    const next = [];
+    for (const e of tr.takes) {
+      const song = (_songs || []).find(s => s.id === e.songId);
+      if (!song) { changed = true; continue; }   // song gone → drop
+      const loaded = (_takes || []).find(t => t.id === e.takeId && t.downloadUrl);
+      const ne = Object.assign({}, e);
+      ne.songTitle = song.title || 'Untitled';
+      ne.lyricsDoc = song.lyricsDoc || '';
+      if (loaded) { ne.downloadUrl = loaded.downloadUrl; ne.duration = loaded.duration || 0; ne.mimeType = loaded.mimeType || ne.mimeType; }
+      if (ne.songTitle !== e.songTitle || ne.lyricsDoc !== e.lyricsDoc || ne.downloadUrl !== e.downloadUrl || ne.duration !== e.duration) changed = true;
+      next.push(ne);
+    }
+    if (changed) { tr.takes = next; _shareWriteTray(tr.id, { takes: next }); }
   }
-  if (changed) await _shareWriteTakes(next);
 }
 
 // ── Share viewer (public read-only, ?share=<id>) ──
