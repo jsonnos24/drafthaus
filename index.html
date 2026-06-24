@@ -189,12 +189,34 @@ body.export-select .lg-sel-export, body.export-select .lg-sel-clear, body.export
 .sm-name { font-size: 15px; }
 .sm-remove { color: var(--red, #ff3b30); font-size: 14px; }
 .sm-empty { color: var(--text-2); font-size: 14px; padding: 12px 0; }
+.tray-picker-back { position: fixed; inset: 0; z-index: 9100; }
+.tray-picker { background: var(--bg-elev); border-radius: 12px; box-shadow: var(--shadow-lg); padding: 6px; width: 224px; max-height: 50vh; overflow-y: auto; }
+.tp-row { display: flex; align-items: center; gap: 8px; padding: 9px 8px; border-radius: 8px; cursor: pointer; font-size: 15px; }
+.tp-row:active { background: var(--bg-2, rgba(127,127,127,0.12)); }
+.tp-check { width: 16px; color: var(--tint); font-weight: 700; flex: none; text-align: center; }
+.tp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-new { color: var(--tint); font-weight: 600; border-top: 1px solid var(--border); margin-top: 2px; }
+.tp-empty { color: var(--text-2); font-size: 13px; padding: 10px 8px; }
+/* ── Share manager two-level ── */
+.sm-list-head { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.sm-newtray { background: var(--tint); color: #fff; border-radius: 8px; padding: 7px 12px; font-weight: 600; }
+.tray-row { cursor: pointer; gap: 10px; }
+.sm-count { color: var(--text-2); font-size: 13px; min-width: 18px; text-align: right; }
+.sm-copy-icon { font-size: 16px; padding: 4px; }
+.sm-detail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.sm-back { font-size: 20px; color: var(--text); padding: 2px 6px; }
+.sm-name-input { flex: 1; background: transparent; border: none; border-bottom: 1.5px solid var(--border); font-size: 16px; font-weight: 700; color: var(--text); padding: 4px 2px; }
+.sm-name-input:focus { outline: none; border-bottom-color: var(--tint); }
+.sm-delete { color: var(--red, #ff3b30); font-size: 14px; margin-left: auto; }
+.tray-take { gap: 10px; }
 /* ── Share viewer (public read-only) ── */
 .share-viewer { display: none; }
 body.share-view #landing, body.share-view #app, body.share-view #sharePanel { display: none !important; }
 body.share-view .share-viewer { display: block; min-height: 100vh; background: var(--bg); }
 .sv-header { padding: 18px 16px; text-align: center; }
 .sv-brand { font-weight: 800; font-size: 18px; color: var(--text); }
+.sv-trayname { font-weight: 700; font-size: 15px; color: var(--text); margin-top: 4px; }
+.sv-trayname:empty { display: none; }
 .sv-sub { color: var(--text-2); font-size: 13px; margin-top: 2px; }
 .sv-make { display: inline-block; margin-top: 6px; font-size: 13px; color: var(--tint); }
 .sv-msg { padding: 40px 20px; text-align: center; color: var(--text-2); }
@@ -1606,7 +1628,7 @@ function _takeRow(t, isPinned) {
           <div class="sub">${info}${statusSub}</div>
         </div>
         ${retryBtn}
-        <button class="take-share ${shareIsShared(t.id) ? 'on' : ''}" onclick="takeShareToggle('${t.id}', event)" title="${shareIsShared(t.id) ? 'Shared — tap to remove' : 'Add to share link'}" aria-label="Share take">${SHARE_SVG}</button>
+        <button class="take-share ${shareIsShared(t.id) ? 'on' : ''}" onclick="event.stopPropagation(); openTrayPicker('${t.id}', this)" title="${shareIsShared(t.id) ? 'Shared — manage trays' : 'Add to a share tray'}" aria-label="Share take">${SHARE_SVG}</button>
         <button class="take-edit" onclick="startRename('${t.id}', this.closest('.take-card').querySelector('.nm'), event)" title="Rename take" aria-label="Rename take">${PENCIL_SVG}</button>
         <button class="loop ${looping ? 'on' : ''}" onclick="toggleLoop('${t.id}',event)" aria-label="Loop">${LOOP_SVG}</button>
         <button class="take-pin-desktop" onclick="toggleTakePin('${t.id}',event)" title="${isPinned ? 'Unpin' : 'Pin'}" style="opacity:${isPinned ? 1 : 0.4}">📌</button>
@@ -1637,13 +1659,6 @@ async function toggleTakePin(id, ev) {
 }
 function toggleTakes() { document.getElementById('takesPanel').classList.toggle('open'); wfRender(); }
 function selectTake(id) { _loadedTakeId = id; renderTakes(); updateRail(); wfLoad(_takes.find(t => t.id === id)); }
-function takeShareToggle(id, ev) {
-  if (ev) ev.stopPropagation();
-  const t = _takes.find(x => x.id === id); if (!t) return;
-  if (shareIsShared(id)) shareRemoveTake(id);
-  else if (!t.downloadUrl) toast('Still uploading — try again in a moment', 2400);
-  else shareAddTake(t);
-}
 function retryTake(id, ev) { if (ev) ev.stopPropagation(); _syncAnnounce = false; liteSyncDrain(); }
 function updateRail() {
   const nameEl = document.getElementById('railTakeName');
@@ -2885,6 +2900,7 @@ document.addEventListener('pointerdown', (e) => {
   if (!row || !container || !container.dataset.reorder) return;
   e.preventDefault(); e.stopPropagation();
   _reorder = { row, container, type: container.dataset.reorder, pointerId: e.pointerId };
+  if (container.dataset.reorder === 'tray') _reorder.fromIdx = [...container.querySelectorAll(':scope > [data-id]')].indexOf(row);
   row.classList.add('dragging');
   try { handle.setPointerCapture(e.pointerId); } catch (_) {}
 });
@@ -2898,11 +2914,17 @@ document.addEventListener('pointermove', (e) => {
 });
 function _endReorder() {
   if (!_reorder) return;
-  const { row, container, type } = _reorder; row.classList.remove('dragging');
+  const { row, container, type, fromIdx } = _reorder; row.classList.remove('dragging');
   const ids = [...container.querySelectorAll(':scope > [data-id]')].map(el => el.dataset.id);
   _reorder = null;
   if (type === 'songs') _commitOrder('songs', ids);
   else if (type === 'takes') _commitOrder('voice_takes', ids);
+  else if (type === 'tray') {
+    const trayId = container.dataset.tray;
+    const toIdx = ids.indexOf(row.dataset.id);
+    if (fromIdx != null && toIdx >= 0 && toIdx !== fromIdx) shareReorderTray(trayId, fromIdx, toIdx);
+    if (typeof renderShareManager === 'function') renderShareManager();
+  }
 }
 document.addEventListener('pointerup', _endReorder);
 document.addEventListener('pointercancel', _endReorder);
@@ -3278,8 +3300,11 @@ window.addEventListener('focus', () => liteFreshenSong());
 _liteUpdateOnline();
 
 /* ═══════════════════════════ Share (public takes tray) ═══════════════════════════ */
-let _shareId = null, _shareTakes = [], _shareActive = true, _shareUnsub = null, _shareView = false;
-let _shareEnsureInFlight = null;
+let _shareTrays = [];          // [{ id, name, active, takes:[…] }, …] — all of the owner's trays
+let _shareTraysLoaded = false;
+let _shareUnsub = null;        // snapshot listener on the owner's shares query (live)
+let _shareOpenTrayId = null;   // which tray's detail is showing (null = tray-list view)
+let _shareView = false;        // viewer-mode flag (set in shareViewBoot)
 
 function shareNewId() {
   const al = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -3287,8 +3312,89 @@ function shareNewId() {
   let s = ''; for (let i = 0; i < buf.length; i++) s += al[buf[i] % al.length];
   return s;
 }
-function shareLink() {
-  return _shareId ? `${location.origin}${location.pathname}?share=${_shareId}` : '';
+function _trayName(t) { return (t && t.name && String(t.name).trim()) ? t.name : 'Shared takes'; }
+function shareTrayLink(id) { return id ? `${location.origin}${location.pathname}?share=${id}` : ''; }
+function shareCopyTrayLink(id) {
+  const link = shareTrayLink(id); if (!link) return;
+  return navigator.clipboard.writeText(link).then(() => toast('Link copied ✓', 1800)).catch(() => toast(link, 3000));
+}
+function shareTraysFor(takeId) { return _shareTrays.filter(tr => (tr.takes || []).some(t => t.takeId === takeId)).map(tr => tr.id); }
+function shareIsShared(takeId) { return shareTraysFor(takeId).length > 0; }
+function shareLoadTrays() {
+  const u = uid(); if (!u) return;
+  if (_shareUnsub) return;   // single-flight; listener already live for the session
+  _shareUnsub = db.collection('shares').where('ownerId', '==', u).onSnapshot(qs => {
+    _shareTrays = qs.docs.map(doc => {
+      const d = doc.data() || {};
+      return { id: doc.id, name: d.name || '', active: d.active !== false, takes: Array.isArray(d.takes) ? d.takes : [] };
+    }).sort((a, b) => _trayName(a).localeCompare(_trayName(b)));
+    _shareTraysLoaded = true;
+    if (typeof renderTakes === 'function') renderTakes();
+    if (typeof renderShareManager === 'function') renderShareManager();
+    if (typeof renderTrayPicker === 'function') renderTrayPicker();
+  }, e => console.warn('[share] trays', e));
+}
+function _shareWriteTray(id, fields) {
+  if (!id) return;
+  db.collection('shares').doc(id).set(Object.assign({}, fields, { updatedAt: Date.now() }), { merge: true })
+    .catch(e => console.warn('[share] write', e));
+}
+function shareCreateTray(name) {
+  const u = uid(); if (!u) return Promise.resolve(null);
+  const id = shareNewId();
+  _shareTrays = _shareTrays.concat([{ id, name: name || '', active: true, takes: [] }])
+    .sort((a, b) => _trayName(a).localeCompare(_trayName(b)));   // optimistic
+  db.collection('shares').doc(id).set({ ownerId: u, name: name || '', active: true, takes: [], updatedAt: Date.now() })
+    .catch(e => console.warn('[share] create', e));
+  shareLoadTrays();   // ensure the live listener is running so server state reconciles
+  if (typeof renderShareManager === 'function') renderShareManager();
+  return Promise.resolve(id);
+}
+function shareRenameTray(id, name) {
+  const tr = _shareTrays.find(t => t.id === id); if (tr) tr.name = name || '';   // optimistic
+  _shareWriteTray(id, { name: name || '' });
+  if (typeof renderShareManager === 'function') renderShareManager();
+}
+function shareDeleteTray(id) {
+  _shareTrays = _shareTrays.filter(t => t.id !== id);                 // optimistic
+  if (_shareOpenTrayId === id) _shareOpenTrayId = null;
+  db.collection('shares').doc(id).delete().catch(e => console.warn('[share] delete', e));
+  if (typeof renderShareManager === 'function') renderShareManager();
+  if (typeof renderTakes === 'function') renderTakes();
+}
+function shareSetTrayActive(id, b) {
+  const tr = _shareTrays.find(t => t.id === id); if (tr) tr.active = !!b;   // optimistic
+  _shareWriteTray(id, { active: !!b });
+  if (typeof renderShareManager === 'function') renderShareManager();
+}
+function shareAddTakeToTray(id, take) {
+  if (!take || !take.downloadUrl) { if (typeof toast === 'function') toast('Still uploading — try again in a moment', 2400); return; }
+  const song = _currentSong; if (!song) return;
+  const tr = _shareTrays.find(t => t.id === id); if (!tr) return;
+  const next = (tr.takes || []).filter(t => t.takeId !== take.id);
+  next.push(_shareSnapshot(take, song));
+  tr.takes = next;                          // optimistic
+  _shareWriteTray(id, { takes: next });
+  if (typeof renderTakes === 'function') renderTakes();
+  if (typeof renderShareManager === 'function') renderShareManager();
+  if (typeof renderTrayPicker === 'function') renderTrayPicker();
+}
+function shareRemoveTakeFromTray(id, takeId) {
+  const tr = _shareTrays.find(t => t.id === id); if (!tr) return;
+  tr.takes = (tr.takes || []).filter(t => t.takeId !== takeId);   // optimistic
+  _shareWriteTray(id, { takes: tr.takes });
+  if (typeof renderTakes === 'function') renderTakes();
+  if (typeof renderShareManager === 'function') renderShareManager();
+  if (typeof renderTrayPicker === 'function') renderTrayPicker();
+}
+function shareReorderTray(id, fromIdx, toIdx) {
+  const tr = _shareTrays.find(t => t.id === id); if (!tr) return;
+  const arr = (tr.takes || []).slice();
+  if (fromIdx < 0 || fromIdx >= arr.length || toIdx < 0 || toIdx >= arr.length) return;
+  const [moved] = arr.splice(fromIdx, 1);
+  arr.splice(toIdx, 0, moved);
+  tr.takes = arr;                    // optimistic
+  _shareWriteTray(id, { takes: arr });
 }
 function _shareSnapshot(take, song) {
   return {
@@ -3297,104 +3403,137 @@ function _shareSnapshot(take, song) {
     duration: take.duration || 0, mimeType: take.mimeType || '', addedAt: Date.now(),
   };
 }
-function shareSubscribe(id) {
-  if (_shareUnsub) { _shareUnsub(); _shareUnsub = null; }
-  _shareId = id;
-  _shareUnsub = db.collection('shares').doc(id).onSnapshot(snap => {
-    const d = (snap && snap.exists) ? snap.data() : null;
-    _shareTakes = (d && Array.isArray(d.takes)) ? d.takes : [];
-    _shareActive = d ? (d.active !== false) : true;
-    if (typeof renderTakes === 'function') renderTakes();
-    if (typeof renderShareManager === 'function') renderShareManager();
-  }, e => console.warn('[share] snapshot', e));
-}
-async function shareFindExisting() {
-  const u = uid(); if (!u) return null;
-  try {
-    const cached = localStorage['dh-lite-shareId'];
-    if (cached) return cached;
-  } catch (e) {}
-  try {
-    const q = await db.collection('shares').where('ownerId', '==', u).limit(1).get();
-    if (!q.empty) { const id = q.docs[0].id; try { localStorage['dh-lite-shareId'] = id; } catch (e) {} return id; }
-  } catch (e) { console.warn('[share] find', e); }
-  return null;
-}
-function shareEnsureDoc() {
-  if (_shareId) return Promise.resolve(_shareId);
-  if (_shareEnsureInFlight) return _shareEnsureInFlight;
-  _shareEnsureInFlight = (async () => {
-    const u = uid(); if (!u) return null;
-    let id = await shareFindExisting();
-    if (!id) {
-      id = shareNewId();
-      db.collection('shares').doc(id).set({ ownerId: u, active: true, takes: [], updatedAt: Date.now() })
-        .catch(e => console.warn('[share] create', e));
-      try { localStorage['dh-lite-shareId'] = id; } catch (e) {}
-    }
-    shareSubscribe(id);
-    return id;
-  })();
-  try { return _shareEnsureInFlight; }
-  finally { _shareEnsureInFlight.then(() => { _shareEnsureInFlight = null; }, () => { _shareEnsureInFlight = null; }); }
-}
-function shareIsShared(takeId) { return _shareTakes.some(t => t.takeId === takeId); }
-async function _shareWriteTakes(takes) {
-  const id = await shareEnsureDoc(); if (!id) return;
-  _shareTakes = takes;  // optimistic local mirror
-  db.collection('shares').doc(id).set({ takes, updatedAt: Date.now() }, { merge: true })
-    .catch(e => console.warn('[share] write', e));
-  if (typeof renderTakes === 'function') renderTakes();
-  if (typeof renderShareManager === 'function') renderShareManager();
-}
-async function shareAddTake(take) {
-  if (!take || !take.downloadUrl) { if (typeof toast === 'function') toast('Still uploading — try again in a moment', 2400); return; }
-  const song = _currentSong; if (!song) return;
-  const next = _shareTakes.filter(t => t.takeId !== take.id);
-  next.push(_shareSnapshot(take, song));
-  await _shareWriteTakes(next);
-}
-async function shareRemoveTake(takeId) {
-  await _shareWriteTakes(_shareTakes.filter(t => t.takeId !== takeId));
-}
-async function shareSetActive(b) {
-  const id = await shareEnsureDoc(); if (!id) return;
-  _shareActive = !!b;
-  db.collection('shares').doc(id).set({ active: !!b, updatedAt: Date.now() }, { merge: true })
-    .catch(e => console.warn('[share] active', e));
-  if (typeof renderShareManager === 'function') renderShareManager();
-}
-function openShareManager() { shareEnsureDoc().catch(() => {}); document.getElementById('sharePanel').style.display = 'flex'; renderShareManager(); }
-function closeShareManager() { document.getElementById('sharePanel').style.display = 'none'; }
-function shareCopyLink() {
-  const link = shareLink(); if (!link) { toast('Add a take to share first', 2200); return; }
-  return navigator.clipboard.writeText(link).then(() => toast('Link copied ✓', 1800)).catch(() => toast(link, 3000));
-}
+function openShareManager() { _shareOpenTrayId = null; shareLoadTrays(); document.getElementById('sharePanel').style.display = 'flex'; renderShareManager(); }
+function closeShareManager() { document.getElementById('sharePanel').style.display = 'none'; _shareOpenTrayId = null; }
+function openTrayDetail(id) { _shareOpenTrayId = id; renderShareManager(); }
+function shareBackToList() { _shareOpenTrayId = null; renderShareManager(); }
 function renderShareManager() {
   const panel = document.getElementById('sharePanel'); if (!panel || panel.style.display === 'none') return;
-  const chk = document.getElementById('smActive'); if (chk) chk.checked = _shareActive;
-  const list = document.getElementById('smList'); if (!list) return;
-  if (!_shareTakes.length) { list.innerHTML = '<div class="sm-empty">No shared takes yet. Open a song and tap the share icon on a take.</div>'; return; }
-  list.innerHTML = _shareTakes.map(t => `<div class="sm-row" data-id="${t.takeId}"><span class="sm-name">${_esc(t.songTitle || 'Untitled')}</span><button class="sm-remove" onclick="shareRemoveTake('${t.takeId}')" aria-label="Remove">Remove</button></div>`).join('');
+  const body = document.getElementById('smBody'); if (!body) return;
+  const titleEl = document.getElementById('smTitle');
+  if (_shareOpenTrayId === null) {
+    if (titleEl) titleEl.textContent = 'My Shared Takes';
+    body.innerHTML = renderTrayList();
+  } else {
+    const tr = _shareTrays.find(t => t.id === _shareOpenTrayId);
+    if (!tr) { _shareOpenTrayId = null; if (titleEl) titleEl.textContent = 'My Shared Takes'; body.innerHTML = renderTrayList(); return; }
+    if (titleEl) titleEl.textContent = _trayName(tr);
+    body.innerHTML = renderTrayDetail(tr);
+  }
 }
+function renderTrayList() {
+  const head = `<div class="sm-list-head"><button class="sm-newtray" onclick="shareManagerNewTray()">＋ New tray</button></div>`;
+  if (!_shareTrays.length) return head + '<div class="sm-empty">No share trays yet. Open a song and tap the share icon on a take.</div>';
+  const rows = _shareTrays.map(tr => `
+    <div class="sm-row tray-row" onclick="openTrayDetail('${tr.id}')">
+      <span class="sm-name">${_esc(_trayName(tr))}</span>
+      <span class="sm-count">${(tr.takes || []).length}</span>
+      <button class="sm-copy-icon" onclick="event.stopPropagation();shareCopyTrayLink('${tr.id}')" aria-label="Copy link" title="Copy link">🔗</button>
+      <label class="sm-toggle" onclick="event.stopPropagation()"><input type="checkbox" ${tr.active ? 'checked' : ''} onchange="shareSetTrayActive('${tr.id}', this.checked)"> <span>On</span></label>
+    </div>`).join('');
+  return head + `<div class="sm-list">${rows}</div>`;
+}
+function renderTrayDetail(tr) {
+  const takes = (tr.takes || []).map((t, i) => `
+    <div class="sm-row tray-take" data-id="${t.takeId}" data-idx="${i}">
+      <span class="drag-handle" aria-label="Reorder">⠿</span>
+      <span class="sm-name">${_esc(t.songTitle || 'Untitled')}</span>
+      <button class="sm-remove" onclick="shareRemoveTakeFromTray('${tr.id}','${t.takeId}')" aria-label="Remove">Remove</button>
+    </div>`).join('');
+  return `
+    <div class="sm-detail-head">
+      <button class="sm-back" onclick="shareBackToList()" aria-label="Back">←</button>
+      <input class="sm-name-input" value="${_esc(_trayName(tr))}" onchange="shareRenameTray('${tr.id}', this.value)">
+    </div>
+    <div class="sm-link-row">
+      <button class="sm-copy" onclick="shareCopyTrayLink('${tr.id}')">Copy Link</button>
+      <label class="sm-toggle"><input type="checkbox" ${tr.active ? 'checked' : ''} onchange="shareSetTrayActive('${tr.id}', this.checked)"> <span>Link on</span></label>
+      <button class="sm-delete" onclick="shareManagerDeleteTray('${tr.id}')">Delete</button>
+    </div>
+    <div class="sm-list" data-reorder="tray" data-tray="${tr.id}">${takes || '<div class="sm-empty">No takes in this tray yet.</div>'}</div>`;
+}
+function shareManagerNewTray() {
+  const name = prompt('Tray name', ''); if (name == null) return;
+  shareCreateTray(name.trim()).then(id => { if (id) openTrayDetail(id); });
+}
+function shareManagerDeleteTray(id) {
+  if (!confirm('Delete this tray? Its share link will stop working.')) return;
+  shareDeleteTray(id);
+  shareBackToList();
+}
+let _pickerTakeId = null;
+function openTrayPicker(takeId, btnEl) {
+  closeTrayPicker();
+  _pickerTakeId = takeId;
+  shareLoadTrays();
+  const back = document.createElement('div');
+  back.id = 'trayPicker'; back.className = 'tray-picker-back';
+  back.onclick = (e) => { if (e.target === back) closeTrayPicker(); };
+  back.innerHTML = '<div class="tray-picker"></div>';
+  document.body.appendChild(back);
+  const pop = back.querySelector('.tray-picker');
+  if (btnEl && pop && btnEl.getBoundingClientRect) {
+    const r = btnEl.getBoundingClientRect();
+    pop.style.position = 'fixed';
+    pop.style.top = Math.min(r.bottom + 6, window.innerHeight - 60) + 'px';
+    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 232)) + 'px';
+  }
+  renderTrayPicker();
+  document.addEventListener('keydown', _trayPickerEsc);
+}
+function _trayPickerEsc(e) { if (e.key === 'Escape') closeTrayPicker(); }
+function closeTrayPicker() {
+  const el = document.getElementById('trayPicker'); if (el) el.remove();
+  _pickerTakeId = null;
+  document.removeEventListener('keydown', _trayPickerEsc);
+}
+function renderTrayPicker() {
+  const back = document.getElementById('trayPicker'); if (!back) return;
+  const pop = back.querySelector('.tray-picker'); if (!pop) return;
+  const takeId = _pickerTakeId;
+  const inTrays = shareTraysFor(takeId);
+  const rows = _shareTrays.map(tr =>
+    `<div class="tp-row" onclick="trayPickerToggle('${tr.id}')"><span class="tp-check">${inTrays.includes(tr.id) ? '✓' : ''}</span><span class="tp-name">${_esc(_trayName(tr))}</span></div>`
+  ).join('');
+  pop.innerHTML = (rows || '<div class="tp-empty">No trays yet</div>') +
+    `<div class="tp-row tp-new" onclick="trayPickerNew()">＋ New tray…</div>`;
+}
+function trayPickerToggle(trayId) {
+  const takeId = _pickerTakeId; if (!takeId) return;
+  if (shareTraysFor(takeId).includes(trayId)) shareRemoveTakeFromTray(trayId, takeId);
+  else { const t = (_takes || []).find(x => x.id === takeId); if (t) shareAddTakeToTray(trayId, t); }
+  renderTrayPicker();
+}
+async function trayPickerNew() {
+  const name = prompt('Tray name', ''); if (name == null) return;
+  const id = await shareCreateTray(name.trim());
+  const takeId = _pickerTakeId;
+  const t = takeId && (_takes || []).find(x => x.id === takeId);
+  if (id && t) shareAddTakeToTray(id, t);
+  renderTrayPicker();
+}
+
 let _shareRefreshTimer = null;
 function shareRefreshSoon() { clearTimeout(_shareRefreshTimer); _shareRefreshTimer = setTimeout(() => { shareRefresh().catch(() => {}); }, 1500); }
 async function shareRefresh() {
-  if (!_shareId || !_shareTakes.length) return;
-  let changed = false;
-  const next = [];
-  for (const e of _shareTakes) {
-    const song = (_songs || []).find(s => s.id === e.songId);
-    if (!song) { changed = true; continue; }   // song gone → drop
-    const loaded = (_takes || []).find(t => t.id === e.takeId && t.downloadUrl);
-    const ne = Object.assign({}, e);
-    ne.songTitle = song.title || 'Untitled';
-    ne.lyricsDoc = song.lyricsDoc || '';
-    if (loaded) { ne.downloadUrl = loaded.downloadUrl; ne.duration = loaded.duration || 0; ne.mimeType = loaded.mimeType || ne.mimeType; }
-    if (ne.songTitle !== e.songTitle || ne.lyricsDoc !== e.lyricsDoc || ne.downloadUrl !== e.downloadUrl || ne.duration !== e.duration) changed = true;
-    next.push(ne);
+  if (!_shareTrays.length) return;
+  for (const tr of _shareTrays) {
+    if (!(tr.takes || []).length) continue;
+    let changed = false;
+    const next = [];
+    for (const e of tr.takes) {
+      const song = (_songs || []).find(s => s.id === e.songId);
+      if (!song) { changed = true; continue; }   // song gone → drop
+      const loaded = (_takes || []).find(t => t.id === e.takeId && t.downloadUrl);
+      const ne = Object.assign({}, e);
+      ne.songTitle = song.title || 'Untitled';
+      ne.lyricsDoc = song.lyricsDoc || '';
+      if (loaded) { ne.downloadUrl = loaded.downloadUrl; ne.duration = loaded.duration || 0; ne.mimeType = loaded.mimeType || ne.mimeType; }
+      if (ne.songTitle !== e.songTitle || ne.lyricsDoc !== e.lyricsDoc || ne.downloadUrl !== e.downloadUrl || ne.duration !== e.duration) changed = true;
+      next.push(ne);
+    }
+    if (changed) { tr.takes = next; _shareWriteTray(tr.id, { takes: next }); }
   }
-  if (changed) await _shareWriteTakes(next);
 }
 
 // ── Share viewer (public read-only, ?share=<id>) ──
@@ -3403,13 +3542,19 @@ function shareViewUnavailable(msg) {
     `<div class="sv-header"><div class="sv-brand">Drafthaus</div></div>` +
     `<div class="sv-msg">${msg || "This share is unavailable."}<br><a class="sv-make" href="./">Make your own →</a></div>`;
 }
-async function shareViewLoad(id) {
+function shareViewLoad(id) {
+  let first = true;
   try {
-    const snap = await db.collection('shares').doc(id).get();
-    if (!snap.exists) return shareViewUnavailable("This share is unavailable.");
-    const d = snap.data();
-    if (d.active === false) return shareViewUnavailable("This share is unavailable.");
-    shareViewRender(d);
+    db.collection('shares').doc(id).onSnapshot(snap => {
+      const d = (snap && snap.exists) ? snap.data() : null;
+      if (!d || d.active === false) {
+        if (!first) window.svStop();
+        shareViewUnavailable("This share is unavailable.");
+        first = false; return;
+      }
+      if (first) { shareViewRender(d); first = false; }
+      else shareViewApply(d);
+    }, e => { console.warn('[shareView]', e); if (first) { shareViewUnavailable("This share couldn't be loaded."); first = false; } });
   } catch (e) { console.warn('[shareView]', e); shareViewUnavailable("This share couldn't be loaded."); }
 }
 function shareViewBoot() {
@@ -3436,9 +3581,8 @@ function shareViewBoot() {
 // ── Share viewer state ──
 let _svTakes = [], _svIdx = -1, _svCtx = null, _svSource = null, _svBuffers = {}, _svPeaks = {}, _svRaf = null, _svPlayhead = 0, _svStartCtx = 0, _svLyricsIdx = -1;
 
-function shareViewRender(d) {
-  _svTakes = (d.takes || []).filter(t => t.downloadUrl);
-  const rows = _svTakes.map((t, i) => `
+function _svListHtml() {
+  return _svTakes.map((t, i) => `
     <div class="sv-row" data-i="${i}">
       <div class="sv-main">
         <button class="sv-play" data-i="${i}" onclick="svRowPlay(${i})" aria-label="Play">▶</button>
@@ -3448,14 +3592,52 @@ function shareViewRender(d) {
         </div>
       </div>
     </div>`).join('');
+}
+function shareViewRender(d) {
+  _svTakes = (d.takes || []).filter(t => t.downloadUrl);
+  const name = d.name && String(d.name).trim() ? _esc(d.name) : 'Shared takes';
   document.getElementById('shareViewer').innerHTML =
-    `<div class="sv-header"><div class="sv-brand">Drafthaus</div><div class="sv-sub">Shared with you</div><a class="sv-make" href="./">Make your own →</a></div>` +
+    `<div class="sv-header"><div class="sv-brand">Drafthaus</div><div class="sv-trayname">${name}</div><div class="sv-sub">Shared with you</div><a class="sv-make" href="./">Make your own →</a></div>` +
     `<div class="sv-2col">` +
-      `<div class="sv-col-list">${rows || '<div class="sv-msg">Nothing shared yet.</div>'}</div>` +
+      `<div class="sv-col-list">${_svListHtml() || '<div class="sv-msg">Nothing shared yet.</div>'}</div>` +
       `<div class="sv-col-lyrics" id="svLyrics"></div>` +
     `</div>`;
   _svLyricsIdx = -1;
   svRenderLyrics();   // shows the hint until a song plays
+}
+function shareViewApply(d) {
+  // Header tray name
+  const tn = document.querySelector('#shareViewer .sv-trayname');
+  if (tn) tn.textContent = d.name && String(d.name).trim() ? d.name : 'Shared takes';
+  // Remember what's playing / shown by takeId
+  const playingId = (_svIdx >= 0 && _svTakes[_svIdx]) ? _svTakes[_svIdx].takeId : null;
+  const lyricsId = (_svLyricsIdx >= 0 && _svTakes[_svLyricsIdx]) ? _svTakes[_svLyricsIdx].takeId : null;
+  const oldTakes = _svTakes, oldBuffers = _svBuffers, oldPeaks = _svPeaks;
+  _svTakes = (d.takes || []).filter(t => t.downloadUrl);
+  // Remap decode caches to new indices by takeId
+  const nb = {}, np = {};
+  _svTakes.forEach((t, ni) => {
+    const oi = oldTakes.findIndex(o => o.takeId === t.takeId);
+    if (oi >= 0) { if (oldBuffers[oi]) nb[ni] = oldBuffers[oi]; if (oldPeaks[oi]) np[ni] = oldPeaks[oi]; }
+  });
+  _svBuffers = nb; _svPeaks = np;
+  // Repaint list column only (header + lyrics column persist)
+  const listEl = document.querySelector('#shareViewer .sv-col-list');
+  if (listEl) listEl.innerHTML = _svListHtml() || '<div class="sv-msg">Nothing shared yet.</div>';
+  // Preserve playing index + keep audio running
+  _svIdx = playingId ? _svTakes.findIndex(t => t.takeId === playingId) : -1;
+  if (_svIdx >= 0) {
+    const i = _svIdx, ctx = _svCtx;
+    if (_svSource) _svSource.onended = () => { if (_svIdx === i) svStop(); };
+    _svUpdateBtns(); _svDraw(i);
+    if (_svRaf) cancelAnimationFrame(_svRaf);
+    if (ctx) { const tick = () => { if (_svIdx !== i) return; _svPlayhead = ctx.currentTime - _svStartCtx; _svDraw(i); _svRaf = requestAnimationFrame(tick); }; _svRaf = requestAnimationFrame(tick); }
+  } else { _svUpdateBtns(); }
+  // Lyrics: re-render at new index if the shown take survived; else leave the DOM untouched
+  const newLyricsIdx = lyricsId ? _svTakes.findIndex(t => t.takeId === lyricsId) : -1;
+  if (lyricsId && newLyricsIdx >= 0) { _svLyricsIdx = newLyricsIdx; svRenderLyrics(); }
+  else if (lyricsId && newLyricsIdx < 0) { _svLyricsIdx = -1; /* keep current lyrics DOM */ }
+  else { _svLyricsIdx = newLyricsIdx; }
 }
 // Right column: lyrics of the last/currently-playing take (persists when stopped),
 // or a hint until the first song is played.
@@ -3536,7 +3718,7 @@ auth.onAuthStateChanged(user => {
     liteSyncDrain();      // drain any outbox jobs queued during a previous offline session
     liteLyricsDrain();    // reconcile any offline lyric edits
     startSongsListener();
-    shareEnsureDoc().then(() => shareRefreshSoon()).catch(() => {});
+    shareLoadTrays(); shareRefreshSoon();
   } else {
     document.body.classList.remove('signed-in', 'is-guest', 'relogin');
     _liteUsageBytes = 0; liteRenderMeter();
@@ -3550,9 +3732,8 @@ shareViewBoot();
 </script>
 <div id="sharePanel" class="share-panel" style="display:none;" onclick="if(event.target===this)closeShareManager()">
   <div class="sm-card">
-    <div class="sm-head"><span class="sm-title">My Shared Takes</span><button class="sm-x" onclick="closeShareManager()" aria-label="Close">✕</button></div>
-    <div class="sm-link-row"><button class="sm-copy" onclick="shareCopyLink()">Copy Link</button><label class="sm-toggle"><input type="checkbox" id="smActive" onchange="shareSetActive(this.checked)"> <span>Link on</span></label></div>
-    <div id="smList" class="sm-list"></div>
+    <div class="sm-head"><span class="sm-title" id="smTitle">My Shared Takes</span><button class="sm-x" onclick="closeShareManager()" aria-label="Close">✕</button></div>
+    <div id="smBody"></div>
   </div>
 </div>
 <div id="shareViewer" class="share-viewer"></div>
