@@ -1189,6 +1189,7 @@ function _openSongObj(s) {
   document.getElementById('lyricsEditor').innerHTML = ilSanitizeDocHtml(ilGetDocHtml(s));
   _atomizeLyricChords();
   _lyricsBase = ilSanitizeDocHtml(ilGetDocHtml(s));
+  _lyricsEdited = false;   // fresh load — no user edit yet, so the blank-guard stays active until a real edit
   _maybeSeedPendingLyrics(s.id);
   toggleChordsMode(false);
   document.getElementById('takesPanel').classList.remove('open');
@@ -1274,12 +1275,18 @@ function ilMigrateLyricsToDoc(song) {
 function ilGetDocHtml(song) {
   if (!song) return '';
   if (typeof song.lyricsDoc === 'string' && song.lyricsDoc.trim()) return song.lyricsDoc;
+  // An explicitly committed doc (even when empty — e.g. the user deleted all lyrics) wins
+  // over the legacy `lyrics` field; otherwise a deliberate clear would re-migrate old lyrics.
+  if (song.lyricsDocInit) return song.lyricsDoc || '';
   const hasLegacy = song.lyrics && Object.values(song.lyrics).some(v => v && String(v).trim());
   if (hasLegacy) return ilMigrateLyricsToDoc(song);
   return song.lyricsDoc || '';
 }
-function _ilCommitDoc(html, song) {
-  if (!ilDocHasContent(html)) {
+// allowClear lets a DELIBERATE user clear (the editor was emptied by a real edit) persist an
+// empty doc. Without it the blank-guard below refuses, so a full delete never sticks. The guard
+// still protects against ACCIDENTAL/transient blanks (no user edit → allowClear false).
+function _ilCommitDoc(html, song, allowClear) {
+  if (!allowClear && !ilDocHasContent(html)) {
     const hadDoc = typeof song.lyricsDoc === 'string' && song.lyricsDoc.trim();
     const hasLegacy = song.lyrics && Object.values(song.lyrics).some(v => v && String(v).trim());
     if (hadDoc || hasLegacy) return false;
@@ -1287,7 +1294,8 @@ function _ilCommitDoc(html, song) {
   song.lyricsDoc = html; song.lyricsDocInit = true; return true;
 }
 let _lyricsTimer = null;
-function onLyricsInput() { clearTimeout(_lyricsTimer); _lyricsTimer = setTimeout(flushLyrics, 900); }
+let _lyricsEdited = false;   // set on a genuine editor edit; gates allowClear so only deliberate clears blank
+function onLyricsInput() { _lyricsEdited = true; clearTimeout(_lyricsTimer); _lyricsTimer = setTimeout(flushLyrics, 900); }
 // iOS/Safari "double space → '. '" substitution: cancel it so a double space stays two
 // spaces in lyrics. The substitution surfaces as a beforeinput whose data is "<period><space>".
 (function bindNoSmartPeriod() {
@@ -1315,7 +1323,7 @@ async function flushLyrics() {
   const ed = document.getElementById('lyricsEditor');
   if (!_currentSong || !ed) return;
   const html = currentEditorHtml();
-  if (!_ilCommitDoc(html, _currentSong)) return; // blank-guard
+  if (!_ilCommitDoc(html, _currentSong, _lyricsEdited)) return; // blank-guard (allows a deliberate clear)
   const songId = _currentSong.id;
   if (!navigator.onLine) { await dhPendingLyricsPut({ songId, lyricsDoc: html, base: _lyricsBase, editedAt: Date.now() }); return; }
   try {
@@ -1329,7 +1337,7 @@ async function flushLyrics() {
       tx.set(ref, { lyricsDoc: result, lyricsDocInit: true, updatedAt: Date.now() }, { merge: true });
       return { result, merged };
     });
-    _lyricsBase = res.result; _currentSong.lyricsDoc = res.result;
+    _lyricsBase = res.result; _currentSong.lyricsDoc = res.result; _lyricsEdited = false;
     if (res.merged && _currentSong.id === songId && document.activeElement !== ed) {
       ed.innerHTML = ilSanitizeDocHtml(res.result); _atomizeLyricChords();
     }
