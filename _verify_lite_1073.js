@@ -1,0 +1,536 @@
+// _verify_lite_1070.js  (Task 1: share state + id/link/snapshot helpers)
+const { chromium } = require('playwright-core');
+const http = require('http'); const fs = require('fs'); const path = require('path');
+const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const ROOT = __dirname;
+let PASS = 0, FAIL = 0;
+const ok = (c, m) => { if (c) { PASS++; console.log('PASS', m); } else { FAIL++; console.log('FAIL', m); } };
+
+function serve() {
+  return new Promise(res => {
+    const s = http.createServer((req, rq) => {
+      let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/lite-1.073.html';
+      const fp = path.join(ROOT, p);
+      fs.readFile(fp, (e, d) => {
+        if (e) { rq.statusCode = 404; rq.end('nf'); return; }
+        const ext = path.extname(fp);
+        rq.setHeader('Content-Type', ext === '.html' ? 'text/html' : ext === '.js' ? 'text/javascript' : ext === '.mp3' ? 'audio/mpeg' : 'application/octet-stream');
+        rq.end(d);
+      });
+    });
+    s.listen(0, () => res(s));
+  });
+}
+
+(async () => {
+  const srv = await serve(); const port = srv.address().port;
+  const browser = await chromium.launch({ executablePath: CHROME });
+  const ctx = await browser.newContext();
+  await ctx.addInitScript(() => { try { localStorage['drafthaus-eula-accepted'] = '1'; } catch (e) {} });
+
+  // ── Guest sign-in helper ──
+  async function guestIn(page) {
+    for (let i = 0; i < 2; i++) {
+      try { await page.click('.auth-card .auth-btn.ghost'); await page.waitForSelector('body.signed-in', { timeout: 20000 }); return true; }
+      catch (e) { if (i === 1) return false; await page.waitForTimeout(1000); }
+    }
+  }
+
+  // ── Task 1: tray state + link/membership helpers (no auth needed) ──
+  const pgS = await ctx.newPage();
+  await pgS.goto(`http://localhost:${port}/lite-1.073.html`, { waitUntil: 'domcontentloaded' });
+  await pgS.waitForFunction(() => typeof window.shareTrayLink === 'function', { timeout: 10000 });
+  const s1 = await pgS.evaluate(() => {
+    const a = shareNewId(), b = shareNewId();
+    const snap = _shareSnapshot(
+      { id: 'T1', downloadUrl: 'https://x/y', duration: 12, mimeType: 'audio/mp3' },
+      { id: 'S1', title: 'My Song', lyricsDoc: '<div>Hi</div>' });
+    _shareTrays = [
+      { id: 'TRA', name: 'Band demos', active: true, takes: [{ takeId: 'T1' }, { takeId: 'T2' }] },
+      { id: 'TRB', name: '', active: true, takes: [{ takeId: 'T2' }] },
+    ];
+    return {
+      idLen: a.length, idsDiffer: a !== b, urlSafe: /^[A-Za-z0-9_-]+$/.test(a),
+      snapOK: snap.takeId === 'T1' && snap.songId === 'S1' && snap.songTitle === 'My Song'
+              && snap.lyricsDoc === '<div>Hi</div>' && snap.downloadUrl === 'https://x/y'
+              && snap.duration === 12 && typeof snap.addedAt === 'number',
+      linkOK: /\?share=ABC123$/.test(shareTrayLink('ABC123')),
+      legacyName: _trayName(_shareTrays[1]) === 'Shared takes',
+      namedName: _trayName(_shareTrays[0]) === 'Band demos',
+      forT1: shareTraysFor('T1').join(','),       // expect 'TRA'
+      forT2: shareTraysFor('T2').sort().join(','), // expect 'TRA,TRB'
+      sharedT1: shareIsShared('T1'), sharedNone: shareIsShared('T9'),
+    };
+  });
+  ok(s1.idLen >= 20, 'T1 shareNewId is >=20 chars');
+  ok(s1.idsDiffer, 'T1 shareNewId is random (two differ)');
+  ok(s1.urlSafe, 'T1 shareNewId is URL-safe');
+  ok(s1.snapOK, 'T1 _shareSnapshot builds a correct entry');
+  ok(s1.linkOK, 'T1 shareTrayLink returns <origin><path>?share=<id>');
+  ok(s1.legacyName && s1.namedName, 'T1 _trayName: blank→"Shared takes", else name');
+  ok(s1.forT1 === 'TRA' && s1.forT2 === 'TRA,TRB', 'T1 shareTraysFor finds membership across trays');
+  ok(s1.sharedT1 && !s1.sharedNone, 'T1 shareIsShared true in ≥1 tray, false otherwise');
+
+  // ── Task 2: tray data layer with a stubbed shares query+docs ──
+  const pg2 = await ctx.newPage();
+  await pg2.goto(`http://localhost:${port}/lite-1.073.html`, { waitUntil: 'domcontentloaded' });
+  await pg2.waitForFunction(() => typeof window.shareCreateTray === 'function', { timeout: 10000 });
+  const s2 = await pg2.evaluate(async () => {
+    // In-memory fake of the shares collection: many docs keyed by id.
+    const docs = {};                 // id -> {data}
+    let qListener = null;
+    function emit() { if (qListener) qListener({ docs: Object.keys(docs).map(id => ({ id, data: () => docs[id] })) }); }
+    const mkDocRef = (id) => ({
+      id,
+      set: (obj, opt) => { docs[id] = opt && opt.merge ? Object.assign({}, docs[id] || {}, obj) : obj; emit(); return Promise.resolve(); },
+      delete: () => { delete docs[id]; emit(); return Promise.resolve(); },
+    });
+    const fakeShares = {
+      doc: (id) => mkDocRef(id || ('GEN' + Object.keys(docs).length)),
+      where: () => ({ onSnapshot: (cb) => { qListener = cb; emit(); return () => { qListener = null; }; } }),
+    };
+    const realCollection = db.collection.bind(db);
+    db.collection = (name) => name === 'shares' ? fakeShares : realCollection(name);
+    Object.defineProperty(auth, 'currentUser', { get: () => ({ uid: 'U1', isAnonymous: false }), configurable: true });
+    _currentSong = { id: 'S1', title: 'Song One', lyricsDoc: '<div>La</div>' };
+    window._fakeShareDocs = docs;
+
+    shareLoadTrays();
+    const idA = await shareCreateTray('Band demos');
+    const idB = await shareCreateTray('');           // nameless on purpose
+    const listedNames = _shareTrays.map(t => t.name).join('|'); // 'Band demos|' (trays already sorted by _trayName)
+    const legacyDisplay = _trayName(_shareTrays.find(t => t.id === idB)) === 'Shared takes';
+
+    const take = { id: 'TK1', downloadUrl: 'https://a/b', duration: 9, mimeType: 'audio/mp3' };
+    shareAddTakeToTray(idA, take);
+    shareAddTakeToTray(idB, take);                    // same take in two trays
+    const inBoth = shareTraysFor('TK1').sort().join(',') === [idA, idB].sort().join(',');
+    shareAddTakeToTray(idA, take);                    // dedupe
+    const dedup = _shareTrays.find(t => t.id === idA).takes.length === 1;
+    shareRemoveTakeFromTray(idA, 'TK1');              // remove from A only
+    const removedAOnly = !shareTraysFor('TK1').includes(idA) && shareTraysFor('TK1').includes(idB);
+    shareRenameTray(idB, 'Mix feedback');
+    const renamed = docs[idB].name === 'Mix feedback';
+    shareSetTrayActive(idA, false);
+    const deactivated = docs[idA].active === false && _shareTrays.find(t => t.id === idA).active === false;
+    shareDeleteTray(idA);
+    const deleted = !docs[idA] && !_shareTrays.some(t => t.id === idA);
+    const noUrlBlocked = (shareAddTakeToTray(idB, { id: 'TK2', duration: 3 }), !shareTraysFor('TK2').includes(idB));
+    return { listedNames, legacyDisplay, inBoth, dedup, removedAOnly, renamed, deactivated, deleted, noUrlBlocked,
+             createCount: Object.keys(docs).length, ownerOnDoc: docs[idB].ownerId === 'U1' };
+  });
+  ok(s2.listedNames === 'Band demos|', 'T2 shareLoadTrays lists multiple trays sorted');
+  ok(s2.legacyDisplay, 'T2 nameless tray displays as "Shared takes"');
+  ok(s2.ownerOnDoc, 'T2 created tray doc carries ownerId');
+  ok(s2.inBoth, 'T2 a take can live in two trays at once');
+  ok(s2.dedup, 'T2 shareAddTakeToTray dedupes by takeId within a tray');
+  ok(s2.removedAOnly, 'T2 remove from one tray leaves the other untouched');
+  ok(s2.renamed, 'T2 shareRenameTray writes name');
+  ok(s2.deactivated, 'T2 shareSetTrayActive(false) flips active');
+  ok(s2.deleted, 'T2 shareDeleteTray removes doc + local entry');
+  ok(s2.noUrlBlocked, 'T2 add refuses a take with no downloadUrl');
+
+  // ── Task 3: shareReorderTray rewrites takes[] order ──
+  const pg3 = await ctx.newPage();
+  await pg3.goto(`http://localhost:${port}/lite-1.073.html`, { waitUntil: 'domcontentloaded' });
+  await pg3.waitForFunction(() => typeof window.shareReorderTray === 'function', { timeout: 10000 });
+  const s3 = await pg3.evaluate(() => {
+    let written = null;
+    window._shareWriteTray = (id, fields) => { written = fields.takes.map(t => t.takeId).join(','); };
+    _shareTrays = [{ id: 'TR', name: 'x', active: true, takes: [{ takeId: 'a' }, { takeId: 'b' }, { takeId: 'c' }] }];
+    shareReorderTray('TR', 0, 2);  // a→end → b,c,a
+    const order = _shareTrays[0].takes.map(t => t.takeId).join(',');
+    const oob = (shareReorderTray('TR', 9, 0), _shareTrays[0].takes.map(t => t.takeId).join(','));
+    return { order, written, oob };
+  });
+  ok(s3.order === 'b,c,a', 'T3 shareReorderTray moves take and rewrites local order');
+  ok(s3.written === 'b,c,a', 'T3 shareReorderTray writes the new takes[] order');
+  ok(s3.oob === 'b,c,a', 'T3 shareReorderTray is a no-op on out-of-range index');
+
+  // ── Task 4: shareRefresh re-snapshots across all trays + drops missing ──
+  const pg4 = await ctx.newPage();
+  await pg4.goto(`http://localhost:${port}/lite-1.073.html`, { waitUntil: 'domcontentloaded' });
+  await pg4.waitForFunction(() => typeof window.shareRefresh === 'function', { timeout: 10000 });
+  const s4 = await pg4.evaluate(async () => {
+    const writes = {};
+    window._shareWriteTray = (id, fields) => { writes[id] = fields.takes.map(t => ({ id: t.takeId, title: t.songTitle, ly: t.lyricsDoc })); };
+    _songs = [{ id: 'S1', title: 'New Title', lyricsDoc: '<div>NEW</div>' }];   // S2 missing
+    _takes = [{ id: 'TK1', downloadUrl: 'https://a/b', duration: 9, mimeType: 'audio/mp3' }];
+    _shareTrays = [
+      { id: 'TRA', name: 'A', active: true, takes: [
+        { takeId: 'TK1', songId: 'S1', songTitle: 'Old Title', lyricsDoc: '<div>OLD</div>', downloadUrl: 'https://a/b', duration: 9 },
+        { takeId: 'TK9', songId: 'S2', songTitle: 'Gone', lyricsDoc: '', downloadUrl: 'x', duration: 1 },  // song gone → drop
+      ]},
+      { id: 'TRB', name: 'B', active: true, takes: [] },  // empty → untouched
+    ];
+    await shareRefresh();
+    return { wroteA: !!writes['TRA'], wroteB: !!writes['TRB'], a: writes['TRA'] };
+  });
+  ok(s4.wroteA && !s4.wroteB, 'T4 shareRefresh writes only changed trays (skips empty/unchanged)');
+  ok(s4.a && s4.a.length === 1 && s4.a[0].id === 'TK1', 'T4 shareRefresh drops a take whose song is gone');
+  ok(s4.a && s4.a[0].title === 'New Title' && s4.a[0].ly === '<div>NEW</div>', 'T4 shareRefresh re-snapshots title + lyrics');
+
+  // ── Task 5: per-take tray picker ──
+  const pg5 = await ctx.newPage();
+  await pg5.goto(`http://localhost:${port}/lite-1.073.html`, { waitUntil: 'domcontentloaded' });
+  await pg5.waitForFunction(() => typeof window.openTrayPicker === 'function', { timeout: 10000 });
+  const s5 = await pg5.evaluate(() => {
+    const calls = [];
+    window.shareAddTakeToTray = (id, take) => calls.push(['add', id, take.id]);
+    window.shareRemoveTakeFromTray = (id, takeId) => calls.push(['remove', id, takeId]);
+    window.shareLoadTrays = () => {};   // no network
+    _takes = [{ id: 'TK1', downloadUrl: 'https://a/b' }];
+    _shareTrays = [
+      { id: 'TRA', name: 'Band demos', active: true, takes: [{ takeId: 'TK1' }] },
+      { id: 'TRB', name: 'Mix feedback', active: true, takes: [] },
+    ];
+    const btn = document.createElement('button'); document.body.appendChild(btn);
+    openTrayPicker('TK1', btn);
+    const pop = document.getElementById('trayPicker');
+    const visible = pop && getComputedStyle(pop).display !== 'none';
+    const rows = [...pop.querySelectorAll('.tp-row:not(.tp-new)')];
+    const checks = rows.map(r => r.querySelector('.tp-check').textContent.trim());  // ['✓','']
+    const hasNew = !!pop.querySelector('.tp-new');
+    trayPickerToggle('TRB');   // not in TRB → add
+    trayPickerToggle('TRA');   // in TRA → remove
+    const escEvt = new KeyboardEvent('keydown', { key: 'Escape' }); document.dispatchEvent(escEvt);
+    const closed = !document.getElementById('trayPicker');
+    return { visible, checks, hasNew, calls, closed };
+  });
+  ok(s5.visible, 'T5 openTrayPicker shows a fixed popover');
+  ok(s5.checks[0] === '✓' && s5.checks[1] === '', 'T5 picker shows ✓ only for trays the take is in');
+  ok(s5.hasNew, 'T5 picker has a "+ New tray…" row');
+  ok(JSON.stringify(s5.calls) === JSON.stringify([['add','TRB','TK1'],['remove','TRA','TK1']]), 'T5 toggling calls add/remove correctly');
+  ok(s5.closed, 'T5 Esc closes the picker');
+
+  // ── Task 6: viewer routing (routing check — old get-based block replaced by T8 onSnapshot) ──
+  const pg6 = await ctx.newPage();
+  await pg6.goto(`http://localhost:${port}/lite-1.073.html?share=ZZZ`, { waitUntil: 'domcontentloaded' });
+  await pg6.waitForFunction(() => typeof window.shareViewLoad === 'function', { timeout: 10000 });
+  const s6 = await pg6.evaluate(() => {
+    const inView = document.body.classList.contains('share-view');
+    const viewerVisible = getComputedStyle(document.getElementById('shareViewer')).display !== 'none';
+    const landingHidden = getComputedStyle(document.getElementById('landing')).display === 'none';
+    return { inView, viewerVisible, landingHidden };
+  });
+  ok(s6.inView, 'T6 ?share= sets body.share-view');
+  ok(s6.viewerVisible && s6.landingHidden, 'T6 viewer shown, landing hidden');
+
+  // ── Task 6: two-level manager ──
+  const pg6m = await ctx.newPage();
+  await pg6m.goto(`http://localhost:${port}/lite-1.073.html`, { waitUntil: 'domcontentloaded' });
+  await pg6m.waitForFunction(() => typeof window.openShareManager === 'function', { timeout: 10000 });
+  const s6m = await pg6m.evaluate(async () => {
+    window.shareLoadTrays = () => {};   // no network
+    let copied = null; window.shareCopyTrayLink = (id) => { copied = id; };
+    _shareTrays = [
+      { id: 'TRA', name: 'Band demos', active: true, takes: [{ takeId: 'TK1', songTitle: 'One' }, { takeId: 'TK2', songTitle: 'Two' }] },
+      { id: 'TRB', name: '', active: false, takes: [] },
+    ];
+    openShareManager();
+    const panel = document.getElementById('sharePanel');
+    const panelVisible = getComputedStyle(panel).display !== 'none';
+    const listRows = [...panel.querySelectorAll('.tray-row')];
+    const listShows = listRows.length === 2;
+    const legacyRowName = listRows[1].querySelector('.sm-name').textContent.trim() === 'Shared takes';
+    // Copy Link on the first list row
+    listRows[0].querySelector('.sm-copy-icon').click();
+    const copiedA = copied === 'TRA';
+    // open detail
+    openTrayDetail('TRA');
+    const detailTakes = panel.querySelectorAll('.tray-take').length === 2;
+    const hasReorderList = !!panel.querySelector('.sm-list[data-reorder="tray"][data-tray="TRA"]');
+    const hasHandle = !!panel.querySelector('.tray-take .drag-handle');
+    // back to list
+    shareBackToList();
+    const backToList = panel.querySelectorAll('.tray-row').length === 2;
+    return { panelVisible, listShows, legacyRowName, copiedA, detailTakes, hasReorderList, hasHandle, backToList };
+  });
+  ok(s6m.panelVisible && s6m.listShows, 'T6 manager opens to a visible tray list');
+  ok(s6m.legacyRowName, 'T6 nameless tray row shows "Shared takes"');
+  ok(s6m.copiedA, 'T6 Copy Link on a list row copies that tray');
+  ok(s6m.detailTakes && s6m.hasReorderList && s6m.hasHandle, 'T6 tray detail lists drag-reorderable takes');
+  ok(s6m.backToList, 'T6 back arrow returns to the tray list');
+
+  // ── Task 7: drag-reorder commits via shareReorderTray ──
+  const pg7 = await ctx.newPage();
+  await pg7.goto(`http://localhost:${port}/lite-1.073.html`, { waitUntil: 'domcontentloaded' });
+  await pg7.waitForFunction(() => typeof window.shareReorderTray === 'function', { timeout: 10000 });
+  const s7 = await pg7.evaluate(() => {
+    let reorder = null; window.shareReorderTray = (id, from, to) => { reorder = { id, from, to }; };
+    window.renderShareManager = () => {};
+    // Build a minimal tray-detail list in the DOM
+    const list = document.createElement('div');
+    list.className = 'sm-list'; list.dataset.reorder = 'tray'; list.dataset.tray = 'TRA';
+    list.innerHTML = ['a', 'b', 'c'].map(id =>
+      `<div class="sm-row tray-take" data-id="${id}"><span class="drag-handle">⠿</span><span>${id}</span></div>`).join('');
+    document.body.appendChild(list);
+    const rows = [...list.querySelectorAll('.tray-take')];
+    const handle = rows[0].querySelector('.drag-handle');     // drag 'a'
+    const r2 = rows[2].getBoundingClientRect();
+    handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, bubbles: true }));
+    // move below row c, then drop
+    document.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientY: r2.bottom + 20, bubbles: true }));
+    document.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, bubbles: true }));
+    return { reorder, domOrder: [...list.querySelectorAll('.tray-take')].map(e => e.dataset.id).join(',') };
+  });
+  ok(s7.reorder && s7.reorder.id === 'TRA', 'T7 tray drag commits to the right tray');
+  ok(s7.reorder && s7.reorder.from === 0, 'T7 drag captures the original index');
+  ok(s7.reorder && s7.reorder.to === 2, 'T7 drag computes the drop index (moved to end)');
+
+  // ── Task 7x (old T7): viewer rows + lyrics expand + auto-advance wiring ──
+  const pg7x = await ctx.newPage();
+  await pg7x.goto(`http://localhost:${port}/lite-1.073.html?share=ABC`, { waitUntil: 'domcontentloaded' });
+  await pg7x.waitForFunction(() => typeof window.svRenderLyrics === 'function', { timeout: 10000 });
+  const s7x = await pg7x.evaluate(() => {
+    shareViewRender({ active: true, takes: [
+      { takeId: 'TK1', songTitle: 'Alpha', lyricsDoc: '<div>Verse one</div>', downloadUrl: 'u1', duration: 10 },
+      { takeId: 'TK2', songTitle: 'Beta',  lyricsDoc: '<div>Verse two</div>', downloadUrl: 'u2', duration: 20 },
+    ]});
+    const rows = document.querySelectorAll('#shareViewer .sv-col-list .sv-row');
+    const r0 = rows[0];
+    const twoCol = !!document.querySelector('#shareViewer .sv-2col .sv-col-list') && !!document.getElementById('svLyrics');
+    const playLeftOfTitle = r0 && r0.querySelector('.sv-play') && r0.querySelector('.sv-play').compareDocumentPosition(r0.querySelector('.sv-title')) & Node.DOCUMENT_POSITION_FOLLOWING;
+    const noLyrBtn = document.querySelector('#shareViewer .sv-lyrbtn') === null;
+    // Nothing played yet → right column shows the hint.
+    const lyr = document.getElementById('svLyrics');
+    const hintInitially = /play a song to load its lyrics/i.test(lyr.textContent);
+    // Simulate a song having played; lyrics follow _svLyricsIdx (persists past stop).
+    _svLyricsIdx = 0; svRenderLyrics();
+    const lyrLoaded = /Verse one/.test(lyr.textContent) && /Alpha/.test(lyr.querySelector('.sv-lyr-title').textContent);
+    const noHintWhilePlaying = !/play a song to load/i.test(lyr.textContent);
+    // Stop playback (_svIdx cleared) → lyrics MUST persist (not revert to hint).
+    _svIdx = -1; svRenderLyrics();
+    const lyricsPersistAfterStop = /Verse one/.test(lyr.textContent) && !/play a song to load/i.test(lyr.textContent);
+    const hasPlaybackFns = typeof svPlay === 'function' && typeof svStop === 'function';
+    // XSS escape check: inject a title with HTML special chars
+    shareViewRender({ active: true, takes: [
+      { takeId: 'TK3', songTitle: '<script>alert(1)</script>', lyricsDoc: '', downloadUrl: 'u3', duration: 5 },
+    ]});
+    const xssRow = document.querySelector('#shareViewer .sv-row');
+    const xssTitle = xssRow && xssRow.querySelector('.sv-title');
+    const noLiveScript = xssTitle && xssTitle.querySelector('script') === null;
+    const escapedText = xssTitle && xssTitle.textContent.includes('<script>');
+    return { count: rows.length, twoCol, playLeftOfTitle: !!playLeftOfTitle, noLyrBtn, hintInitially, lyrLoaded, noHintWhilePlaying, lyricsPersistAfterStop, hasPlaybackFns, noLiveScript, escapedText };
+  });
+  ok(s7x.count === 2, 'T7x renders one row per take');
+  ok(s7x.twoCol, 'T7x two-column layout: song list + lyrics column');
+  ok(s7x.playLeftOfTitle, 'T7x play button precedes the song title');
+  ok(s7x.noLyrBtn, 'T7x no per-row Lyrics button (lyrics follow playback)');
+  ok(s7x.hintInitially, 'T7x right column shows the hint before anything is played');
+  ok(s7x.lyrLoaded && s7x.noHintWhilePlaying, 'T7x right column loads the playing song lyrics + title');
+  ok(s7x.lyricsPersistAfterStop, 'T7x lyrics stay visible after playback stops (no revert to hint)');
+  ok(s7x.hasPlaybackFns, 'T7x svPlay + svStop exist');
+  ok(s7x.noLiveScript && s7x.escapedText, 'T7x song title with HTML chars is escaped, no live <script> injected');
+
+  // ── Task 8x (old T8): viewer reads ONLY the shares collection ──
+  const pg8x = await ctx.newPage();
+  await pg8x.goto(`http://localhost:${port}/lite-1.073.html?share=ABC`, { waitUntil: 'domcontentloaded' });
+  await pg8x.waitForFunction(() => typeof window.shareViewLoad === 'function', { timeout: 10000 });
+  const s8x = await pg8x.evaluate(async () => {
+    const seen = [];
+    db.collection = ((real) => (n) => { seen.push(n); return n === 'shares'
+      ? { doc: () => ({ onSnapshot: (fn) => { fn({ exists: true, data: () => ({ active: true, takes: [] }) }); return () => {}; } }) }
+      : real(n); })(db.collection.bind(db));
+    shareViewLoad('ABC');
+    return { only: seen.every(n => n === 'shares'), touchedShares: seen.includes('shares') };
+  });
+  ok(s8x.touchedShares && s8x.only, 'T8x viewer reads only the shares collection');
+
+  // ── Task 8x: no-harm regression — owner app still works ──
+  const pg8bx = await ctx.newPage();
+  await pg8bx.goto(`http://localhost:${port}/lite-1.073.html`, { waitUntil: 'domcontentloaded' });
+  await pg8bx.waitForFunction(() => typeof window.renderTakes === 'function', { timeout: 10000 });
+  const s8bx = await pg8bx.evaluate(() => {
+    const hasTakesFn = typeof renderTakes === 'function';
+    const hasLanding = !!document.getElementById('landing');
+    const notShareView = !document.body.classList.contains('share-view');
+    // owner app must not be force-darkened by the viewer path (headless default is light)
+    const notForcedDark = !document.documentElement.classList.contains('dark');
+    return { hasTakesFn, hasLanding, notShareView, notForcedDark };
+  });
+  ok(s8bx.hasTakesFn, 'T8x no-harm: renderTakes is a function in the owner app');
+  ok(s8bx.notForcedDark, 'T8x no-harm: owner app is not forced dark (viewer-only)');
+  ok(s8bx.hasLanding, 'T8x no-harm: #landing element present on normal load');
+  ok(s8bx.notShareView, 'T8x no-harm: normal load does not enter share-view mode');
+
+  // ── Task 8: live viewer (onSnapshot diff) ──
+  const pg8 = await ctx.newPage();
+  await pg8.goto(`http://localhost:${port}/lite-1.073.html?share=ZZZ`, { waitUntil: 'domcontentloaded' });
+  await pg8.waitForFunction(() => typeof window.shareViewLoad === 'function', { timeout: 10000 });
+  const s8 = await pg8.evaluate(async () => {
+    const inView = document.body.classList.contains('share-view');
+    const viewerVisible = getComputedStyle(document.getElementById('shareViewer')).display !== 'none';
+    const landingHidden = getComputedStyle(document.getElementById('landing')).display === 'none';
+
+    // Controllable fake onSnapshot for the shares doc.
+    let cb = null;
+    db.collection = ((real) => (n) => n === 'shares'
+      ? { doc: () => ({ onSnapshot: (fn) => { cb = fn; return () => {}; } }) }
+      : real(n))(db.collection.bind(db));
+
+    // First (good) snapshot: two takes, named tray.
+    shareViewLoad('ZZZ');
+    cb({ exists: true, data: () => ({ name: 'Band demos', active: true, takes: [
+      { takeId: 'A', songTitle: 'Aaa', lyricsDoc: '<div>la</div>', downloadUrl: 'https://x/a', duration: 5 },
+      { takeId: 'B', songTitle: 'Bbb', lyricsDoc: '', downloadUrl: 'https://x/b', duration: 6 },
+    ] }) });
+    const firstRows = document.querySelectorAll('#shareViewer .sv-row').length;
+    const headerName = (document.querySelector('#shareViewer .sv-trayname') || {}).textContent;
+    // Simulate "A is playing" without real audio.
+    _svIdx = 0; _svLyricsIdx = 0; _svSource = { onended: null }; _svCtx = { currentTime: 0 }; _svStartCtx = 0; _svPlayhead = 1.5;
+    const playingBefore = _svTakes[_svIdx].takeId;
+    // Second snapshot: reorder (B,A) + add C. Playing take A must be preserved.
+    cb({ exists: true, data: () => ({ name: 'Band demos', active: true, takes: [
+      { takeId: 'B', songTitle: 'Bbb', lyricsDoc: '', downloadUrl: 'https://x/b', duration: 6 },
+      { takeId: 'A', songTitle: 'Aaa', lyricsDoc: '<div>la</div>', downloadUrl: 'https://x/a', duration: 5 },
+      { takeId: 'C', songTitle: 'Ccc', lyricsDoc: '', downloadUrl: 'https://x/c', duration: 7 },
+    ] }) });
+    const rowsAfter = document.querySelectorAll('#shareViewer .sv-row').length;
+    const playingAfter = _svIdx >= 0 ? _svTakes[_svIdx].takeId : null;
+    const playheadKept = _svPlayhead === 1.5;     // audio not restarted
+    const sourceKept = !!_svSource;                // source not stopped
+    // Third snapshot: revoke → unavailable + stop.
+    let stopped = false; const realStop = window.svStop; window.svStop = () => { stopped = true; return realStop && realStop(); };
+    cb({ exists: true, data: () => ({ active: false, takes: [] }) });
+    const unavail = /unavailable/i.test(document.getElementById('shareViewer').textContent);
+    return { inView, viewerVisible, landingHidden, firstRows, headerName, playingBefore, rowsAfter, playingAfter, playheadKept, sourceKept, unavail, stopped };
+  });
+  ok(s8.inView && s8.viewerVisible && s8.landingHidden, 'T8 ?share= enters viewer mode');
+  ok(s8.firstRows === 2 && s8.headerName === 'Band demos', 'T8 first snapshot renders rows + tray name');
+  ok(s8.rowsAfter === 3, 'T8 second snapshot live-updates the list (added a take)');
+  ok(s8.playingBefore === 'A' && s8.playingAfter === 'A', 'T8 playing take preserved across reorder/add');
+  ok(s8.playheadKept && s8.sourceKept, 'T8 audio not restarted on live update (playhead + source kept)');
+  ok(s8.unavail && s8.stopped, 'T8 active:false snapshot → unavailable + playback stopped');
+
+  // ── Task 8: missing doc shows unavailable (onSnapshot variant) ──
+  const pg8miss = await ctx.newPage();
+  await pg8miss.goto(`http://localhost:${port}/lite-1.073.html?share=NOPE`, { waitUntil: 'domcontentloaded' });
+  await pg8miss.waitForFunction(() => typeof window.shareViewLoad === 'function', { timeout: 10000 });
+  const s8miss = await pg8miss.evaluate(() => {
+    let cb = null;
+    db.collection = ((real) => (n) => n === 'shares'
+      ? { doc: () => ({ onSnapshot: (fn) => { cb = fn; return () => {}; } }) }
+      : real(n))(db.collection.bind(db));
+    shareViewLoad('NOPE');
+    cb({ exists: false });
+    return /unavailable/i.test(document.getElementById('shareViewer').textContent);
+  });
+  ok(s8miss, 'T8 missing doc (exists:false) shows unavailable');
+
+  // ── Task 9: legacy migration + no-harm ──
+  const pg9 = await ctx.newPage();
+  await pg9.goto(`http://localhost:${port}/lite-1.073.html`, { waitUntil: 'domcontentloaded' });
+  await pg9.waitForFunction(() => typeof window.shareTrayLink === 'function', { timeout: 10000 });
+  const s9 = await pg9.evaluate(() => {
+    // Legacy nameless tray: link by id unchanged + displays "Shared takes".
+    const legacy = { id: 'LEG123', name: '', active: true, takes: [] };
+    _shareTrays = [legacy];
+    const linkUnchanged = /\?share=LEG123$/.test(shareTrayLink('LEG123'));
+    const display = _trayName(legacy) === 'Shared takes';
+    return { linkUnchanged, display };
+  });
+  ok(s9.linkUnchanged, 'T9 legacy nameless tray keeps its ?share= link');
+  ok(s9.display, 'T9 legacy nameless tray renders "Shared takes"');
+
+  // ── No-harm: renderShareManager escapes HTML in songTitle ──
+  const pg9b = await ctx.newPage();
+  await pg9b.goto(`http://localhost:${port}/lite-1.073.html`, { waitUntil: 'domcontentloaded' });
+  await pg9b.waitForFunction(() => typeof window.renderShareManager === 'function', { timeout: 10000 });
+  const s9b = await pg9b.evaluate(() => {
+    window.shareLoadTrays = () => {};
+    _shareTrays = [{ id: 'SH9B', name: '', active: true, takes: [{ takeId: 'TKXSS', songTitle: '<script>alert(99)</script>' }] }];
+    _shareOpenTrayId = 'SH9B';
+    // Force the panel visible so renderShareManager renders.
+    const panel = document.getElementById('sharePanel');
+    if (panel) panel.style.display = 'flex';
+    renderShareManager();
+    const body = document.getElementById('smBody');
+    const noLiveScript = body && body.querySelector('script') === null;
+    const textEscaped = body && body.textContent.includes('<script>');
+    return { noLiveScript, textEscaped };
+  });
+  ok(s9b.noLiveScript, 'No-harm renderShareManager: <script> title does not inject a live script element');
+  ok(s9b.textEscaped, 'No-harm renderShareManager: escaped title text is visible as literal <script>');
+
+  // ── T10 (regression): shareViewBoot must not throw when #shareViewer isn't parsed yet ──
+  // The real page defines #shareViewer AFTER the script that calls shareViewBoot(), so at
+  // boot time getElementById('shareViewer') is null. Earlier code wrote .innerHTML directly
+  // and threw → blank page. Boot must set body.share-view immediately and defer the DOM
+  // write/load until the element exists.
+  const pg10 = await ctx.newPage();
+  await pg10.goto(`http://localhost:${port}/lite-1.073.html?share=ZZZ`, { waitUntil: 'domcontentloaded' });
+  await pg10.waitForFunction(() => typeof window.shareViewBoot === 'function', { timeout: 10000 });
+  const s10 = await pg10.evaluate(() => {
+    // The public share page boots forced-dark (headless default is light, so this is
+    // only true because shareViewBoot forced it).
+    const darkOnBoot = document.documentElement.classList.contains('dark');
+    // Simulate the boot-before-parse condition: remove the viewer element, reset state.
+    const sv = document.getElementById('shareViewer'); if (sv) sv.remove();
+    document.body.classList.remove('share-view'); _shareView = false;
+    let threw = false;
+    try { shareViewBoot(); } catch (e) { threw = true; }
+    const classSet = document.body.classList.contains('share-view');
+    // Now provide the element and stub the loader; boot should populate it + call shareViewLoad.
+    const host = document.createElement('div'); host.id = 'shareViewer'; host.className = 'share-viewer';
+    document.body.appendChild(host);
+    let loadedId = null; shareViewLoad = (id) => { loadedId = id; };
+    shareViewBoot();
+    return { threw, classSet, loadedId, hostHtml: host.innerHTML, darkOnBoot };
+  });
+  ok(s10.darkOnBoot, 'T10 the public share page is forced dark on boot');
+  ok(!s10.threw, 'T10 shareViewBoot does not throw when #shareViewer is not yet parsed');
+  ok(s10.classSet, 'T10 shareViewBoot sets body.share-view even before the element exists');
+  ok(s10.loadedId === 'ZZZ' && /Loading/.test(s10.hostHtml), 'T10 once #shareViewer exists, boot populates it + calls shareViewLoad');
+
+  // ── T-LYR: deliberate lyrics clear persists; ilGetDocHtml honors explicit-empty; accidental blank still guarded ──
+  const pgL = await ctx.newPage();
+  await pgL.goto(`http://localhost:${port}/lite-1.073.html`, { waitUntil: 'domcontentloaded' });
+  await pgL.waitForFunction(() => typeof window.flushLyrics === 'function' && typeof window.ilGetDocHtml === 'function', { timeout: 10000 });
+  const sL = await pgL.evaluate(async () => {
+    // (1) ilGetDocHtml: a committed-but-empty doc must NOT re-migrate legacy lyrics.
+    const clearedLegacy = ilGetDocHtml({ lyricsDoc: '', lyricsDocInit: true, lyrics: { 'verse-1': 'old legacy' } });
+    // no-harm: a legacy-only song never touched by the new machinery STILL migrates.
+    const legacyOnly = ilGetDocHtml({ lyrics: { 'verse-1': 'old legacy' } });
+    // content passes through.
+    const contentDoc = ilGetDocHtml({ lyricsDoc: '<div>Hi</div>' });
+
+    // Stub the songs doc + transaction so flushLyrics' write is observable.
+    let lastWrite = null, serverDoc = '';
+    const realCollection = db.collection.bind(db);
+    db.collection = (name) => name === 'songs' ? { doc: (id) => ({ id }) } : realCollection(name);
+    db.runTransaction = async (fn) => fn({
+      get: async () => ({ exists: true, data: () => ({ lyricsDoc: serverDoc }) }),
+      set: (ref, obj) => { lastWrite = obj; },
+    });
+    const ed = document.getElementById('lyricsEditor');
+
+    // (2) DELIBERATE CLEAR: song had lyrics, user empties the editor + edits → must persist empty.
+    _currentSong = { id: 'SLYR', lyricsDoc: '<div>Old</div>', lyricsDocInit: true };
+    ed.innerHTML = '<div>Old</div>'; _lyricsBase = currentEditorHtml(); serverDoc = _lyricsBase;
+    ed.innerHTML = '';                       // user deleted everything
+    onLyricsInput();                          // genuine user-edit signal
+    await flushLyrics();
+    const clearPersisted = !!(lastWrite && lastWrite.lyricsDoc === '' && lastWrite.lyricsDocInit === true);
+
+    // (3) NO-HARM: an empty editor with NO user edit (transient/programmatic) must NOT blank stored lyrics.
+    lastWrite = null;
+    _currentSong = { id: 'SLYR2', lyricsDoc: '<div>Keep</div>', lyricsDocInit: true };
+    ed.innerHTML = '<div>Keep</div>'; _lyricsBase = currentEditorHtml(); serverDoc = _lyricsBase;
+    ed.innerHTML = '';                        // empty, but user did NOT edit (no onLyricsInput)
+    if (typeof _lyricsEdited !== 'undefined') _lyricsEdited = false;  // ensure no stale edit-intent
+    await flushLyrics();
+    const accidentalGuarded = lastWrite === null;   // guard held → no write
+
+    return { clearedLegacy, legacyOnly, contentDoc, clearPersisted, accidentalGuarded };
+  });
+  ok(sL.clearedLegacy === '', 'T-LYR ilGetDocHtml returns empty for a committed-empty doc (no legacy re-migration)');
+  ok(/old legacy/.test(sL.legacyOnly), 'T-LYR ilGetDocHtml still migrates a legacy-only song (no-harm)');
+  ok(/Hi/.test(sL.contentDoc), 'T-LYR ilGetDocHtml passes through doc content');
+  ok(sL.clearPersisted, 'T-LYR a deliberate user clear persists an empty lyricsDoc');
+  ok(sL.accidentalGuarded, 'T-LYR an accidental/transient blank (no user edit) does NOT overwrite stored lyrics');
+
+  console.log(`\n${PASS} PASS / ${FAIL} FAIL`);
+  await browser.close(); srv.close();
+  process.exit(FAIL ? 1 : 0);
+})();
