@@ -2235,13 +2235,13 @@ function _wfTimeStr() {
   return _fmtMs(_wf.playhead || 0) + ' / ' + _fmtMs(_wf.dur);
 }
 function _wfUIHtml() {
-  const hasSel = !!_wf.sel;
+  const hasSel = !!_wf.sel, selPlaying = _playingTakeId === _wf.takeId && !!_phRegion;
   return `<div class="wf">
     <div class="wf-canvas-wrap"><canvas class="wave-canvas"></canvas></div>
     <div class="wf-row">
       <span class="wf-time" id="wfTime">${_wfTimeStr()}</span>
       <span class="wf-spacer"></span>
-      ${hasSel ? '<button class="wf-btn" onclick="wfClearSel()">Clear</button><button class="wf-btn trim" onclick="wfSaveTrim()">Save Trim</button>' : ''}
+      ${hasSel ? `<button class="wf-btn" id="wfSelPlay" onclick="wfPlaySel()">${selPlaying ? IC.stop + ' Stop' : IC.play + ' Play'}</button><button class="wf-btn" onclick="wfClearSel()">Clear</button><button class="wf-btn trim" onclick="wfSaveTrim()">Save Trim</button>` : ''}
       ${_wf.undo ? '<button class="wf-btn" onclick="wfUndo()">↶ Undo</button>' : ''}
     </div>
   </div>`;
@@ -2287,7 +2287,12 @@ document.addEventListener('pointerup', (e) => {
   if (!d.moved) { const t = _wfXToTime(d.canvas, e.clientX); _wf.playhead = t; if (_playingTakeId === _wf.takeId) playTake(_wf.takeId, { offset: t, region: (_wf.loopSel && _wf.sel) ? _wf.sel : null }); else wfPaint(); }
   else wfRender();
 });
-function wfToggleLoopSel() { if (!_wf.sel) return; _wf.loopSel = !_wf.loopSel; if (_playingTakeId === _wf.takeId) playTake(_wf.takeId, { offset: _wf.sel.a, region: _wf.loopSel ? _wf.sel : null }); wfRender(); }
+/* Contextual selection playback: loops the selected region; press again to stop. */
+function wfPlaySel() {
+  if (!_wf.sel) return;
+  if (_playingTakeId === _wf.takeId && _phRegion) { stopPlayback(); return; }
+  playTake(_wf.takeId, { offset: _wf.sel.a, region: _wf.sel });
+}
 function wfClearSel() { _wf.sel = null; _wf.loopSel = false; if (_playingTakeId === _wf.takeId) playTake(_wf.takeId, { offset: _wf.playhead, region: null }); wfRender(); }
 function _sliceBuffer(buffer, a, b) {
   const ctx = ensureCtx(), sr = buffer.sampleRate, s = Math.floor(a * sr), e = Math.floor(b * sr), len = Math.max(1, e - s);

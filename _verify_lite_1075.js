@@ -183,6 +183,24 @@ const waveState = (page, id) => page.evaluate((id) => {
     ok(trim.clear && trim.save, 'T5 selection still offers Clear + Save Trim');
   }
 
+  // ── T6: selection gets a contextual Play button that loops the selection ──
+  {
+    const noSel = await page.evaluate(() => !!document.querySelector('#wfSelPlay'));
+    ok(noSel === false, 'T6 no selection → no selection-play button');
+    await page.evaluate(() => { _wf.sel = { a: 0.2, b: 1.0 }; wfRender(); });
+    ok(await page.evaluate(() => !!document.querySelector('#wfSelPlay')), 'T6 selection made → Play button appears');
+    await page.click('#wfSelPlay');
+    await page.waitForTimeout(400);
+    const playing = await page.evaluate(() => ({ id: _playingTakeId, region: _phRegion ? [_phRegion.a, _phRegion.b] : null }));
+    ok(playing.id === 't1' && playing.region && playing.region[0] === 0.2 && playing.region[1] === 1.0,
+      'T6 Play press loops the selection (region playback engaged)');
+    await page.click('#wfSelPlay');
+    await page.waitForTimeout(300);
+    ok(await page.evaluate(() => _playingTakeId === null), 'T6 second press stops selection playback');
+    await page.evaluate(() => { _wf.sel = null; wfRender(); });
+    ok(await page.evaluate(() => !document.querySelector('#wfSelPlay')), 'T6 clearing selection removes the Play button');
+  }
+
   // ── [test blocks: appended by tasks 2–4 above this line] ──
 
   console.log(`\n${PASS}/${PASS + FAIL} passed, ${FAIL} failed`);
