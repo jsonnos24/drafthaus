@@ -713,8 +713,12 @@ html.dark #chordPop .cp-seg button.on { background: #48484a; }
 /* ───────────────────── iOS-feel quality wins (lite-1.073) ───────────────────── */
 /* Row-tap flash: the iOS gray highlight on touch. Touch devices only. */
 @media (hover: none) {
-  .sl-card:active, .take-card:not(.sel):active, .sheet-item:active,
-  .sm-row:active, .key-opt:not(.sel):active { background: var(--fill); }
+  .sheet-item:active, .sm-row:active, .key-opt:not(.sel):active { background: var(--fill); }
+  /* Swipe cards have the red Pin/Delete actions BEHIND them (z-index 1 vs card 2) —
+     the flash must stay opaque or the actions bleed through while a finger is down,
+     so composite the translucent fill OVER each card's own opaque base color. */
+  .sl-card:active { background: linear-gradient(var(--fill), var(--fill)), var(--bg-elev); }
+  .take-card:not(.sel):active { background: linear-gradient(var(--fill), var(--fill)), var(--bg); }
 }
 /* Chrome (nav bars, rail, sheets, controls) should never text-select on long-press.
    Deliberately NOT applied to #lyricsEditor, inputs, .take-card .nm (contenteditable
@@ -2231,15 +2235,13 @@ function _wfTimeStr() {
   return _fmtMs(_wf.playhead || 0) + ' / ' + _fmtMs(_wf.dur);
 }
 function _wfUIHtml() {
-  const hasSel = !!_wf.sel, playing = _playingTakeId === _wf.takeId;
+  const hasSel = !!_wf.sel, selPlaying = _playingTakeId === _wf.takeId && !!_phRegion;
   return `<div class="wf">
     <div class="wf-canvas-wrap"><canvas class="wave-canvas"></canvas></div>
     <div class="wf-row">
       <span class="wf-time" id="wfTime">${_wfTimeStr()}</span>
-      <button class="wf-btn" id="wfPlay" onclick="railPlayToggle()">${playing ? IC.stop + ' Stop' : IC.play + ' Play'}</button>
-      <button class="wf-btn ${_wf.loopSel ? 'on' : ''}" onclick="wfToggleLoopSel()" ${hasSel ? '' : 'disabled'}>${IC.loop} Loop</button>
       <span class="wf-spacer"></span>
-      ${hasSel ? '<button class="wf-btn" onclick="wfClearSel()">Clear</button><button class="wf-btn trim" onclick="wfSaveTrim()">Save Trim</button>' : ''}
+      ${hasSel ? `<button class="wf-btn" id="wfSelPlay" onclick="wfPlaySel()">${selPlaying ? IC.stop + ' Stop' : IC.play + ' Play'}</button><button class="wf-btn" onclick="wfClearSel()">Clear</button><button class="wf-btn trim" onclick="wfSaveTrim()">Save Trim</button>` : ''}
       ${_wf.undo ? '<button class="wf-btn" onclick="wfUndo()">↶ Undo</button>' : ''}
     </div>
   </div>`;
@@ -2253,7 +2255,6 @@ function wfRender() {
 function wfPaint() {
   document.querySelectorAll('.wave-canvas').forEach(_wfDraw);
   const t = document.getElementById('wfTime'); if (t) t.textContent = _wfTimeStr();
-  const pb = document.getElementById('wfPlay'); if (pb) pb.innerHTML = (_playingTakeId === _wf.takeId) ? IC.stop + ' Stop' : IC.play + ' Play';
 }
 function _wfDraw(canvas) {
   if (!_wf.peaks || !_wf.dur) return;
@@ -2286,7 +2287,12 @@ document.addEventListener('pointerup', (e) => {
   if (!d.moved) { const t = _wfXToTime(d.canvas, e.clientX); _wf.playhead = t; if (_playingTakeId === _wf.takeId) playTake(_wf.takeId, { offset: t, region: (_wf.loopSel && _wf.sel) ? _wf.sel : null }); else wfPaint(); }
   else wfRender();
 });
-function wfToggleLoopSel() { if (!_wf.sel) return; _wf.loopSel = !_wf.loopSel; if (_playingTakeId === _wf.takeId) playTake(_wf.takeId, { offset: _wf.sel.a, region: _wf.loopSel ? _wf.sel : null }); wfRender(); }
+/* Contextual selection playback: loops the selected region; press again to stop. */
+function wfPlaySel() {
+  if (!_wf.sel) return;
+  if (_playingTakeId === _wf.takeId && _phRegion) { stopPlayback(); return; }
+  playTake(_wf.takeId, { offset: _wf.sel.a, region: _wf.sel });
+}
 function wfClearSel() { _wf.sel = null; _wf.loopSel = false; if (_playingTakeId === _wf.takeId) playTake(_wf.takeId, { offset: _wf.playhead, region: null }); wfRender(); }
 function _sliceBuffer(buffer, a, b) {
   const ctx = ensureCtx(), sr = buffer.sampleRate, s = Math.floor(a * sr), e = Math.floor(b * sr), len = Math.max(1, e - s);
