@@ -1887,7 +1887,13 @@ async function commitRename(id, el) {
 function toggleLoop(id, ev) {
   if (ev) ev.stopPropagation();
   if (_loopTakes.has(id)) _loopTakes.delete(id); else _loopTakes.add(id);
-  if (_playingTakeId === id && _curSource) _curSource.loop = _loopTakes.has(id);
+  if (_playingTakeId === id && _curSource) {
+    const on = _loopTakes.has(id);
+    // Turning loop OFF mid-play: rebase the playhead clock to the current wrapped position
+    // (computed while src.loop is still true) so the line doesn't jump off-canvas.
+    if (!on && _audioCtx) { _phOffset = _phNow(); _phStartCtx = _audioCtx.currentTime; _phRegion = null; }
+    _curSource.loop = on;
+  }
   renderTakes();
 }
 /* ── Delete ── */
@@ -2144,6 +2150,7 @@ function _phNow() {
   if (_playingTakeId == null || !_audioCtx) return _wf.playhead || 0;
   let t = _phOffset + (_audioCtx.currentTime - _phStartCtx);
   if (_phRegion) { const len = _phRegion.b - _phRegion.a; if (len > 0 && t > _phRegion.b) t = _phRegion.a + ((t - _phRegion.a) % len); }
+  else if (_curSource && _curSource.loop && _curSource.buffer) { const d = _curSource.buffer.duration; if (d > 0) t = t % d; }   // whole-take loop: wrap every pass
   return t;
 }
 function _startPlayhead() {

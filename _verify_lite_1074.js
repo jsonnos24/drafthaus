@@ -64,6 +64,31 @@ const waveState = (page, id) => page.evaluate((id) => {
   const page = await boot(browser, port, { width: 390, height: 780 });   // mobile-size main page
   await seedSong(page);
 
+  // ── T1: playhead wraps on whole-take loop; toggleLoop-off rebases the clock ──
+  const t1 = await page.evaluate(() => {
+    const saved = { pt: _playingTakeId, ctx: _audioCtx, src: _curSource, sc: _phStartCtx, off: _phOffset, reg: _phRegion, loops: _loopTakes };
+    _audioCtx = { currentTime: 5 };
+    _curSource = { loop: true, buffer: { duration: 2 } };
+    _playingTakeId = 'LT'; _phStartCtx = 0; _phOffset = 0; _phRegion = null;
+    const wrapped = _phNow();                       // 5s into a 2s whole-take loop → 1s
+    _phRegion = { a: 0.5, b: 1.0 };
+    const regionWrapped = _phNow();                 // region branch must still win → 0.5
+    _phRegion = null;
+    _loopTakes = new Set(['LT']);
+    toggleLoop('LT');                               // turns loop OFF mid-play → rebase
+    const r = { wrapped, regionWrapped, rebasedOffset: _phOffset, rebasedStart: _phStartCtx, loopOff: _curSource.loop === false, regionCleared: _phRegion === null, after: _phNow() };
+    _playingTakeId = saved.pt; _audioCtx = saved.ctx; _curSource = saved.src;
+    _phStartCtx = saved.sc; _phOffset = saved.off; _phRegion = saved.reg; _loopTakes = saved.loops;
+    renderTakes();
+    return r;
+  });
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  ok(near(t1.wrapped, 1), 'T1 _phNow wraps whole-take loop (5s into 2s take → 1s)');
+  ok(near(t1.regionWrapped, 0.5), 'T1 region loop still wraps via the region branch');
+  ok(near(t1.rebasedOffset, 1) && near(t1.rebasedStart, 5), 'T1 toggleLoop-off rebases clock to wrapped position');
+  ok(t1.loopOff && t1.regionCleared, 'T1 toggleLoop-off clears src.loop and _phRegion');
+  ok(near(t1.after, 1), 'T1 playhead continuous across the loop-off toggle');
+
   // ── [test blocks: appended by tasks 2–4 above this line] ──
 
   console.log(`\n${PASS}/${PASS + FAIL} passed, ${FAIL} failed`);
