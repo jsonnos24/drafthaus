@@ -89,6 +89,21 @@ const waveState = (page, id) => page.evaluate((id) => {
   ok(t1.loopOff && t1.regionCleared, 'T1 toggleLoop-off clears src.loop and _phRegion');
   ok(near(t1.after, 1), 'T1 playhead continuous across the loop-off toggle');
 
+  // ── T2: pressing ▶ on a take shows its waveform (the "select twice" bug) ──
+  await page.click('.takes-btn');                       // open the takes panel like a user
+  await page.waitForTimeout(400);
+  ok(await waveState(page, 't1') === 'CANVAS', 'T2 sanity: auto-selected take shows its waveform');
+  await page.click('.take-row[data-id="t2"] .take-card .play');
+  await page.waitForTimeout(600);
+  const t2 = await page.evaluate(() => ({ wfId: _wf.takeId, playing: _playingTakeId }));
+  ok(t2.playing === 't2', 'T2 ▶ press starts playback of t2');
+  ok(t2.wfId === 't2', 'T2 ▶ press loads t2 into the waveform state');
+  ok(await waveState(page, 't2') === 'CANVAS', 'T2 ▶ press renders t2 waveform canvas (one interaction)');
+  await page.evaluate(() => stopPlayback());
+  await page.click('.take-row[data-id="t1"] .take-card .nm');   // title-click path must still work
+  await page.waitForTimeout(400);
+  ok(await waveState(page, 't1') === 'CANVAS', 'T2 title click still shows waveform first time');
+
   // ── [test blocks: appended by tasks 2–4 above this line] ──
 
   console.log(`\n${PASS}/${PASS + FAIL} passed, ${FAIL} failed`);
