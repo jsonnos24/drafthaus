@@ -104,6 +104,14 @@ const waveState = (page, id) => page.evaluate((id) => {
   await page.waitForTimeout(400);
   ok(await waveState(page, 't1') === 'CANVAS', 'T2 title click still shows waveform first time');
 
+  // ── T3: takes panel default-open on desktop, closed on mobile ──
+  const pgD = await boot(browser, port, { width: 1280, height: 800 });
+  await pgD.evaluate(() => { window._openSongObj({ id: 'S2', ownerId: 'guest', title: 'Desk Song', key: '', lyricsDoc: '<div>x</div>' }); });
+  ok(await pgD.evaluate(() => document.getElementById('takesPanel').classList.contains('open')), 'T3 desktop (1280px): takes panel open on song open');
+  const pgM = await boot(browser, port, { width: 390, height: 780 });
+  await pgM.evaluate(() => { window._openSongObj({ id: 'S3', ownerId: 'guest', title: 'Phone Song', key: '', lyricsDoc: '<div>x</div>' }); });
+  ok(await pgM.evaluate(() => !document.getElementById('takesPanel').classList.contains('open')), 'T3 mobile (390px): takes panel still closed on song open');
+
   // ── [test blocks: appended by tasks 2–4 above this line] ──
 
   console.log(`\n${PASS}/${PASS + FAIL} passed, ${FAIL} failed`);
