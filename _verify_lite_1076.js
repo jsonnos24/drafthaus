@@ -234,7 +234,37 @@ const selectAllLyrics = (page) => page.evaluate(() => {
     ok(dirty, 'F5 toolbar actions route through onLyricsInput (autosave pipeline engaged)');
   }
 
-  // ── [test blocks F1–F5: appended by tasks 2–5 above this line] ──
+  // ── F6: bar color button — visible swatch that tracks the selection's color ──
+  {
+    await page.evaluate(() => {
+      document.getElementById('lyricsEditor').innerHTML = '<div>hello world lyrics</div>';
+      getSelection().removeAllRanges();
+    });
+    await selectAllLyrics(page);
+    await page.waitForTimeout(300);
+    const sw = await page.evaluate(() => {
+      const el = document.querySelector('#fmtBar [data-sub="color"] .fmt-sw');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return {
+        w: r.width, h: r.height,
+        bg: getComputedStyle(el).backgroundColor,
+        edColor: getComputedStyle(document.getElementById('lyricsEditor')).color,
+      };
+    });
+    ok(sw && sw.w >= 12 && sw.h >= 12, 'F6 bar swatch has visible dimensions');
+    ok(sw && sw.bg === sw.edColor, 'F6 swatch shows the editor default color for unformatted text');
+    await page.evaluate(() => fmtColor('#d94848'));
+    await selectAllLyrics(page);
+    await page.waitForTimeout(300);
+    ok(await page.evaluate(() => {
+      const el = document.querySelector('#fmtBar [data-sub="color"] .fmt-sw');
+      return getComputedStyle(el).backgroundColor === 'rgb(217, 72, 72)';
+    }), 'F6 swatch updates to the selection current color');
+    await page.evaluate(() => getSelection().removeAllRanges());
+  }
+
+  // ── [test blocks F1–F6: appended above this line] ──
 
   console.log(`\n${PASS}/${PASS + FAIL} passed, ${FAIL} failed`);
   await browser.close(); srv.close();
