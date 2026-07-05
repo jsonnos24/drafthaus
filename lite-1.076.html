@@ -37,6 +37,7 @@
   --shadow:    0 1px 4px rgba(0,0,0,0.06);
   --shadow-lg: 0 14px 40px rgba(0,0,0,0.18);
   --fill:      rgba(120,120,128,0.12);   /* iOS systemFill — row-tap flash */
+  --fmtText:   #111111;   /* lyrics "default" format color — flips white in dark */
   --radius:    14px;
   --safe-top:    env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -60,6 +61,7 @@ html.dark {
   --shadow:    0 1px 4px rgba(0,0,0,0.4);
   --shadow-lg: 0 14px 40px rgba(0,0,0,0.55);
   --fill:      rgba(120,120,128,0.24);
+  --fmtText:   #ffffff;
 }
 
 * , *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -333,6 +335,21 @@ body.is-guest .guest-tag {
 .swatches { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
 .swatch { width: 40px; height: 40px; border-radius: 50%; cursor: pointer; }
 .swatch.sel { outline: 3px solid var(--text); outline-offset: 2px; }
+
+/* lyrics selection format toolbar */
+#fmtBar, #fmtSub { position: fixed; z-index: 1300; display: none; background: var(--bg-elev);
+  border-radius: 12px; box-shadow: var(--shadow-lg); padding: 4px; align-items: center; gap: 2px; }
+#fmtBar.open, #fmtSub.open { display: flex; }
+#fmtBar .fmt-btn { min-width: 34px; height: 34px; border: none; background: none; border-radius: 8px;
+  font-size: 15px; font-weight: 700; color: var(--text); padding: 0 8px; font-family: var(--font); }
+#fmtBar .fmt-btn:active, #fmtBar .fmt-btn.on { background: var(--bg-input); }
+#fmtBar .fmt-btn.fi { font-style: italic; font-weight: 600; }
+#fmtBar .fmt-btn.fu { text-decoration: underline; font-weight: 600; }
+#fmtBar .fmt-sep { width: .5px; align-self: stretch; margin: 5px 3px; background: var(--sep); }
+#fmtSub { padding: 6px; gap: 6px; }
+#fmtSub .fmt-size { border: none; background: var(--bg-input); color: var(--text); border-radius: 8px;
+  padding: 5px 10px; font-weight: 600; font-family: var(--font); }
+#fmtSub .fmt-sw { width: 26px; height: 26px; border-radius: 50%; border: .5px solid var(--sep); flex: none; }
 
 /* toast */
 #toast { position: fixed; left: 50%; bottom: calc(28px + var(--safe-bottom)); transform: translateX(-50%) translateY(20px);
@@ -1654,6 +1671,92 @@ function commitChordEntry() {
 function _atomizeLyricChords() {
   const ed = document.getElementById('lyricsEditor'); if (!ed) return;
   ed.querySelectorAll('.chord').forEach(c => { c.contentEditable = 'false'; });
+}
+
+/* ── Selection format toolbar: color / size / B·I·U (fmt*) ── */
+const FMT_SIZES = { title: '28px', heading: '20px', body: '16px', small: '13px' };
+const FMT_ACCENTS = ['#d94848','#d97a1f','#b8860b','#2f9e44','#2f6fd0','#9d5fe0','#d6408b'];
+const FMT_SENTINEL = '#010203';
+let _fmtTimer = null;
+
+function _fmtBar() {
+  let bar = document.getElementById('fmtBar');
+  if (bar) return bar;
+  bar = document.createElement('div'); bar.id = 'fmtBar';
+  bar.innerHTML =
+    '<button class="fmt-btn" data-cmd="bold" onmousedown="event.preventDefault()" onclick="fmtCmd(\'bold\')" aria-label="Bold">B</button>' +
+    '<button class="fmt-btn fi" data-cmd="italic" onmousedown="event.preventDefault()" onclick="fmtCmd(\'italic\')" aria-label="Italic">I</button>' +
+    '<button class="fmt-btn fu" data-cmd="underline" onmousedown="event.preventDefault()" onclick="fmtCmd(\'underline\')" aria-label="Underline">U</button>';
+  document.body.appendChild(bar);
+  const sub = document.createElement('div'); sub.id = 'fmtSub';
+  document.body.appendChild(sub);
+  return bar;
+}
+
+// The current selection, but only if it's a real (non-collapsed) range inside the lyrics editor.
+function _fmtSelRange() {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const ed = document.getElementById('lyricsEditor');
+  if (!ed || !ed.contains(sel.anchorNode) || !ed.contains(sel.focusNode)) return null;
+  return sel.getRangeAt(0);
+}
+
+function fmtHide() {
+  document.getElementById('fmtBar')?.classList.remove('open');
+  _fmtCloseSub();
+}
+
+function _fmtMaybeShow() {
+  if (_chordsMode) { fmtHide(); return; }   // Chordify: word-taps mean "add chord"
+  const r = _fmtSelRange();
+  if (!r) { fmtHide(); return; }
+  const bar = _fmtBar();
+  bar.classList.add('open');
+  const rect = r.getBoundingClientRect();
+  let top = rect.top - bar.offsetHeight - 8;
+  if (top < 8) top = rect.bottom + 8;   // no room above → flip below
+  let left = rect.left + rect.width / 2 - bar.offsetWidth / 2;
+  left = Math.max(8, Math.min(left, innerWidth - bar.offsetWidth - 8));
+  bar.style.top = top + 'px'; bar.style.left = left + 'px';
+  fmtSync();
+}
+
+document.addEventListener('selectionchange', () => {
+  clearTimeout(_fmtTimer);
+  if (!_fmtSelRange()) { fmtHide(); return; }   // collapse/leave hides immediately
+  _fmtTimer = setTimeout(_fmtMaybeShow, 150);   // debounce while the selection is being dragged
+});
+window.addEventListener('scroll', fmtHide, true);
+
+function fmtCmd(cmd) {
+  const ed = document.getElementById('lyricsEditor'); if (!ed) return;
+  document.execCommand(cmd, false, null);
+  onLyricsInput(); fmtSync();
+}
+
+function fmtSync() {
+  const bar = document.getElementById('fmtBar'); if (!bar) return;
+  ['bold', 'italic', 'underline'].forEach(c => {
+    const b = bar.querySelector('[data-cmd="' + c + '"]'); if (!b) return;
+    let on = false; try { on = document.queryCommandState(c); } catch (e) {}
+    b.classList.toggle('on', on);
+  });
+}
+
+// Second-level panel (sizes / swatches) anchored under a bar button.
+function _fmtSub(anchorBtn, html) {
+  const sub = document.getElementById('fmtSub');
+  if (sub.classList.contains('open') && sub.dataset.for === anchorBtn.dataset.sub) { _fmtCloseSub(); return; }
+  sub.dataset.for = anchorBtn.dataset.sub || '';
+  sub.innerHTML = html; sub.classList.add('open');
+  const r = anchorBtn.getBoundingClientRect();
+  sub.style.top = (r.bottom + 6) + 'px';
+  sub.style.left = Math.max(8, Math.min(r.left, innerWidth - sub.offsetWidth - 8)) + 'px';
+}
+function _fmtCloseSub() {
+  const s = document.getElementById('fmtSub');
+  if (s) { s.classList.remove('open'); s.dataset.for = ''; }
 }
 
 /* ── Chord overlay: tap/hover a chord in the lyrics → how to play it ── */
