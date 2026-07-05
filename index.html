@@ -37,6 +37,7 @@
   --shadow:    0 1px 4px rgba(0,0,0,0.06);
   --shadow-lg: 0 14px 40px rgba(0,0,0,0.18);
   --fill:      rgba(120,120,128,0.12);   /* iOS systemFill — row-tap flash */
+  --fmtText:   #111111;   /* lyrics "default" format color — flips white in dark */
   --radius:    14px;
   --safe-top:    env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -60,6 +61,7 @@ html.dark {
   --shadow:    0 1px 4px rgba(0,0,0,0.4);
   --shadow-lg: 0 14px 40px rgba(0,0,0,0.55);
   --fill:      rgba(120,120,128,0.24);
+  --fmtText:   #ffffff;
 }
 
 * , *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -333,6 +335,21 @@ body.is-guest .guest-tag {
 .swatches { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
 .swatch { width: 40px; height: 40px; border-radius: 50%; cursor: pointer; }
 .swatch.sel { outline: 3px solid var(--text); outline-offset: 2px; }
+
+/* lyrics selection format toolbar */
+#fmtBar, #fmtSub { position: fixed; z-index: 1300; display: none; background: var(--bg-elev);
+  border-radius: 12px; box-shadow: var(--shadow-lg); padding: 4px; align-items: center; gap: 2px; }
+#fmtBar.open, #fmtSub.open { display: flex; }
+#fmtBar .fmt-btn { min-width: 34px; height: 34px; border: none; background: none; border-radius: 8px;
+  font-size: 15px; font-weight: 700; color: var(--text); padding: 0 8px; font-family: var(--font); }
+#fmtBar .fmt-btn:active, #fmtBar .fmt-btn.on { background: var(--bg-input); }
+#fmtBar .fmt-btn.fi { font-style: italic; font-weight: 600; }
+#fmtBar .fmt-btn.fu { text-decoration: underline; font-weight: 600; }
+#fmtBar .fmt-sep { width: .5px; align-self: stretch; margin: 5px 3px; background: var(--sep); }
+#fmtSub { padding: 6px; gap: 6px; }
+#fmtSub .fmt-size { border: none; background: var(--bg-input); color: var(--text); border-radius: 8px;
+  padding: 5px 10px; font-weight: 600; font-family: var(--font); }
+#fmtSub .fmt-sw { width: 26px; height: 26px; border-radius: 50%; border: .5px solid var(--sep); flex: none; }
 
 /* toast */
 #toast { position: fixed; left: 50%; bottom: calc(28px + var(--safe-bottom)); transform: translateX(-50%) translateY(20px);
@@ -1654,6 +1671,154 @@ function commitChordEntry() {
 function _atomizeLyricChords() {
   const ed = document.getElementById('lyricsEditor'); if (!ed) return;
   ed.querySelectorAll('.chord').forEach(c => { c.contentEditable = 'false'; });
+}
+
+/* ── Selection format toolbar: color / size / B·I·U (fmt*) ── */
+const FMT_SIZES = { title: '28px', heading: '20px', body: '16px', small: '13px' };
+const FMT_ACCENTS = ['#d94848','#d97a1f','#b8860b','#2f9e44','#2f6fd0','#9d5fe0','#d6408b'];
+const FMT_SENTINEL = '#010203';
+let _fmtTimer = null;
+
+function _fmtBar() {
+  let bar = document.getElementById('fmtBar');
+  if (bar) return bar;
+  bar = document.createElement('div'); bar.id = 'fmtBar';
+  bar.innerHTML =
+    '<button class="fmt-btn" data-cmd="bold" onmousedown="event.preventDefault()" onclick="fmtCmd(\'bold\')" aria-label="Bold">B</button>' +
+    '<button class="fmt-btn fi" data-cmd="italic" onmousedown="event.preventDefault()" onclick="fmtCmd(\'italic\')" aria-label="Italic">I</button>' +
+    '<button class="fmt-btn fu" data-cmd="underline" onmousedown="event.preventDefault()" onclick="fmtCmd(\'underline\')" aria-label="Underline">U</button>' +
+    '<div class="fmt-sep"></div>' +
+    '<button class="fmt-btn" data-sub="size" onmousedown="event.preventDefault()" onclick="fmtOpenSizes(this)" aria-label="Text size">Aa</button>' +
+    '<div class="fmt-sep"></div>' +
+    '<button class="fmt-btn" data-sub="color" onmousedown="event.preventDefault()" onclick="fmtOpenSwatches(this)" aria-label="Text color"><span class="fmt-sw" style="display:inline-block;vertical-align:-6px;background:var(--fmtText)"></span></button>';
+  document.body.appendChild(bar);
+  const sub = document.createElement('div'); sub.id = 'fmtSub';
+  document.body.appendChild(sub);
+  return bar;
+}
+
+// The current selection, but only if it's a real (non-collapsed) range inside the lyrics editor.
+function _fmtSelRange() {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const ed = document.getElementById('lyricsEditor');
+  if (!ed || !ed.contains(sel.anchorNode) || !ed.contains(sel.focusNode)) return null;
+  return sel.getRangeAt(0);
+}
+
+function fmtHide() {
+  document.getElementById('fmtBar')?.classList.remove('open');
+  _fmtCloseSub();
+}
+
+function _fmtMaybeShow() {
+  if (_chordsMode) { fmtHide(); return; }   // Chordify: word-taps mean "add chord"
+  const r = _fmtSelRange();
+  if (!r) { fmtHide(); return; }
+  const bar = _fmtBar();
+  bar.classList.add('open');
+  const rect = r.getBoundingClientRect();
+  let top = rect.top - bar.offsetHeight - 8;
+  if (top < 8) top = rect.bottom + 8;   // no room above → flip below
+  let left = rect.left + rect.width / 2 - bar.offsetWidth / 2;
+  left = Math.max(8, Math.min(left, innerWidth - bar.offsetWidth - 8));
+  bar.style.top = top + 'px'; bar.style.left = left + 'px';
+  fmtSync();
+}
+
+document.addEventListener('selectionchange', () => {
+  clearTimeout(_fmtTimer);
+  if (!_fmtSelRange()) { fmtHide(); return; }   // collapse/leave hides immediately
+  _fmtTimer = setTimeout(_fmtMaybeShow, 150);   // debounce while the selection is being dragged
+});
+window.addEventListener('scroll', fmtHide, true);
+// Chordify is entered by a click whose mousedown is prevented (selection survives, no
+// selectionchange fires) — re-check on the bubble phase so the bar hides on that tap.
+document.addEventListener('click', () => { if (_chordsMode) fmtHide(); });
+
+function fmtCmd(cmd) {
+  const ed = document.getElementById('lyricsEditor'); if (!ed) return;
+  document.execCommand(cmd, false, null);
+  onLyricsInput(); fmtSync();
+}
+
+function fmtSync() {
+  const bar = document.getElementById('fmtBar'); if (!bar) return;
+  ['bold', 'italic', 'underline'].forEach(c => {
+    const b = bar.querySelector('[data-cmd="' + c + '"]'); if (!b) return;
+    let on = false; try { on = document.queryCommandState(c); } catch (e) {}
+    b.classList.toggle('on', on);
+  });
+}
+
+// Second-level panel (sizes / swatches) anchored under a bar button.
+function _fmtSub(anchorBtn, html) {
+  const sub = document.getElementById('fmtSub');
+  if (sub.classList.contains('open') && sub.dataset.for === anchorBtn.dataset.sub) { _fmtCloseSub(); return; }
+  sub.dataset.for = anchorBtn.dataset.sub || '';
+  sub.innerHTML = html; sub.classList.add('open');
+  const r = anchorBtn.getBoundingClientRect();
+  sub.style.top = (r.bottom + 6) + 'px';
+  sub.style.left = Math.max(8, Math.min(r.left, innerWidth - sub.offsetWidth - 8)) + 'px';
+}
+function _fmtCloseSub() {
+  const s = document.getElementById('fmtSub');
+  if (s) { s.classList.remove('open'); s.dataset.for = ''; }
+}
+
+function fmtOpenSizes(btn) {
+  const labels = { title: 'Title', heading: 'Heading', body: 'Body', small: 'Small' };
+  _fmtSub(btn, Object.keys(FMT_SIZES).map(k =>
+    `<button class="fmt-size" style="font-size:${Math.min(parseInt(FMT_SIZES[k], 10), 19)}px" onmousedown="event.preventDefault()" onclick="fmtSetSize('${k}')">${labels[k]}</button>`
+  ).join(''));
+}
+
+function fmtSetSize(key) {
+  const ed = document.getElementById('lyricsEditor'); if (!ed || !FMT_SIZES[key]) return;
+  // execCommand fontSize only accepts 1–7; apply real px by restyling the resulting
+  // font elements (same trick as the full app's ilFmtSetSize).
+  document.execCommand('styleWithCSS', false, false);   // ensure <font size="7"> output
+  document.execCommand('fontSize', false, '7');
+  ed.querySelectorAll('font[size="7"]').forEach(f => {
+    f.removeAttribute('size');
+    f.style.fontSize = FMT_SIZES[key];
+  });
+  _fmtCloseSub(); onLyricsInput();
+}
+
+function fmtOpenSwatches(btn) {
+  // First swatch = theme default (black in light / white in dark); shown as a split circle.
+  const def = `<button class="fmt-sw" style="background:linear-gradient(135deg,#111 50%,#fff 50%)" onmousedown="event.preventDefault()" onclick="fmtColor('')" aria-label="Default color"></button>`;
+  _fmtSub(btn, def + FMT_ACCENTS.map(c =>
+    `<button class="fmt-sw" style="background:${c}" onmousedown="event.preventDefault()" onclick="fmtColor('${c}')"></button>`
+  ).join(''));
+}
+
+function fmtColor(hex) {
+  const ed = document.getElementById('lyricsEditor'); if (!ed) return;
+  document.execCommand('styleWithCSS', false, false);   // <font color="..."> output
+  document.execCommand('foreColor', false, hex || FMT_SENTINEL);
+  if (!hex) {
+    // Default swatch: rewrite the sentinel to a theme-adaptive var. In Lite, --fmtText is
+    // #111 (light) / #fff (dark); in the full app the var is undefined → CSS falls back to
+    // #ffffff, the full app's normal lyrics color. Both sanitizers pass var() through.
+    // Chrome may emit either <font color="#010203"> OR a styled span/element with
+    // style="color: rgb(1, 2, 3)" depending on selection shape — catch both forms.
+    ed.querySelectorAll('font[color]').forEach(f => {
+      if ((f.getAttribute('color') || '').toLowerCase() === FMT_SENTINEL) {
+        f.removeAttribute('color');
+        f.style.color = 'var(--fmtText,#ffffff)';
+      }
+    });
+    ed.querySelectorAll('[style*="color"]').forEach(el => {
+      const c = el.style.color;
+      if (c === 'rgb(1, 2, 3)' || c === '#010203') {
+        el.style.color = 'var(--fmtText,#ffffff)';
+      }
+    });
+  }
+  _atomizeLyricChords();   // belt-and-braces: chord spans stay non-editable islands
+  _fmtCloseSub(); onLyricsInput();
 }
 
 /* ── Chord overlay: tap/hover a chord in the lyrics → how to play it ── */
