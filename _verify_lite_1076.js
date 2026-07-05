@@ -120,6 +120,41 @@ const selectAllLyrics = (page) => page.evaluate(() => {
     await page.evaluate(() => { document.execCommand('italic'); document.execCommand('underline'); getSelection().removeAllRanges(); });
   }
 
+  // ── F3: sizes — Aa panel opens, each key writes its exact px, sanitizer keeps it ──
+  {
+    await selectAllLyrics(page);
+    await page.waitForTimeout(300);
+    await page.click('#fmtBar [data-sub="size"]');
+    ok(await page.evaluate(() => document.querySelectorAll('#fmtSub.open .fmt-size').length === 4),
+      'F3 Aa opens a panel with 4 size choices');
+    await page.click('#fmtSub .fmt-size:first-child');   // Title = 28px
+    ok(await page.evaluate(() => {
+      const ed = document.getElementById('lyricsEditor');
+      return /font-size:\s*28px/.test(ed.innerHTML) && !ed.querySelector('font[size]');
+    }), 'F3 Title writes font-size:28px (no font[size] left behind)');
+    ok(await page.evaluate(() => !document.querySelector('#fmtSub.open')), 'F3 picking a size closes the panel');
+    const px = await page.evaluate(() => {
+      const results = {};
+      for (const [k, v] of Object.entries(FMT_SIZES)) {
+        selectAllInline(); fmtSetSize(k);
+        results[k] = new RegExp('font-size:\\s*' + v).test(document.getElementById('lyricsEditor').innerHTML);
+      }
+      function selectAllInline() {
+        const ed = document.getElementById('lyricsEditor'); ed.focus();
+        const r = document.createRange(); r.selectNodeContents(ed);
+        const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+      }
+      return results;
+    });
+    ok(px.title && px.heading && px.body && px.small, 'F3 all four sizes write their exact px values');
+    ok(await page.evaluate(() => /font-size:\s*13px/.test(ilSanitizeDocHtml(document.getElementById('lyricsEditor').innerHTML))),
+      'F3 font-size survives ilSanitizeDocHtml');
+    await page.evaluate(() => { // reset lyrics for later blocks
+      document.getElementById('lyricsEditor').innerHTML = '<div>hello world lyrics</div>';
+      getSelection().removeAllRanges();
+    });
+  }
+
   // ── [test blocks F1–F5: appended by tasks 2–5 above this line] ──
 
   console.log(`\n${PASS}/${PASS + FAIL} passed, ${FAIL} failed`);

@@ -1686,7 +1686,9 @@ function _fmtBar() {
   bar.innerHTML =
     '<button class="fmt-btn" data-cmd="bold" onmousedown="event.preventDefault()" onclick="fmtCmd(\'bold\')" aria-label="Bold">B</button>' +
     '<button class="fmt-btn fi" data-cmd="italic" onmousedown="event.preventDefault()" onclick="fmtCmd(\'italic\')" aria-label="Italic">I</button>' +
-    '<button class="fmt-btn fu" data-cmd="underline" onmousedown="event.preventDefault()" onclick="fmtCmd(\'underline\')" aria-label="Underline">U</button>';
+    '<button class="fmt-btn fu" data-cmd="underline" onmousedown="event.preventDefault()" onclick="fmtCmd(\'underline\')" aria-label="Underline">U</button>' +
+    '<div class="fmt-sep"></div>' +
+    '<button class="fmt-btn" data-sub="size" onmousedown="event.preventDefault()" onclick="fmtOpenSizes(this)" aria-label="Text size">Aa</button>';
   document.body.appendChild(bar);
   const sub = document.createElement('div'); sub.id = 'fmtSub';
   document.body.appendChild(sub);
@@ -1760,6 +1762,26 @@ function _fmtSub(anchorBtn, html) {
 function _fmtCloseSub() {
   const s = document.getElementById('fmtSub');
   if (s) { s.classList.remove('open'); s.dataset.for = ''; }
+}
+
+function fmtOpenSizes(btn) {
+  const labels = { title: 'Title', heading: 'Heading', body: 'Body', small: 'Small' };
+  _fmtSub(btn, Object.keys(FMT_SIZES).map(k =>
+    `<button class="fmt-size" style="font-size:${Math.min(parseInt(FMT_SIZES[k], 10), 19)}px" onmousedown="event.preventDefault()" onclick="fmtSetSize('${k}')">${labels[k]}</button>`
+  ).join(''));
+}
+
+function fmtSetSize(key) {
+  const ed = document.getElementById('lyricsEditor'); if (!ed || !FMT_SIZES[key]) return;
+  // execCommand fontSize only accepts 1–7; apply real px by restyling the resulting
+  // font elements (same trick as the full app's ilFmtSetSize).
+  document.execCommand('styleWithCSS', false, false);   // ensure <font size="7"> output
+  document.execCommand('fontSize', false, '7');
+  ed.querySelectorAll('font[size="7"]').forEach(f => {
+    f.removeAttribute('size');
+    f.style.fontSize = FMT_SIZES[key];
+  });
+  _fmtCloseSub(); onLyricsInput();
 }
 
 /* ── Chord overlay: tap/hover a chord in the lyrics → how to play it ── */
