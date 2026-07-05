@@ -1688,7 +1688,9 @@ function _fmtBar() {
     '<button class="fmt-btn fi" data-cmd="italic" onmousedown="event.preventDefault()" onclick="fmtCmd(\'italic\')" aria-label="Italic">I</button>' +
     '<button class="fmt-btn fu" data-cmd="underline" onmousedown="event.preventDefault()" onclick="fmtCmd(\'underline\')" aria-label="Underline">U</button>' +
     '<div class="fmt-sep"></div>' +
-    '<button class="fmt-btn" data-sub="size" onmousedown="event.preventDefault()" onclick="fmtOpenSizes(this)" aria-label="Text size">Aa</button>';
+    '<button class="fmt-btn" data-sub="size" onmousedown="event.preventDefault()" onclick="fmtOpenSizes(this)" aria-label="Text size">Aa</button>' +
+    '<div class="fmt-sep"></div>' +
+    '<button class="fmt-btn" data-sub="color" onmousedown="event.preventDefault()" onclick="fmtOpenSwatches(this)" aria-label="Text color"><span class="fmt-sw" style="display:inline-block;vertical-align:-6px;background:var(--fmtText)"></span></button>';
   document.body.appendChild(bar);
   const sub = document.createElement('div'); sub.id = 'fmtSub';
   document.body.appendChild(sub);
@@ -1781,6 +1783,41 @@ function fmtSetSize(key) {
     f.removeAttribute('size');
     f.style.fontSize = FMT_SIZES[key];
   });
+  _fmtCloseSub(); onLyricsInput();
+}
+
+function fmtOpenSwatches(btn) {
+  // First swatch = theme default (black in light / white in dark); shown as a split circle.
+  const def = `<button class="fmt-sw" style="background:linear-gradient(135deg,#111 50%,#fff 50%)" onmousedown="event.preventDefault()" onclick="fmtColor('')" aria-label="Default color"></button>`;
+  _fmtSub(btn, def + FMT_ACCENTS.map(c =>
+    `<button class="fmt-sw" style="background:${c}" onmousedown="event.preventDefault()" onclick="fmtColor('${c}')"></button>`
+  ).join(''));
+}
+
+function fmtColor(hex) {
+  const ed = document.getElementById('lyricsEditor'); if (!ed) return;
+  document.execCommand('styleWithCSS', false, false);   // <font color="..."> output
+  document.execCommand('foreColor', false, hex || FMT_SENTINEL);
+  if (!hex) {
+    // Default swatch: rewrite the sentinel to a theme-adaptive var. In Lite, --fmtText is
+    // #111 (light) / #fff (dark); in the full app the var is undefined → CSS falls back to
+    // #ffffff, the full app's normal lyrics color. Both sanitizers pass var() through.
+    // Chrome may emit either <font color="#010203"> OR a styled span/element with
+    // style="color: rgb(1, 2, 3)" depending on selection shape — catch both forms.
+    ed.querySelectorAll('font[color]').forEach(f => {
+      if ((f.getAttribute('color') || '').toLowerCase() === FMT_SENTINEL) {
+        f.removeAttribute('color');
+        f.style.color = 'var(--fmtText,#ffffff)';
+      }
+    });
+    ed.querySelectorAll('[style*="color"]').forEach(el => {
+      const c = el.style.color;
+      if (c === 'rgb(1, 2, 3)' || c === '#010203') {
+        el.style.color = 'var(--fmtText,#ffffff)';
+      }
+    });
+  }
+  _atomizeLyricChords();   // belt-and-braces: chord spans stay non-editable islands
   _fmtCloseSub(); onLyricsInput();
 }
 

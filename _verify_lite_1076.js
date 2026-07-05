@@ -155,6 +155,53 @@ const selectAllLyrics = (page) => page.evaluate(() => {
     });
   }
 
+  // ── F4: colors — accent stores literal hex; default stores var(); theme flip changes computed color ──
+  {
+    await selectAllLyrics(page);
+    await page.waitForTimeout(300);
+    await page.click('#fmtBar [data-sub="color"]');
+    ok(await page.evaluate(() => document.querySelectorAll('#fmtSub.open .fmt-sw').length === 8),
+      'F4 color panel shows 8 swatches (default + 7 accents)');
+    await page.click('#fmtSub .fmt-sw:nth-child(2)');   // first accent = #d94848
+    ok(await page.evaluate(() => /#d94848/i.test(document.getElementById('lyricsEditor').innerHTML)),
+      'F4 accent swatch stores literal hex');
+    await selectAllLyrics(page);
+    await page.waitForTimeout(300);
+    await page.evaluate(() => fmtColor(''));            // default swatch
+    const defState = await page.evaluate(() => {
+      const ed = document.getElementById('lyricsEditor');
+      const html = ed.innerHTML;
+      const probe = ed.querySelector('[style*="--fmtText"]');
+      const colLight = probe ? getComputedStyle(probe).color : '';
+      document.documentElement.classList.add('dark');
+      const colDark = probe ? getComputedStyle(probe).color : '';
+      document.documentElement.classList.remove('dark');
+      return {
+        hasVar: /var\(--fmtText,\s*#ffffff\)/.test(html),
+        sentinelGone: !/010203/i.test(html),
+        colLight, colDark,
+        survives: /var\(--fmtText,\s*#ffffff\)/.test(ilSanitizeDocHtml(html)),
+      };
+    });
+    ok(defState.hasVar, 'F4 default swatch stores color:var(--fmtText,#ffffff)');
+    ok(defState.sentinelGone, 'F4 sentinel color fully rewritten');
+    ok(defState.colLight === 'rgb(17, 17, 17)', 'F4 default text computes near-black in light mode');
+    ok(defState.colDark === 'rgb(255, 255, 255)', 'F4 default text computes white in dark mode (auto-switch)');
+    ok(defState.survives, 'F4 var() color survives ilSanitizeDocHtml');
+    // share viewer probe: viewer forces html.dark, so the same token must resolve white there
+    const sv = await page.evaluate(() => {
+      document.documentElement.classList.add('dark');
+      const d = document.createElement('div'); d.className = 'sv-lyr-body';
+      d.innerHTML = '<span style="color:var(--fmtText,#ffffff)">x</span>';
+      document.body.appendChild(d);
+      const c = getComputedStyle(d.firstChild).color;
+      d.remove(); document.documentElement.classList.remove('dark');
+      return c;
+    });
+    ok(sv === 'rgb(255, 255, 255)', 'F4 share-viewer (forced dark) renders default color white');
+    await page.evaluate(() => getSelection().removeAllRanges());
+  }
+
   // ── [test blocks F1–F5: appended by tasks 2–5 above this line] ──
 
   console.log(`\n${PASS}/${PASS + FAIL} passed, ${FAIL} failed`);
