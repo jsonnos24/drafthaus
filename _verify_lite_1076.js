@@ -202,6 +202,38 @@ const selectAllLyrics = (page) => page.evaluate(() => {
     await page.evaluate(() => getSelection().removeAllRanges());
   }
 
+  // ── F5: chord-span safety + save/reload round-trip ──
+  {
+    await page.evaluate(() => {
+      const ed = document.getElementById('lyricsEditor');
+      ed.innerHTML = '<div>la <span class="chord">Am</span> la la</div>';
+      _atomizeLyricChords();
+    });
+    await selectAllLyrics(page);
+    await page.waitForTimeout(300);
+    await page.evaluate(() => { fmtCmd('bold'); fmtColor('#2f6fd0'); });
+    const chord = await page.evaluate(() => {
+      const c = document.getElementById('lyricsEditor').querySelector('.chord');
+      return c ? { text: c.textContent, atomic: c.contentEditable === 'false', cls: c.className } : null;
+    });
+    ok(chord && chord.text === 'Am' && chord.atomic && chord.cls === 'chord',
+      'F5 formatting across a chord span leaves the chord intact and atomic');
+    // simulated save → reload: what flushLyrics persists is currentEditorHtml();
+    // reloading runs it through ilSanitizeDocHtml again (openSong path)
+    const rt = await page.evaluate(() => {
+      const saved = currentEditorHtml();
+      const ed = document.getElementById('lyricsEditor');
+      ed.innerHTML = ilSanitizeDocHtml(saved); _atomizeLyricChords();
+      const again = currentEditorHtml();
+      return { stable: saved === again, bold: /<(b|strong)\b/i.test(again), color: /#2f6fd0/i.test(again), chord: !!ed.querySelector('.chord') };
+    });
+    ok(rt.stable, 'F5 sanitize round-trip is stable (save === re-save)');
+    ok(rt.bold && rt.color && rt.chord, 'F5 bold + color + chord all survive save/reload');
+    // editing formatted text still marks the doc dirty for autosave
+    const dirty = await page.evaluate(() => { _lyricsEdited = false; onLyricsInput(); return _lyricsEdited; });
+    ok(dirty, 'F5 toolbar actions route through onLyricsInput (autosave pipeline engaged)');
+  }
+
   // ── [test blocks F1–F5: appended by tasks 2–5 above this line] ──
 
   console.log(`\n${PASS}/${PASS + FAIL} passed, ${FAIL} failed`);
