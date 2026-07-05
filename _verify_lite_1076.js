@@ -76,6 +76,13 @@ const selectAllLyrics = (page) => page.evaluate(() => {
     await page.waitForTimeout(300);
     ok(await page.evaluate(() => !document.querySelector('#fmtBar.open')), 'F1 Chordify mode → bar suppressed');
     await page.evaluate(() => { toggleChordsMode(false); getSelection().removeAllRanges(); });
+    await selectAllLyrics(page);
+    await page.waitForTimeout(300);
+    ok(await page.evaluate(() => !!document.querySelector('#fmtBar.open')), 'F1 bar reopens before Chordify tap');
+    await page.click('#chordsModeBtn');   // real interaction path — no fresh selection after
+    await page.waitForTimeout(100);
+    ok(await page.evaluate(() => !document.querySelector('#fmtBar.open')), 'F1 real Chordify button tap hides the open bar');
+    await page.evaluate(() => { toggleChordsMode(false); getSelection().removeAllRanges(); });
     const tok = await page.evaluate(() => {
       const get = () => getComputedStyle(document.documentElement).getPropertyValue('--fmtText').trim();
       const light = get();
