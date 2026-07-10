@@ -2577,7 +2577,7 @@ function _startCountdown() {
   document.getElementById('recBtn').classList.add('counting');
   stopPlayback();
   // Pre-acquire the mic during the count so recording starts cleanly at 0.
-  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
     .then(s => { if (_recCounting || _recording) _recStream = s; else s.getTracks().forEach(t => t.stop()); })
     .catch(() => {});
   let n = 3; _showCount(n);
@@ -2597,13 +2597,13 @@ async function startRecord() {
   stopPlayback();
   let stream = _recStream; // may have been pre-acquired during the countdown
   if (!stream) {
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); }
     catch (e) { recToast('Microphone blocked — allow mic access'); return; }
   }
   _recStream = stream;
   const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(t => { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || '';
   _recChunks = [];
-  try { _mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); }
+  try { _mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 128000 } : { audioBitsPerSecond: 128000 }); }
   catch (e) { recToast('Recording not supported here'); stream.getTracks().forEach(t => t.stop()); return; }
   _mediaRec.ondataavailable = e => { if (e.data && e.data.size) _recChunks.push(e.data); };
   _mediaRec.onstop = onRecStop;
@@ -3493,10 +3493,10 @@ async function _ensureMp3Lib() {
   await _loadScript('https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js');
   if (!(window.lamejs && window.lamejs.Mp3Encoder)) throw new Error('mp3 encoder unavailable');
 }
-// Encode an AudioBuffer to an MP3 Blob (portable everywhere). 128kbps; mono or stereo.
+// Encode an AudioBuffer to an MP3 Blob (portable everywhere). 192kbps; mono or stereo.
 function _encodeMp3(buffer) {
   const sr = buffer.sampleRate, ch = Math.min(2, buffer.numberOfChannels) || 1;
-  const enc = new lamejs.Mp3Encoder(ch, sr, 128);
+  const enc = new lamejs.Mp3Encoder(ch, sr, 192);
   const L = buffer.getChannelData(0);
   const R = ch > 1 ? buffer.getChannelData(1) : null;
   const len = buffer.length, BLK = 1152, out = [];
