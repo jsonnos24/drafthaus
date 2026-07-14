@@ -224,6 +224,9 @@ body.export-select .lg-sel-export, body.export-select .lg-sel-clear, body.export
 .tp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-new { color: var(--tint); font-weight: 600; border-top: .5px solid var(--sep); margin-top: 2px; }
 .tp-empty { color: var(--text-2); font-size: 13px; padding: 10px 8px; }
+/* input picker level meter (lite-1.079) */
+.ip-meter { height: 6px; border-radius: 3px; background: var(--bg-2, rgba(127,127,127,0.15)); margin: 6px 8px 8px; overflow: hidden; }
+.ip-meter-fill { height: 100%; width: 0%; border-radius: 3px; background: var(--tint); transition: width .08s linear; }
 /* ── Share manager two-level ── */
 .sm-list-head { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 .sm-newtray { background: var(--tint); color: #fff; border-radius: 8px; padding: 7px 12px; font-weight: 600; }
@@ -530,7 +533,7 @@ body.nav-animating { overflow-x: hidden; }
 }
 #scratchResize::before { content: ""; width: 34px; height: 3px; border-radius: 2px; background: var(--sticky-text); opacity: .22; }
 #scratchBtn.on { background: var(--tint-bg); }
-@media (max-width: 767px) { #scratchPad, #scratchBtn { display: none !important; } }
+@media (max-width: 767px) { #scratchPad, #scratchBtn, #inputBtn { display: none !important; } }
 .tp-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; flex: none; }
 .tp-head h3 { font-size: 20px; font-weight: 700; color: var(--text); }
 .tp-head .done { color: var(--tint); font-size: 16px; font-weight: 600; }
@@ -878,6 +881,7 @@ button { -webkit-touch-callout: none; }
         <button class="rail-tool" onclick="openQuickChords()" aria-label="Quick Chords" title="Quick Chords"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="5" y1="4" x2="5" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="19" y1="4" x2="19" y2="20"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/></svg></button>
         <button class="rail-tool" onclick="openFindChord()" aria-label="Find a Chord" title="Find a Chord"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="16.2" y1="16.2" x2="21" y2="21"/></svg></button>
         <button class="rail-tool" id="scratchBtn" onclick="toggleScratch()" aria-label="Scratch pad" title="Scratch pad"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
+        <button class="rail-tool" id="inputBtn" onclick="openInputPicker(this)" aria-label="Input source" title="Input source"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></button>
         <button class="takes-btn" onclick="toggleTakes()">Takes ◂ <span class="tk-name" id="railTakeName">Empty</span></button>
       </div>
     </div>
@@ -2583,6 +2587,59 @@ function recCheckInputMatch(stream) {
     recToast('Saved input not found — using default mic', 2600);
   }
 }
+/* Input picker popover — reuses the .tray-picker visual pattern. */
+function openInputPicker(btnEl) {
+  closeInputPicker();
+  const back = document.createElement('div');
+  back.id = 'inputPicker'; back.className = 'tray-picker-back';
+  back.onclick = (e) => { if (e.target === back) closeInputPicker(); };
+  back.innerHTML = '<div class="tray-picker"></div>';
+  document.body.appendChild(back);
+  const pop = back.querySelector('.tray-picker');
+  if (btnEl && pop && btnEl.getBoundingClientRect) {
+    const r = btnEl.getBoundingClientRect();
+    pop.style.position = 'fixed';
+    pop.style.top = Math.min(r.bottom + 6, window.innerHeight - 60) + 'px';
+    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 232)) + 'px';
+  }
+  document.addEventListener('keydown', _inputPickerEsc);
+  try { navigator.mediaDevices.addEventListener('devicechange', _ipDeviceChange); } catch (e) {}
+  // Meter acquisition doubles as the permission grant that unblanks device labels.
+  _ipMeterStart().then(() => renderInputPicker());
+}
+function _inputPickerEsc(e) { if (e.key === 'Escape') closeInputPicker(); }
+function _ipDeviceChange() { renderInputPicker(); }
+function closeInputPicker() {
+  _ipMeterStop();
+  try { navigator.mediaDevices.removeEventListener('devicechange', _ipDeviceChange); } catch (e) {}
+  document.removeEventListener('keydown', _inputPickerEsc);
+  const el = document.getElementById('inputPicker'); if (el) el.remove();
+}
+async function renderInputPicker() {
+  const back = document.getElementById('inputPicker'); if (!back) return;
+  const pop = back.querySelector('.tray-picker'); if (!pop) return;
+  let devs = [];
+  try { devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications'); } catch (e) {}
+  if (!document.getElementById('inputPicker')) return; // closed while enumerating
+  const saved = recSavedInput();
+  if (_ipBlocked) { pop.innerHTML = '<div class="tp-empty">Microphone blocked — allow mic access</div>'; return; }
+  const rows = devs.map((d, i) => {
+    const label = d.label || ('Microphone ' + (i + 1));
+    const on = !!(saved && saved.id === d.deviceId);
+    return `<div class="tp-row" onclick="inputPickerSelect('${_esc(d.deviceId)}', '${_esc(label).replace(/'/g, '&#39;')}')"><span class="tp-check">${on ? '✓' : ''}</span><span class="tp-name">${_esc(label)}</span></div>`;
+  }).join('');
+  pop.innerHTML = '<div class="ip-meter"><div class="ip-meter-fill" id="ipMeterFill"></div></div>' +
+    `<div class="tp-row" onclick="inputPickerSelect(null, null)"><span class="tp-check">${saved ? '' : '✓'}</span><span class="tp-name">System default</span></div>` + rows;
+}
+function inputPickerSelect(id, label) {
+  recSaveInput(id ? { id, label } : null);
+  renderInputPicker();
+  _ipMeterStart(); // re-point the meter at the newly selected device
+}
+/* Meter stubs — replaced with the real AnalyserNode meter in the next task. */
+let _ipBlocked = false, _ipStream = null, _ipAC = null, _ipRaf = null;
+async function _ipMeterStart() {}
+function _ipMeterStop() {}
 let _mediaRec = null, _recChunks = [], _recStart = 0, _recTimerId = null, _recStream = null, _recording = false;
 let _recCounting = false, _recCountId = null;
 function toggleRecord() {

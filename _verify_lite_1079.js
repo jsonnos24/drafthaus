@@ -106,6 +106,56 @@ const RAW = JSON.stringify({ audio: { echoCancellation: false, noiseSuppression:
   ok(!/Saved input not found/.test(a4), 'A4 mismatch toast is once-per-session');
   await page.evaluate(() => localStorage.removeItem('dh-lite-input-device'));
 
+  // ── B: input picker popover ──
+  await page.evaluate(() => {
+    navigator.mediaDevices.enumerateDevices = async () => ([
+      { kind: 'audioinput', deviceId: 'default', label: 'Default - MacBook Pro Microphone' },
+      { kind: 'audioinput', deviceId: 'MIC1', label: 'MacBook Pro Microphone' },
+      { kind: 'audioinput', deviceId: 'IFACE4', label: 'Scarlett 4i4 USB' },
+      { kind: 'videoinput', deviceId: 'CAM1', label: 'FaceTime Camera' },
+    ]);
+    openInputPicker(document.getElementById('inputBtn'));
+  });
+  await page.waitForTimeout(400);
+  const b1 = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#inputPicker .tp-row .tp-name')].map(n => n.textContent);
+    const checks = [...document.querySelectorAll('#inputPicker .tp-row .tp-check')].map(n => n.textContent.trim());
+    return { rows, checks };
+  });
+  ok(b1.rows.length === 3 && b1.rows[0] === 'System default' && b1.rows[1] === 'MacBook Pro Microphone' && b1.rows[2] === 'Scarlett 4i4 USB',
+    'B1 popover lists System default first, audio inputs only, "default" pseudo-device filtered');
+  ok(b1.checks[0] === '✓' && b1.checks[1] === '' && b1.checks[2] === '',
+    'B2 nothing saved → System default checked');
+
+  // B3: selecting the interface persists it and re-renders with the check moved
+  await page.evaluate(() => inputPickerSelect('IFACE4', 'Scarlett 4i4 USB'));
+  await page.waitForTimeout(300);
+  const b3 = await page.evaluate(() => ({
+    saved: JSON.parse(localStorage.getItem('dh-lite-input-device') || 'null'),
+    checks: [...document.querySelectorAll('#inputPicker .tp-row .tp-check')].map(n => n.textContent.trim()),
+  }));
+  ok(b3.saved && b3.saved.id === 'IFACE4' && b3.saved.label === 'Scarlett 4i4 USB' && b3.checks[2] === '✓' && b3.checks[0] === '',
+    'B3 selecting a device persists {id,label} and moves the checkmark');
+
+  // B4: close removes the popover; System default clears the key
+  await page.evaluate(() => { closeInputPicker(); });
+  const b4gone = await page.evaluate(() => !document.getElementById('inputPicker'));
+  await page.evaluate(async () => { openInputPicker(document.getElementById('inputBtn')); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => inputPickerSelect(null, null));
+  const b4 = await page.evaluate(() => localStorage.getItem('dh-lite-input-device'));
+  await page.evaluate(() => closeInputPicker());
+  ok(b4gone && b4 === null, 'B4 close tears down popover; System default clears the saved key');
+
+  // B5: rail button desktop-only
+  const b5desk = await page.evaluate(() => getComputedStyle(document.getElementById('inputBtn')).display !== 'none');
+  await page.setViewportSize({ width: 375, height: 700 });
+  await page.waitForTimeout(200);
+  const b5mob = await page.evaluate(() => getComputedStyle(document.getElementById('inputBtn')).display === 'none');
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.waitForTimeout(200);
+  ok(b5desk && b5mob, 'B5 #inputBtn visible on desktop, hidden under 768px');
+
   console.log(`\n${PASS}/${PASS + FAIL} passed`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
