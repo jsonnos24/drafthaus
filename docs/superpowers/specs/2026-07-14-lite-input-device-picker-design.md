@@ -117,3 +117,26 @@ to see which input is active or whether it has signal.
 - The picker meter's `_ipMeterStart` gained a generation token (review
   finding: overlapping starts could orphan a live mic stream, violating the
   "never runs in the background" requirement).
+
+## Addendum 2 (lite-1.080, 2026-07-14): never auto-use continuity mics
+
+User report: Chrome kept routing capture to the iPhone continuity-camera mic
+even with macOS's default input set to the MacBook mic ("System default" in
+the picker passes no deviceId, and Chrome's own default — not macOS's — wins;
+it favors continuity devices). Diagnosed live in the user's browser: the
+explicit-selection round-trip was verified correct; the failure surface is
+the no-saved-device path (plus a suspected ideal-override case, closed
+defensively).
+
+- `recResolveAudioConstraints()` (async): when NO device is saved and the
+  browser's `default` enumeration entry is a continuity device
+  (label matches /iphone|ipad|continuity/i), steer to the first
+  non-continuity input via `ideal`. Explicitly saved devices — including a
+  deliberately chosen continuity mic — are untouched (only auto-pick is
+  blocked). All three acquisition sites use it.
+- `recEnsureSavedInput(stream)` replaces `recCheckInputMatch`: if the
+  acquired track's deviceId ≠ saved id, retry once with `exact`; on success
+  swap streams (stopping the wrong one), on failure keep the fallback stream
+  and show the existing once-per-session toast.
+- Verify: `_verify_lite_1080.js` (24 checks = 1.079's 21 with A3a updated to
+  expect the exact retry + E2a/E2b/E3).
