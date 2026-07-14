@@ -156,6 +156,28 @@ const RAW = JSON.stringify({ audio: { echoCancellation: false, noiseSuppression:
   await page.waitForTimeout(200);
   ok(b5desk && b5mob, 'B5 #inputBtn visible on desktop, hidden under 768px');
 
+  // ── C: live level meter ──
+  await page.evaluate(() => {
+    // The B-test enumerateDevices stub can stay installed — the meter only uses getUserMedia.
+    openInputPicker(document.getElementById('inputBtn'));
+  });
+  await page.waitForTimeout(900); // let the analyser RAF run against the fake tone
+  const c1 = await page.evaluate(() => {
+    const el = document.getElementById('ipMeterFill');
+    return { exists: !!el, width: el ? el.style.width : '' };
+  });
+  ok(c1.exists && c1.width !== '' && c1.width !== '0%',
+    'C1 meter fill exists and moves off 0% with live (fake) input');
+
+  // C2: closing the popover releases the stream and stops the RAF
+  const c2 = await page.evaluate(() => {
+    const s = _ipStream; // top-level let, bare-name reachable inside evaluate
+    closeInputPicker();
+    return { hadStream: !!s, live: s ? s.getTracks().some(t => t.readyState === 'live') : false, cleared: (typeof _ipStream !== 'undefined') && _ipStream === null };
+  });
+  ok(c2.hadStream && !c2.live && c2.cleared,
+    'C2 close stops meter tracks and clears _ipStream');
+
   console.log(`\n${PASS}/${PASS + FAIL} passed`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);

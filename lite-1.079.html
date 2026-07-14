@@ -2636,10 +2636,39 @@ function inputPickerSelect(id, label) {
   renderInputPicker();
   _ipMeterStart(); // re-point the meter at the newly selected device
 }
-/* Meter stubs — replaced with the real AnalyserNode meter in the next task. */
+/* Live input level meter — temporary stream + AnalyserNode, torn down on close. */
 let _ipBlocked = false, _ipStream = null, _ipAC = null, _ipRaf = null;
-async function _ipMeterStart() {}
-function _ipMeterStop() {}
+async function _ipMeterStart() {
+  _ipMeterStop();
+  try {
+    _ipStream = await navigator.mediaDevices.getUserMedia({ audio: recAudioConstraints() });
+    _ipBlocked = false;
+  } catch (e) { _ipBlocked = true; renderInputPicker(); return; }
+  if (!document.getElementById('inputPicker')) { _ipMeterStop(); return; } // closed during acquire
+  _ipAC = new (window.AudioContext || window.webkitAudioContext)();
+  const src = _ipAC.createMediaStreamSource(_ipStream);
+  const an = _ipAC.createAnalyser(); an.fftSize = 512;
+  src.connect(an);
+  const buf = new Uint8Array(an.fftSize);
+  let held = 0; // brief attack + decay so short bursts (incl. the fake-device test tone) stay visible between frames
+  const tick = () => {
+    const el = document.getElementById('ipMeterFill');
+    if (el) {
+      an.getByteTimeDomainData(buf);
+      let peak = 0;
+      for (let i = 0; i < buf.length; i++) { const v = Math.abs(buf[i] - 128) / 128; if (v > peak) peak = v; }
+      held = Math.max(peak, held * 0.9);
+      el.style.width = Math.min(100, Math.round(held * 140)) + '%';
+    }
+    _ipRaf = requestAnimationFrame(tick);
+  };
+  _ipRaf = requestAnimationFrame(tick);
+}
+function _ipMeterStop() {
+  if (_ipRaf) cancelAnimationFrame(_ipRaf); _ipRaf = null;
+  if (_ipStream) { try { _ipStream.getTracks().forEach(t => t.stop()); } catch (e) {} _ipStream = null; }
+  if (_ipAC) { try { _ipAC.close(); } catch (e) {} _ipAC = null; }
+}
 let _mediaRec = null, _recChunks = [], _recStart = 0, _recTimerId = null, _recStream = null, _recording = false;
 let _recCounting = false, _recCountId = null;
 function toggleRecord() {
