@@ -224,6 +224,13 @@ body.export-select .lg-sel-export, body.export-select .lg-sel-clear, body.export
 .tp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-new { color: var(--tint); font-weight: 600; border-top: .5px solid var(--sep); margin-top: 2px; }
 .tp-empty { color: var(--text-2); font-size: 13px; padding: 10px 8px; }
+/* input picker level meter (lite-1.079) */
+.ip-meter { height: 6px; border-radius: 3px; background: var(--bg-2, rgba(127,127,127,0.15)); margin: 6px 8px 8px; overflow: hidden; }
+.ip-meter-fill { height: 100%; width: 0%; border-radius: 3px; background: var(--tint); transition: width .08s linear; }
+/* recording-time level meter (lite-1.079) */
+#recMeter { width: 44px; height: 4px; border-radius: 2px; background: var(--bg-2, rgba(127,127,127,0.15)); margin-top: 4px; overflow: hidden; display: none; }
+#recMeter.on { display: block; }
+#recMeterFill { height: 100%; width: 0%; border-radius: 2px; background: var(--tint); }
 /* ── Share manager two-level ── */
 .sm-list-head { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 .sm-newtray { background: var(--tint); color: #fff; border-radius: 8px; padding: 7px 12px; font-weight: 600; }
@@ -530,7 +537,7 @@ body.nav-animating { overflow-x: hidden; }
 }
 #scratchResize::before { content: ""; width: 34px; height: 3px; border-radius: 2px; background: var(--sticky-text); opacity: .22; }
 #scratchBtn.on { background: var(--tint-bg); }
-@media (max-width: 767px) { #scratchPad, #scratchBtn { display: none !important; } }
+@media (max-width: 767px) { #scratchPad, #scratchBtn, #inputBtn { display: none !important; } }
 .tp-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; flex: none; }
 .tp-head h3 { font-size: 20px; font-weight: 700; color: var(--text); }
 .tp-head .done { color: var(--tint); font-size: 16px; font-weight: 600; }
@@ -871,6 +878,7 @@ button { -webkit-touch-callout: none; }
         <div class="rec-wrap">
           <button class="rec-btn" id="recBtn" onclick="toggleRecord()" aria-label="Record"></button>
           <div class="timer" id="recTimer"></div>
+          <div id="recMeter"><div id="recMeterFill"></div></div>
         </div>
         <div class="divider"></div>
         <button class="pt-btn disabled" id="playBtn" onclick="railPlayToggle()" aria-label="Play"><svg class="ic" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.4v13.2a1 1 0 0 0 1.53.85l10.4-6.6a1 1 0 0 0 0-1.7L9.53 4.55A1 1 0 0 0 8 5.4z"/></svg></button>
@@ -878,6 +886,7 @@ button { -webkit-touch-callout: none; }
         <button class="rail-tool" onclick="openQuickChords()" aria-label="Quick Chords" title="Quick Chords"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="5" y1="4" x2="5" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="19" y1="4" x2="19" y2="20"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/></svg></button>
         <button class="rail-tool" onclick="openFindChord()" aria-label="Find a Chord" title="Find a Chord"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="16.2" y1="16.2" x2="21" y2="21"/></svg></button>
         <button class="rail-tool" id="scratchBtn" onclick="toggleScratch()" aria-label="Scratch pad" title="Scratch pad"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
+        <button class="rail-tool" id="inputBtn" onclick="openInputPicker(this)" aria-label="Input source" title="Input source"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></button>
         <button class="takes-btn" onclick="toggleTakes()">Takes ◂ <span class="tk-name" id="railTakeName">Empty</span></button>
       </div>
     </div>
@@ -2563,6 +2572,149 @@ async function wfUndo() {
 }
 
 /* ═══════════════════════════ Recording ═══════════════════════════ */
+/* ── Input device picker (lite-1.079): saved input + capture constraints ── */
+const REC_DEV_KEY = 'dh-lite-input-device';
+function recSavedInput() { try { return JSON.parse(localStorage.getItem(REC_DEV_KEY) || 'null'); } catch (e) { return null; } }
+function recSaveInput(dev) { try { if (dev && dev.id) localStorage.setItem(REC_DEV_KEY, JSON.stringify(dev)); else localStorage.removeItem(REC_DEV_KEY); } catch (e) {} }
+function recAudioConstraints() {
+  const c = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+  const dev = recSavedInput();
+  if (dev && dev.id) c.deviceId = { ideal: dev.id };
+  return c;
+}
+let _inputMismatchToasted = false;
+function recCheckInputMatch(stream) {
+  const dev = recSavedInput(); if (!dev || !dev.id || _inputMismatchToasted) return;
+  const tr = stream && stream.getAudioTracks && stream.getAudioTracks()[0];
+  const s = tr && tr.getSettings && tr.getSettings();
+  if (s && s.deviceId && s.deviceId !== dev.id) {
+    _inputMismatchToasted = true;
+    recToast('Saved input not found — using default mic', 2600);
+  }
+}
+/* Input picker popover — reuses the .tray-picker visual pattern. */
+function openInputPicker(btnEl) {
+  closeInputPicker();
+  const back = document.createElement('div');
+  back.id = 'inputPicker'; back.className = 'tray-picker-back';
+  back.onclick = (e) => { if (e.target === back) closeInputPicker(); };
+  back.innerHTML = '<div class="tray-picker"></div>';
+  document.body.appendChild(back);
+  const pop = back.querySelector('.tray-picker');
+  if (btnEl && pop && btnEl.getBoundingClientRect) {
+    const r = btnEl.getBoundingClientRect();
+    // The rail button lives in the bottom cluster, so anchor the popover's
+    // bottom above it and grow upward — opening downward gets cut off at the
+    // viewport bottom once the device list is long.
+    pop.style.position = 'fixed';
+    pop.style.bottom = (window.innerHeight - r.top + 6) + 'px';
+    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 232)) + 'px';
+    pop.style.maxHeight = Math.min(window.innerHeight / 2, r.top - 14) + 'px';
+  }
+  document.addEventListener('keydown', _inputPickerEsc);
+  try { navigator.mediaDevices.addEventListener('devicechange', _ipDeviceChange); } catch (e) {}
+  // Meter acquisition doubles as the permission grant that unblanks device labels.
+  _ipMeterStart().then(() => renderInputPicker());
+}
+function _inputPickerEsc(e) { if (e.key === 'Escape') closeInputPicker(); }
+function _ipDeviceChange() { renderInputPicker(); }
+function closeInputPicker() {
+  _ipMeterStop();
+  try { navigator.mediaDevices.removeEventListener('devicechange', _ipDeviceChange); } catch (e) {}
+  document.removeEventListener('keydown', _inputPickerEsc);
+  const el = document.getElementById('inputPicker'); if (el) el.remove();
+}
+async function renderInputPicker() {
+  const back = document.getElementById('inputPicker'); if (!back) return;
+  const pop = back.querySelector('.tray-picker'); if (!pop) return;
+  let devs = [];
+  try { devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications'); } catch (e) {}
+  if (!document.getElementById('inputPicker')) return; // closed while enumerating
+  const saved = recSavedInput();
+  if (_ipBlocked) { pop.innerHTML = '<div class="tp-empty">Microphone blocked — allow mic access</div>'; return; }
+  const rows = devs.map((d, i) => {
+    const label = d.label || ('Microphone ' + (i + 1));
+    const on = !!(saved && saved.id === d.deviceId);
+    return `<div class="tp-row" onclick="inputPickerSelect('${_esc(d.deviceId)}', '${_esc(label).replace(/'/g, '&#39;')}')"><span class="tp-check">${on ? '✓' : ''}</span><span class="tp-name">${_esc(label)}</span></div>`;
+  }).join('');
+  pop.innerHTML = '<div class="ip-meter"><div class="ip-meter-fill" id="ipMeterFill"></div></div>' +
+    `<div class="tp-row" onclick="inputPickerSelect(null, null)"><span class="tp-check">${saved ? '' : '✓'}</span><span class="tp-name">System default</span></div>` + rows;
+}
+function inputPickerSelect(id, label) {
+  recSaveInput(id ? { id, label } : null);
+  renderInputPicker();
+  _ipMeterStart(); // re-point the meter at the newly selected device
+}
+/* Live input level meter — temporary stream + AnalyserNode, torn down on close. */
+let _ipBlocked = false, _ipStream = null, _ipAC = null, _ipRaf = null, _ipGen = 0;
+async function _ipMeterStart() {
+  const gen = ++_ipGen;
+  _ipMeterStop();
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: recAudioConstraints() });
+    _ipBlocked = false;
+  } catch (e) { if (gen === _ipGen) { _ipBlocked = true; renderInputPicker(); } return; }
+  if (gen !== _ipGen || !document.getElementById('inputPicker')) { try { stream.getTracks().forEach(t => t.stop()); } catch (e) {} return; } // superseded or closed during acquire
+  _ipStream = stream;
+  _ipAC = new (window.AudioContext || window.webkitAudioContext)();
+  if (_ipAC.state === 'suspended') _ipAC.resume().catch(() => {});
+  const src = _ipAC.createMediaStreamSource(_ipStream);
+  const an = _ipAC.createAnalyser(); an.fftSize = 512;
+  src.connect(an);
+  const buf = new Uint8Array(an.fftSize);
+  let held = 0; // brief attack + decay so short bursts (incl. the fake-device test tone) stay visible between frames
+  const tick = () => {
+    const el = document.getElementById('ipMeterFill');
+    if (el) {
+      an.getByteTimeDomainData(buf);
+      let peak = 0;
+      for (let i = 0; i < buf.length; i++) { const v = Math.abs(buf[i] - 128) / 128; if (v > peak) peak = v; }
+      held = Math.max(peak, held * 0.9);
+      el.style.width = Math.min(100, Math.round(held * 140)) + '%';
+    }
+    _ipRaf = requestAnimationFrame(tick);
+  };
+  _ipRaf = requestAnimationFrame(tick);
+}
+function _ipMeterStop() {
+  if (_ipRaf) cancelAnimationFrame(_ipRaf); _ipRaf = null;
+  if (_ipStream) { try { _ipStream.getTracks().forEach(t => t.stop()); } catch (e) {} _ipStream = null; }
+  if (_ipAC) { try { _ipAC.close(); } catch (e) {} _ipAC = null; }
+}
+/* Recording-time level meter — same analyser idiom as the picker meter, but
+   rides the live recording stream (never stops its tracks; MediaRecorder owns them). */
+let _recMeterAC = null, _recMeterRaf = null;
+function _recMeterStart(stream) {
+  _recMeterStop();
+  const el = document.getElementById('recMeter'); if (!el) return;
+  try {
+    _recMeterAC = new (window.AudioContext || window.webkitAudioContext)();
+    if (_recMeterAC.state === 'suspended') _recMeterAC.resume().catch(() => {});
+    const src = _recMeterAC.createMediaStreamSource(stream);
+    const an = _recMeterAC.createAnalyser(); an.fftSize = 512;
+    src.connect(an); // analyser only — never routed to destination, nothing audible
+    const buf = new Uint8Array(an.fftSize);
+    el.classList.add('on');
+    const fill = document.getElementById('recMeterFill');
+    let held = 0;
+    const tick = () => {
+      an.getByteTimeDomainData(buf);
+      let peak = 0;
+      for (let i = 0; i < buf.length; i++) { const v = Math.abs(buf[i] - 128) / 128; if (v > peak) peak = v; }
+      held = Math.max(peak, held * 0.9);
+      if (fill) fill.style.width = Math.min(100, Math.round(held * 140)) + '%';
+      _recMeterRaf = requestAnimationFrame(tick);
+    };
+    _recMeterRaf = requestAnimationFrame(tick);
+  } catch (e) { _recMeterStop(); }
+}
+function _recMeterStop() {
+  if (_recMeterRaf) cancelAnimationFrame(_recMeterRaf); _recMeterRaf = null;
+  if (_recMeterAC) { try { _recMeterAC.close(); } catch (e) {} _recMeterAC = null; }
+  const el = document.getElementById('recMeter'); if (el) el.classList.remove('on');
+  const fill = document.getElementById('recMeterFill'); if (fill) fill.style.width = '0%';
+}
 let _mediaRec = null, _recChunks = [], _recStart = 0, _recTimerId = null, _recStream = null, _recording = false;
 let _recCounting = false, _recCountId = null;
 function toggleRecord() {
@@ -2577,7 +2729,7 @@ function _startCountdown() {
   document.getElementById('recBtn').classList.add('counting');
   stopPlayback();
   // Pre-acquire the mic during the count so recording starts cleanly at 0.
-  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
+  navigator.mediaDevices.getUserMedia({ audio: recAudioConstraints() })
     .then(s => { if (_recCounting || _recording) _recStream = s; else s.getTracks().forEach(t => t.stop()); })
     .catch(() => {});
   let n = 3; _showCount(n);
@@ -2597,10 +2749,11 @@ async function startRecord() {
   stopPlayback();
   let stream = _recStream; // may have been pre-acquired during the countdown
   if (!stream) {
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); }
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: recAudioConstraints() }); }
     catch (e) { recToast('Microphone blocked — allow mic access'); return; }
   }
   _recStream = stream;
+  recCheckInputMatch(stream);
   const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(t => { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || '';
   _recChunks = [];
   try { _mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 128000 } : { audioBitsPerSecond: 128000 }); }
@@ -2609,6 +2762,7 @@ async function startRecord() {
   _mediaRec.onstop = onRecStop;
   _mediaRec.start();
   _recording = true; _recStart = Date.now();
+  _recMeterStart(stream);
   document.getElementById('recBtn').classList.add('recording');
   document.getElementById('recTimer').textContent = '0:00';
   _recTimerId = setInterval(() => {
@@ -2618,14 +2772,19 @@ async function startRecord() {
 function stopRecord() {
   if (!_recording || !_mediaRec) return;
   _recording = false;
+  _recMeterStop();
   clearInterval(_recTimerId); _recTimerId = null;
   document.getElementById('recBtn').classList.remove('recording');
   try { _mediaRec.stop(); } catch (e) {}
 }
 async function onRecStop() {
   const dur = (Date.now() - _recStart) / 1000;
+  _recording = false;
+  clearInterval(_recTimerId); _recTimerId = null;
+  document.getElementById('recBtn').classList.remove('recording');
   document.getElementById('recTimer').textContent = '';
   if (_recStream) { _recStream.getTracks().forEach(t => t.stop()); _recStream = null; }
+  _recMeterStop();
   const mime = (_mediaRec && _mediaRec.mimeType) || 'audio/webm';
   const blob = new Blob(_recChunks, { type: mime });
   _recChunks = []; _mediaRec = null;
