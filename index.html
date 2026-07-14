@@ -2582,14 +2582,44 @@ function recAudioConstraints() {
   if (dev && dev.id) c.deviceId = { ideal: dev.id };
   return c;
 }
+function _recIsContinuity(label) { return /iphone|ipad|continuity/i.test(label || ''); }
+async function recResolveAudioConstraints() {
+  const c = recAudioConstraints();
+  if (!c.deviceId) {
+    // No explicit choice: never let the browser auto-pick a continuity
+    // (iPhone/iPad) mic — Chrome's default can be the phone even when the
+    // macOS default input isn't.
+    try {
+      const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+      const def = devs.find(d => d.deviceId === 'default');
+      if (def && _recIsContinuity(def.label)) {
+        const alt = devs.find(d => d.deviceId !== 'default' && d.deviceId !== 'communications' && !_recIsContinuity(d.label));
+        if (alt) c.deviceId = { ideal: alt.deviceId };
+      }
+    } catch (e) {}
+  }
+  return c;
+}
 let _inputMismatchToasted = false;
-function recCheckInputMatch(stream) {
-  const dev = recSavedInput(); if (!dev || !dev.id || _inputMismatchToasted) return;
+async function recEnsureSavedInput(stream) {
+  const dev = recSavedInput(); if (!dev || !dev.id) return stream;
   const tr = stream && stream.getAudioTracks && stream.getAudioTracks()[0];
   const s = tr && tr.getSettings && tr.getSettings();
-  if (s && s.deviceId && s.deviceId !== dev.id) {
-    _inputMismatchToasted = true;
-    recToast('Saved input not found — using default mic', 2600);
+  if (!s || !s.deviceId || s.deviceId === dev.id) return stream;
+  // Browser handed back a different device (e.g. preferred a continuity mic
+  // over the ideal constraint) — demand the saved one outright.
+  try {
+    const c = recAudioConstraints(); c.deviceId = { exact: dev.id };
+    const s2 = await navigator.mediaDevices.getUserMedia({ audio: c });
+    try { stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+    return s2;
+  } catch (e) {
+    // Saved device genuinely unavailable — keep the fallback stream.
+    if (!_inputMismatchToasted) {
+      _inputMismatchToasted = true;
+      recToast('Saved input not found — using default mic', 2600);
+    }
+    return stream;
   }
 }
 /* Input picker popover — reuses the .tray-picker visual pattern. */
@@ -2652,7 +2682,8 @@ async function _ipMeterStart() {
   _ipMeterStop();
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: recAudioConstraints() });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: await recResolveAudioConstraints() });
+    stream = await recEnsureSavedInput(stream);
     _ipBlocked = false;
   } catch (e) { if (gen === _ipGen) { _ipBlocked = true; renderInputPicker(); } return; }
   if (gen !== _ipGen || !document.getElementById('inputPicker')) { try { stream.getTracks().forEach(t => t.stop()); } catch (e) {} return; } // superseded or closed during acquire
@@ -2729,7 +2760,8 @@ function _startCountdown() {
   document.getElementById('recBtn').classList.add('counting');
   stopPlayback();
   // Pre-acquire the mic during the count so recording starts cleanly at 0.
-  navigator.mediaDevices.getUserMedia({ audio: recAudioConstraints() })
+  recResolveAudioConstraints()
+    .then(c => navigator.mediaDevices.getUserMedia({ audio: c }))
     .then(s => { if (_recCounting || _recording) _recStream = s; else s.getTracks().forEach(t => t.stop()); })
     .catch(() => {});
   let n = 3; _showCount(n);
@@ -2749,11 +2781,11 @@ async function startRecord() {
   stopPlayback();
   let stream = _recStream; // may have been pre-acquired during the countdown
   if (!stream) {
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: recAudioConstraints() }); }
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: await recResolveAudioConstraints() }); }
     catch (e) { recToast('Microphone blocked — allow mic access'); return; }
   }
+  stream = await recEnsureSavedInput(stream);
   _recStream = stream;
-  recCheckInputMatch(stream);
   const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(t => { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || '';
   _recChunks = [];
   try { _mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 128000 } : { audioBitsPerSecond: 128000 }); }
