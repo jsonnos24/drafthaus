@@ -246,6 +246,30 @@ const RAW = JSON.stringify({ audio: { echoCancellation: false, noiseSuppression:
   }));
   ok(!d3.rec && !d3.btn && d3.timer, 'D3 mid-record track-end resets recording UI state');
 
+  // ── E1: popover fully on-screen with a realistic (long) device list ──
+  // The rail button sits in the bottom cluster; a downward-opening popover gets
+  // cut off at the viewport bottom once the list is taller than the space below.
+  await page.evaluate(() => {
+    navigator.mediaDevices.enumerateDevices = async () => ([
+      { kind: 'audioinput', deviceId: 'a', label: 'MacBook Pro Microphone' },
+      { kind: 'audioinput', deviceId: 'b', label: 'Scarlett 4i4 USB' },
+      { kind: 'audioinput', deviceId: 'c', label: 'AirPods Pro' },
+      { kind: 'audioinput', deviceId: 'd', label: 'iPhone Microphone (Continuity)' },
+      { kind: 'audioinput', deviceId: 'e', label: 'BlackHole 2ch' },
+      { kind: 'audioinput', deviceId: 'f', label: 'ZoomAudioDevice' },
+    ]);
+    openInputPicker(document.getElementById('inputBtn'));
+  });
+  await page.waitForTimeout(600);
+  const e1 = await page.evaluate(() => {
+    const r = document.querySelector('#inputPicker .tray-picker').getBoundingClientRect();
+    const btn = document.getElementById('inputBtn').getBoundingClientRect();
+    closeInputPicker();
+    return { top: r.top, bottom: r.bottom, rows: 7, aboveBtn: r.bottom <= btn.top, vh: innerHeight };
+  });
+  ok(e1.top >= 0 && e1.bottom <= e1.vh && e1.aboveBtn,
+    'E1 long device list: popover fully on-screen, anchored above the rail button');
+
   console.log(`\n${PASS}/${PASS + FAIL} passed`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
