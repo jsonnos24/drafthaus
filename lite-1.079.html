@@ -2654,6 +2654,7 @@ async function _ipMeterStart() {
   if (gen !== _ipGen || !document.getElementById('inputPicker')) { try { stream.getTracks().forEach(t => t.stop()); } catch (e) {} return; } // superseded or closed during acquire
   _ipStream = stream;
   _ipAC = new (window.AudioContext || window.webkitAudioContext)();
+  if (_ipAC.state === 'suspended') _ipAC.resume().catch(() => {});
   const src = _ipAC.createMediaStreamSource(_ipStream);
   const an = _ipAC.createAnalyser(); an.fftSize = 512;
   src.connect(an);
@@ -2685,6 +2686,7 @@ function _recMeterStart(stream) {
   const el = document.getElementById('recMeter'); if (!el) return;
   try {
     _recMeterAC = new (window.AudioContext || window.webkitAudioContext)();
+    if (_recMeterAC.state === 'suspended') _recMeterAC.resume().catch(() => {});
     const src = _recMeterAC.createMediaStreamSource(stream);
     const an = _recMeterAC.createAnalyser(); an.fftSize = 512;
     src.connect(an); // analyser only — never routed to destination, nothing audible
@@ -2773,6 +2775,9 @@ function stopRecord() {
 }
 async function onRecStop() {
   const dur = (Date.now() - _recStart) / 1000;
+  _recording = false;
+  clearInterval(_recTimerId); _recTimerId = null;
+  document.getElementById('recBtn').classList.remove('recording');
   document.getElementById('recTimer').textContent = '';
   if (_recStream) { _recStream.getTracks().forEach(t => t.stop()); _recStream = null; }
   _recMeterStop();

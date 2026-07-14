@@ -234,6 +234,18 @@ const RAW = JSON.stringify({ audio: { echoCancellation: false, noiseSuppression:
   ok(d1.on && d1.width !== '' && d1.width !== '0%', 'D1 rec meter visible and moving during recording');
   ok(!d2.on && d2.ac && d2.raf, 'D2 rec meter torn down after stop');
 
+  // ── D3: mid-record unplug (all tracks end → recorder auto-stop) resets UI state ──
+  await page.evaluate(() => { startRecord(); });
+  await page.waitForTimeout(700);
+  await page.evaluate(() => { _recStream.getTracks().forEach(t => t.stop()); }); // simulate USB unplug
+  await page.waitForTimeout(800);
+  const d3 = await page.evaluate(() => ({
+    rec: _recording,
+    btn: document.getElementById('recBtn').classList.contains('recording'),
+    timer: _recTimerId === null,
+  }));
+  ok(!d3.rec && !d3.btn && d3.timer, 'D3 mid-record track-end resets recording UI state');
+
   console.log(`\n${PASS}/${PASS + FAIL} passed`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
