@@ -44,8 +44,8 @@ to see which input is active or whether it has signal.
   after that acquisition resolves. If permission is denied, the popover shows
   the existing "Microphone blocked" message style instead of a list.
 - **Persistence:** the chosen `deviceId` (and its label, for display/toast use)
-  is stored in `localStorage` key `lite-input-device`. "System default" clears
-  the key. Per-browser persistence is acceptable since the setting is
+  is stored in `localStorage` key `dh-lite-input-device` (matching the
+  codebase's `dh-lite-*` key convention). "System default" clears the key. Per-browser persistence is acceptable since the setting is
   per-machine hardware.
 
 ## Capture plumbing
@@ -89,7 +89,8 @@ to see which input is active or whether it has signal.
   2. Both capture call sites use the helper (stub `getUserMedia`, assert
      received constraints during countdown pre-acquire and direct record).
   3. Popover renders a stubbed `enumerateDevices` list with "System default"
-     first and the saved device checked; selection writes `localStorage`.
+     first and the saved device checked; selection writes
+     `dh-lite-input-device`.
   4. Mismatch toast fires exactly once per session when the acquired track's
      `deviceId` differs from the saved one.
   5. Rail button hidden at a <768px viewport, visible at desktop width.
