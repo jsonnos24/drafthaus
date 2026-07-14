@@ -101,3 +101,19 @@ to see which input is active or whether it has signal.
 - Versioning: `cp lite-1.078.html lite-1.079.html`, **diff the copy against the
   source** before editing (base-drift trap), work lands on `main`, no push or
   promotion to `index.html` without explicit user confirmation.
+
+## Addendum (2026-07-14, user-requested mid-build)
+
+- **Recording-time level meter:** a small level bar (`#recMeter`, next to the
+  record timer in the rail) visible while recording, on desktop AND mobile.
+  Same analyser + peak-hold idiom as the picker meter, riding the live
+  recording stream — analyser only (never routed to output; no monitoring/
+  feedback path), never stops the stream's tracks (MediaRecorder owns them),
+  torn down on stop. Audio monitoring (hearing yourself) stays out of scope —
+  the user monitors via the interface's hardware direct-monitor path.
+- The picker-meter tick gained a 2-line attack/decay peak-hold (implementation
+  finding: an instantaneous read flickers against real speech and pulsed test
+  tones); the recording meter uses the same idiom.
+- The picker meter's `_ipMeterStart` gained a generation token (review
+  finding: overlapping starts could orphan a live mic stream, violating the
+  "never runs in the background" requirement).

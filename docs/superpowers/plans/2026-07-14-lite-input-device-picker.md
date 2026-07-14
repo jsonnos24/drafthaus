@@ -626,3 +626,136 @@ Tell the user the build is ready for desktop QA and list the manual checks from 
 3. Unplug the interface, record — take still records via default mic and the "Saved input not found" toast appears once.
 
 Pushing to `main` (deploys via Pages) and any promotion to `index.html` happen ONLY on explicit user confirmation, as separate release commits per the project workflow.
+
+---
+
+### Task 6: Recording-time level meter (user-requested addendum, 2026-07-14)
+
+Added mid-build at the user's request: a live level meter visible **while recording**, not just in the picker popover. Executes after Task 5; the final whole-branch review covers it.
+
+**Files:**
+- Modify: `lite-1.079.html` — rec-wrap markup (search `id="recTimer"`), CSS (after the `.ip-meter-fill` rule), JS (insert after the `_ipMeterStop` function), hooks in `startRecord`/`stopRecord`/`onRecStop`
+- Test: `_verify_lite_1079.js`
+
+**Interfaces:**
+- Consumes: the acquired recording `stream` inside `startRecord()` (after `_recording = true`), `#recTimer` (markup anchor), the peak-hold meter idiom from `_ipMeterStart`.
+- Produces: `_recMeterStart(stream)` / `_recMeterStop()` (top-level); elements `#recMeter` / `#recMeterFill`. Visible on desktop AND mobile (unlike the picker). Analyser-only — never connected to `destination`, so nothing is audible and there is no feedback path. Does NOT stop the stream's tracks (MediaRecorder owns them); teardown closes only its own AudioContext + RAF.
+
+- [ ] **Step 1: Add failing tests D1–D2 to the verify script**
+
+Insert after the C3 block (suite goes 17 → 19 with Task 5's R tests, or 15 → 17 if executed before Task 5):
+
+```js
+  // ── D: recording-time level meter ──
+  await page.evaluate(() => { startRecord(); });
+  await page.waitForTimeout(900);
+  const d1 = await page.evaluate(() => {
+    const m = document.getElementById('recMeter');
+    return { on: m && m.classList.contains('on'), width: document.getElementById('recMeterFill').style.width };
+  });
+  await page.evaluate(() => stopRecord());
+  await page.waitForTimeout(600);
+  const d2 = await page.evaluate(() => ({
+    on: document.getElementById('recMeter').classList.contains('on'),
+    ac: _recMeterAC === null, raf: _recMeterRaf === null,
+  }));
+  ok(d1.on && d1.width !== '' && d1.width !== '0%', 'D1 rec meter visible and moving during recording');
+  ok(!d2.on && d2.ac && d2.raf, 'D2 rec meter torn down after stop');
+```
+
+(`window.uploadTake` is already stubbed by the A3 block earlier in the run, so these recordings never reach Firestore.)
+
+- [ ] **Step 2: Run — D tests fail**
+
+Run: `node _verify_lite_1079.js`
+Expected: D1's evaluate finds no `#recMeter` (`d1.on` false) → `FAIL D1`; D2 crashes or fails on `_recMeterAC is not defined`. Either is the RED signal.
+
+- [ ] **Step 3: Add markup**
+
+In `lite-1.079.html`, directly AFTER the line `<div class="timer" id="recTimer"></div>` insert:
+
+```html
+          <div id="recMeter"><div id="recMeterFill"></div></div>
+```
+
+- [ ] **Step 4: Add CSS**
+
+Directly after the `.ip-meter-fill` rule insert:
+
+```css
+/* recording-time level meter (lite-1.079) */
+#recMeter { width: 44px; height: 4px; border-radius: 2px; background: var(--bg-2, rgba(127,127,127,0.15)); margin-top: 4px; overflow: hidden; display: none; }
+#recMeter.on { display: block; }
+#recMeterFill { height: 100%; width: 0%; border-radius: 2px; background: var(--tint); }
+```
+
+- [ ] **Step 5: Add the meter JS**
+
+Directly after the `_ipMeterStop` function insert:
+
+```js
+/* Recording-time level meter — same analyser idiom as the picker meter, but
+   rides the live recording stream (never stops its tracks; MediaRecorder owns them). */
+let _recMeterAC = null, _recMeterRaf = null;
+function _recMeterStart(stream) {
+  _recMeterStop();
+  const el = document.getElementById('recMeter'); if (!el) return;
+  try {
+    _recMeterAC = new (window.AudioContext || window.webkitAudioContext)();
+    const src = _recMeterAC.createMediaStreamSource(stream);
+    const an = _recMeterAC.createAnalyser(); an.fftSize = 512;
+    src.connect(an); // analyser only — never routed to destination, nothing audible
+    const buf = new Uint8Array(an.fftSize);
+    el.classList.add('on');
+    const fill = document.getElementById('recMeterFill');
+    let held = 0;
+    const tick = () => {
+      an.getByteTimeDomainData(buf);
+      let peak = 0;
+      for (let i = 0; i < buf.length; i++) { const v = Math.abs(buf[i] - 128) / 128; if (v > peak) peak = v; }
+      held = Math.max(peak, held * 0.9);
+      if (fill) fill.style.width = Math.min(100, Math.round(held * 140)) + '%';
+      _recMeterRaf = requestAnimationFrame(tick);
+    };
+    _recMeterRaf = requestAnimationFrame(tick);
+  } catch (e) { _recMeterStop(); }
+}
+function _recMeterStop() {
+  if (_recMeterRaf) cancelAnimationFrame(_recMeterRaf); _recMeterRaf = null;
+  if (_recMeterAC) { try { _recMeterAC.close(); } catch (e) {} _recMeterAC = null; }
+  const el = document.getElementById('recMeter'); if (el) el.classList.remove('on');
+  const fill = document.getElementById('recMeterFill'); if (fill) fill.style.width = '0%';
+}
+```
+
+- [ ] **Step 6: Hook into the recording lifecycle**
+
+In `startRecord()`, directly after the line `_recording = true; _recStart = Date.now();` add:
+
+```js
+  _recMeterStart(stream);
+```
+
+In `stopRecord()`, directly after the line `_recording = false;` add:
+
+```js
+  _recMeterStop();
+```
+
+In `onRecStop()`, directly after the line that stops `_recStream` tracks, add (defensive — covers any stop path that bypasses `stopRecord`):
+
+```js
+  _recMeterStop();
+```
+
+- [ ] **Step 7: Run — all pass**
+
+Run: `node _verify_lite_1079.js`
+Expected: all checks pass (19/19 if after Task 5), exit 0.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add lite-1.079.html _verify_lite_1079.js
+git commit -m "feat(lite-1.079): live level meter while recording"
+```
