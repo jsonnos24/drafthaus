@@ -40,6 +40,11 @@ const RAW = JSON.stringify({ audio: { echoCancellation: false, noiseSuppression:
       try { window._gumCalls.push(JSON.parse(JSON.stringify(c))); } catch (e) {}
       return orig(c);
     };
+    // Spy MediaRecorder constructor options (returns a real recorder).
+    const OrigMR = window.MediaRecorder;
+    window._mrOpts = [];
+    window.MediaRecorder = function (stream, opts) { window._mrOpts.push(opts || null); return new OrigMR(stream, opts); };
+    window.MediaRecorder.isTypeSupported = (t) => OrigMR.isTypeSupported(t);
   });
   const page = await ctx.newPage();
   await page.goto(`http://localhost:${port}/lite-1.079.html`, { waitUntil: 'domcontentloaded' });
@@ -194,6 +199,24 @@ const RAW = JSON.stringify({ audio: { echoCancellation: false, noiseSuppression:
   });
   ok(c3.total === 2 && c3.liveCount === 1 && c3.winnerIsCurrent,
     'C3 overlapping meter starts: exactly one live stream, and it is _ipStream');
+
+  // ── R: regressions — the 1.078 music-grade guarantees are untouched ──
+  const r1 = await page.evaluate(() => window._mrOpts);
+  ok(r1.length >= 1 && r1.every(o => o && o.audioBitsPerSecond === 128000 && /webm|mp4/.test(o.mimeType || '')),
+    'R1 MediaRecorder still gets audioBitsPerSecond 128000 + picked mimeType');
+
+  const r2 = await page.evaluate(() => {
+    window.lamejs = { Mp3Encoder: function (ch, sr, kbps) {
+      window._mp3Args = { ch, sr, kbps };
+      this.encodeBuffer = () => []; this.flush = () => [];
+    } };
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = ac.createBuffer(1, 4410, 44100);
+    _encodeMp3(buf);
+    return window._mp3Args;
+  });
+  ok(!!r2 && r2.ch === 1 && r2.sr === 44100 && r2.kbps === 192,
+    'R2 _encodeMp3 still constructs Mp3Encoder at 192 kbps mono');
 
   console.log(`\n${PASS}/${PASS + FAIL} passed`);
   await browser.close(); srv.close();
