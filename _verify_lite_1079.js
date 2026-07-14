@@ -178,6 +178,23 @@ const RAW = JSON.stringify({ audio: { echoCancellation: false, noiseSuppression:
   ok(c2.hadStream && !c2.live && c2.cleared,
     'C2 close stops meter tracks and clears _ipStream');
 
+  // C3: overlapping meter starts — the superseded call's stream is stopped, no orphan
+  const c3 = await page.evaluate(async () => {
+    const streams = [];
+    const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async (c) => { const s = await orig(c); streams.push(s); return s; };
+    openInputPicker(document.getElementById('inputBtn'));  // kicks off start #1
+    const p2 = _ipMeterStart();                            // overlapping start #2
+    await p2; await new Promise(r => setTimeout(r, 300));
+    navigator.mediaDevices.getUserMedia = orig;
+    const live = streams.filter(s => s.getTracks().some(t => t.readyState === 'live'));
+    const winnerIsCurrent = live.length === 1 && _ipStream === live[0];
+    closeInputPicker();
+    return { total: streams.length, liveCount: live.length, winnerIsCurrent };
+  });
+  ok(c3.total === 2 && c3.liveCount === 1 && c3.winnerIsCurrent,
+    'C3 overlapping meter starts: exactly one live stream, and it is _ipStream');
+
   console.log(`\n${PASS}/${PASS + FAIL} passed`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);

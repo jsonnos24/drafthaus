@@ -2637,14 +2637,17 @@ function inputPickerSelect(id, label) {
   _ipMeterStart(); // re-point the meter at the newly selected device
 }
 /* Live input level meter — temporary stream + AnalyserNode, torn down on close. */
-let _ipBlocked = false, _ipStream = null, _ipAC = null, _ipRaf = null;
+let _ipBlocked = false, _ipStream = null, _ipAC = null, _ipRaf = null, _ipGen = 0;
 async function _ipMeterStart() {
+  const gen = ++_ipGen;
   _ipMeterStop();
+  let stream;
   try {
-    _ipStream = await navigator.mediaDevices.getUserMedia({ audio: recAudioConstraints() });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: recAudioConstraints() });
     _ipBlocked = false;
-  } catch (e) { _ipBlocked = true; renderInputPicker(); return; }
-  if (!document.getElementById('inputPicker')) { _ipMeterStop(); return; } // closed during acquire
+  } catch (e) { if (gen === _ipGen) { _ipBlocked = true; renderInputPicker(); } return; }
+  if (gen !== _ipGen || !document.getElementById('inputPicker')) { try { stream.getTracks().forEach(t => t.stop()); } catch (e) {} return; } // superseded or closed during acquire
+  _ipStream = stream;
   _ipAC = new (window.AudioContext || window.webkitAudioContext)();
   const src = _ipAC.createMediaStreamSource(_ipStream);
   const an = _ipAC.createAnalyser(); an.fftSize = 512;
