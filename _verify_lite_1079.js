@@ -55,6 +55,57 @@ const RAW = JSON.stringify({ audio: { echoCancellation: false, noiseSuppression:
 
   // (tests appended by later tasks go here)
 
+  // ── A1: nothing saved → both capture sites request exactly the raw trio ──
+  await page.evaluate(() => { window._gumCalls.length = 0; _startCountdown(); });
+  await page.waitForTimeout(250);
+  await page.evaluate(() => _cancelCountdown());
+  const a1 = await page.evaluate(() => window._gumCalls);
+  ok(a1.length === 1 && JSON.stringify(a1[0]) === RAW,
+    'A1 no saved device: countdown pre-acquire sends raw trio, no deviceId');
+
+  // ── A2: saved device → deviceId {ideal} rides alongside the raw trio ──
+  const a2 = await page.evaluate(() => {
+    localStorage.setItem('dh-lite-input-device', JSON.stringify({ id: 'FAKEDEV123', label: 'Test Interface' }));
+    return recAudioConstraints();
+  });
+  ok(a2.echoCancellation === false && a2.noiseSuppression === false && a2.autoGainControl === false
+     && a2.deviceId && a2.deviceId.ideal === 'FAKEDEV123',
+    'A2 saved device: recAudioConstraints has raw trio + deviceId ideal');
+
+  // ── A3: startRecord uses the helper + mismatch toast fires once per session ──
+  await page.evaluate(() => {
+    window._gumCalls.length = 0; window._uploads = [];
+    window.uploadTake = (blob, mime, dur) => { window._uploads.push({ size: blob.size, mime, dur }); };
+    startRecord();
+  });
+  await page.waitForTimeout(1200);
+  const a3toast = await page.evaluate(() => {
+    const t = document.getElementById('toast');
+    return { shown: t.classList.contains('show'), text: t.textContent };
+  });
+  await page.evaluate(() => stopRecord());
+  await page.waitForTimeout(600);
+  const a3 = await page.evaluate(() => ({ gum: window._gumCalls, up: window._uploads }));
+  ok(a3.gum.length === 1 && a3.gum[0].audio && a3.gum[0].audio.deviceId && a3.gum[0].audio.deviceId.ideal === 'FAKEDEV123'
+     && a3.gum[0].audio.echoCancellation === false,
+    'A3a startRecord requests the saved deviceId with the raw trio');
+  ok(a3toast.shown && /Saved input not found/.test(a3toast.text),
+    'A3b fake device ≠ saved id → mismatch toast shown');
+  ok(a3.up.length === 1 && a3.up[0].size > 0,
+    'A3c recording still completes on fallback (real ~1s capture reaches uploadTake)');
+
+  // A4: second record → no second toast (once per session)
+  await page.evaluate(() => {
+    const t = document.getElementById('toast'); t.classList.remove('show'); t.textContent = '';
+    startRecord();
+  });
+  await page.waitForTimeout(700);
+  const a4 = await page.evaluate(() => document.getElementById('toast').textContent);
+  await page.evaluate(() => stopRecord());
+  await page.waitForTimeout(400);
+  ok(!/Saved input not found/.test(a4), 'A4 mismatch toast is once-per-session');
+  await page.evaluate(() => localStorage.removeItem('dh-lite-input-device'));
+
   console.log(`\n${PASS}/${PASS + FAIL} passed`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);

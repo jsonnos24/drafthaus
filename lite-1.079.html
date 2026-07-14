@@ -2563,6 +2563,26 @@ async function wfUndo() {
 }
 
 /* ═══════════════════════════ Recording ═══════════════════════════ */
+/* ── Input device picker (lite-1.079): saved input + capture constraints ── */
+const REC_DEV_KEY = 'dh-lite-input-device';
+function recSavedInput() { try { return JSON.parse(localStorage.getItem(REC_DEV_KEY) || 'null'); } catch (e) { return null; } }
+function recSaveInput(dev) { try { if (dev && dev.id) localStorage.setItem(REC_DEV_KEY, JSON.stringify(dev)); else localStorage.removeItem(REC_DEV_KEY); } catch (e) {} }
+function recAudioConstraints() {
+  const c = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+  const dev = recSavedInput();
+  if (dev && dev.id) c.deviceId = { ideal: dev.id };
+  return c;
+}
+let _inputMismatchToasted = false;
+function recCheckInputMatch(stream) {
+  const dev = recSavedInput(); if (!dev || !dev.id || _inputMismatchToasted) return;
+  const tr = stream && stream.getAudioTracks && stream.getAudioTracks()[0];
+  const s = tr && tr.getSettings && tr.getSettings();
+  if (s && s.deviceId && s.deviceId !== dev.id) {
+    _inputMismatchToasted = true;
+    recToast('Saved input not found — using default mic', 2600);
+  }
+}
 let _mediaRec = null, _recChunks = [], _recStart = 0, _recTimerId = null, _recStream = null, _recording = false;
 let _recCounting = false, _recCountId = null;
 function toggleRecord() {
@@ -2577,7 +2597,7 @@ function _startCountdown() {
   document.getElementById('recBtn').classList.add('counting');
   stopPlayback();
   // Pre-acquire the mic during the count so recording starts cleanly at 0.
-  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
+  navigator.mediaDevices.getUserMedia({ audio: recAudioConstraints() })
     .then(s => { if (_recCounting || _recording) _recStream = s; else s.getTracks().forEach(t => t.stop()); })
     .catch(() => {});
   let n = 3; _showCount(n);
@@ -2597,10 +2617,11 @@ async function startRecord() {
   stopPlayback();
   let stream = _recStream; // may have been pre-acquired during the countdown
   if (!stream) {
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); }
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: recAudioConstraints() }); }
     catch (e) { recToast('Microphone blocked — allow mic access'); return; }
   }
   _recStream = stream;
+  recCheckInputMatch(stream);
   const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(t => { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || '';
   _recChunks = [];
   try { _mediaRec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 128000 } : { audioBitsPerSecond: 128000 }); }
