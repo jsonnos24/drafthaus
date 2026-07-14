@@ -1955,7 +1955,11 @@ function fmtTakeDate(date, withYear) {
   const md = MONTHS[date.getMonth()] + ' ' + _ordinal(date.getDate()) + (withYear ? ', ' + date.getFullYear() : '');
   return md + ' - ' + time;
 }
-function _takeDate(t) { return (t.createdAt && t.createdAt.toDate) ? t.createdAt.toDate() : new Date(t._localTs || Date.now()); }
+function _takeDate(t) {
+  if (t.createdAt && t.createdAt.toDate) return t.createdAt.toDate();
+  if (typeof t.createdAt === 'number') return new Date(t.createdAt); // legacy: sync drain once clobbered the Timestamp with Date.now() ms
+  return new Date(t._localTs || Date.now());
+}
 function takeDisplayName(t, withYear) {
   const d = fmtTakeDate(_takeDate(t), withYear);
   return (t.name && t.name.trim()) ? (t.name.trim() + ' - ' + d) : d;
@@ -2271,7 +2275,8 @@ async function liteSyncDrain() {
           const url = await snap.ref.getDownloadURL();
           const patch = job.op === 'replace'
             ? { downloadUrl: url, storagePath: job.storagePath, bytes: job.bytes, duration: job.duration, mimeType: job.mimeType, pendingUpload: false }
-            : { songId: job.songId, userId: job.userId, filename: job.filename, storagePath: job.storagePath, duration: job.duration, mimeType: job.mimeType, trackNum: (job.trackNum || 0), bytes: job.bytes, createdAt: job.createdAt, downloadUrl: url, pendingUpload: false };
+            : { songId: job.songId, userId: job.userId, filename: job.filename, storagePath: job.storagePath, duration: job.duration, mimeType: job.mimeType, trackNum: (job.trackNum || 0), bytes: job.bytes, downloadUrl: url, pendingUpload: false };
+          // no createdAt here: the doc-first write already set serverTimestamp; job.createdAt is a raw ms number for queue ordering and would clobber it
           await db.collection('voice_takes').doc(job.takeId).set(patch, { merge: true });
           if (job.op === 'replace' && job.oldPath && job.oldPath !== job.storagePath) firebase.storage().ref(job.oldPath).delete().catch(() => {});
           await dhOutboxDelete(job.takeId);
