@@ -227,6 +227,10 @@ body.export-select .lg-sel-export, body.export-select .lg-sel-clear, body.export
 /* input picker level meter (lite-1.079) */
 .ip-meter { height: 6px; border-radius: 3px; background: var(--bg-2, rgba(127,127,127,0.15)); margin: 6px 8px 8px; overflow: hidden; }
 .ip-meter-fill { height: 100%; width: 0%; border-radius: 3px; background: var(--tint); transition: width .08s linear; }
+/* recording-time level meter (lite-1.079) */
+#recMeter { width: 44px; height: 4px; border-radius: 2px; background: var(--bg-2, rgba(127,127,127,0.15)); margin-top: 4px; overflow: hidden; display: none; }
+#recMeter.on { display: block; }
+#recMeterFill { height: 100%; width: 0%; border-radius: 2px; background: var(--tint); }
 /* ── Share manager two-level ── */
 .sm-list-head { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 .sm-newtray { background: var(--tint); color: #fff; border-radius: 8px; padding: 7px 12px; font-weight: 600; }
@@ -874,6 +878,7 @@ button { -webkit-touch-callout: none; }
         <div class="rec-wrap">
           <button class="rec-btn" id="recBtn" onclick="toggleRecord()" aria-label="Record"></button>
           <div class="timer" id="recTimer"></div>
+          <div id="recMeter"><div id="recMeterFill"></div></div>
         </div>
         <div class="divider"></div>
         <button class="pt-btn disabled" id="playBtn" onclick="railPlayToggle()" aria-label="Play"><svg class="ic" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.4v13.2a1 1 0 0 0 1.53.85l10.4-6.6a1 1 0 0 0 0-1.7L9.53 4.55A1 1 0 0 0 8 5.4z"/></svg></button>
@@ -2672,6 +2677,38 @@ function _ipMeterStop() {
   if (_ipStream) { try { _ipStream.getTracks().forEach(t => t.stop()); } catch (e) {} _ipStream = null; }
   if (_ipAC) { try { _ipAC.close(); } catch (e) {} _ipAC = null; }
 }
+/* Recording-time level meter — same analyser idiom as the picker meter, but
+   rides the live recording stream (never stops its tracks; MediaRecorder owns them). */
+let _recMeterAC = null, _recMeterRaf = null;
+function _recMeterStart(stream) {
+  _recMeterStop();
+  const el = document.getElementById('recMeter'); if (!el) return;
+  try {
+    _recMeterAC = new (window.AudioContext || window.webkitAudioContext)();
+    const src = _recMeterAC.createMediaStreamSource(stream);
+    const an = _recMeterAC.createAnalyser(); an.fftSize = 512;
+    src.connect(an); // analyser only — never routed to destination, nothing audible
+    const buf = new Uint8Array(an.fftSize);
+    el.classList.add('on');
+    const fill = document.getElementById('recMeterFill');
+    let held = 0;
+    const tick = () => {
+      an.getByteTimeDomainData(buf);
+      let peak = 0;
+      for (let i = 0; i < buf.length; i++) { const v = Math.abs(buf[i] - 128) / 128; if (v > peak) peak = v; }
+      held = Math.max(peak, held * 0.9);
+      if (fill) fill.style.width = Math.min(100, Math.round(held * 140)) + '%';
+      _recMeterRaf = requestAnimationFrame(tick);
+    };
+    _recMeterRaf = requestAnimationFrame(tick);
+  } catch (e) { _recMeterStop(); }
+}
+function _recMeterStop() {
+  if (_recMeterRaf) cancelAnimationFrame(_recMeterRaf); _recMeterRaf = null;
+  if (_recMeterAC) { try { _recMeterAC.close(); } catch (e) {} _recMeterAC = null; }
+  const el = document.getElementById('recMeter'); if (el) el.classList.remove('on');
+  const fill = document.getElementById('recMeterFill'); if (fill) fill.style.width = '0%';
+}
 let _mediaRec = null, _recChunks = [], _recStart = 0, _recTimerId = null, _recStream = null, _recording = false;
 let _recCounting = false, _recCountId = null;
 function toggleRecord() {
@@ -2719,6 +2756,7 @@ async function startRecord() {
   _mediaRec.onstop = onRecStop;
   _mediaRec.start();
   _recording = true; _recStart = Date.now();
+  _recMeterStart(stream);
   document.getElementById('recBtn').classList.add('recording');
   document.getElementById('recTimer').textContent = '0:00';
   _recTimerId = setInterval(() => {
@@ -2728,6 +2766,7 @@ async function startRecord() {
 function stopRecord() {
   if (!_recording || !_mediaRec) return;
   _recording = false;
+  _recMeterStop();
   clearInterval(_recTimerId); _recTimerId = null;
   document.getElementById('recBtn').classList.remove('recording');
   try { _mediaRec.stop(); } catch (e) {}
@@ -2736,6 +2775,7 @@ async function onRecStop() {
   const dur = (Date.now() - _recStart) / 1000;
   document.getElementById('recTimer').textContent = '';
   if (_recStream) { _recStream.getTracks().forEach(t => t.stop()); _recStream = null; }
+  _recMeterStop();
   const mime = (_mediaRec && _mediaRec.mimeType) || 'audio/webm';
   const blob = new Blob(_recChunks, { type: mime });
   _recChunks = []; _mediaRec = null;

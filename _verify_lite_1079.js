@@ -218,6 +218,22 @@ const RAW = JSON.stringify({ audio: { echoCancellation: false, noiseSuppression:
   ok(!!r2 && r2.ch === 1 && r2.sr === 44100 && r2.kbps === 192,
     'R2 _encodeMp3 still constructs Mp3Encoder at 192 kbps mono');
 
+  // ── D: recording-time level meter ──
+  await page.evaluate(() => { startRecord(); });
+  await page.waitForTimeout(900);
+  const d1 = await page.evaluate(() => {
+    const m = document.getElementById('recMeter');
+    return { on: m && m.classList.contains('on'), width: document.getElementById('recMeterFill').style.width };
+  });
+  await page.evaluate(() => stopRecord());
+  await page.waitForTimeout(600);
+  const d2 = await page.evaluate(() => ({
+    on: document.getElementById('recMeter').classList.contains('on'),
+    ac: _recMeterAC === null, raf: _recMeterRaf === null,
+  }));
+  ok(d1.on && d1.width !== '' && d1.width !== '0%', 'D1 rec meter visible and moving during recording');
+  ok(!d2.on && d2.ac && d2.raf, 'D2 rec meter torn down after stop');
+
   console.log(`\n${PASS}/${PASS + FAIL} passed`);
   await browser.close(); srv.close();
   process.exit(FAIL ? 1 : 0);
