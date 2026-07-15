@@ -516,7 +516,7 @@ body.nav-animating { overflow-x: hidden; }
 /* desktop: takes panel covers only the right half so lyrics stay visible/editable (incl. during playback) */
 @media (min-width: 768px) { #takesPanel { left: 50%; } }
 
-/* scratch pad — desktop-only sticky note, scroll-locked (absolute in .song-body; only #lyricsEditor scrolls) */
+/* scratch pad — sticky note, scroll-locked (absolute in .song-body; only #lyricsEditor scrolls) */
 #scratchPad {
   position: absolute; top: 14px; right: calc(50% + 14px); width: 280px;
   height: 320px; min-height: 120px; max-height: calc(100% - 28px);
@@ -537,7 +537,13 @@ body.nav-animating { overflow-x: hidden; }
 }
 #scratchResize::before { content: ""; width: 34px; height: 3px; border-radius: 2px; background: var(--sticky-text); opacity: .22; }
 #scratchBtn.on { background: var(--tint-bg); }
-@media (max-width: 767px) { #scratchPad, #scratchBtn, #inputBtn { display: none !important; } }
+@media (max-width: 767px) {
+  #inputBtn { display: none !important; }
+  /* mobile sticky: smaller, top-right of the full-width lyrics area (14px clear of the 52px rail);
+     a stored dh-lite-scratch-h inline height still wins over the 220px default, as designed */
+  #scratchPad { right: 66px; width: min(280px, 70vw); height: 220px; }
+  #scratchText { font-size: 16px; }   /* <16px triggers iOS Safari focus-zoom */
+}
 .tp-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; flex: none; }
 .tp-head h3 { font-size: 20px; font-weight: 700; color: var(--text); }
 .tp-head .done { color: var(--tint); font-size: 16px; font-weight: 600; }
@@ -865,7 +871,7 @@ button { -webkit-touch-callout: none; }
         <div class="tp-list" id="takesList"></div>
       </div>
 
-      <!-- scratch pad (desktop sticky note) -->
+      <!-- scratch pad (sticky note) -->
       <div id="scratchPad" hidden>
         <textarea id="scratchText" placeholder="Scratch pad for chords, notes etc"
                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
@@ -2907,7 +2913,7 @@ async function setKey(k) {
   toast(k ? ('Key: ' + k) : 'Key cleared');
 }
 
-/* ── Scratch pad (desktop sticky note) ── */
+/* ── Scratch pad (sticky note) ── */
 let _scratchTimer = null, _scratchLastSaved = '';
 function scratchApply(s) {
   // Load the song's scratch text + restore per-device open/height state (from _openSongObj).
@@ -2916,7 +2922,9 @@ function scratchApply(s) {
   _scratchLastSaved = ta.value;
   const h = parseInt(localStorage.getItem('dh-lite-scratch-h'), 10);
   if (h) pad.style.height = h + 'px';
-  const open = localStorage.getItem('dh-lite-scratch-open') !== '0';   // default open
+  const stored = localStorage.getItem('dh-lite-scratch-open');
+  // Unset default: open on desktop, closed on mobile (key is per-device; any toggle wins on both).
+  const open = stored === null ? matchMedia('(min-width: 768px)').matches : stored !== '0';
   pad.hidden = !open;
   const btn = document.getElementById('scratchBtn');
   if (btn) btn.classList.toggle('on', open);
