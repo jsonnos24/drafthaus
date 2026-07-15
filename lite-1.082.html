@@ -1946,22 +1946,20 @@ async function renameSongPrompt() {
 }
 
 /* ═══════════════════════════ Take date / name formatting ═══════════════════════════ */
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-function _ordinal(n) { const s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
-function fmtTakeDate(date, withYear) {
+function fmtTakeDate(date) {
   if (!date) return '';
   let h = date.getHours(); const m = date.getMinutes(); const ap = h >= 12 ? 'pm' : 'am'; h = h % 12; if (h === 0) h = 12;
   const time = h + ':' + String(m).padStart(2, '0') + ap;
-  const md = MONTHS[date.getMonth()] + ' ' + _ordinal(date.getDate()) + (withYear ? ', ' + date.getFullYear() : '');
-  return md + ' - ' + time;
+  const dmy = String(date.getDate()).padStart(2, '0') + '/' + String(date.getMonth() + 1).padStart(2, '0') + '/' + String(date.getFullYear() % 100).padStart(2, '0');
+  return time + ' - ' + dmy;
 }
 function _takeDate(t) {
   if (t.createdAt && t.createdAt.toDate) return t.createdAt.toDate();
   if (typeof t.createdAt === 'number') return new Date(t.createdAt); // legacy: sync drain once clobbered the Timestamp with Date.now() ms
   return new Date(t._localTs || Date.now());
 }
-function takeDisplayName(t, withYear) {
-  const d = fmtTakeDate(_takeDate(t), withYear);
+function takeDisplayName(t) {
+  const d = fmtTakeDate(_takeDate(t));
   return (t.name && t.name.trim()) ? (t.name.trim() + ' - ' + d) : d;
 }
 function _fmtClock(s) { return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0'); }
@@ -2046,7 +2044,7 @@ function _takeRow(t, isPinned) {
         ${isPinned ? '<span class="drag-handle take-grip" onclick="event.stopPropagation()" aria-label="Reorder">' + IC.grip + '</span>' : ''}
         <button class="play" onclick="takeRowPlay('${t.id}',event)" ${pendRemote ? 'disabled' : ''}>${playing ? IC.stop : IC.play}</button>
         <div class="meta">
-          <div class="nm">${esc(takeDisplayName(t, true))}</div>
+          <div class="nm">${esc(takeDisplayName(t))}</div>
           <div class="sub">${info}${statusSub}</div>
         </div>
         ${retryBtn}
@@ -2085,7 +2083,7 @@ function retryTake(id, ev) { if (ev) ev.stopPropagation(); _syncAnnounce = false
 function updateRail() {
   const nameEl = document.getElementById('railTakeName');
   const t = _takes.find(x => x.id === _loadedTakeId) || _takes[0];
-  if (nameEl) nameEl.textContent = t ? takeDisplayName(t, false) : 'Empty';
+  if (nameEl) nameEl.textContent = t ? takeDisplayName(t) : 'Empty';
   updateRailPlayBtn();
 }
 function updateRailPlayBtn() {
@@ -3860,7 +3858,7 @@ async function _buildExportZip(songs, onProgress) {
       try { ab = await fetch(take.downloadUrl).then(r => r.arrayBuffer()); }
       catch (e) { console.warn('[export fetch]', take.id, e); skipped++; }
       if (ab) {
-        const dstr = fmtTakeDate(_takeDate(take), true);
+        const dstr = fmtTakeDate(_takeDate(take));
         const label = 'Take ' + num;
         const base = (take.name && take.name.trim()) ? (take.name.trim() + ' - ' + label + ' - ' + dstr) : (label + ' - ' + dstr);
         const nameNoExt = _uniqueName(_safeName(base, label), usedTakes);
