@@ -27,7 +27,7 @@ function serve() {
   const src = fs.readFileSync(path.join(ROOT, 'lite-1.082.html'), 'utf8');
   ok(!src.includes('MONTHS') && !src.includes('_ordinal'), 'S1 source: MONTHS and _ordinal removed');
   ok(!src.includes('withYear'), 'S2 source: no withYear remnants');
-  ok(src.includes('fmtTakeDate(_takeDate(take))'), 'S3 source: share viewer label uses 1-arg fmtTakeDate');
+  ok(src.includes('fmtTakeDate(_takeDate(take))'), 'S3 source: export ZIP filename uses 1-arg fmtTakeDate');
   ok(src.includes('takeDisplayName(t)') && !src.includes('takeDisplayName(t,'), 'S4 source: row+rail use 1-arg takeDisplayName');
 
   const srv = await serve(); const port = srv.address().port;

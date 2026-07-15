@@ -103,7 +103,7 @@ function serve() {
   const src = fs.readFileSync(path.join(ROOT, 'lite-1.082.html'), 'utf8');
   ok(!src.includes('MONTHS') && !src.includes('_ordinal'), 'S1 source: MONTHS and _ordinal removed');
   ok(!src.includes('withYear'), 'S2 source: no withYear remnants');
-  ok(src.includes('fmtTakeDate(_takeDate(take))'), 'S3 source: share viewer label uses 1-arg fmtTakeDate');
+  ok(src.includes('fmtTakeDate(_takeDate(take))'), 'S3 source: export ZIP filename uses 1-arg fmtTakeDate');
   ok(src.includes('takeDisplayName(t)') && !src.includes('takeDisplayName(t,'), 'S4 source: row+rail use 1-arg takeDisplayName');
 
   const srv = await serve(); const port = srv.address().port;
@@ -264,7 +264,7 @@ function takeDisplayName(t) {
 - `${esc(takeDisplayName(t, true))}` → `${esc(takeDisplayName(t))}`
 - `nameEl.textContent = t ? takeDisplayName(t, false) : 'Empty';` → `nameEl.textContent = t ? takeDisplayName(t) : 'Empty';`
 
-**Edit D** — the share-viewer label (search `fmtTakeDate(_takeDate(take), true)`):
+**Edit D** — the export-ZIP take filename in `_buildExportZip` (search `fmtTakeDate(_takeDate(take), true)`):
 - `const dstr = fmtTakeDate(_takeDate(take), true);` → `const dstr = fmtTakeDate(_takeDate(take));`
 
 Do NOT touch `_takeDate` (the function right between Edits A and B).

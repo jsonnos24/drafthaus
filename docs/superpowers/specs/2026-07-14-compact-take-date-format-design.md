@@ -39,7 +39,7 @@ One formatter and its plumbing in `lite-1.082.html`:
    - Take row `.nm` (was `takeDisplayName(t, true)`)
    - Bottom rail `railTakeName` (was `takeDisplayName(t, false)` — the rail
      previously hid the year; now shows it like everything else)
-   - Share viewer take label (was `fmtTakeDate(_takeDate(take), true)`)
+   - Export ZIP take filename in `_buildExportZip` (was `fmtTakeDate(_takeDate(take), true)`) — NOTE: originally mislabeled "share viewer"; the share viewer never displays take dates.
 
 ## What does not change
 
@@ -56,7 +56,7 @@ One formatter and its plumbing in `lite-1.082.html`:
 ## Known cosmetic effects (accepted)
 
 - Desktop loses the long prose date (user chose "everywhere").
-- Public `?share=` viewers see the new format.
+- Exported ZIP take filenames change: `Take 1 - July 14th, 2026 - 4-32pm.mp3` → `Take 1 - 4-32pm - 14-07-26.mp3` (`_safeName` turns `/` and `:` into `-`). Pending explicit user sign-off.
 - DD/MM/YY is day-first; US-convention readers could misread it. Accepted.
 
 ## Versioning & rollout
@@ -78,7 +78,7 @@ the existing recipe):
 3. `takeDisplayName` with a custom name → `Name - 4:32pm - 14/07/26`; without
    → date only.
 4. Legacy numeric `createdAt` (ms number) still formats via `_takeDate`.
-5. Rendered take row `.nm`, rail `railTakeName`, and share-viewer label all
+5. Rendered take row `.nm`, rail `railTakeName`, and export-ZIP filename call site all
    show the new format (no `withYear` remnants, no month names anywhere).
 6. Rename round-trip: startRename → type name → commit → `.nm` shows
    `Name - time - date` and the Firestore write contains only the typed name.
