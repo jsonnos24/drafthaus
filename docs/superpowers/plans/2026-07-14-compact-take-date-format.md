@@ -275,7 +275,7 @@ Do NOT touch `_takeDate` (the function right between Edits A and B).
 cd /Users/jasoncraig/Documents/Claude/Projects/Drafthaus && node _verify_lite_1082.js
 ```
 
-Expected: `14/14 passed`, exit code 0.
+Expected: `15/15 passed`, exit code 0.
 
 - [ ] **Step 5: Commit**
 
@@ -321,8 +321,8 @@ rm /Users/jasoncraig/Documents/Claude/Projects/Drafthaus/_regress_1080_on_1082.t
 cd /Users/jasoncraig/Documents/Claude/Projects/Drafthaus && node _verify_lite_1082.js
 ```
 
-Expected: `14/14 passed`.
+Expected: `15/15 passed`.
 
 - [ ] **Step 4: Report and stop — do NOT push**
 
-Report to the user: verify results (14/14 + 24/24), and that `lite-1.082.html` is committed on `main` awaiting their confirmation to (a) push (deploys `drafthaus.ca/lite-1.082.html` via Pages) and (b) promote into `index.html` (`cp lite-1.082.html index.html` + release commit), per the standard Lite milestone workflow.
+Report to the user: verify results (15/15 + 24/24), and that `lite-1.082.html` is committed on `main` awaiting their confirmation to (a) push (deploys `drafthaus.ca/lite-1.082.html` via Pages) and (b) promote into `index.html` (`cp lite-1.082.html index.html` + release commit), per the standard Lite milestone workflow.
