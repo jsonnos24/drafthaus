@@ -516,7 +516,7 @@ body.nav-animating { overflow-x: hidden; }
 /* desktop: takes panel covers only the right half so lyrics stay visible/editable (incl. during playback) */
 @media (min-width: 768px) { #takesPanel { left: 50%; } }
 
-/* scratch pad — desktop-only sticky note, scroll-locked (absolute in .song-body; only #lyricsEditor scrolls) */
+/* scratch pad — sticky note, scroll-locked (absolute in .song-body; only #lyricsEditor scrolls) */
 #scratchPad {
   position: absolute; top: 14px; right: calc(50% + 14px); width: 280px;
   height: 320px; min-height: 120px; max-height: calc(100% - 28px);
@@ -537,7 +537,13 @@ body.nav-animating { overflow-x: hidden; }
 }
 #scratchResize::before { content: ""; width: 34px; height: 3px; border-radius: 2px; background: var(--sticky-text); opacity: .22; }
 #scratchBtn.on { background: var(--tint-bg); }
-@media (max-width: 767px) { #scratchPad, #scratchBtn, #inputBtn { display: none !important; } }
+@media (max-width: 767px) {
+  #inputBtn { display: none !important; }
+  /* mobile sticky: smaller, top-right of the full-width lyrics area (14px clear of the 52px rail);
+     a stored dh-lite-scratch-h inline height still wins over the 220px default, as designed */
+  #scratchPad { right: 66px; width: min(280px, 70vw); height: 220px; }
+  #scratchText { font-size: 16px; }   /* <16px triggers iOS Safari focus-zoom */
+}
 .tp-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; flex: none; }
 .tp-head h3 { font-size: 20px; font-weight: 700; color: var(--text); }
 .tp-head .done { color: var(--tint); font-size: 16px; font-weight: 600; }
@@ -865,7 +871,7 @@ button { -webkit-touch-callout: none; }
         <div class="tp-list" id="takesList"></div>
       </div>
 
-      <!-- scratch pad (desktop sticky note) -->
+      <!-- scratch pad (sticky note) -->
       <div id="scratchPad" hidden>
         <textarea id="scratchText" placeholder="Scratch pad for chords, notes etc"
                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
@@ -882,7 +888,7 @@ button { -webkit-touch-callout: none; }
         </div>
         <div class="divider"></div>
         <button class="pt-btn disabled" id="playBtn" onclick="railPlayToggle()" aria-label="Play"><svg class="ic" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.4v13.2a1 1 0 0 0 1.53.85l10.4-6.6a1 1 0 0 0 0-1.7L9.53 4.55A1 1 0 0 0 8 5.4z"/></svg></button>
-        <button class="rail-chordify" id="chordsModeBtn" onmousedown="event.preventDefault()" onclick="toggleChordsMode()" title="Add chords by tapping words" aria-label="Chordify">C<br>H<br>O<br>R<br>D<br>I<br>F<br>Y</button>
+        <button class="rail-chordify" id="chordsModeBtn" onmousedown="event.preventDefault()" onclick="toggleChordsMode()" title="Add chords by tapping words" aria-label="Add chords">+<br>C<br>H<br>O<br>R<br>D<br>S</button>
         <button class="rail-tool" onclick="openQuickChords()" aria-label="Quick Chords" title="Quick Chords"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="5" y1="4" x2="5" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="19" y1="4" x2="19" y2="20"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/></svg></button>
         <button class="rail-tool" onclick="openFindChord()" aria-label="Find a Chord" title="Find a Chord"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="16.2" y1="16.2" x2="21" y2="21"/></svg></button>
         <button class="rail-tool" id="scratchBtn" onclick="toggleScratch()" aria-label="Scratch pad" title="Scratch pad"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg></button>
@@ -2907,7 +2913,7 @@ async function setKey(k) {
   toast(k ? ('Key: ' + k) : 'Key cleared');
 }
 
-/* ── Scratch pad (desktop sticky note) ── */
+/* ── Scratch pad (sticky note) ── */
 let _scratchTimer = null, _scratchLastSaved = '';
 function scratchApply(s) {
   // Load the song's scratch text + restore per-device open/height state (from _openSongObj).
@@ -2916,7 +2922,9 @@ function scratchApply(s) {
   _scratchLastSaved = ta.value;
   const h = parseInt(localStorage.getItem('dh-lite-scratch-h'), 10);
   if (h) pad.style.height = h + 'px';
-  const open = localStorage.getItem('dh-lite-scratch-open') !== '0';   // default open
+  const stored = localStorage.getItem('dh-lite-scratch-open');
+  // Unset default: open on desktop, closed on mobile (key is per-device; any toggle wins on both).
+  const open = stored === null ? matchMedia('(min-width: 768px)').matches : stored !== '0';
   pad.hidden = !open;
   const btn = document.getElementById('scratchBtn');
   if (btn) btn.classList.toggle('on', open);
