@@ -56,7 +56,7 @@ One formatter and its plumbing in `lite-1.082.html`:
 ## Known cosmetic effects (accepted)
 
 - Desktop loses the long prose date (user chose "everywhere").
-- Exported ZIP take filenames change: `Take 1 - July 14th, 2026 - 4-32pm.mp3` → `Take 1 - 4-32pm - 14-07-26.mp3` (`_safeName` turns `/` and `:` into `-`). Pending explicit user sign-off.
+- Exported ZIP take filenames change: `Take 1 - July 14th, 2026 - 4-32pm.mp3` → `Take 1 - 4-32pm - 14-07-26.mp3` (`_safeName` turns `/` and `:` into `-`). User signed off 2026-07-15 (ship as-is).
 - DD/MM/YY is day-first; US-convention readers could misread it. Accepted.
 
 ## Versioning & rollout
