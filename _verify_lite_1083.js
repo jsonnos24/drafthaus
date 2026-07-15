@@ -1,4 +1,4 @@
-// _verify_lite_1083.js — lite-1.083: +CHORDS rename, mobile scratch pad, lyric-color bleed fix
+// _verify_lite_1083.js — lite-1.083: +CHORDS rename, mobile scratch pad (color-bleed fix deferred to 1.084 — not reproduced)
 const { chromium } = require('playwright-core');
 const http = require('http'); const fs = require('fs'); const path = require('path');
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
