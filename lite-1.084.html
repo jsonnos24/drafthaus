@@ -1568,6 +1568,7 @@ function onLyricsInput() { _lyricsEdited = true; clearTimeout(_lyricsTimer); _ly
   });
 })();
 let _lyricsBase = '';
+let _lyricsFlushP = null; // in-flight flushLyrics() promise — liteFreshenSong awaits it before judging remote-vs-base
 function currentEditorHtml() { const ed = document.getElementById('lyricsEditor'); return ed ? ilSanitizeDocHtml(ed.innerHTML) : ''; }
 function _lyricsDivider(src) { return '<div class="lyr-merge-divider">—— Also edited on ' + (src || 'another device') + ' ——</div>'; }
 async function _maybeSeedPendingLyrics(songId) {
@@ -1577,7 +1578,13 @@ async function _maybeSeedPendingLyrics(songId) {
   ed.innerHTML = ilSanitizeDocHtml(e.lyricsDoc); _atomizeLyricChords();
   _lyricsBase = e.base; _currentSong.lyricsDoc = e.lyricsDoc;
 }
-async function flushLyrics() {
+function flushLyrics() {
+  const p = _flushLyricsNow().catch(e => console.warn('[lyrics] flush', e));
+  _lyricsFlushP = p;
+  p.then(() => { if (_lyricsFlushP === p) _lyricsFlushP = null; });
+  return p;
+}
+async function _flushLyricsNow() {
   clearTimeout(_lyricsTimer);
   const ed = document.getElementById('lyricsEditor');
   if (!_currentSong || !ed) return;
@@ -1591,7 +1598,7 @@ async function flushLyrics() {
       const snap = await tx.get(ref);
       const serverDoc = (snap.exists && typeof snap.data().lyricsDoc === 'string') ? snap.data().lyricsDoc : '';
       let result, merged = false;
-      if (serverDoc === _lyricsBase) { result = html; }
+      if (serverDoc === _lyricsBase || serverDoc === html) { result = html; } // own text already on server — not a foreign edit
       else { result = html + _lyricsDivider('another device') + serverDoc; merged = true; }
       tx.set(ref, { lyricsDoc: result, lyricsDocInit: true, updatedAt: Date.now() }, { merge: true });
       return { result, merged };
