@@ -1568,6 +1568,7 @@ function onLyricsInput() { _lyricsEdited = true; clearTimeout(_lyricsTimer); _ly
   });
 })();
 let _lyricsBase = '';
+let _lyricsFlushP = null; // in-flight flushLyrics() promise — liteFreshenSong awaits it before judging remote-vs-base
 function currentEditorHtml() { const ed = document.getElementById('lyricsEditor'); return ed ? ilSanitizeDocHtml(ed.innerHTML) : ''; }
 function _lyricsDivider(src) { return '<div class="lyr-merge-divider">—— Also edited on ' + (src || 'another device') + ' ——</div>'; }
 async function _maybeSeedPendingLyrics(songId) {
@@ -1577,7 +1578,13 @@ async function _maybeSeedPendingLyrics(songId) {
   ed.innerHTML = ilSanitizeDocHtml(e.lyricsDoc); _atomizeLyricChords();
   _lyricsBase = e.base; _currentSong.lyricsDoc = e.lyricsDoc;
 }
-async function flushLyrics() {
+function flushLyrics() {
+  const p = _flushLyricsNow().catch(e => console.warn('[lyrics] flush', e));
+  _lyricsFlushP = p;
+  p.then(() => { if (_lyricsFlushP === p) _lyricsFlushP = null; });
+  return p;
+}
+async function _flushLyricsNow() {
   clearTimeout(_lyricsTimer);
   const ed = document.getElementById('lyricsEditor');
   if (!_currentSong || !ed) return;
@@ -1591,7 +1598,7 @@ async function flushLyrics() {
       const snap = await tx.get(ref);
       const serverDoc = (snap.exists && typeof snap.data().lyricsDoc === 'string') ? snap.data().lyricsDoc : '';
       let result, merged = false;
-      if (serverDoc === _lyricsBase) { result = html; }
+      if (serverDoc === _lyricsBase || serverDoc === html) { result = html; } // own text already on server — not a foreign edit
       else { result = html + _lyricsDivider('another device') + serverDoc; merged = true; }
       tx.set(ref, { lyricsDoc: result, lyricsDocInit: true, updatedAt: Date.now() }, { merge: true });
       return { result, merged };
@@ -2311,7 +2318,7 @@ async function liteLyricsDrain() {
           const snap = await tx.get(ref);
           const serverDoc = (snap.exists && typeof snap.data().lyricsDoc === 'string') ? snap.data().lyricsDoc : '';
           let result, merged = false;
-          if (serverDoc === e.base) { result = e.lyricsDoc; }
+          if (serverDoc === e.base || serverDoc === e.lyricsDoc) { result = e.lyricsDoc; } // own text already on server — not a foreign edit
           else { result = e.lyricsDoc + _lyricsDivider('another device') + serverDoc; merged = true; }
           tx.set(ref, { lyricsDoc: result, lyricsDocInit: true, updatedAt: Date.now() }, { merge: true });
           return { result, merged };
@@ -2331,12 +2338,15 @@ async function liteLyricsDrain() {
 async function liteFreshenSong() {
   if (!_currentSong) return;
   const songId = _currentSong.id;
+  if (_lyricsFlushP) { try { await _lyricsFlushP; } catch (e) {} } // let an in-flight save settle _lyricsBase before judging
+  if (!_currentSong || _currentSong.id !== songId) return;
   if (!_takesUnsub || _takesSongId !== songId) startTakesListener(songId); // ensure take list is current
   liteSyncDrain(); liteLyricsDrain();
   let snap;
   try { snap = await db.collection('songs').doc(songId).get(); }
   catch (e) { return; } // offline / denied → nothing fresher
   if (!_currentSong || _currentSong.id !== songId) return; // song switched while awaiting
+  if (snap.metadata && snap.metadata.fromCache) return; // cached read (network not back yet) can be stale — only judge against the server
   const remote = (snap.exists && typeof snap.data().lyricsDoc === 'string') ? snap.data().lyricsDoc : _lyricsBase;
   if (remote === _lyricsBase) return; // no remote change
   const ed = document.getElementById('lyricsEditor'); if (!ed) return;
@@ -2345,6 +2355,8 @@ async function liteFreshenSong() {
     if (document.activeElement === ed) return; // don't yank the cursor mid-focus; next return/blur freshens
     ed.innerHTML = ilSanitizeDocHtml(remote); _atomizeLyricChords(); _lyricsBase = remote; _currentSong.lyricsDoc = remote;
     clearTimeout(_lyricsTimer);
+  } else if (local === remote) {
+    _lyricsBase = remote; _currentSong.lyricsDoc = remote; _lyricsEdited = false; clearTimeout(_lyricsTimer); // identical content is never a conflict
   } else {
     ed.innerHTML = ilSanitizeDocHtml(local + _lyricsDivider('another device') + remote); _atomizeLyricChords();
     _lyricsBase = remote; _ilCommitDoc(currentEditorHtml(), _currentSong);
