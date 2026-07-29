@@ -177,6 +177,51 @@ const PAGE_HELPERS = () => {
   ok(d4.write.lyricsDoc.includes('lyr-merge-divider') && d4.write.lyricsDoc.includes('edited on the ipad'), 'D4 drain: genuine divergence still merges with divider');
   ok(d4.toasts.some(t => /Merged lyrics/.test(t)), 'D5 drain: genuine merge still toasts');
 
+  // ── X: the flush/freshen await is load-bearing (a real foreign edit lands mid-flight) ──
+  // Stateful server holding a foreign edit OTHER. The flush txn is slow (200ms); the flush
+  // merges DOC+divider+OTHER onto the server and settles _lyricsBase to it. Freshen fires on
+  // return and MUST await the flush — otherwise it reads the pre-flush server (OTHER), merges
+  // again, and the two writes clobber each other into a split-brain (editor shows the merge but
+  // base/server fall back to plain DOC, silently dropping the foreign edit). Removing the
+  // `await _lyricsFlushP` line in liteFreshenSong makes X1/X2 fail — that is what pins it.
+  const x1 = await page.evaluate(async ([DOC, OLD, OTHER]) => {
+    window._toasts = [];
+    window._server = OTHER;                                  // foreign edit already on the server
+    db.runTransaction = async (fn) => {
+      await new Promise(r => setTimeout(r, 200));            // flush is in flight for 200ms
+      return await fn({
+        get: async () => ({ exists: true, data: () => ({ lyricsDoc: window._server }) }),
+        set: (ref, data) => { window._server = data.lyricsDoc; },
+      });
+    };
+    db.collection = () => ({
+      doc: () => ({
+        get: async () => ({ exists: true, metadata: { fromCache: false }, data: () => ({ lyricsDoc: window._server }) }),
+        set: async () => {}, update: async () => {},
+      }),
+      where: () => ({ orderBy: () => ({ onSnapshot: () => () => {} }), onSnapshot: () => () => {} }),
+    });
+    const ed = document.getElementById('lyricsEditor');
+    ed.innerHTML = DOC; _lyricsBase = OLD; _lyricsEdited = true;
+    const fp = flushLyrics();                                // merges DOC+divider+OTHER onto the server, settles base to it
+    const fr = liteFreshenSong();                            // must await fp, then see server===base → no second merge
+    await fp; await fr;
+    clearTimeout(_lyricsTimer);
+    const editor = currentEditorHtml();
+    return {
+      baseBoth: _lyricsBase.includes('night is young') && _lyricsBase.includes('edited on the ipad'),
+      baseDividers: (_lyricsBase.match(/lyr-merge-divider/g) || []).length,
+      serverAgrees: window._server === _lyricsBase,
+      editorDividers: (editor.match(/lyr-merge-divider/g) || []).length,
+      mergeToasts: window._toasts.filter(t => /Merged lyrics/.test(t)).length,
+    };
+  }, [DOC, OLD, OTHER]);
+  ok(x1.baseBoth, 'X1 coordination: synced base holds both local text and the foreign edit (merge survived, not clobbered)');
+  ok(x1.baseDividers === 1, 'X2 coordination: base is the single merged doc — exactly one divider (no self-clobber back to plain local)');
+  ok(x1.serverAgrees, 'X3 coordination: server === _lyricsBase after the race (single source of truth)');
+  ok(x1.editorDividers === 1, 'X4 coordination: editor shows exactly one divider (freshen did not double-merge)');
+  ok(x1.mergeToasts === 1, 'X5 coordination: exactly one merge toast');
+
   // === END TESTS ===
   console.log(`\n${PASS}/${PASS + FAIL} passed`);
   await browser.close(); srv.close();
