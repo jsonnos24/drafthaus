@@ -149,6 +149,34 @@ const PAGE_HELPERS = () => {
   }, [DOC, OTHER]);
   ok(r8.html === DOC && r8.base === DOC, 'R8 freshen: fromCache snapshot ignored (no stale replace)');
 
+  // ── D: liteLyricsDrain equality guard ──
+  ok(src.includes('serverDoc === e.base || serverDoc === e.lyricsDoc'), 'D0 source: drain equality guard');
+
+  const d1 = await page.evaluate(async ([DOC, OLD]) => {
+    window._toasts = []; stubFS(DOC);                       // server already holds the pending doc's exact text
+    const ed = document.getElementById('lyricsEditor');
+    ed.innerHTML = DOC; _lyricsBase = OLD;
+    await dhPendingLyricsPut({ songId: _currentSong.id, lyricsDoc: DOC, base: OLD, editedAt: Date.now() });
+    await liteLyricsDrain();
+    const left = await dhPendingLyricsGet(_currentSong.id);
+    return { writes: window._txWrites, base: _lyricsBase, left: !!left, toasts: window._toasts };
+  }, [DOC, OLD]);
+  ok(d1.writes.length === 1 && d1.writes[0].lyricsDoc === DOC && !d1.writes[0].lyricsDoc.includes('lyr-merge-divider'), 'D1 drain: server==pending doc → adopt, no divider');
+  ok(!d1.left, 'D2 drain: pending entry deleted');
+  ok(d1.base === DOC && !d1.toasts.some(t => /Merged lyrics/.test(t)), 'D3 drain: base settles, no merge toast');
+
+  const d4 = await page.evaluate(async ([DOC, OLD, OTHER]) => {
+    window._toasts = []; stubFS(OTHER);                     // genuinely divergent server doc
+    const ed = document.getElementById('lyricsEditor');
+    ed.innerHTML = DOC; _lyricsBase = OLD;
+    await dhPendingLyricsPut({ songId: _currentSong.id, lyricsDoc: DOC, base: OLD, editedAt: Date.now() });
+    await liteLyricsDrain();
+    clearTimeout(_lyricsTimer);
+    return { write: window._txWrites[0], toasts: window._toasts };
+  }, [DOC, OLD, OTHER]);
+  ok(d4.write.lyricsDoc.includes('lyr-merge-divider') && d4.write.lyricsDoc.includes('edited on the ipad'), 'D4 drain: genuine divergence still merges with divider');
+  ok(d4.toasts.some(t => /Merged lyrics/.test(t)), 'D5 drain: genuine merge still toasts');
+
   // === END TESTS ===
   console.log(`\n${PASS}/${PASS + FAIL} passed`);
   await browser.close(); srv.close();
