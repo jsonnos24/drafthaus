@@ -101,6 +101,54 @@ const PAGE_HELPERS = () => {
   ok(f6.write.lyricsDoc.includes('lyr-merge-divider') && f6.write.lyricsDoc.includes('edited on the ipad'), 'F6 flush: genuine divergence still merges with divider');
   ok(f6.toasts.some(t => /Merged lyrics/.test(t)), 'F7 flush: genuine merge still toasts');
 
+  // ── R: liteFreshenSong — race, adopt, genuine merge, fromCache ──
+  ok(src.includes('fromCache'), 'R0 source: freshen has a fromCache bail');
+
+  const r1 = await page.evaluate(async ([DOC, OLD]) => {
+    window._toasts = []; stubFS(DOC, { delayMs: 250 });     // slow flush txn; server already has DOC (the frozen-flush shape)
+    const ed = document.getElementById('lyricsEditor');
+    ed.innerHTML = DOC; _lyricsBase = OLD; _lyricsEdited = true;
+    const fp = flushLyrics();                               // in flight…
+    const fr = liteFreshenSong();                           // …freshen fires on return — must wait for the flush
+    await fp; await fr;
+    const html = currentEditorHtml();
+    return { base: _lyricsBase, divider: html.includes('lyr-merge-divider'), toasts: window._toasts };
+  }, [DOC, OLD]);
+  ok(!r1.divider, 'R1 frozen-flush race: no divider after freshen during in-flight flush');
+  ok(r1.base === DOC, 'R2 frozen-flush race: base settles to the flushed doc');
+  ok(!r1.toasts.some(t => /Merged lyrics/.test(t)), 'R3 frozen-flush race: no merge toast');
+
+  const r4 = await page.evaluate(async ([DOC, OLD]) => {
+    window._toasts = []; stubFS(DOC);                       // no flush in flight; server == editor ≠ base
+    const ed = document.getElementById('lyricsEditor');
+    ed.innerHTML = DOC; _lyricsBase = OLD; _lyricsEdited = true;
+    await liteFreshenSong();
+    return { base: _lyricsBase, divider: currentEditorHtml().includes('lyr-merge-divider'), toasts: window._toasts };
+  }, [DOC, OLD]);
+  ok(!r4.divider && r4.base === DOC, 'R4 freshen: local==remote≠base → silent adopt');
+  ok(!r4.toasts.some(t => /Merged lyrics/.test(t)), 'R5 freshen: no toast on silent adopt');
+
+  const r6 = await page.evaluate(async ([DOC, OLD, OTHER]) => {
+    window._toasts = []; stubFS(OTHER);                     // genuinely divergent remote
+    const ed = document.getElementById('lyricsEditor');
+    ed.innerHTML = DOC; _lyricsBase = OLD; _lyricsEdited = true;
+    await liteFreshenSong();
+    clearTimeout(_lyricsTimer);                             // merge schedules a save — keep it out of later tests
+    const html = currentEditorHtml();
+    return { divider: html.includes('lyr-merge-divider'), both: html.includes('night is young') && html.includes('edited on the ipad'), toasts: window._toasts };
+  }, [DOC, OLD, OTHER]);
+  ok(r6.divider && r6.both, 'R6 freshen: genuine divergence still merges local + divider + remote');
+  ok(r6.toasts.some(t => /Merged lyrics/.test(t)), 'R7 freshen: genuine merge still toasts');
+
+  const r8 = await page.evaluate(async ([DOC, OTHER]) => {
+    window._toasts = []; stubFS(OTHER, { fromCache: true }); // stale cached read (network not back yet)
+    const ed = document.getElementById('lyricsEditor');
+    ed.innerHTML = DOC; _lyricsBase = DOC; _lyricsEdited = false; // clean editor — old code would silently replace with stale OTHER
+    await liteFreshenSong();
+    return { html: currentEditorHtml(), base: _lyricsBase };
+  }, [DOC, OTHER]);
+  ok(r8.html === DOC && r8.base === DOC, 'R8 freshen: fromCache snapshot ignored (no stale replace)');
+
   // === END TESTS ===
   console.log(`\n${PASS}/${PASS + FAIL} passed`);
   await browser.close(); srv.close();
