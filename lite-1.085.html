@@ -543,6 +543,12 @@ body.nav-animating { overflow-x: hidden; }
      a stored dh-lite-scratch-h inline height still wins over the 220px default, as designed */
   #scratchPad { right: 66px; width: min(280px, 70vw); height: 220px; }
   #scratchText { font-size: 16px; }   /* <16px triggers iOS Safari focus-zoom */
+  #micTip { position: fixed; inset: 0; z-index: 9500; display: flex; align-items: flex-end; justify-content: center; background: rgba(0,0,0,.45); }
+  #micTip[hidden] { display: none; }
+  .mic-tip-card { background: var(--bg-elev); color: var(--text); border-radius: 16px 16px 0 0; padding: 20px 18px calc(18px + env(safe-area-inset-bottom)); width: 100%; max-width: 480px; box-shadow: var(--shadow-lg); }
+  .mic-tip-h { font-weight: 700; font-size: 15px; margin: 0 0 8px; }
+  .mic-tip-b { font-size: 13px; line-height: 1.5; color: var(--text-2); margin: 0 0 16px; }
+  .mic-tip-ok { width: 100%; padding: 12px; border: none; border-radius: 12px; background: var(--tint); color: #fff; font-weight: 700; font-size: 15px; }
 }
 .tp-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; flex: none; }
 .tp-head h3 { font-size: 20px; font-weight: 700; color: var(--text); }
@@ -799,6 +805,13 @@ button { -webkit-touch-callout: none; }
 </head>
 <body>
 <audio id="playEl" playsinline preload="auto" style="display:none"></audio>
+<div id="micTip" hidden role="dialog" aria-live="polite">
+  <div class="mic-tip-card">
+    <p class="mic-tip-h">Tired of the mic prompt every visit?</p>
+    <p class="mic-tip-b">iOS asks each time you open the site in a tab. To stop it: tap <b>aA</b> in the address bar → <b>Website Settings</b> → <b>Microphone</b> → <b>Allow</b>. Or use <b>Share → Add to Home Screen</b> and open it from there.</p>
+    <button class="mic-tip-ok" onclick="micTipDismiss()">Got it</button>
+  </div>
+</div>
 <div id="offlinePill" class="offline-pill">Offline</div>
 
 <!-- ───────────────────────── Landing / auth ───────────────────────── -->
@@ -2411,6 +2424,20 @@ function _setMediaSession(take) {
     navigator.mediaSession.setActionHandler('stop', () => stopPlayback());
   } catch (e) {}
 }
+function _isIOSTab() {
+  const ua = navigator.userAgent || '';
+  const iOS = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document);
+  return iOS && navigator.standalone !== true;
+}
+function micTipMaybeShow() {
+  if (localStorage.getItem('dh-lite-mic-tip-seen') === '1') return;
+  if (!_isIOSTab()) return;
+  document.getElementById('micTip').hidden = false;
+}
+function micTipDismiss() {
+  document.getElementById('micTip').hidden = true;
+  try { localStorage.setItem('dh-lite-mic-tip-seen', '1'); } catch (e) {}
+}
 let _wakeLock = null;
 async function _wakeLockAcquire() {
   if (!('wakeLock' in navigator) || _wakeLock) return;
@@ -2842,6 +2869,7 @@ function toggleRecord() {
 function _showCount(n) { const el = document.getElementById('recCountdown'); el.textContent = n; el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('show', 'pulse'); }
 function _hideCount() { const el = document.getElementById('recCountdown'); el.classList.remove('show', 'pulse'); }
 function _startCountdown() {
+  micTipMaybeShow();
   _recCounting = true;
   document.getElementById('recBtn').classList.add('counting');
   stopPlayback();

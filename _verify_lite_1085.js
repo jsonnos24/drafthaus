@@ -96,6 +96,30 @@ async function boot(page) {
     return z(document.getElementById('scratchPad')) > z(document.getElementById('takesPanel'));
   }));
 
+  // ── #4 mic tip (iOS tab only, once) ──
+  const isIOSTabStub = () => {
+    Object.defineProperty(navigator, 'standalone', { value: false, configurable: true });
+    Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1', configurable: true });
+  };
+  assert('mic tip shows on iOS tab, first time', await page.evaluate((fn) => {
+    eval('(' + fn + ')()'); // apply iOS stub
+    localStorage.removeItem('dh-lite-mic-tip-seen');
+    micTipMaybeShow();
+    return getComputedStyle(document.getElementById('micTip')).display !== 'none';
+  }, isIOSTabStub.toString()));
+  assert('mic tip dismiss hides + sets flag', await page.evaluate(() => {
+    micTipDismiss();
+    return document.getElementById('micTip').hidden && localStorage.getItem('dh-lite-mic-tip-seen') === '1';
+  }));
+  assert('mic tip does not re-show once seen', await page.evaluate(() => {
+    micTipMaybeShow(); return document.getElementById('micTip').hidden;
+  }));
+  assert('mic tip never shows on desktop UA', await page.evaluate(() => {
+    Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) Chrome/120', configurable: true });
+    localStorage.removeItem('dh-lite-mic-tip-seen');
+    micTipMaybeShow(); return document.getElementById('micTip').hidden;
+  }));
+
   console.log(results.join('\n'));
   console.log('\n' + results.filter(r => r.startsWith('PASS')).length + '/' + results.length + ' PASS');
   if (errors.length) console.log('PAGE ERRORS:\n' + errors.join('\n'));
