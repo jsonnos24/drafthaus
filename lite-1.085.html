@@ -798,6 +798,7 @@ button { -webkit-touch-callout: none; }
 </style>
 </head>
 <body>
+<audio id="playEl" playsinline preload="auto" style="display:none"></audio>
 <div id="offlinePill" class="offline-pill">Offline</div>
 
 <!-- ───────────────────────── Landing / auth ───────────────────────── -->
@@ -2128,12 +2129,8 @@ async function commitRename(id, el) {
 function toggleLoop(id, ev) {
   if (ev) ev.stopPropagation();
   if (_loopTakes.has(id)) _loopTakes.delete(id); else _loopTakes.add(id);
-  if (_playingTakeId === id && _curSource) {
-    const on = _loopTakes.has(id);
-    // Turning loop OFF mid-play: rebase the playhead clock to the current wrapped position
-    // (computed while src.loop is still true) so the line doesn't jump off-canvas.
-    if (!on && _audioCtx) { _phOffset = _phNow(); _phStartCtx = _audioCtx.currentTime; _phRegion = null; }
-    _curSource.loop = on;
+  if (_playingTakeId === id && _playEl) {
+    _playEl.loop = _loopTakes.has(id); // playhead reads currentTime directly — no clock rebase needed
   }
   renderTakes();
 }
@@ -2366,7 +2363,42 @@ async function liteFreshenSong() {
 }
 
 /* ═══════════════════════════ Playback (WebAudio — supports Boost gain + loop) ═══════════════════════════ */
-let _audioCtx = null, _curSource = null, _curGain = null, _playingTakeId = null, _bufCache = {};
+let _audioCtx = null, _playingTakeId = null, _bufCache = {};
+let _playEl = null, _playUrl = null, _playRegion = null;
+function _ensurePlayEl() {
+  if (_playEl) return _playEl;
+  _playEl = document.getElementById('playEl');
+  _playEl.addEventListener('ended', () => {
+    if (_playEl.loop) return; // whole-take loop restarts natively
+    _playingTakeId = null; _stopPlayhead(); _wf.playhead = 0; updateRailPlayBtn(); renderTakes(); wfPaint();
+  });
+  return _playEl;
+}
+// Playable source: IndexedDB blob first (offline-safe object URL), else the remote URL.
+async function _getPlayableSrc(take) {
+  const local = await dhAudioGet(take.id);
+  if (local) { dhAudioTouch(take.id); return URL.createObjectURL(local); }
+  if (!take.downloadUrl) throw new Error('pending-remote');
+  return take.downloadUrl;
+}
+// Boost degrades to attenuate-only: HTML volume caps at 1.0, so quiet takes can no longer be amplified.
+function _applyPlayVolume() {
+  if (!_playEl) return;
+  const e = _bufCache[_playingTakeId];
+  _playEl.volume = (_currentSong && _currentSong.boost && e) ? Math.min(e.normGain, 1) : 1;
+}
+function _setMediaSession(take) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: takeDisplayName(take),
+      artist: (_currentSong && _currentSong.title) || 'Drafthaus',
+    });
+    navigator.mediaSession.setActionHandler('play', () => { if (_playEl) _playEl.play().catch(() => {}); });
+    navigator.mediaSession.setActionHandler('pause', () => stopPlayback());
+    navigator.mediaSession.setActionHandler('stop', () => stopPlayback());
+  } catch (e) {}
+}
 function ensureCtx() {
   if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (_audioCtx.state === 'suspended') _audioCtx.resume();
@@ -2391,49 +2423,57 @@ async function _getBuffer(take) {
   _bufCache[take.id] = { buffer, normGain };
   return _bufCache[take.id];
 }
-let _phStartCtx = 0, _phOffset = 0, _phRegion = null, _phRaf = null;
+let _phRaf = null;
 function _stopPlayhead() { if (_phRaf) cancelAnimationFrame(_phRaf); _phRaf = null; }
-function _phNow() {
-  if (_playingTakeId == null || !_audioCtx) return _wf.playhead || 0;
-  let t = _phOffset + (_audioCtx.currentTime - _phStartCtx);
-  if (_phRegion) { const len = _phRegion.b - _phRegion.a; if (len > 0 && t > _phRegion.b) t = _phRegion.a + ((t - _phRegion.a) % len); }
-  else if (_curSource && _curSource.loop && _curSource.buffer) { const d = _curSource.buffer.duration; if (d > 0) t = t % d; }   // whole-take loop: wrap every pass
-  return t;
-}
 function _startPlayhead() {
   _stopPlayhead();
-  const tick = () => { if (_playingTakeId == null) return; _wf.playhead = _phNow(); wfPaint(); _phRaf = requestAnimationFrame(tick); };
+  const tick = () => {
+    if (_playingTakeId == null || !_playEl) return;
+    _applyPlayVolume();
+    let t = _playEl.currentTime;
+    if (_playRegion && t >= _playRegion.b) { t = _playRegion.a; try { _playEl.currentTime = t; } catch (e) {} }
+    _wf.playhead = t; wfPaint();
+    _phRaf = requestAnimationFrame(tick);
+  };
   _phRaf = requestAnimationFrame(tick);
 }
 function stopPlayback() {
-  if (_curSource) { try { _curSource.onended = null; _curSource.stop(); } catch (e) {} _curSource = null; _curGain = null; }
+  if (_playEl) { try { _playEl.pause(); } catch (e) {} }
   _stopPlayhead();
-  _playingTakeId = null; updateRailPlayBtn(); renderTakes(); wfPaint();
+  _playRegion = null; _playingTakeId = null;
+  updateRailPlayBtn(); renderTakes(); wfPaint();
 }
 async function playTake(id, opts) {
   opts = opts || {};
   stopPlayback();
   const take = _takes.find(t => t.id === id); if (!take) return;
   _loadedTakeId = id;
-  const ctx = ensureCtx();
-  let entry;
-  try { entry = await _getBuffer(take); } catch (e) { console.warn('[play]', e); toast('Could not load take'); return; }
-  const buf = entry.buffer, dur = buf.duration;
+  const el = _ensurePlayEl();
+  let src;
+  try { src = await _getPlayableSrc(take); }
+  catch (e) { console.warn('[play]', e); toast('Could not load take'); return; }
+  if (_playUrl) { try { URL.revokeObjectURL(_playUrl); } catch (e) {} _playUrl = null; }
+  if (typeof src === 'string' && src.indexOf('blob:') === 0) _playUrl = src;
+  el.src = src;
   const region = ('region' in opts) ? opts.region : ((_wf.takeId === id && _wf.loopSel && _wf.sel) ? _wf.sel : null);
-  let offset = (typeof opts.offset === 'number') ? opts.offset : (region ? region.a : 0);
-  if (offset < 0 || offset > dur - 0.02) offset = region ? region.a : 0;
-  const src = ctx.createBufferSource(); src.buffer = buf;
-  const g = ctx.createGain(); g.gain.value = (_currentSong && _currentSong.boost) ? entry.normGain : 1;
-  src.connect(g).connect(ctx.destination);
-  if (region && region.b > region.a) { src.loop = true; src.loopStart = region.a; src.loopEnd = region.b; }
-  else { src.loop = _loopTakes.has(id); }
-  src.onended = () => { if (_playingTakeId === id && !src.loop) { _playingTakeId = null; _stopPlayhead(); _wf.playhead = 0; updateRailPlayBtn(); renderTakes(); wfPaint(); } };
-  src.start(0, offset);
-  _curSource = src; _curGain = g; _playingTakeId = id;
-  _phStartCtx = ctx.currentTime; _phOffset = offset; _phRegion = (src.loop && region) ? region : null;
+  _playRegion = (region && region.b > region.a) ? region : null;
+  el.loop = !_playRegion && _loopTakes.has(id);
+  let offset = (typeof opts.offset === 'number') ? opts.offset : (_playRegion ? _playRegion.a : 0);
+  const seek = () => {
+    const dur = el.duration || 0;
+    if (offset < 0 || (dur && offset > dur - 0.02)) offset = _playRegion ? _playRegion.a : 0;
+    try { el.currentTime = offset; } catch (e) {}
+  };
+  // Seeking before metadata is known is unreliable (esp. iOS Safari) so it's gated on readiness,
+  // but play() itself is safe to call immediately — the browser queues it until it can start.
+  if (el.readyState >= 1) seek();
+  else el.addEventListener('loadedmetadata', seek, { once: true });
+  el.play().catch(err => console.warn('[play] play()', err));
+  _playingTakeId = id;
   _startPlayhead();
+  _setMediaSession(take);
   updateRailPlayBtn(); renderTakes(); updateRail();
-  wfLoad(take);   // playing selects the take — show its waveform too (buffer already in _bufCache)
+  wfLoad(take); // decodes buffer for peaks + populates _bufCache[id].normGain for _applyPlayVolume
 }
 function takeRowPlay(id, ev) {
   if (ev) ev.stopPropagation();
@@ -2476,7 +2516,7 @@ function _wfTimeStr() {
   return _fmtMs(_wf.playhead || 0) + ' / ' + _fmtMs(_wf.dur);
 }
 function _wfUIHtml() {
-  const hasSel = !!_wf.sel, selPlaying = _playingTakeId === _wf.takeId && !!_phRegion;
+  const hasSel = !!_wf.sel, selPlaying = _playingTakeId === _wf.takeId && !!_playRegion;
   return `<div class="wf">
     <div class="wf-canvas-wrap"><canvas class="wave-canvas"></canvas></div>
     <div class="wf-row">
@@ -2531,7 +2571,7 @@ document.addEventListener('pointerup', (e) => {
 /* Contextual selection playback: loops the selected region; press again to stop. */
 function wfPlaySel() {
   if (!_wf.sel) return;
-  if (_playingTakeId === _wf.takeId && _phRegion) { stopPlayback(); return; }
+  if (_playingTakeId === _wf.takeId && _playRegion) { stopPlayback(); return; }
   playTake(_wf.takeId, { offset: _wf.sel.a, region: _wf.sel });
 }
 function wfClearSel() { _wf.sel = null; _wf.loopSel = false; if (_playingTakeId === _wf.takeId) playTake(_wf.takeId, { offset: _wf.playhead, region: null }); wfRender(); }
@@ -2883,12 +2923,7 @@ async function toggleBoost() {
   if (!_currentSong) return;
   const v = !_currentSong.boost;
   _currentSong.boost = v; updateBoostUI();
-  // Live, click-free toggle during playback (smooth ramp instead of a jump).
-  if (_curGain && _playingTakeId && _bufCache[_playingTakeId]) {
-    const target = v ? _bufCache[_playingTakeId].normGain : 1;
-    try { _curGain.gain.setTargetAtTime(target, ensureCtx().currentTime, 0.04); }
-    catch (e) { _curGain.gain.value = target; }
-  }
+  _applyPlayVolume(); // live-apply (attenuate-only; the RAF also keeps this current)
   try { await db.collection('songs').doc(_currentSong.id).set({ boost: v }, { merge: true }); } catch (e) {}
 }
 
