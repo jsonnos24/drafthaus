@@ -88,6 +88,14 @@ async function boot(page) {
     return ok && _wakeLock === null;
   }));
 
+  // ── #3 sketchpad floats over takes ──
+  assert('scratchPad z-index > takesPanel z-index', await page.evaluate(() => {
+    const z = el => parseInt(getComputedStyle(el).zIndex, 10);
+    document.getElementById('takesPanel').classList.add('open');
+    document.getElementById('scratchPad').hidden = false;
+    return z(document.getElementById('scratchPad')) > z(document.getElementById('takesPanel'));
+  }));
+
   console.log(results.join('\n'));
   console.log('\n' + results.filter(r => r.startsWith('PASS')).length + '/' + results.length + ' PASS');
   if (errors.length) console.log('PAGE ERRORS:\n' + errors.join('\n'));
