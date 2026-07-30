@@ -2376,10 +2376,20 @@ function _ensurePlayEl() {
 }
 // Playable source: IndexedDB blob first (offline-safe object URL), else the remote URL.
 async function _getPlayableSrc(take) {
-  const local = await dhAudioGet(take.id);
+  let local = await dhAudioGet(take.id);
   if (local) { dhAudioTouch(take.id); return URL.createObjectURL(local); }
   if (!take.downloadUrl) throw new Error('pending-remote');
-  return take.downloadUrl;
+  // Fetch once + cache to IndexedDB so the trailing wfLoad()/_getBuffer reuses it (no double download).
+  try {
+    const resp = await fetch(take.downloadUrl);
+    const ab = await resp.arrayBuffer();
+    local = new Blob([ab], { type: take.mimeType || '' });
+    dhAudioPut(take.id, local, { mimeType: take.mimeType }).catch(() => {});
+    return URL.createObjectURL(local);
+  } catch (e) {
+    console.warn('[play] fetch fallback', e);
+    return take.downloadUrl; // network failed — let the element try streaming the URL directly
+  }
 }
 // Boost degrades to attenuate-only: HTML volume caps at 1.0, so quiet takes can no longer be amplified.
 function _applyPlayVolume() {
