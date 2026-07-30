@@ -119,6 +119,19 @@ async function boot(page) {
     localStorage.removeItem('dh-lite-mic-tip-seen');
     micTipMaybeShow(); return document.getElementById('micTip').hidden;
   }));
+  // #4 regression: the modal must be a fixed overlay at iPad width (>=768px), not only phone width
+  await page.setViewportSize({ width: 1024, height: 768 });
+  assert('mic tip is a fixed overlay at iPad width (CSS not viewport-gated)', await page.evaluate(() => {
+    localStorage.removeItem('dh-lite-mic-tip-seen');
+    Object.defineProperty(navigator, 'standalone', { value: false, configurable: true });
+    Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1', configurable: true });
+    micTipMaybeShow();
+    const cs = getComputedStyle(document.getElementById('micTip'));
+    const ok = cs.position === 'fixed' && cs.display === 'flex';
+    micTipDismiss();
+    return ok;
+  }));
+  await page.setViewportSize({ width: 390, height: 820 });
 
   console.log(results.join('\n'));
   console.log('\n' + results.filter(r => r.startsWith('PASS')).length + '/' + results.length + ' PASS');
