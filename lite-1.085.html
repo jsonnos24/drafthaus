@@ -1169,7 +1169,7 @@ function authEmailSubmit(ev) {
   return false;
 }
 function authGuest() { try { sessionStorage.setItem('dh-lite-guest', '1'); } catch (e) {} document.body.classList.remove('relogin'); auth.signInAnonymously().catch(_authErr); }
-function signOut() { auth.signOut(); }
+function signOut() { _wakeLockRelease(); auth.signOut(); }
 function signOutTap() {
   const msg = _isGuestNow()
     ? 'Sign out of your guest session? Guest songs live only on this device and can’t be recovered after signing out.'
@@ -2398,6 +2398,7 @@ async function _getPlayableSrc(take) {
   // Fetch once + cache to IndexedDB so the trailing wfLoad()/_getBuffer reuses it (no double download).
   try {
     const resp = await fetch(take.downloadUrl);
+    if (!resp.ok) throw new Error('http ' + resp.status); // don't cache an error body as audio; fall through to streaming
     const ab = await resp.arrayBuffer();
     local = new Blob([ab], { type: take.mimeType || '' });
     dhAudioPut(take.id, local, { mimeType: take.mimeType }).catch(() => {});
