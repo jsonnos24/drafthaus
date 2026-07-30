@@ -61,6 +61,33 @@ async function boot(page) {
   // Media Session wired (guarded no-op if unsupported)
   assert('Media Session metadata set (if supported)', await page.evaluate(() => !('mediaSession' in navigator) || (navigator.mediaSession.metadata && navigator.mediaSession.metadata.title.includes('Take 1'))));
 
+  // ── #2 wake lock (stub navigator.wakeLock via defineProperty — it's a read-only prototype accessor) ──
+  await page.evaluate(() => {
+    window.__wl = { acquired: 0, released: 0 };
+    const sentinel = { release() { window.__wl.released++; return Promise.resolve(); }, addEventListener() {} };
+    Object.defineProperty(navigator, 'wakeLock', {
+      value: { request: () => { window.__wl.acquired++; return Promise.resolve(sentinel); } },
+      configurable: true, writable: true,
+    });
+  });
+  await page.evaluate(async () => { _wakeLock = null; await _wakeLockAcquire(); });
+  assert('wake lock acquired on demand', await page.evaluate(() => window.__wl.acquired === 1 && !!_wakeLock));
+  await page.evaluate(async () => { await _wakeLockRelease(); });
+  assert('wake lock released', await page.evaluate(() => window.__wl.released === 1 && _wakeLock === null));
+  assert('goHome releases wake lock', await page.evaluate(async () => {
+    window.__wl = { acquired: 0, released: 0 };
+    _wakeLock = null; await _wakeLockAcquire(); goHome(); await new Promise(r => setTimeout(r, 30));
+    return window.__wl.released >= 1;
+  }));
+  assert('wakeLock request failure → helpers no-op (no throw)', await page.evaluate(async () => {
+    const desc = Object.getOwnPropertyDescriptor(navigator, 'wakeLock');
+    Object.defineProperty(navigator, 'wakeLock', { value: { request: () => Promise.reject(new Error('denied')) }, configurable: true });
+    _wakeLock = null;
+    let ok = true; try { await _wakeLockAcquire(); await _wakeLockRelease(); } catch (e) { ok = false; }
+    if (desc) Object.defineProperty(navigator, 'wakeLock', desc);
+    return ok && _wakeLock === null;
+  }));
+
   console.log(results.join('\n'));
   console.log('\n' + results.filter(r => r.startsWith('PASS')).length + '/' + results.length + ' PASS');
   if (errors.length) console.log('PAGE ERRORS:\n' + errors.join('\n'));

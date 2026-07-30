@@ -1459,10 +1459,12 @@ function _openSongObj(s) {
   // Warm the chord-audio sampler now so it's ready before the user ever opens
   // a chord screen (eliminates the brief synth-fallback on the first pill tap).
   try { loadSampler(_qcInstrument); } catch (e) {}
+  _wakeLockAcquire();
 }
 function goHome() {
   toggleChordsMode(false);
   flushLyrics(); scratchFlush(); stopPlayback(); stopTakesListener();
+  _wakeLockRelease();
   _currentSong = null; _wfReset(); wfRender();
   showScreen('songlist');
 }
@@ -2408,6 +2410,19 @@ function _setMediaSession(take) {
     navigator.mediaSession.setActionHandler('pause', () => stopPlayback());
     navigator.mediaSession.setActionHandler('stop', () => stopPlayback());
   } catch (e) {}
+}
+let _wakeLock = null;
+async function _wakeLockAcquire() {
+  if (!('wakeLock' in navigator) || _wakeLock) return;
+  try {
+    _wakeLock = await navigator.wakeLock.request('screen');
+    _wakeLock.addEventListener && _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+  } catch (e) { _wakeLock = null; }
+}
+async function _wakeLockRelease() {
+  if (!_wakeLock) return;
+  try { await _wakeLock.release(); } catch (e) {}
+  _wakeLock = null;
 }
 function ensureCtx() {
   if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -4029,7 +4044,7 @@ _bindChordLyrics();
 function _liteUpdateOnline() { document.body.classList.toggle('is-offline', !navigator.onLine); }
 window.addEventListener('offline', () => { _syncAnnounce = true; document.body.classList.add('is-offline'); }); // Direct classList.add (not _liteUpdateOnline): a real 'offline' event already means navigator.onLine===false; synthetic test events don't change it.
 window.addEventListener('online', () => { _liteUpdateOnline(); liteFreshenSong(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) liteFreshenSong(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { liteFreshenSong(); if (_currentSong) _wakeLockAcquire(); } });
 window.addEventListener('focus', () => liteFreshenSong());
 _liteUpdateOnline();
 
