@@ -521,7 +521,7 @@ body.nav-animating { overflow-x: hidden; }
   position: absolute; top: 14px; right: calc(50% + 14px); width: 280px;
   height: 320px; min-height: 120px; max-height: calc(100% - 28px);
   background: var(--sticky-bg); border-radius: 2px 2px 10px 2px;
-  box-shadow: var(--shadow-lg); z-index: 6; display: flex; flex-direction: column;
+  box-shadow: var(--shadow-lg); z-index: 8; display: flex; flex-direction: column;
 }
 #scratchPad[hidden] { display: none; }
 #scratchText {
@@ -544,6 +544,13 @@ body.nav-animating { overflow-x: hidden; }
   #scratchPad { right: 66px; width: min(280px, 70vw); height: 220px; }
   #scratchText { font-size: 16px; }   /* <16px triggers iOS Safari focus-zoom */
 }
+/* mic tip — full-screen modal overlay; NOT viewport-gated so it renders correctly on iPad (>=768px) tabs too, where _isIOSTab() also allows it */
+#micTip { position: fixed; inset: 0; z-index: 9500; display: flex; align-items: flex-end; justify-content: center; background: rgba(0,0,0,.45); }
+#micTip[hidden] { display: none; }
+.mic-tip-card { background: var(--bg-elev); color: var(--text); border-radius: 16px 16px 0 0; padding: 20px 18px calc(18px + env(safe-area-inset-bottom)); width: 100%; max-width: 480px; box-shadow: var(--shadow-lg); }
+.mic-tip-h { font-weight: 700; font-size: 15px; margin: 0 0 8px; }
+.mic-tip-b { font-size: 13px; line-height: 1.5; color: var(--text-2); margin: 0 0 16px; }
+.mic-tip-ok { width: 100%; padding: 12px; border: none; border-radius: 12px; background: var(--tint); color: #fff; font-weight: 700; font-size: 15px; }
 .tp-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; flex: none; }
 .tp-head h3 { font-size: 20px; font-weight: 700; color: var(--text); }
 .tp-head .done { color: var(--tint); font-size: 16px; font-weight: 600; }
@@ -798,6 +805,14 @@ button { -webkit-touch-callout: none; }
 </style>
 </head>
 <body>
+<audio id="playEl" playsinline preload="auto" style="display:none"></audio>
+<div id="micTip" hidden role="dialog" aria-live="polite">
+  <div class="mic-tip-card">
+    <p class="mic-tip-h">Tired of the mic prompt every visit?</p>
+    <p class="mic-tip-b">iOS asks each time you open the site in a tab. To stop it: tap <b>aA</b> in the address bar → <b>Website Settings</b> → <b>Microphone</b> → <b>Allow</b>. Or use <b>Share → Add to Home Screen</b> and open it from there.</p>
+    <button class="mic-tip-ok" onclick="micTipDismiss()">Got it</button>
+  </div>
+</div>
 <div id="offlinePill" class="offline-pill">Offline</div>
 
 <!-- ───────────────────────── Landing / auth ───────────────────────── -->
@@ -1154,7 +1169,7 @@ function authEmailSubmit(ev) {
   return false;
 }
 function authGuest() { try { sessionStorage.setItem('dh-lite-guest', '1'); } catch (e) {} document.body.classList.remove('relogin'); auth.signInAnonymously().catch(_authErr); }
-function signOut() { auth.signOut(); }
+function signOut() { _wakeLockRelease(); auth.signOut(); }
 function signOutTap() {
   const msg = _isGuestNow()
     ? 'Sign out of your guest session? Guest songs live only on this device and can’t be recovered after signing out.'
@@ -1458,10 +1473,12 @@ function _openSongObj(s) {
   // Warm the chord-audio sampler now so it's ready before the user ever opens
   // a chord screen (eliminates the brief synth-fallback on the first pill tap).
   try { loadSampler(_qcInstrument); } catch (e) {}
+  _wakeLockAcquire();
 }
 function goHome() {
   toggleChordsMode(false);
   flushLyrics(); scratchFlush(); stopPlayback(); stopTakesListener();
+  _wakeLockRelease();
   _currentSong = null; _wfReset(); wfRender();
   showScreen('songlist');
 }
@@ -2128,12 +2145,8 @@ async function commitRename(id, el) {
 function toggleLoop(id, ev) {
   if (ev) ev.stopPropagation();
   if (_loopTakes.has(id)) _loopTakes.delete(id); else _loopTakes.add(id);
-  if (_playingTakeId === id && _curSource) {
-    const on = _loopTakes.has(id);
-    // Turning loop OFF mid-play: rebase the playhead clock to the current wrapped position
-    // (computed while src.loop is still true) so the line doesn't jump off-canvas.
-    if (!on && _audioCtx) { _phOffset = _phNow(); _phStartCtx = _audioCtx.currentTime; _phRegion = null; }
-    _curSource.loop = on;
+  if (_playingTakeId === id && _playEl) {
+    _playEl.loop = _loopTakes.has(id); // playhead reads currentTime directly — no clock rebase needed
   }
   renderTakes();
 }
@@ -2366,7 +2379,80 @@ async function liteFreshenSong() {
 }
 
 /* ═══════════════════════════ Playback (WebAudio — supports Boost gain + loop) ═══════════════════════════ */
-let _audioCtx = null, _curSource = null, _curGain = null, _playingTakeId = null, _bufCache = {};
+let _audioCtx = null, _playingTakeId = null, _bufCache = {};
+let _playEl = null, _playUrl = null, _playRegion = null;
+function _ensurePlayEl() {
+  if (_playEl) return _playEl;
+  _playEl = document.getElementById('playEl');
+  _playEl.addEventListener('ended', () => {
+    if (_playEl.loop) return; // whole-take loop restarts natively
+    _playingTakeId = null; _stopPlayhead(); _wf.playhead = 0; updateRailPlayBtn(); renderTakes(); wfPaint();
+  });
+  return _playEl;
+}
+// Playable source: IndexedDB blob first (offline-safe object URL), else the remote URL.
+async function _getPlayableSrc(take) {
+  let local = await dhAudioGet(take.id);
+  if (local) { dhAudioTouch(take.id); return URL.createObjectURL(local); }
+  if (!take.downloadUrl) throw new Error('pending-remote');
+  // Fetch once + cache to IndexedDB so the trailing wfLoad()/_getBuffer reuses it (no double download).
+  try {
+    const resp = await fetch(take.downloadUrl);
+    if (!resp.ok) throw new Error('http ' + resp.status); // don't cache an error body as audio; fall through to streaming
+    const ab = await resp.arrayBuffer();
+    local = new Blob([ab], { type: take.mimeType || '' });
+    dhAudioPut(take.id, local, { mimeType: take.mimeType }).catch(() => {});
+    return URL.createObjectURL(local);
+  } catch (e) {
+    console.warn('[play] fetch fallback', e);
+    return take.downloadUrl; // network failed — let the element try streaming the URL directly
+  }
+}
+// Boost degrades to attenuate-only: HTML volume caps at 1.0, so quiet takes can no longer be amplified.
+function _applyPlayVolume() {
+  if (!_playEl) return;
+  const e = _bufCache[_playingTakeId];
+  _playEl.volume = (_currentSong && _currentSong.boost && e) ? Math.min(e.normGain, 1) : 1;
+}
+function _setMediaSession(take) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: takeDisplayName(take),
+      artist: (_currentSong && _currentSong.title) || 'Drafthaus',
+    });
+    navigator.mediaSession.setActionHandler('play', () => { if (_playEl) _playEl.play().catch(() => {}); });
+    navigator.mediaSession.setActionHandler('pause', () => stopPlayback());
+    navigator.mediaSession.setActionHandler('stop', () => stopPlayback());
+  } catch (e) {}
+}
+function _isIOSTab() {
+  const ua = navigator.userAgent || '';
+  const iOS = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document);
+  return iOS && navigator.standalone !== true;
+}
+function micTipMaybeShow() {
+  if (localStorage.getItem('dh-lite-mic-tip-seen') === '1') return;
+  if (!_isIOSTab()) return;
+  document.getElementById('micTip').hidden = false;
+}
+function micTipDismiss() {
+  document.getElementById('micTip').hidden = true;
+  try { localStorage.setItem('dh-lite-mic-tip-seen', '1'); } catch (e) {}
+}
+let _wakeLock = null;
+async function _wakeLockAcquire() {
+  if (!('wakeLock' in navigator) || _wakeLock) return;
+  try {
+    _wakeLock = await navigator.wakeLock.request('screen');
+    _wakeLock.addEventListener && _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+  } catch (e) { _wakeLock = null; }
+}
+async function _wakeLockRelease() {
+  if (!_wakeLock) return;
+  try { await _wakeLock.release(); } catch (e) {}
+  _wakeLock = null;
+}
 function ensureCtx() {
   if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (_audioCtx.state === 'suspended') _audioCtx.resume();
@@ -2391,49 +2477,57 @@ async function _getBuffer(take) {
   _bufCache[take.id] = { buffer, normGain };
   return _bufCache[take.id];
 }
-let _phStartCtx = 0, _phOffset = 0, _phRegion = null, _phRaf = null;
+let _phRaf = null;
 function _stopPlayhead() { if (_phRaf) cancelAnimationFrame(_phRaf); _phRaf = null; }
-function _phNow() {
-  if (_playingTakeId == null || !_audioCtx) return _wf.playhead || 0;
-  let t = _phOffset + (_audioCtx.currentTime - _phStartCtx);
-  if (_phRegion) { const len = _phRegion.b - _phRegion.a; if (len > 0 && t > _phRegion.b) t = _phRegion.a + ((t - _phRegion.a) % len); }
-  else if (_curSource && _curSource.loop && _curSource.buffer) { const d = _curSource.buffer.duration; if (d > 0) t = t % d; }   // whole-take loop: wrap every pass
-  return t;
-}
 function _startPlayhead() {
   _stopPlayhead();
-  const tick = () => { if (_playingTakeId == null) return; _wf.playhead = _phNow(); wfPaint(); _phRaf = requestAnimationFrame(tick); };
+  const tick = () => {
+    if (_playingTakeId == null || !_playEl) return;
+    _applyPlayVolume();
+    let t = _playEl.currentTime;
+    if (_playRegion && t >= _playRegion.b) { t = _playRegion.a; try { _playEl.currentTime = t; } catch (e) {} }
+    _wf.playhead = t; wfPaint();
+    _phRaf = requestAnimationFrame(tick);
+  };
   _phRaf = requestAnimationFrame(tick);
 }
 function stopPlayback() {
-  if (_curSource) { try { _curSource.onended = null; _curSource.stop(); } catch (e) {} _curSource = null; _curGain = null; }
+  if (_playEl) { try { _playEl.pause(); } catch (e) {} }
   _stopPlayhead();
-  _playingTakeId = null; updateRailPlayBtn(); renderTakes(); wfPaint();
+  _playRegion = null; _playingTakeId = null;
+  updateRailPlayBtn(); renderTakes(); wfPaint();
 }
 async function playTake(id, opts) {
   opts = opts || {};
   stopPlayback();
   const take = _takes.find(t => t.id === id); if (!take) return;
   _loadedTakeId = id;
-  const ctx = ensureCtx();
-  let entry;
-  try { entry = await _getBuffer(take); } catch (e) { console.warn('[play]', e); toast('Could not load take'); return; }
-  const buf = entry.buffer, dur = buf.duration;
+  const el = _ensurePlayEl();
+  let src;
+  try { src = await _getPlayableSrc(take); }
+  catch (e) { console.warn('[play]', e); toast('Could not load take'); return; }
+  if (_playUrl) { try { URL.revokeObjectURL(_playUrl); } catch (e) {} _playUrl = null; }
+  if (typeof src === 'string' && src.indexOf('blob:') === 0) _playUrl = src;
+  el.src = src;
   const region = ('region' in opts) ? opts.region : ((_wf.takeId === id && _wf.loopSel && _wf.sel) ? _wf.sel : null);
-  let offset = (typeof opts.offset === 'number') ? opts.offset : (region ? region.a : 0);
-  if (offset < 0 || offset > dur - 0.02) offset = region ? region.a : 0;
-  const src = ctx.createBufferSource(); src.buffer = buf;
-  const g = ctx.createGain(); g.gain.value = (_currentSong && _currentSong.boost) ? entry.normGain : 1;
-  src.connect(g).connect(ctx.destination);
-  if (region && region.b > region.a) { src.loop = true; src.loopStart = region.a; src.loopEnd = region.b; }
-  else { src.loop = _loopTakes.has(id); }
-  src.onended = () => { if (_playingTakeId === id && !src.loop) { _playingTakeId = null; _stopPlayhead(); _wf.playhead = 0; updateRailPlayBtn(); renderTakes(); wfPaint(); } };
-  src.start(0, offset);
-  _curSource = src; _curGain = g; _playingTakeId = id;
-  _phStartCtx = ctx.currentTime; _phOffset = offset; _phRegion = (src.loop && region) ? region : null;
+  _playRegion = (region && region.b > region.a) ? region : null;
+  el.loop = !_playRegion && _loopTakes.has(id);
+  let offset = (typeof opts.offset === 'number') ? opts.offset : (_playRegion ? _playRegion.a : 0);
+  const seek = () => {
+    const dur = el.duration || 0;
+    if (offset < 0 || (dur && offset > dur - 0.02)) offset = _playRegion ? _playRegion.a : 0;
+    try { el.currentTime = offset; } catch (e) {}
+  };
+  // Seeking before metadata is known is unreliable (esp. iOS Safari) so it's gated on readiness,
+  // but play() itself is safe to call immediately — the browser queues it until it can start.
+  if (el.readyState >= 1) seek();
+  else el.addEventListener('loadedmetadata', seek, { once: true });
+  el.play().catch(err => console.warn('[play] play()', err));
+  _playingTakeId = id;
   _startPlayhead();
+  _setMediaSession(take);
   updateRailPlayBtn(); renderTakes(); updateRail();
-  wfLoad(take);   // playing selects the take — show its waveform too (buffer already in _bufCache)
+  wfLoad(take); // decodes buffer for peaks + populates _bufCache[id].normGain for _applyPlayVolume
 }
 function takeRowPlay(id, ev) {
   if (ev) ev.stopPropagation();
@@ -2476,7 +2570,7 @@ function _wfTimeStr() {
   return _fmtMs(_wf.playhead || 0) + ' / ' + _fmtMs(_wf.dur);
 }
 function _wfUIHtml() {
-  const hasSel = !!_wf.sel, selPlaying = _playingTakeId === _wf.takeId && !!_phRegion;
+  const hasSel = !!_wf.sel, selPlaying = _playingTakeId === _wf.takeId && !!_playRegion;
   return `<div class="wf">
     <div class="wf-canvas-wrap"><canvas class="wave-canvas"></canvas></div>
     <div class="wf-row">
@@ -2531,7 +2625,7 @@ document.addEventListener('pointerup', (e) => {
 /* Contextual selection playback: loops the selected region; press again to stop. */
 function wfPlaySel() {
   if (!_wf.sel) return;
-  if (_playingTakeId === _wf.takeId && _phRegion) { stopPlayback(); return; }
+  if (_playingTakeId === _wf.takeId && _playRegion) { stopPlayback(); return; }
   playTake(_wf.takeId, { offset: _wf.sel.a, region: _wf.sel });
 }
 function wfClearSel() { _wf.sel = null; _wf.loopSel = false; if (_playingTakeId === _wf.takeId) playTake(_wf.takeId, { offset: _wf.playhead, region: null }); wfRender(); }
@@ -2777,6 +2871,7 @@ function toggleRecord() {
 function _showCount(n) { const el = document.getElementById('recCountdown'); el.textContent = n; el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('show', 'pulse'); }
 function _hideCount() { const el = document.getElementById('recCountdown'); el.classList.remove('show', 'pulse'); }
 function _startCountdown() {
+  micTipMaybeShow();
   _recCounting = true;
   document.getElementById('recBtn').classList.add('counting');
   stopPlayback();
@@ -2883,12 +2978,7 @@ async function toggleBoost() {
   if (!_currentSong) return;
   const v = !_currentSong.boost;
   _currentSong.boost = v; updateBoostUI();
-  // Live, click-free toggle during playback (smooth ramp instead of a jump).
-  if (_curGain && _playingTakeId && _bufCache[_playingTakeId]) {
-    const target = v ? _bufCache[_playingTakeId].normGain : 1;
-    try { _curGain.gain.setTargetAtTime(target, ensureCtx().currentTime, 0.04); }
-    catch (e) { _curGain.gain.value = target; }
-  }
+  _applyPlayVolume(); // live-apply (attenuate-only; the RAF also keeps this current)
   try { await db.collection('songs').doc(_currentSong.id).set({ boost: v }, { merge: true }); } catch (e) {}
 }
 
@@ -3984,7 +4074,7 @@ _bindChordLyrics();
 function _liteUpdateOnline() { document.body.classList.toggle('is-offline', !navigator.onLine); }
 window.addEventListener('offline', () => { _syncAnnounce = true; document.body.classList.add('is-offline'); }); // Direct classList.add (not _liteUpdateOnline): a real 'offline' event already means navigator.onLine===false; synthetic test events don't change it.
 window.addEventListener('online', () => { _liteUpdateOnline(); liteFreshenSong(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) liteFreshenSong(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { liteFreshenSong(); if (_currentSong) _wakeLockAcquire(); } });
 window.addEventListener('focus', () => liteFreshenSong());
 _liteUpdateOnline();
 
