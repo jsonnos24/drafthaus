@@ -418,7 +418,6 @@ body.is-guest .guest-tag {
 .cp-edit-btn .ic { width: 17px; height: 17px; vertical-align: middle; }
 .sm-copy-icon .ic { width: 17px; height: 17px; vertical-align: middle; }
 .sm-newtray .ic, .tp-new .ic { width: 14px; height: 14px; vertical-align: -0.1em; }
-.boost-row .lab .ic { width: 15px; height: 15px; vertical-align: -0.13em; color: var(--orange); }
 
 /* ───────────────────────── Screen routing ───────────────────────── */
 .screen { display: none; }
@@ -554,13 +553,6 @@ body.nav-animating { overflow-x: hidden; }
 .tp-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; flex: none; }
 .tp-head h3 { font-size: 20px; font-weight: 700; color: var(--text); }
 .tp-head .done { color: var(--tint); font-size: 16px; font-weight: 600; }
-.boost-row { margin: 0 16px 8px; display: flex; align-items: center; gap: 10px; padding: 11px 14px; background: var(--bg); border-radius: 12px; flex: none; }
-.boost-row .lab { flex: 1; font-weight: 700; font-size: 14px; color: var(--text); }
-.boost-row .lab small { display: block; font-weight: 500; font-size: 11px; color: var(--text-2); margin-top: 1px; }
-.toggle { width: 50px; height: 30px; border-radius: 16px; background: var(--bg-input); position: relative; flex: none; transition: background .2s ease; }
-.toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .2s ease; }
-.toggle.on { background: var(--green); }
-.toggle.on::after { transform: translateX(20px); }
 .tp-list { flex: 1; overflow-y: auto; padding: 2px 12px calc(16px + var(--safe-bottom)); }
 .tp-empty { text-align: center; color: var(--text-2); font-size: 14px; padding: 40px 20px; }
 .take-row { position: relative; border-radius: 14px; margin-bottom: 8px; }
@@ -879,10 +871,6 @@ button { -webkit-touch-callout: none; }
       <!-- takes panel -->
       <div id="takesPanel">
         <div class="tp-head"><h3>Takes</h3><button class="done" onclick="toggleTakes()">Done</button></div>
-        <div class="boost-row">
-          <div class="lab"><svg class="ic" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Boost <small>Louder playback for quiet takes</small></div>
-          <div class="toggle" id="boostToggle" onclick="toggleBoost()"></div>
-        </div>
         <div class="tp-list" id="takesList"></div>
       </div>
 
@@ -1466,7 +1454,6 @@ function _openSongObj(s) {
   // Desktop (≥768px: panel covers only the right half) starts with the takes list open;
   // mobile keeps the closed-by-default slide-over.
   document.getElementById('takesPanel').classList.toggle('open', matchMedia('(min-width: 768px)').matches);
-  updateBoostUI();
   scratchApply(s);
   startTakesListener(s.id);
   showScreen('song');
@@ -2378,7 +2365,7 @@ async function liteFreshenSong() {
   }
 }
 
-/* ═══════════════════════════ Playback (WebAudio — supports Boost gain + loop) ═══════════════════════════ */
+/* ═══════════════════════════ Playback (<audio> element transport + loop) ═══════════════════════════ */
 let _audioCtx = null, _playingTakeId = null, _bufCache = {};
 let _playEl = null, _playUrl = null, _playRegion = null;
 function _ensurePlayEl() {
@@ -2407,12 +2394,6 @@ async function _getPlayableSrc(take) {
     console.warn('[play] fetch fallback', e);
     return take.downloadUrl; // network failed — let the element try streaming the URL directly
   }
-}
-// Boost degrades to attenuate-only: HTML volume caps at 1.0, so quiet takes can no longer be amplified.
-function _applyPlayVolume() {
-  if (!_playEl) return;
-  const e = _bufCache[_playingTakeId];
-  _playEl.volume = (_currentSong && _currentSong.boost && e) ? Math.min(e.normGain, 1) : 1;
 }
 function _setMediaSession(take) {
   if (!('mediaSession' in navigator)) return;
@@ -2471,10 +2452,7 @@ async function _getBuffer(take) {
     dhAudioPut(take.id, new Blob([ab], { type: take.mimeType || '' }), { mimeType: take.mimeType }).catch(() => {});
   }
   const buffer = await ctx.decodeAudioData(ab);
-  let peak = 0; const ch = buffer.getChannelData(0);
-  for (let i = 0; i < ch.length; i += 64) { const a = Math.abs(ch[i]); if (a > peak) peak = a; }
-  const normGain = peak > 0 ? Math.min(0.9 / peak, 4) : 1;
-  _bufCache[take.id] = { buffer, normGain };
+  _bufCache[take.id] = { buffer };
   return _bufCache[take.id];
 }
 let _phRaf = null;
@@ -2483,7 +2461,6 @@ function _startPlayhead() {
   _stopPlayhead();
   const tick = () => {
     if (_playingTakeId == null || !_playEl) return;
-    _applyPlayVolume();
     let t = _playEl.currentTime;
     if (_playRegion && t >= _playRegion.b) { t = _playRegion.a; try { _playEl.currentTime = t; } catch (e) {} }
     _wf.playhead = t; wfPaint();
@@ -2527,7 +2504,7 @@ async function playTake(id, opts) {
   _startPlayhead();
   _setMediaSession(take);
   updateRailPlayBtn(); renderTakes(); updateRail();
-  wfLoad(take); // decodes buffer for peaks + populates _bufCache[id].normGain for _applyPlayVolume
+  wfLoad(take); // decodes buffer for waveform peaks
 }
 function takeRowPlay(id, ev) {
   if (ev) ev.stopPropagation();
@@ -2658,7 +2635,7 @@ async function _wfReplaceAudio(buffer, undoBuffer, msg) {
     // Instant local playback of the edited audio.
     _prevBufEntry = _bufCache[take.id];
     await dhAudioPut(take.id, blob, { mimeType: 'audio/mp3', pendingUpload: true });
-    _bufCache[take.id] = { buffer, normGain: (_prevBufEntry && _prevBufEntry.normGain) || 1 };
+    _bufCache[take.id] = { buffer };
     // Doc-first: mark pending + new metadata; KEEP the old downloadUrl so other
     // devices keep playing the previous version until re-upload.
     const oldPath = take.storagePath;
@@ -2969,18 +2946,6 @@ async function uploadTake(blob, mime, dur) {
   liteSyncDrain();
 }
 
-/* ═══════════════════════════ Boost (per-song, persisted) ═══════════════════════════ */
-function updateBoostUI() {
-  const tg = document.getElementById('boostToggle');
-  if (tg) tg.classList.toggle('on', !!(_currentSong && _currentSong.boost));
-}
-async function toggleBoost() {
-  if (!_currentSong) return;
-  const v = !_currentSong.boost;
-  _currentSong.boost = v; updateBoostUI();
-  _applyPlayVolume(); // live-apply (attenuate-only; the RAF also keeps this current)
-  try { await db.collection('songs').doc(_currentSong.id).set({ boost: v }, { merge: true }); } catch (e) {}
-}
 
 /* ═══════════════════════════ Theme toggle + key picker ═══════════════════════════ */
 function toggleTheme() {
@@ -3051,7 +3016,7 @@ function scratchFlush() {
   const v = document.getElementById('scratchText').value;
   if (v === _scratchLastSaved) return;
   _currentSong.scratch = v; _scratchLastSaved = v;
-  // Doc-first, fire-and-forget merge — same offline-safe idiom as setKey/toggleBoost.
+  // Doc-first, fire-and-forget merge — same offline-safe idiom as setKey.
   db.collection('songs').doc(_currentSong.id).set({ scratch: v, updatedAt: Date.now() }, { merge: true }).catch(() => {});
 }
 function scratchResizeStart(ev) {
